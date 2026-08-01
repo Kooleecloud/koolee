@@ -1,0 +1,12 @@
+packages:
+  - "apps/*"
+  - "packages/*"
+
+# Native/postinstall builds we explicitly trust.
+#   esbuild    — required by tsx, vitest and drizzle-kit
+#   sharp      — Next.js image optimisation
+#   protobufjs — transitive (Inngest telemetry)
+allowBuilds:
+  esbuild: true
+  protobufjs: true
+  sharp: true

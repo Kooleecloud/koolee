@@ -1,0 +1,46 @@
+# dependencies
+node_modules/
+.pnpm-store/
+
+# builds
+.next/
+out/
+dist/
+build/
+*.tsbuildinfo
+
+# turborepo
+.turbo/
+
+# env
+.env
+.env.*
+!.env.example
+
+# testing
+# Anchored, NOT a bare `coverage/`: that would also swallow
+# packages/core/src/coverage/, which is the service-area module, not test output.
+/coverage/
+apps/*/coverage/
+packages/*/coverage/
+.vitest/
+
+# drizzle — migrations ARE committed; only local artifacts are ignored
+packages/db/drizzle/meta/_journal.json.bak
+packages/db/.drizzle-tmp/
+
+# editors / os
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.swp
+
+# logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# next-pwa generated service worker artifacts
+apps/agent/public/workbox-*.js
+apps/agent/public/sw.js.map

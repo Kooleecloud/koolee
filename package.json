@@ -1,0 +1,31 @@
+{
+  "name": "koolee",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Koolee — doorstep luggage pickup, delivered to your airline's bag drop (JFK/LGA/EWR)",
+  "packageManager": "pnpm@11.18.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "clean": "turbo run clean && rm -rf node_modules",
+    "format": "prettier --write \"**/*.{ts,tsx,js,mjs,cjs,json,md,css}\"",
+    "format:check": "prettier --check \"**/*.{ts,tsx,js,mjs,cjs,json,md,css}\"",
+    "db:generate": "pnpm --filter @koolee/db db:generate",
+    "db:migrate": "pnpm --filter @koolee/db db:migrate",
+    "db:studio": "pnpm --filter @koolee/db db:studio",
+    "seed": "pnpm --filter @koolee/db seed",
+    "dev:inngest": "npx inngest-cli@latest dev -u http://localhost:3000/api/inngest"
+  },
+  "devDependencies": {
+    "@koolee/config": "workspace:*",
+    "prettier": "^3.4.2",
+    "turbo": "^2.3.3",
+    "typescript": "^5.7.3"
+  }
+}

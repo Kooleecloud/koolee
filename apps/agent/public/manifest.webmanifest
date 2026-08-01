@@ -1,0 +1,19 @@
+{
+  "name": "Koolee Agent",
+  "short_name": "Koolee",
+  "description": "Check-in agent and driver console for Koolee.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#ffffff",
+  "theme_color": "#0b3c8c",
+  "icons": [
+    {
+      "src": "/icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
