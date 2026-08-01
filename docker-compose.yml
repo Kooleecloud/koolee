@@ -1,0 +1,24 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: koolee-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: koolee
+      POSTGRES_PASSWORD: koolee
+      POSTGRES_DB: koolee
+      # Deterministic ordering in tests regardless of the host locale.
+      POSTGRES_INITDB_ARGS: "--locale=C --encoding=UTF8"
+    ports:
+      # 5433 on the host so this never collides with a local Postgres install.
+      - "5433:5432"
+    volumes:
+      - koolee-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U koolee -d koolee"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  koolee-pgdata:
