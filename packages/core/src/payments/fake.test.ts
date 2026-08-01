@@ -1,0 +1,166 @@
+import { beforeEach, describe, expect, it } from "vitest";
+
+import { PaymentFailedError } from "../errors";
+import { FakePaymentProvider } from "./fake";
+import { createPaymentProvider } from "./factory";
+import { WebhookVerificationError } from "./types";
+
+describe("FakePaymentProvider", () => {
+  let provider: FakePaymentProvider;
+
+  beforeEach(() => {
+    provider = new FakePaymentProvider();
+  });
+
+  it("authorizes without capturing", async () => {
+    const auth = await provider.authorize("booking-1", 6800);
+
+    expect(auth.authId).toMatch(/^auth_/);
+    expect(auth.amountCents).toBe(6800);
+    expect(auth.status).toBe("authorized");
+    expect(auth.clientSecret).toBeDefined();
+    expect(provider.inspectAuth(auth.authId)?.state).toBe("authorized");
+    expect(provider.inspectAuth(auth.authId)?.capturedCents).toBe(0);
+  });
+
+  it("captures the full amount by default", async () => {
+    const auth = await provider.authorize("booking-1", 6800);
+    const capture = await provider.capture(auth.authId);
+
+    expect(capture.amountCents).toBe(6800);
+    expect(capture.status).toBe("captured");
+    expect(provider.inspectAuth(auth.authId)?.state).toBe("captured");
+  });
+
+  it("captures a partial amount", async () => {
+    const auth = await provider.authorize("booking-1", 6800);
+    const capture = await provider.capture(auth.authId, 5000);
+
+    expect(capture.amountCents).toBe(5000);
+    expect(provider.inspectAuth(auth.authId)?.capturedCents).toBe(5000);
+  });
+
+  it("refuses to capture more than was authorized", async () => {
+    const auth = await provider.authorize("booking-1", 6800);
+    await expect(provider.capture(auth.authId, 9999)).rejects.toThrow(PaymentFailedError);
+  });
+
+  it("refuses to capture twice", async () => {
+    const auth = await provider.authorize("booking-1", 6800);
+    await provider.capture(auth.authId);
+    await expect(provider.capture(auth.authId)).rejects.toThrow(/already been captured/);
+  });
+
+  it("refuses to capture a cancelled authorization", async () => {
+    const auth = await provider.authorize("booking-1", 6800);
+    await provider.cancelAuth(auth.authId);
+    await expect(provider.capture(auth.authId)).rejects.toThrow(/cancelled/);
+  });
+
+  it("refuses to cancel a captured authorization", async () => {
+    const auth = await provider.authorize("booking-1", 6800);
+    await provider.capture(auth.authId);
+    await expect(provider.cancelAuth(auth.authId)).rejects.toThrow(/refund it instead/);
+  });
+
+  it("refunds up to the captured amount, in parts", async () => {
+    const auth = await provider.authorize("booking-1", 6800);
+    const capture = await provider.capture(auth.authId);
+
+    const first = await provider.refund(capture.captureId, 2000);
+    expect(first.amountCents).toBe(2000);
+
+    const second = await provider.refund(capture.captureId);
+    expect(second.amountCents).toBe(4800);
+
+    await expect(provider.refund(capture.captureId, 1)).rejects.toThrow(/only 0 remains/);
+  });
+
+  it("rejects unknown ids", async () => {
+    await expect(provider.capture("nope")).rejects.toThrow(/unknown authId/);
+    await expect(provider.refund("nope")).rejects.toThrow(/unknown captureId/);
+    await expect(provider.cancelAuth("nope")).rejects.toThrow(/unknown authId/);
+  });
+
+  it("rejects a non-integer or negative amount", async () => {
+    await expect(provider.authorize("b", -1)).rejects.toThrow(PaymentFailedError);
+    await expect(provider.authorize("b", 12.5)).rejects.toThrow(PaymentFailedError);
+  });
+
+  it("can be forced to fail, for rollback tests", async () => {
+    provider.failAuthorize = true;
+    await expect(provider.authorize("booking-1", 6800)).rejects.toThrow(
+      PaymentFailedError,
+    );
+    expect(provider.listAuths()).toHaveLength(0);
+  });
+
+  it("generates deterministic ids when given an id factory", async () => {
+    const deterministic = new FakePaymentProvider({
+      idFactory: (prefix) => `${prefix}_fixed`,
+    });
+    const auth = await deterministic.authorize("booking-1", 100);
+    expect(auth.authId).toBe("auth_fixed");
+  });
+
+  it("resets cleanly", async () => {
+    await provider.authorize("booking-1", 100);
+    provider.reset();
+    expect(provider.listAuths()).toHaveLength(0);
+  });
+});
+
+describe("FakePaymentProvider.verifyWebhook", () => {
+  const provider = new FakePaymentProvider();
+
+  it("accepts the fixed dev signature and normalises the event", () => {
+    const event = provider.verifyWebhook(
+      JSON.stringify({
+        id: "evt_1",
+        type: "payment.captured",
+        providerRef: "auth_000001",
+        amountCents: 6800,
+        bookingId: "booking-1",
+      }),
+      "fake-signature",
+    );
+
+    expect(event).toMatchObject({
+      id: "evt_1",
+      type: "payment.captured",
+      providerRef: "auth_000001",
+      amountCents: 6800,
+      bookingId: "booking-1",
+    });
+  });
+
+  it("rejects a wrong signature", () => {
+    expect(() => provider.verifyWebhook("{}", "bad")).toThrow(WebhookVerificationError);
+  });
+
+  it("rejects a non-JSON payload", () => {
+    expect(() => provider.verifyWebhook("not json", "fake-signature")).toThrow(
+      WebhookVerificationError,
+    );
+  });
+
+  it("rejects a payload missing required fields", () => {
+    expect(() =>
+      provider.verifyWebhook(JSON.stringify({ id: "evt" }), "fake-signature"),
+    ).toThrow(/type, providerRef/);
+  });
+});
+
+describe("createPaymentProvider", () => {
+  it("returns the fake provider when asked", () => {
+    expect(createPaymentProvider({ kind: "fake" }).name).toBe("fake");
+  });
+
+  it("constructs the Stripe provider without touching the network or validating the key", () => {
+    const provider = createPaymentProvider({
+      kind: "stripe",
+      secretKey: "sk_test_placeholder",
+    });
+    expect(provider.name).toBe("stripe");
+  });
+});

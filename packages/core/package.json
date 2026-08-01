@@ -1,0 +1,41 @@
+{
+  "name": "@koolee/core",
+  "version": "0.1.0",
+  "private": true,
+  "exports": {
+    ".": "./src/index.ts",
+    "./booking": "./src/booking/index.ts",
+    "./slots": "./src/slots/index.ts",
+    "./pricing": "./src/pricing/index.ts",
+    "./payments": "./src/payments/index.ts",
+    "./auth": "./src/auth/index.ts",
+    "./services": "./src/services/index.ts",
+    "./jobs": "./src/jobs/index.ts",
+    "./coverage": "./src/coverage/index.ts"
+  },
+  "scripts": {
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:integration": "vitest run integration.test",
+    "clean": "rm -rf .turbo node_modules coverage *.tsbuildinfo"
+  },
+  "dependencies": {
+    "@date-fns/tz": "^1.2.0",
+    "@koolee/db": "workspace:*",
+    "date-fns": "^4.1.0",
+    "drizzle-orm": "^0.38.4",
+    "inngest": "^3.29.3",
+    "stripe": "^17.5.0",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@koolee/config": "workspace:*",
+    "@types/node": "^22.10.7",
+    "eslint": "^9.18.0",
+    "postgres": "^3.4.5",
+    "typescript": "^5.7.3",
+    "vitest": "^2.1.8"
+  }
+}
