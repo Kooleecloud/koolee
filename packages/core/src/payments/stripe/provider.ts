@@ -57,8 +57,9 @@ export class StripeProvider implements PaymentProvider {
       }
       this.#client = new Stripe(this.#config.secretKey, {
         // Pinning is deliberate: an unpinned account-default version can change
-        // response shapes under us without a deploy.
-        apiVersion: "2024-12-18.acacia" as Stripe.LatestApiVersion,
+        // response shapes under us without a deploy. Must match the installed
+        // SDK's pinned version (`Stripe.LatestApiVersion`) exactly.
+        apiVersion: "2026-07-29.dahlia",
         typescript: true,
         appInfo: { name: "koolee", version: "0.1.0" },
       });

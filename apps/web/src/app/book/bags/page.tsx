@@ -27,7 +27,7 @@ export default async function BagsStepPage() {
             id="bagCount"
             name="bagCount"
             defaultValue={String(draft.bagCount ?? 1)}
-            className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
             required
           >
             {Array.from({ length: 10 }, (_, i) => i + 1).map((n) => (

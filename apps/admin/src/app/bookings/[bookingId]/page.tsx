@@ -132,7 +132,7 @@ export default async function BookingDetailPage({
                     </time>
                   </div>
                   {event.metadata && (
-                    <pre className="overflow-x-auto rounded bg-muted/50 p-2 text-[11px]">
+                    <pre className="overflow-x-auto rounded-sm bg-muted/50 p-2 text-[11px]">
                       {JSON.stringify(event.metadata, null, 2)}
                     </pre>
                   )}

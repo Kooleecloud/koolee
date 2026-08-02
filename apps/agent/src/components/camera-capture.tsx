@@ -111,7 +111,7 @@ export function CameraCapture() {
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
-        <div className="relative aspect-[3/4] overflow-hidden rounded-lg bg-muted">
+        <div className="relative aspect-3/4 overflow-hidden rounded-lg bg-muted">
           <video
             ref={videoRef}
             playsInline

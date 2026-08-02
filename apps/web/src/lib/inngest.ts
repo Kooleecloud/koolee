@@ -16,6 +16,8 @@ import { getCore } from "@/lib/core";
 
 export const inngest = createInngestClient({
   eventKey: optionalEnv("INNGEST_EVENT_KEY"),
+  // v4: the signing key lives on the client, not the serve() handler.
+  signingKey: optionalEnv("INNGEST_SIGNING_KEY"),
   isDev: env.NODE_ENV !== "production",
 });
 

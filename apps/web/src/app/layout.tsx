@@ -50,7 +50,9 @@ export default function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en" suppressHydrationWarning>
+    // data-scroll-behavior keeps Next 16 overriding our CSS smooth-scroll
+    // during SPA navigations (instant scroll-to-top), as 15 did by default.
+    <html lang="en" suppressHydrationWarning data-scroll-behavior="smooth">
       <body className={`${sora.variable} ${inter.variable} min-h-dvh font-sans`}>
         {children}
         <Toaster />

@@ -31,7 +31,7 @@ function MarketingFooter({
     <footer className={cn("bg-navy-900 text-navy-100", className)} {...props}>
       <div className="container grid gap-12 py-16 lg:grid-cols-[1.4fr_repeat(3,1fr)]">
         <div className="flex flex-col items-start gap-4">
-          <KooleeLogo className="text-white [&_svg]:!text-sky-400" />
+          <KooleeLogo className="text-white [&_svg]:text-sky-400!" />
           <p className="font-display text-lg font-medium text-white">{tagline}</p>
           <p className="text-sm text-navy-200">{coverage}</p>
           {contactEmail ? (
@@ -39,7 +39,7 @@ function MarketingFooter({
               href={`mailto:${contactEmail}`}
               className={cn(
                 "text-sm text-sky-300 underline-offset-4 transition-colors",
-                "hover:text-sky-200 hover:underline focus-visible:outline-none",
+                "hover:text-sky-200 hover:underline focus-visible:outline-hidden",
                 "focus-visible:ring-2 focus-visible:ring-sky-400 rounded-sm",
               )}
             >
@@ -60,7 +60,7 @@ function MarketingFooter({
                     href={link.href}
                     className={cn(
                       "rounded-sm text-sm text-navy-100 transition-colors hover:text-white",
-                      "focus-visible:outline-none focus-visible:ring-2",
+                      "focus-visible:outline-hidden focus-visible:ring-2",
                       "focus-visible:ring-sky-400",
                     )}
                   >

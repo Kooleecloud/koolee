@@ -109,19 +109,29 @@ export async function upsertCustomerFromAuth(
       .where(eq(users.id, input.authUserId))
       .returning();
 
-    if (!row) throw new Error("Update of authenticated customer returned no row");
+    if (!row) {
+      throw new Error("Update of authenticated customer returned no row", {
+        cause: error,
+      });
+    }
     return row;
   }
 }
 
-/** Postgres unique_violation (23505), as surfaced by postgres-js. */
+/**
+ * Postgres unique_violation (23505).
+ *
+ * drizzle-orm ≥ 0.44 wraps driver errors in `DrizzleQueryError` with the
+ * postgres-js error on `cause`, so walk the cause chain rather than assuming
+ * the code sits on the top-level error.
+ */
 function isUniqueViolation(error: unknown): boolean {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "code" in error &&
-    (error as { code?: unknown }).code === "23505"
-  );
+  let current: unknown = error;
+  while (typeof current === "object" && current !== null) {
+    if ((current as { code?: unknown }).code === "23505") return true;
+    current = (current as { cause?: unknown }).cause;
+  }
+  return false;
 }
 
 export interface AddressInput {

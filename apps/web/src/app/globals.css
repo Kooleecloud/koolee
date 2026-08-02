@@ -1,6 +1,5 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
+@import "@koolee/ui/styles/theme.css";
 
 @layer base {
   html {

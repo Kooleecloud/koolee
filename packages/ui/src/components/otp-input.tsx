@@ -116,8 +116,8 @@ function OTPInput({
           }}
           className={cn(
             "size-12 rounded-lg border bg-white text-center font-display text-xl",
-            "font-semibold text-navy-900 shadow-sm transition-colors",
-            "focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2",
+            "font-semibold text-navy-900 shadow-xs transition-colors",
+            "focus:outline-hidden focus:ring-2 focus:ring-ring focus:ring-offset-2",
             "disabled:cursor-not-allowed disabled:opacity-50",
             invalid ? "border-destructive" : "border-input",
           )}

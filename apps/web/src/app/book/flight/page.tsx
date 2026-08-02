@@ -48,7 +48,7 @@ export default async function FlightStepPage() {
             id="departureAirport"
             name="departureAirport"
             defaultValue={draft.departureAirport ?? "JFK"}
-            className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
             required
           >
             <option value="JFK">JFK — John F. Kennedy</option>
@@ -74,7 +74,7 @@ export default async function FlightStepPage() {
             id="scope"
             name="scope"
             defaultValue={draft.scope ?? "domestic"}
-            className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
           >
             <option value="domestic">Domestic</option>
             <option value="international">International</option>

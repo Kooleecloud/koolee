@@ -117,7 +117,7 @@ function Shell({ children }: { children: React.ReactNode }) {
         <div className="container flex h-16 max-w-3xl items-center justify-between">
           <Link
             href="/"
-            className="rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+            className="rounded-md focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
           >
             <KooleeLogo />
           </Link>

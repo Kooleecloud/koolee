@@ -84,7 +84,7 @@ export default async function SlotStepPage() {
             {slots.map((slot) => (
               <label
                 key={slot.id}
-                className="flex cursor-pointer items-start gap-3 rounded-lg border p-4 transition-colors hover:bg-accent/10 has-[:checked]:border-primary has-[:checked]:bg-primary/5"
+                className="flex cursor-pointer items-start gap-3 rounded-lg border p-4 transition-colors hover:bg-accent/10 has-checked:border-primary has-checked:bg-primary/5"
               >
                 <input
                   type="radio"

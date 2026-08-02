@@ -9,7 +9,7 @@ export interface WaitlistState {
 }
 
 const schema = z.object({
-  email: z.string().trim().email("Enter a valid email address."),
+  email: z.string().trim().pipe(z.email("Enter a valid email address.")),
   zip: z
     .string()
     .trim()

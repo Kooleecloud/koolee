@@ -58,7 +58,7 @@ function MarketingNav({
       className={cn(
         "sticky top-0 z-50 transition-[background-color,box-shadow,border-color] duration-300",
         scrolled || open
-          ? "border-b border-border bg-background/85 shadow-sm backdrop-blur-md"
+          ? "border-b border-border bg-background/85 shadow-xs backdrop-blur-md"
           : "border-b border-transparent bg-transparent",
         className,
       )}
@@ -66,7 +66,7 @@ function MarketingNav({
       <nav aria-label="Main" className="container flex h-16 items-center justify-between gap-4">
         <LinkComponent
           href={homeHref}
-          className="rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+          className="rounded-md focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
         >
           <KooleeLogo />
         </LinkComponent>
@@ -79,7 +79,7 @@ function MarketingNav({
                 className={cn(
                   "rounded-md px-3 py-2 text-sm font-medium text-navy-700",
                   "transition-colors hover:bg-navy-50 hover:text-navy-900",
-                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                  "focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring",
                 )}
               >
                 {link.label}
@@ -98,7 +98,7 @@ function MarketingNav({
           aria-label={open ? "Close menu" : "Open menu"}
           className={cn(
             "inline-flex size-10 items-center justify-center rounded-md text-navy-800",
-            "hover:bg-navy-50 focus-visible:outline-none focus-visible:ring-2",
+            "hover:bg-navy-50 focus-visible:outline-hidden focus-visible:ring-2",
             "focus-visible:ring-ring md:hidden",
           )}
         >
@@ -123,7 +123,7 @@ function MarketingNav({
                     href={link.href}
                     className={cn(
                       "block rounded-md px-3 py-2.5 text-base font-medium text-navy-800",
-                      "hover:bg-navy-50 focus-visible:outline-none focus-visible:ring-2",
+                      "hover:bg-navy-50 focus-visible:outline-hidden focus-visible:ring-2",
                       "focus-visible:ring-ring",
                     )}
                   >

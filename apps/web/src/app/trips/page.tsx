@@ -40,7 +40,7 @@ export default async function TripsPage() {
         <div className="container flex h-16 max-w-3xl items-center justify-between">
           <Link
             href="/"
-            className="rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+            className="rounded-md focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
           >
             <KooleeLogo />
           </Link>
@@ -85,7 +85,7 @@ export default async function TripsPage() {
               <li key={booking.id}>
                 <Link
                   href={`/trips/${booking.id}`}
-                  className="flex items-center justify-between gap-4 rounded-xl border border-border bg-white p-5 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-lift focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  className="flex items-center justify-between gap-4 rounded-xl border border-border bg-white p-5 shadow-xs transition-all hover:-translate-y-0.5 hover:shadow-lift focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
                 >
                   <span className="flex flex-col gap-1">
                     <span className="font-display font-semibold text-navy-800">
