@@ -1,39 +1,41 @@
 import Link from "next/link";
-import { KooleeLogo } from "@koolee/ui";
+import { Button, KooleeLogo } from "@koolee/ui";
 
-const STEPS = [
-  { href: "/book/flight", label: "Flight" },
-  { href: "/book/address", label: "Address" },
-  { href: "/book/bags", label: "Bags" },
-  { href: "/book/slot", label: "Pickup" },
-  { href: "/book/pay", label: "Pay" },
-] as const;
+import { BookingStepper } from "@/components/booking-stepper";
 
 export default function BookLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className="min-h-dvh">
-      <header className="border-b">
-        <div className="container flex h-14 max-w-2xl items-center">
-          <Link href="/">
+      <header className="border-b bg-white">
+        <div className="container flex h-16 max-w-2xl items-center justify-between">
+          <Link
+            href="/"
+            className="rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+          >
             <KooleeLogo />
           </Link>
+          <Button asChild variant="ghost" size="sm">
+            <Link href="/trips">My Trips</Link>
+          </Button>
         </div>
       </header>
 
-      <nav className="border-b bg-muted/40">
-        <ol className="container flex max-w-2xl items-center gap-1 overflow-x-auto py-3 text-xs">
-          {STEPS.map((step, i) => (
-            <li key={step.href} className="flex items-center gap-1 whitespace-nowrap">
-              {i > 0 && <span className="text-muted-foreground/50">›</span>}
-              <span className="text-muted-foreground">
-                {i + 1}. {step.label}
-              </span>
-            </li>
-          ))}
-        </ol>
-      </nav>
+      <BookingStepper />
 
-      <main className="container max-w-2xl py-8">{children}</main>
+      <main className="container max-w-2xl py-10">{children}</main>
+
+      <footer className="container max-w-2xl pb-10">
+        <p className="border-t border-border pt-6 text-xs leading-relaxed text-muted-foreground">
+          Every pickup is ID-verified, sealed with a serialized tag, and photographed at
+          each hand-off. Questions?{" "}
+          <a
+            href="mailto:hello@koolee.nyc"
+            className="text-sky-700 underline underline-offset-4 hover:text-sky-600"
+          >
+            hello@koolee.nyc
+          </a>
+        </p>
+      </footer>
     </div>
   );
 }

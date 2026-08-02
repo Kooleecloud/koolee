@@ -1,12 +1,14 @@
 import { format } from "date-fns";
-import { Badge } from "@koolee/ui";
+import { Badge, CustodyTimeline as CustodyTimelineView } from "@koolee/ui";
 import type { CustodyEvent } from "@koolee/core";
 
 /**
- * Chain-of-custody timeline.
+ * Chain-of-custody timeline for /trips — maps `custody_events` rows onto the
+ * shared `CustodyTimeline` visual in @koolee/ui (the same motif the marketing
+ * site uses, so the product looks like the promise).
  *
- * Server-rendered from `custody_events`, which is append-only — so this is a
- * faithful record, not a summary that could drift from what happened.
+ * Server-rendered from `custody_events`, which is append-only — a faithful
+ * record, not a summary that could drift from what happened.
  *
  * TODO(realtime): subscribe to INSERTs on `custody_events` for this booking via
  * supabase-js so the timeline updates live while a pickup is in progress.
@@ -45,58 +47,22 @@ function labelFor(eventType: string): string {
 }
 
 export function CustodyTimeline({ events }: { events: CustodyEvent[] }) {
-  if (events.length === 0) {
-    return (
-      <p className="text-sm text-muted-foreground">
-        Nothing has happened yet. Events appear here as your bags move.
-      </p>
-    );
-  }
-
   return (
-    <ol className="flex flex-col">
-      {events.map((event, i) => {
-        const isLast = i === events.length - 1;
-        return (
-          <li key={event.id} className="flex gap-4">
-            <div className="flex flex-col items-center">
-              <span
-                className={
-                  isLast
-                    ? "mt-1.5 size-2.5 rounded-full bg-primary ring-4 ring-primary/20"
-                    : "mt-1.5 size-2.5 rounded-full bg-muted-foreground/40"
-                }
-              />
-              {!isLast && <span className="w-px flex-1 bg-border" />}
-            </div>
-
-            <div className="flex flex-1 flex-col gap-1 pb-6">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="text-sm font-medium">{labelFor(event.eventType)}</span>
-                {event.actorRole && (
-                  <Badge variant="outline" className="text-[10px]">
-                    {event.actorRole}
-                  </Badge>
-                )}
-              </div>
-              <time
-                dateTime={event.createdAt.toISOString()}
-                className="text-xs text-muted-foreground"
-              >
-                {format(event.createdAt, "EEE d MMM, h:mm a")}
-              </time>
-              {event.photoUrl && (
-                /* eslint-disable-next-line @next/next/no-img-element */
-                <img
-                  src={event.photoUrl}
-                  alt={`Evidence for ${labelFor(event.eventType)}`}
-                  className="mt-1 max-w-48 rounded-md border"
-                />
-              )}
-            </div>
-          </li>
-        );
-      })}
-    </ol>
+    <CustodyTimelineView
+      items={events.map((event, i) => ({
+        id: event.id,
+        title: labelFor(event.eventType),
+        badge: event.actorRole ? (
+          <Badge variant="outline" className="text-[10px]">
+            {event.actorRole}
+          </Badge>
+        ) : undefined,
+        meta: format(event.createdAt, "EEE d MMM, h:mm a"),
+        metaDateTime: event.createdAt.toISOString(),
+        photoUrl: event.photoUrl ?? undefined,
+        photoAlt: `Evidence for ${labelFor(event.eventType)}`,
+        state: i === events.length - 1 ? "current" : "complete",
+      }))}
+    />
   );
 }
