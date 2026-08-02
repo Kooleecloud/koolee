@@ -2,19 +2,20 @@ import Link from "next/link";
 import { format } from "date-fns";
 import {
   Badge,
-  Button,
   Card,
   CardContent,
   CardDescription,
   CardHeader,
   CardTitle,
+  CTAButton,
   KooleeLogo,
 } from "@koolee/ui";
 import { listBookings, type Booking } from "@koolee/core";
 
+import { STATUS_LABEL, STATUS_VARIANT } from "@/lib/booking-status";
 import { tryGetCore } from "@/lib/core";
 
-export const metadata = { title: "My trips" };
+export const metadata = { title: "My Trips" };
 export const dynamic = "force-dynamic";
 
 export default async function TripsPage() {
@@ -35,19 +36,24 @@ export default async function TripsPage() {
 
   return (
     <div className="min-h-dvh">
-      <header className="border-b">
-        <div className="container flex h-14 max-w-3xl items-center justify-between">
-          <Link href="/">
+      <header className="border-b bg-white">
+        <div className="container flex h-16 max-w-3xl items-center justify-between">
+          <Link
+            href="/"
+            className="rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+          >
             <KooleeLogo />
           </Link>
-          <Button asChild size="sm">
+          <CTAButton size="sm" asChild>
             <Link href="/book/flight">Book a pickup</Link>
-          </Button>
+          </CTAButton>
         </div>
       </header>
 
-      <main className="container flex max-w-3xl flex-col gap-6 py-8">
-        <h1 className="text-2xl font-semibold tracking-tight">My trips</h1>
+      <main className="container flex max-w-3xl flex-col gap-6 py-10">
+        <h1 className="font-display text-display-sm font-semibold text-navy-800">
+          My Trips
+        </h1>
 
         {unavailable ? (
           <Card>
@@ -63,12 +69,14 @@ export default async function TripsPage() {
           <Card>
             <CardHeader>
               <CardTitle className="text-base">No trips yet</CardTitle>
-              <CardDescription>Book a pickup and it will show up here.</CardDescription>
+              <CardDescription>
+                Book a pickup and your live chain-of-custody timeline will appear here.
+              </CardDescription>
             </CardHeader>
             <CardContent>
-              <Button asChild>
+              <CTAButton asChild>
                 <Link href="/book/flight">Book a pickup</Link>
-              </Button>
+              </CTAButton>
             </CardContent>
           </Card>
         ) : (
@@ -77,10 +85,10 @@ export default async function TripsPage() {
               <li key={booking.id}>
                 <Link
                   href={`/trips/${booking.id}`}
-                  className="flex items-center justify-between gap-4 rounded-lg border p-4 transition-colors hover:bg-accent/10"
+                  className="flex items-center justify-between gap-4 rounded-xl border border-border bg-white p-5 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-lift focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
                   <span className="flex flex-col gap-1">
-                    <span className="font-medium">
+                    <span className="font-display font-semibold text-navy-800">
                       {booking.flightNumber} · {booking.departureAirport}
                     </span>
                     <span className="text-sm text-muted-foreground">
@@ -88,7 +96,9 @@ export default async function TripsPage() {
                       {booking.bagCount} {booking.bagCount === 1 ? "bag" : "bags"}
                     </span>
                   </span>
-                  <Badge variant="secondary">{booking.status}</Badge>
+                  <Badge variant={STATUS_VARIANT[booking.status]}>
+                    {STATUS_LABEL[booking.status]}
+                  </Badge>
                 </Link>
               </li>
             ))}

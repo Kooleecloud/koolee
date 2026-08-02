@@ -31,7 +31,9 @@ export {
   ensureAddress,
   ensureCustomerWithAddress,
   upsertCustomerByPhone,
+  upsertCustomerFromAuth,
   type AddressInput,
   type EnsureCustomerWithAddressInput,
   type UpsertCustomerInput,
+  type UpsertCustomerFromAuthInput,
 } from "./customers";

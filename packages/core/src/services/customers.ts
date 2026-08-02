@@ -46,6 +46,84 @@ export async function upsertCustomerByPhone(
   return row;
 }
 
+export interface UpsertCustomerFromAuthInput {
+  /** Supabase auth user id (`auth.uid()`). Used as `users.id` on first sign-in. */
+  authUserId: string;
+  /** E.164. Must match the phone the OTP was verified against. */
+  phone: string;
+  fullName?: string | null;
+  email?: string | null;
+}
+
+/**
+ * Upserts the customer row after a verified phone-OTP sign-in, keyed by the
+ * Supabase auth user id.
+ *
+ * Inserting with `id = auth.uid()` is what makes the RLS policies in
+ * packages/db work — they compare `auth.uid()` to `bookings.user_id`. Two
+ * conflict cases are handled:
+ *
+ *  - Same phone, pre-auth scaffold row (random id): the phone unique index
+ *    wins and the legacy row is kept, id unchanged. Server-side reads still
+ *    authorize via `canActOnBooking`, so this only forfeits client-side RLS
+ *    for that legacy user.
+ *  - Same auth id, changed phone (number migrated in Supabase): the primary
+ *    key wins; we fall back to updating the row by id.
+ */
+export async function upsertCustomerFromAuth(
+  db: Database,
+  input: UpsertCustomerFromAuthInput,
+): Promise<User> {
+  try {
+    const [row] = await db
+      .insert(users)
+      .values({
+        id: input.authUserId,
+        phone: input.phone,
+        fullName: input.fullName ?? null,
+        email: input.email ?? null,
+        role: "customer",
+      })
+      .onConflictDoUpdate({
+        target: users.phone,
+        set: {
+          phone: input.phone,
+          ...(input.fullName !== undefined ? { fullName: input.fullName } : {}),
+          ...(input.email !== undefined ? { email: input.email } : {}),
+        },
+      })
+      .returning();
+
+    if (!row) throw new Error("Upsert of authenticated customer returned no row");
+    return row;
+  } catch (error) {
+    if (!isUniqueViolation(error)) throw error;
+    // Primary-key conflict: the auth user exists under a different phone.
+    const [row] = await db
+      .update(users)
+      .set({
+        phone: input.phone,
+        ...(input.fullName !== undefined ? { fullName: input.fullName } : {}),
+        ...(input.email !== undefined ? { email: input.email } : {}),
+      })
+      .where(eq(users.id, input.authUserId))
+      .returning();
+
+    if (!row) throw new Error("Update of authenticated customer returned no row");
+    return row;
+  }
+}
+
+/** Postgres unique_violation (23505), as surfaced by postgres-js. */
+function isUniqueViolation(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    (error as { code?: unknown }).code === "23505"
+  );
+}
+
 export interface AddressInput {
   line1: string;
   line2?: string | null;
