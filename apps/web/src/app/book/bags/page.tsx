@@ -1,4 +1,4 @@
-import { Label } from "@koolee/ui";
+import { Label, PageHeader, Select } from "@koolee/ui";
 
 import { submitBags } from "@/app/book/actions";
 import { StepForm } from "@/components/step-form";
@@ -12,22 +12,23 @@ export default async function BagsStepPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <header className="flex flex-col gap-2">
-        <h1 className="text-2xl font-semibold tracking-tight">How many bags?</h1>
-        <p className="text-sm text-muted-foreground">
-          Each bag is weighed, sealed, and photographed before it leaves you. Your
-          airline&apos;s own baggage fees and weight limits still apply at the bag drop.
-        </p>
-      </header>
+      <PageHeader
+        title="How many bags?"
+        subtitle={
+          <>
+            Each bag is weighed, sealed, and photographed before it leaves you. Your
+            airline&apos;s own baggage fees and weight limits still apply at the bag drop.
+          </>
+        }
+      />
 
       <StepForm action={submitBags} submitLabel="Continue">
         <div className="grid gap-2">
           <Label htmlFor="bagCount">Number of checked bags</Label>
-          <select
+          <Select
             id="bagCount"
             name="bagCount"
             defaultValue={String(draft.bagCount ?? 1)}
-            className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
             required
           >
             {Array.from({ length: 10 }, (_, i) => i + 1).map((n) => (
@@ -35,7 +36,7 @@ export default async function BagsStepPage() {
                 {n} {n === 1 ? "bag" : "bags"}
               </option>
             ))}
-          </select>
+          </Select>
         </div>
       </StepForm>
     </div>

@@ -1,7 +1,7 @@
 "use client";
 
 import { useActionState } from "react";
-import { Button } from "@koolee/ui";
+import { Button, FormMessage } from "@koolee/ui";
 
 import type { ActionState } from "@/app/book/actions";
 
@@ -31,15 +31,10 @@ export function StepForm({
 
       {custom ??
         (state.error ? (
-          <p
-            role="alert"
-            className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive"
-          >
-            {state.error}
-          </p>
+          <FormMessage variant="error">{state.error}</FormMessage>
         ) : null)}
 
-      <Button type="submit" size="lg" disabled={pending}>
+      <Button type="submit" size="lg" loading={pending}>
         {pending ? "Working…" : submitLabel}
       </Button>
     </form>

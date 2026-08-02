@@ -45,4 +45,7 @@ pnpm-debug.log*
 apps/agent/public/workbox-*.js
 apps/agent/public/sw.js.map
 
+# storybook build output
+storybook-static/
+
 brand*

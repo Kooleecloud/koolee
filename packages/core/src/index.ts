@@ -3,6 +3,7 @@ export * from "./config";
 export * from "./runtime";
 
 export * from "./booking";
+export * from "./flights";
 export * from "./slots";
 export * from "./pricing";
 export * from "./payments";
@@ -24,6 +25,7 @@ export type {
   AirportCode,
   Bag,
   Booking,
+  BookingDraft as BookingDraftRow,
   BookingStatus,
   CustodyEvent,
   CutoffScope,

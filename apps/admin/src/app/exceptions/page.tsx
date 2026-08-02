@@ -7,6 +7,10 @@ import {
   CardDescription,
   CardHeader,
   CardTitle,
+  ContentColumn,
+  DatabaseNotConfigured,
+  EmptyState,
+  PageHeader,
 } from "@koolee/ui";
 import { listBookings, type Booking } from "@koolee/core";
 
@@ -42,28 +46,16 @@ export default async function ExceptionsPage() {
   }
 
   return (
-    <main className="container flex max-w-3xl flex-col gap-6 py-8">
-      <header className="flex flex-col gap-1">
-        <h1 className="text-2xl font-semibold tracking-tight">Exceptions</h1>
-        <p className="text-sm text-muted-foreground">Bookings that need a human.</p>
-      </header>
+    <ContentColumn>
+      <PageHeader title="Exceptions" subtitle="Bookings that need a human." />
 
       {unavailable ? (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Database not configured</CardTitle>
-            <CardDescription>
-              Set <code>DATABASE_URL</code> in <code>.env.local</code>.
-            </CardDescription>
-          </CardHeader>
-        </Card>
+        <DatabaseNotConfigured />
       ) : exceptions.length === 0 ? (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Nothing in exception</CardTitle>
-            <CardDescription>Every booking is on its normal path.</CardDescription>
-          </CardHeader>
-        </Card>
+        <EmptyState
+          title="Nothing in exception"
+          description="Every booking is on its normal path."
+        />
       ) : (
         <ul className="flex flex-col gap-3">
           {exceptions.map((booking) => (
@@ -103,6 +95,6 @@ export default async function ExceptionsPage() {
           See the TODO(exceptions) note in this file.
         </CardContent>
       </Card>
-    </main>
+    </ContentColumn>
   );
 }

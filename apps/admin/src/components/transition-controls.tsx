@@ -1,7 +1,7 @@
 "use client";
 
-import { useActionState } from "react";
-import { Button, Input, Label } from "@koolee/ui";
+import { useActionState, useEffect, useRef, useState } from "react";
+import { Button, ConfirmDialog, FormMessage, Input, Label, toast } from "@koolee/ui";
 
 import { manualTransition, type TransitionActionState } from "@/app/bookings/actions";
 
@@ -26,6 +26,14 @@ export function TransitionControls({
     manualTransition,
     {},
   );
+  /** Which event button fired the in-flight submit — it spins, the rest grey out. */
+  const [submitted, setSubmitted] = useState<string | null>(null);
+  /** Hidden submitter for `cancel`, fired from the confirm dialog. */
+  const cancelSubmitRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (state.ok) toast.success(state.ok);
+  }, [state]);
 
   const legal = new Set(legalEvents);
 
@@ -39,44 +47,80 @@ export function TransitionControls({
       </div>
 
       <div className="flex flex-wrap gap-2">
-        {events.map((event) => (
-          <Button
-            key={event}
-            type="submit"
-            name="event"
-            value={event}
-            disabled={pending}
-            variant={legal.has(event) ? "default" : "outline"}
-            size="sm"
-            title={
-              legal.has(event)
-                ? `Legal from the current status`
-                : `Not legal from the current status — clicking will show why`
-            }
-          >
-            {event}
-          </Button>
-        ))}
+        {events.map((event) =>
+          event === "cancel" ? (
+            <ConfirmDialog
+              key={event}
+              destructive
+              title="Cancel this booking?"
+              description="This writes to the append-only custody log and cannot be undone."
+              confirmLabel="Cancel booking"
+              trigger={
+                <Button
+                  type="button"
+                  variant="destructive"
+                  size="sm"
+                  loading={pending && submitted === event}
+                  disabled={pending && submitted !== event}
+                  title={
+                    legal.has(event)
+                      ? `Legal from the current status`
+                      : `Not legal from the current status — clicking will show why`
+                  }
+                >
+                  {event}
+                </Button>
+              }
+              onConfirm={() => {
+                setSubmitted(event);
+                cancelSubmitRef.current?.form?.requestSubmit(cancelSubmitRef.current);
+              }}
+            />
+          ) : (
+            <Button
+              key={event}
+              type="submit"
+              name="event"
+              value={event}
+              onClick={() => setSubmitted(event)}
+              loading={pending && submitted === event}
+              disabled={pending && submitted !== event}
+              variant={legal.has(event) ? "default" : "outline"}
+              size="sm"
+              title={
+                legal.has(event)
+                  ? `Legal from the current status`
+                  : `Not legal from the current status — clicking will show why`
+              }
+            >
+              {event}
+            </Button>
+          ),
+        )}
       </div>
 
-      {state.error && (
-        <div
-          role="alert"
-          className="flex flex-col gap-1 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive"
-        >
-          <span>{state.error}</span>
-          {state.allowed && state.allowed.length > 0 && (
-            <span className="text-xs opacity-80">
-              Legal from here: {state.allowed.join(", ")}
-            </span>
-          )}
-        </div>
-      )}
+      {/* Submitter for the confirmed cancel — keeps the same form/action wiring. */}
+      <button
+        ref={cancelSubmitRef}
+        type="submit"
+        name="event"
+        value="cancel"
+        className="hidden"
+        tabIndex={-1}
+        aria-hidden="true"
+      />
 
-      {state.ok && (
-        <p className="rounded-md border border-success/40 bg-success/10 px-3 py-2 text-sm">
-          {state.ok}
-        </p>
+      {state.error && (
+        <FormMessage variant="error">
+          <span className="flex flex-col gap-1">
+            <span>{state.error}</span>
+            {state.allowed && state.allowed.length > 0 && (
+              <span className="text-xs opacity-80">
+                Legal from here: {state.allowed.join(", ")}
+              </span>
+            )}
+          </span>
+        </FormMessage>
       )}
     </form>
   );

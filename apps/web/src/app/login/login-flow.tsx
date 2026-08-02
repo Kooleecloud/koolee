@@ -2,41 +2,37 @@
 
 import * as React from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
-import { CTAButton, formatUsPhone, Label, OTPInput, PhoneInput, toE164 } from "@koolee/ui";
+import { CTAButton, FormMessage, formatUsPhone, Input, Label, OTPInput, PhoneInput, toE164 } from "@koolee/ui";
 
-import { getSupabaseBrowserClient } from "@/lib/supabase/browser";
+import { type SendOtpSuccess } from "@/actions/auth";
+import { TurnstileWidget } from "@/components/turnstile-widget";
 
-import { completeSignIn } from "./actions";
+import { sendMagicLink, sendOtp, verifyOtp } from "./actions";
 
 /**
- * Two screens, one flow: phone → code. Built to be fully demoable with
- * Supabase test phone numbers today; when Twilio is connected later, nothing
- * here changes.
+ * Returning-user sign-in. Primary: phone → OTP. Secondary: email magic link
+ * (existing accounts only). No passwords anywhere; no OAuth in v1.
  */
 
-type Step = "phone" | "code";
+type Step = "phone" | "code" | "email" | "email-sent";
 
-const isDev = process.env.NODE_ENV === "development";
-
-/** Missing/broken SMS provider looks different from a bad number — detect it. */
-function isProviderConfigIssue(error: { message: string; status?: number }): boolean {
-  if ((error.status ?? 0) >= 500) return true;
-  return /provider|not.*(configured|enabled)|disabled|unsupported|sms.*(fail|error)|error sending/i.test(
-    error.message,
-  );
-}
+const RESEND_SECONDS = 30;
+const MAX_RESENDS = 3;
 
 export function LoginFlow({ returnTo }: { returnTo: string | null }) {
-  const supabase = React.useMemo(() => getSupabaseBrowserClient(), []);
   const reduceMotion = useReducedMotion();
 
   const [step, setStep] = React.useState<Step>("phone");
   const [digits, setDigits] = React.useState("");
+  const [email, setEmail] = React.useState("");
   const [code, setCode] = React.useState("");
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
-  const [providerIssue, setProviderIssue] = React.useState(false);
   const [resendIn, setResendIn] = React.useState(0);
+  const [resends, setResends] = React.useState(0);
+  const [sent, setSent] = React.useState<SendOtpSuccess | null>(null);
+  const [otpKey, setOtpKey] = React.useState(0);
+  const turnstileToken = React.useRef<string | null>(null);
 
   React.useEffect(() => {
     if (resendIn <= 0) return;
@@ -44,75 +40,81 @@ export function LoginFlow({ returnTo }: { returnTo: string | null }) {
     return () => clearInterval(timer);
   }, [resendIn]);
 
-  if (!supabase) {
-    return (
-      <div className="rounded-xl border border-warning/40 bg-warning/10 p-5 text-sm leading-relaxed text-navy-800">
-        <p className="font-medium">Sign-in isn&apos;t available yet.</p>
-        <p className="mt-1 text-muted-foreground">
-          This environment has no Supabase credentials configured
-          {isDev ? (
-            <>
-              {" "}
-              — set <code>NEXT_PUBLIC_SUPABASE_URL</code> and{" "}
-              <code>NEXT_PUBLIC_SUPABASE_ANON_KEY</code> in <code>.env.local</code>.
-            </>
-          ) : (
-            ". Please try again soon."
-          )}
-        </p>
-      </div>
-    );
-  }
-
   const e164 = toE164(digits);
 
-  const sendCode = async () => {
+  const sendCode = async (isResend = false) => {
     if (!e164) {
       setError("Enter your 10-digit US phone number.");
       return;
     }
     setBusy(true);
     setError(null);
-    setProviderIssue(false);
 
-    const { error: sendError } = await supabase.auth.signInWithOtp({ phone: e164 });
+    const result = await sendOtp({
+      phone: e164,
+      turnstileToken: turnstileToken.current,
+      intent: "signin",
+      isResend,
+    });
     setBusy(false);
 
-    if (sendError) {
-      if (isProviderConfigIssue(sendError)) {
-        setProviderIssue(true);
-      } else {
-        setError(sendError.message);
-      }
+    if (!result.ok) {
+      setError(result.message);
       return;
     }
 
+    setSent(result);
     setCode("");
+    setOtpKey((k) => k + 1);
     setStep("code");
-    setResendIn(30);
+    setResendIn(RESEND_SECONDS);
+    if (isResend) setResends((n) => n + 1);
   };
 
   const verifyCode = async (token: string) => {
-    if (!e164 || token.length !== 6) return;
+    if (!sent || token.length !== 6) return;
     setBusy(true);
     setError(null);
 
-    const { error: verifyError } = await supabase.auth.verifyOtp({
-      phone: e164,
-      token,
-      type: "sms",
+    const result = await verifyOtp({
+      mode: sent.mode,
+      target: sent.target,
+      code: token,
+      next: returnTo ?? "/trips",
     });
 
-    if (verifyError) {
+    if (!result.ok) {
       setBusy(false);
       setCode("");
-      setError("That code didn't match. Check the six digits and try again.");
+      setOtpKey((k) => k + 1);
+      setError(result.message);
       return;
     }
 
-    // Session cookie is set; hand over to the server to upsert + redirect.
-    // Stay busy until navigation happens.
-    await completeSignIn(returnTo ?? undefined);
+    // Session cookie is set; stay busy until navigation happens.
+    window.location.assign(result.next);
+  };
+
+  const sendLink = async () => {
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+      setError("Enter a valid email address.");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+
+    const result = await sendMagicLink({
+      email: email.trim().toLowerCase(),
+      turnstileToken: turnstileToken.current,
+      next: returnTo ?? "/trips",
+    });
+    setBusy(false);
+
+    if (!result.ok) {
+      setError(result.message);
+      return;
+    }
+    setStep("email-sent");
   };
 
   const slide = reduceMotion
@@ -122,15 +124,16 @@ export function LoginFlow({ returnTo }: { returnTo: string | null }) {
         animate: { opacity: 1, x: 0 },
         exit: { opacity: 0, x: -32 },
       };
+  const transition = { duration: 0.3, ease: [0.16, 1, 0.3, 1] as const };
 
   return (
     <div className="rounded-2xl border border-border bg-white p-6 shadow-lift sm:p-8">
       <AnimatePresence mode="wait" initial={false}>
-        {step === "phone" ? (
+        {step === "phone" && (
           <motion.form
             key="phone"
             {...slide}
-            transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
+            transition={transition}
             onSubmit={(e) => {
               e.preventDefault();
               void sendCode();
@@ -152,40 +155,36 @@ export function LoginFlow({ returnTo }: { returnTo: string | null }) {
               />
             </div>
 
-            {error ? (
-              <p role="alert" className="text-sm text-destructive">
-                {error}
-              </p>
-            ) : null}
+            <TurnstileWidget
+              onToken={(token) => {
+                turnstileToken.current = token;
+              }}
+            />
 
-            {providerIssue ? (
-              <div
-                role="alert"
-                className="rounded-lg border border-warning/40 bg-warning/10 p-4 text-sm leading-relaxed text-navy-800"
-              >
-                <p>
-                  We couldn&apos;t text that number right now — our SMS service
-                  isn&apos;t reachable. Please try again in a bit.
-                </p>
-                {isDev ? (
-                  <p className="mt-2 text-muted-foreground">
-                    Dev hint: the SMS provider isn&apos;t connected. Use a Supabase{" "}
-                    <strong>test phone number</strong> (Auth → Providers → Phone) — the
-                    whole flow works with it today.
-                  </p>
-                ) : null}
-              </div>
-            ) : null}
+            {error ? <FormMessage variant="error">{error}</FormMessage> : null}
 
-            <CTAButton type="submit" size="lg" className="w-full" disabled={busy}>
+            <CTAButton type="submit" size="lg" className="w-full" loading={busy}>
               {busy ? "Sending…" : "Text me a code"}
             </CTAButton>
+
+            <button
+              type="button"
+              onClick={() => {
+                setStep("email");
+                setError(null);
+              }}
+              className="self-start text-sm text-navy-600 underline-offset-4 hover:text-navy-800 hover:underline"
+            >
+              Sign in with email instead
+            </button>
           </motion.form>
-        ) : (
+        )}
+
+        {step === "code" && (
           <motion.div
             key="code"
             {...slide}
-            transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
+            transition={transition}
             className="flex flex-col gap-5"
           >
             <div className="flex flex-col gap-1.5">
@@ -198,6 +197,7 @@ export function LoginFlow({ returnTo }: { returnTo: string | null }) {
             </div>
 
             <OTPInput
+              key={otpKey}
               value={code}
               onChange={(next) => {
                 setCode(next);
@@ -209,17 +209,14 @@ export function LoginFlow({ returnTo }: { returnTo: string | null }) {
               invalid={Boolean(error)}
             />
 
-            {error ? (
-              <p role="alert" className="text-sm text-destructive">
-                {error}
-              </p>
-            ) : null}
+            {error ? <FormMessage variant="error">{error}</FormMessage> : null}
 
             <CTAButton
               type="button"
               size="lg"
               className="w-full"
-              disabled={busy || code.length !== 6}
+              loading={busy}
+              disabled={code.length !== 6}
               onClick={() => void verifyCode(code)}
             >
               {busy ? "Verifying…" : "Verify & continue"}
@@ -239,13 +236,91 @@ export function LoginFlow({ returnTo }: { returnTo: string | null }) {
               </button>
               <button
                 type="button"
-                onClick={() => void sendCode()}
-                disabled={busy || resendIn > 0}
+                onClick={() => void sendCode(true)}
+                disabled={busy || resendIn > 0 || resends >= MAX_RESENDS}
                 className="text-sky-700 underline-offset-4 hover:text-sky-600 hover:underline disabled:cursor-not-allowed disabled:text-muted-foreground disabled:no-underline"
               >
-                {resendIn > 0 ? `Resend in ${resendIn}s` : "Resend code"}
+                {resendIn > 0 ? `Resend code (${resendIn}s)` : "Resend code"}
               </button>
             </div>
+          </motion.div>
+        )}
+
+        {step === "email" && (
+          <motion.form
+            key="email"
+            {...slide}
+            transition={transition}
+            onSubmit={(e) => {
+              e.preventDefault();
+              void sendLink();
+            }}
+            className="flex flex-col gap-5"
+          >
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="login-email">Email</Label>
+              <Input
+                id="login-email"
+                type="email"
+                value={email}
+                onChange={(e) => {
+                  setEmail(e.target.value);
+                  setError(null);
+                }}
+                placeholder="you@example.com"
+                autoComplete="email"
+                autoFocus
+                disabled={busy}
+                className="h-12 rounded-lg bg-white px-3.5 text-base"
+              />
+            </div>
+
+            <TurnstileWidget
+              onToken={(token) => {
+                turnstileToken.current = token;
+              }}
+            />
+
+            {error ? <FormMessage variant="error">{error}</FormMessage> : null}
+
+            <CTAButton type="submit" size="lg" className="w-full" loading={busy}>
+              {busy ? "Sending…" : "Email me a sign-in link"}
+            </CTAButton>
+
+            <button
+              type="button"
+              onClick={() => {
+                setStep("phone");
+                setError(null);
+              }}
+              className="self-start text-sm text-navy-600 underline-offset-4 hover:text-navy-800 hover:underline"
+            >
+              Use my phone number instead
+            </button>
+          </motion.form>
+        )}
+
+        {step === "email-sent" && (
+          <motion.div
+            key="email-sent"
+            {...slide}
+            transition={transition}
+            className="flex flex-col gap-3"
+          >
+            <h2 className="font-display text-lg font-semibold text-navy-800">
+              Check your inbox
+            </h2>
+            <p className="text-sm text-muted-foreground">
+              We sent a sign-in link to {email.trim().toLowerCase()}. Open it on this
+              device to continue.
+            </p>
+            <button
+              type="button"
+              onClick={() => setStep("email")}
+              className="self-start text-sm text-navy-600 underline-offset-4 hover:text-navy-800 hover:underline"
+            >
+              Use a different email
+            </button>
           </motion.div>
         )}
       </AnimatePresence>

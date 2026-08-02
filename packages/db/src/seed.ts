@@ -1,5 +1,6 @@
 import { config as loadEnv } from "dotenv";
 import { addDays, addHours, startOfDay } from "date-fns";
+import { and, gte, lt } from "drizzle-orm";
 
 import { createDb } from "./client";
 import {
@@ -167,9 +168,26 @@ async function main(): Promise<void> {
 
   console.log("Seeding slots for the next 3 days…");
   const today = startOfDay(new Date());
-  const rows: NewSlot[] = [];
+
+  // No natural key on slots, so blind re-runs would duplicate. Seed one day at
+  // a time and skip any day that already has slots — re-running tops up the
+  // horizon instead of duplicating it or (worse) leaving it stale.
+  let inserted = 0;
   for (let dayOffset = 0; dayOffset < 3; dayOffset += 1) {
     const day = addDays(today, dayOffset);
+    const nextDay = addDays(day, 1);
+
+    const existing = await db
+      .select({ id: slots.id })
+      .from(slots)
+      .where(and(gte(slots.windowStart, day), lt(slots.windowStart, nextDay)))
+      .limit(1);
+    if (existing.length > 0) {
+      console.log(`  ${day.toISOString().slice(0, 10)} already has slots — skipping`);
+      continue;
+    }
+
+    const rows: NewSlot[] = [];
     for (const airport of AIRPORTS) {
       for (const window of DAILY_WINDOWS) {
         const windowStart = addHours(day, window.startHour);
@@ -183,17 +201,10 @@ async function main(): Promise<void> {
         });
       }
     }
-  }
-
-  // No natural key on slots, so re-running would duplicate. Clear the seeded
-  // horizon first — safe because seeding is a dev-only operation.
-  const existingSlots = await db.select({ id: slots.id }).from(slots).limit(1);
-  if (existingSlots.length > 0) {
-    console.log("  slots already present — skipping (drop the table to reseed)");
-  } else {
     await db.insert(slots).values(rows);
-    console.log(`  inserted ${rows.length} slots`);
+    inserted += rows.length;
   }
+  console.log(`  inserted ${inserted} slots`);
 
   console.log("Seed complete.");
   process.exit(0);

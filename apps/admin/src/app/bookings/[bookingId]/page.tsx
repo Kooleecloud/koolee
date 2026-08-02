@@ -2,13 +2,16 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { format } from "date-fns";
 import {
-  Badge,
-  Button,
+  BackLink,
+  BookingStatusBadge,
   Card,
   CardContent,
   CardDescription,
   CardHeader,
   CardTitle,
+  ContentColumn,
+  DatabaseNotConfigured,
+  PageHeader,
 } from "@koolee/ui";
 import { availableEvents, EVENT_TYPES, getBooking, getTimeline } from "@koolee/core";
 
@@ -29,16 +32,9 @@ export default async function BookingDetailPage({
 
   if (!core) {
     return (
-      <main className="container max-w-3xl py-8">
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Database not configured</CardTitle>
-            <CardDescription>
-              Set <code>DATABASE_URL</code> in <code>.env.local</code>.
-            </CardDescription>
-          </CardHeader>
-        </Card>
-      </main>
+      <ContentColumn>
+        <DatabaseNotConfigured />
+      </ContentColumn>
     );
   }
 
@@ -49,23 +45,19 @@ export default async function BookingDetailPage({
   const legal = availableEvents(booking.status);
 
   return (
-    <main className="container flex max-w-3xl flex-col gap-6 py-8">
-      <header className="flex flex-wrap items-start justify-between gap-4">
-        <div className="flex flex-col gap-1">
-          <h1 className="text-2xl font-semibold tracking-tight">
-            {booking.flightNumber} · {booking.departureAirport}
-          </h1>
-          <p className="font-mono text-xs text-muted-foreground">{booking.id}</p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Badge variant={booking.status === "exception" ? "warning" : "secondary"}>
-            {booking.status}
-          </Badge>
-          <Button asChild variant="ghost" size="sm">
-            <Link href="/bookings">Back</Link>
-          </Button>
-        </div>
-      </header>
+    <ContentColumn>
+      <PageHeader
+        title={`${booking.flightNumber} · ${booking.departureAirport}`}
+        subtitle={<span className="font-mono text-xs">{booking.id}</span>}
+        actions={
+          <>
+            <BookingStatusBadge status={booking.status} />
+            <BackLink href="/bookings" linkComponent={Link}>
+              Back
+            </BackLink>
+          </>
+        }
+      />
 
       <Card>
         <CardHeader>
@@ -142,6 +134,6 @@ export default async function BookingDetailPage({
           )}
         </CardContent>
       </Card>
-    </main>
+    </ContentColumn>
   );
 }

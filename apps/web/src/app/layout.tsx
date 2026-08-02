@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Inter, Sora } from "next/font/google";
 import { Toaster } from "@koolee/ui";
 
+import { DevPanel } from "@/components/dev-panel";
 import { optionalEnv } from "@/env";
 
 import "./globals.css";
@@ -56,6 +57,7 @@ export default function RootLayout({
       <body className={`${sora.variable} ${inter.variable} min-h-dvh font-sans`}>
         {children}
         <Toaster />
+        <DevPanel />
       </body>
     </html>
   );

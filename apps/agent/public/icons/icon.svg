@@ -1,8 +1,9 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
-  <rect width="512" height="512" rx="96" fill="#0b3c8c" />
-  <g transform="translate(128 128) scale(8)" fill="none" stroke="#ffffff" stroke-width="2.5" stroke-linecap="round">
-    <path d="M12 7V5.5A2.5 2.5 0 0 1 14.5 3h3A2.5 2.5 0 0 1 20 5.5V7" />
-    <rect x="4" y="7" width="24" height="20" rx="4" />
-    <path d="M11 13h10M11 18h6" />
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48" role="img" aria-label="Koolee">
+  <rect width="48" height="48" fill="#0B2545"/>
+  <g transform="translate(7.68 7.68) scale(0.68)">
+  <path d="M16 27.5 38.5 8.5" stroke="#38B6E3" stroke-width="8.5" stroke-linecap="round" fill="none"/>
+  <path fill="#F4F7FA" fill-rule="evenodd" d="M11.5 5h3a6.5 6.5 0 0 1 6.5 6.5v29a4.5 4.5 0 0 1-4.5 4.5h-7A4.5 4.5 0 0 1 5 40.5v-29A6.5 6.5 0 0 1 11.5 5Zm1.5 4.8a2.7 2.7 0 1 0 0 5.4 2.7 2.7 0 0 0 0-5.4Z"/>
+  <path d="M16 27.5 37.5 41.5" stroke="#F4F7FA" stroke-width="8.5" stroke-linecap="round" fill="none"/>
+  <circle cx="13" cy="12.5" r="3.75" stroke="#FF6B35" stroke-width="2.1" fill="none"/>
   </g>
 </svg>

@@ -7,6 +7,8 @@ import {
   CardDescription,
   CardHeader,
   CardTitle,
+  FormMessage,
+  PageHeader,
 } from "@koolee/ui";
 import { formatWindowInAirportTz, listSellableSlots, type Slot } from "@koolee/core";
 
@@ -55,25 +57,20 @@ export default async function SlotStepPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <header className="flex flex-col gap-2">
-        <h1 className="text-2xl font-semibold tracking-tight">Pickup window</h1>
-        <p className="text-sm text-muted-foreground">
-          Only windows that can still get your bags to {draft.airlineIata}&apos;s bag drop
-          at {draft.departureAirport} before the cutoff are shown.
-          {cutoffMinutes !== null && (
-            <> That cutoff is {cutoffMinutes} minutes before departure.</>
-          )}
-        </p>
-      </header>
+      <PageHeader
+        title="Pickup window"
+        subtitle={
+          <>
+            Only windows that can still get your bags to {draft.airlineIata}&apos;s bag
+            drop at {draft.departureAirport} before the cutoff are shown.
+            {cutoffMinutes !== null && (
+              <> That cutoff is {cutoffMinutes} minutes before departure.</>
+            )}
+          </>
+        }
+      />
 
-      {loadError && (
-        <p
-          role="alert"
-          className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive"
-        >
-          {loadError}
-        </p>
-      )}
+      {loadError && <FormMessage variant="error">{loadError}</FormMessage>}
 
       {!loadError && slots.length === 0 ? (
         <NoSlots />

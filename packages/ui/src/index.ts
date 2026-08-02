@@ -91,6 +91,43 @@ export {
   type PriceEstimateLine,
 } from "./components/price-estimator";
 
+/* App shell — the standardized in-app frame (see app-shell.tsx) */
+export {
+  AppHeader,
+  ContentColumn,
+  AppFooter,
+  type AppHeaderProps,
+  type AppNavLink,
+  type ContentColumnProps,
+  type AppFooterProps,
+} from "./components/app-shell";
+export { PageHeader, type PageHeaderProps } from "./components/page-header";
+export { BackLink, type BackLinkProps } from "./components/back-link";
+export {
+  BookingStatusBadge,
+  type BookingStatusBadgeProps,
+} from "./components/booking-status-badge";
+export { ConfirmDialog, type ConfirmDialogProps } from "./components/confirm-dialog";
+
+/* Feedback — every async action must show one of these */
+export { Spinner, type SpinnerProps } from "./components/spinner";
+export { FormMessage, type FormMessageProps } from "./components/form-message";
+export {
+  EmptyState,
+  DatabaseNotConfigured,
+  type EmptyStateProps,
+} from "./components/empty-state";
+export {
+  Skeleton,
+  PageSkeleton,
+  type PageSkeletonProps,
+} from "./components/skeleton";
+export {
+  EnvStatusCard,
+  type EnvStatusCardProps,
+} from "./components/env-status-card";
+export { Select } from "./components/select";
+
 /* Motion */
 export { Reveal, type RevealProps } from "./components/reveal";
 export {

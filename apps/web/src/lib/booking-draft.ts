@@ -55,13 +55,17 @@ export async function clearDraft(): Promise<void> {
   store.delete(COOKIE_NAME);
 }
 
-/** Which step a draft is ready for — used to bounce a deep link back. */
+/**
+ * Which step a draft is ready for — used to bounce a deep link back.
+ * Funnel order: ZIP → flight → address → bags → slot → price (→ verify → pay).
+ */
 export function nextIncompleteStep(draft: TypedBookingDraft): string {
+  if (!draft.zip) return "/book/zip";
   if (!draft.flightNumber || !draft.departureAt || !draft.departureAirport) {
     return "/book/flight";
   }
-  if (!draft.zip || !draft.line1) return "/book/address";
+  if (!draft.line1) return "/book/address";
   if (!draft.bagCount) return "/book/bags";
   if (!draft.slotId) return "/book/slot";
-  return "/book/pay";
+  return "/book/price";
 }

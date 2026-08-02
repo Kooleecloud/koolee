@@ -1,9 +1,15 @@
 import "server-only";
 
-import { createInngestClient, createKooleeFunctions } from "@koolee/core/jobs";
+import { cron } from "inngest";
+import {
+  cleanupAnonymousUsers,
+  createInngestClient,
+  createKooleeFunctions,
+} from "@koolee/core/jobs";
 
 import { env, optionalEnv } from "@/env";
 import { getCore } from "@/lib/core";
+import { deleteAuthUser } from "@/lib/supabase/admin";
 
 /**
  * Inngest wiring for apps/web.
@@ -21,4 +27,30 @@ export const inngest = createInngestClient({
   isDev: env.NODE_ENV !== "production",
 });
 
-export const functions = createKooleeFunctions(inngest, () => getCore());
+/**
+ * Abandoned-draft + anonymous-user GC. Lives here rather than in core because
+ * deleting the Supabase auth user needs the service-role client, and core
+ * reads no environment. Also invokable by hand via /api/jobs/cleanup-anon.
+ */
+const cleanupAnonymousUsersCron = inngest.createFunction(
+  {
+    id: "cleanup-anonymous-users",
+    name: "Delete stale anonymous users and their drafts",
+    triggers: [cron("TZ=America/New_York 0 4 * * *")],
+  },
+  async ({ step, logger }) => {
+    return step.run("cleanup", async () => {
+      const config = getCore();
+      const result = await cleanupAnonymousUsers(config.db, {
+        deleteAuthUser,
+        log: (message) => logger.info(message),
+      });
+      return result;
+    });
+  },
+);
+
+export const functions = [
+  ...createKooleeFunctions(inngest, () => getCore()),
+  cleanupAnonymousUsersCron,
+];

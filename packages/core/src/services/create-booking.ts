@@ -74,6 +74,12 @@ export interface CreateBookingInput {
 
   promoCode?: string | null;
   isSenior?: boolean;
+
+  /**
+   * Pickup-day contact number for customers without a verified phone
+   * (email-only sign-up). Plain text, never OTP-verified.
+   */
+  contactPhone?: string | null;
 }
 
 export interface CreateBookingResult {
@@ -188,6 +194,7 @@ export async function createBooking(
         pickupAddressId: input.pickupAddressId,
         bagCount: input.bagCount,
         slotId: input.slotId,
+        contactPhone: input.contactPhone ?? null,
         priceCents: breakdown.totalCents,
         currency: defaults.currency,
       })

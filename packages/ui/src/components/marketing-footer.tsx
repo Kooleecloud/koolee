@@ -31,7 +31,7 @@ function MarketingFooter({
     <footer className={cn("bg-navy-900 text-navy-100", className)} {...props}>
       <div className="container grid gap-12 py-16 lg:grid-cols-[1.4fr_repeat(3,1fr)]">
         <div className="flex flex-col items-start gap-4">
-          <KooleeLogo className="text-white [&_svg]:text-sky-400!" />
+          <KooleeLogo className="text-white" />
           <p className="font-display text-lg font-medium text-white">{tagline}</p>
           <p className="text-sm text-navy-200">{coverage}</p>
           {contactEmail ? (

@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
-import { Toaster } from "@koolee/ui";
+import Link from "next/link";
+import { AppHeader, Toaster } from "@koolee/ui";
 
 import { ServiceWorkerRegistrar } from "@/components/service-worker-registrar";
 
@@ -20,7 +21,7 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: "#0b3c8c",
+  themeColor: "#0B2545",
   width: "device-width",
   initialScale: 1,
   maximumScale: 1,
@@ -34,6 +35,7 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <body className="min-h-dvh">
+        <AppHeader linkComponent={Link} />
         {children}
         <ServiceWorkerRegistrar />
         <Toaster position="top-center" />

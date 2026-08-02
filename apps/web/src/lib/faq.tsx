@@ -60,14 +60,14 @@ export const FAQS: FAQItem[] = [
     ),
   },
   {
-    id: "check-in",
-    question: "Do I still need to check in for my flight?",
+    id: "airline-formalities",
+    question: "Do I still check in with my airline?",
     answer: (
       <p>
         Yes. Koolee handles your checked bags&apos; journey from your door to your
-        airline&apos;s bag-drop counter — check-in itself stays exactly as it is
-        today. Check in online or at the airport as usual; then walk past the bag line
-        with your hands free.
+        airline&apos;s bag-drop counter — everything else with your airline stays
+        exactly as it is today. Complete your airline&apos;s usual steps online or at
+        the airport; then walk past the bag line with your hands free.
       </p>
     ),
   },

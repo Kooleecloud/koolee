@@ -22,6 +22,8 @@ export {
   type SupabaseAuthConfig,
 } from "./supabase-customer";
 
+export { requireUser, requireVerifiedUser } from "./guards";
+
 export {
   createDevAdminSessionReader,
   createDevAgentSessionReader,

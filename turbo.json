@@ -20,7 +20,9 @@
         "AEROAPI_KEY",
         "GOOGLE_MAPS_API_KEY",
         "ANTHROPIC_API_KEY",
-        "SENTRY_DSN"
+        "SENTRY_DSN",
+        "TURNSTILE_SECRET_KEY",
+        "CRON_SECRET"
       ]
     },
     "dev": {

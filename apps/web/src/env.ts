@@ -34,10 +34,18 @@ const schema = z.object({
   /** Direct connection, port 5432. Migrations only. */
   DIRECT_DATABASE_URL: optionalString,
 
-  // --- Supabase (client SDK: Realtime + Storage only) --------------------
+  // --- Supabase (auth, Realtime, Storage) --------------------------------
   NEXT_PUBLIC_SUPABASE_URL: optionalUrl,
   NEXT_PUBLIC_SUPABASE_ANON_KEY: optionalString,
   SUPABASE_SERVICE_ROLE_KEY: optionalString,
+
+  // --- Bot protection (Cloudflare Turnstile) ------------------------------
+  NEXT_PUBLIC_TURNSTILE_SITE_KEY: optionalString,
+  TURNSTILE_SECRET_KEY: optionalString,
+
+  // --- Scheduled jobs ------------------------------------------------------
+  /** Shared secret for manually-invoked job routes (/api/jobs/*). */
+  CRON_SECRET: optionalString,
 
   // --- Payments ----------------------------------------------------------
   STRIPE_SECRET_KEY: optionalString,
@@ -81,6 +89,11 @@ const raw = {
   NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL,
   NEXT_PUBLIC_SUPABASE_ANON_KEY: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
   SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY,
+
+  NEXT_PUBLIC_TURNSTILE_SITE_KEY: process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY,
+  TURNSTILE_SECRET_KEY: process.env.TURNSTILE_SECRET_KEY,
+
+  CRON_SECRET: process.env.CRON_SECRET,
 
   STRIPE_SECRET_KEY: process.env.STRIPE_SECRET_KEY,
   STRIPE_WEBHOOK_SECRET: process.env.STRIPE_WEBHOOK_SECRET,
@@ -128,6 +141,11 @@ const HINTS: Partial<Record<EnvKey, string>> = {
   NEXT_PUBLIC_SUPABASE_ANON_KEY: "Supabase → Project Settings → API → anon public key.",
   SUPABASE_SERVICE_ROLE_KEY:
     "Supabase → Project Settings → API → service_role key. Server-side only.",
+  NEXT_PUBLIC_TURNSTILE_SITE_KEY:
+    "Cloudflare Dashboard → Turnstile → your site → Site key (invisible mode).",
+  TURNSTILE_SECRET_KEY:
+    "Cloudflare Dashboard → Turnstile → your site → Secret key. Server-side only.",
+  CRON_SECRET: "Any random string; protects /api/jobs/* manual triggers.",
   INNGEST_EVENT_KEY:
     "Inngest Cloud → Events → Event keys. Not needed for `pnpm dev:inngest`.",
   INNGEST_SIGNING_KEY: "Inngest Cloud → Deploy → Signing key.",
@@ -181,6 +199,12 @@ export function describeEnvStatus(): ServiceStatus[] {
       configured: has("NEXT_PUBLIC_SUPABASE_URL", "NEXT_PUBLIC_SUPABASE_ANON_KEY"),
       fallback: "Timeline falls back to server-side fetch, no live updates.",
       keys: ["NEXT_PUBLIC_SUPABASE_URL", "NEXT_PUBLIC_SUPABASE_ANON_KEY"],
+    },
+    {
+      service: "Turnstile (bot protection)",
+      configured: has("NEXT_PUBLIC_TURNSTILE_SITE_KEY", "TURNSTILE_SECRET_KEY"),
+      fallback: "OTP sends skip the bot check (dev only — configure for production).",
+      keys: ["NEXT_PUBLIC_TURNSTILE_SITE_KEY", "TURNSTILE_SECRET_KEY"],
     },
     {
       service: "Stripe",

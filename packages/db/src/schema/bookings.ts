@@ -42,6 +42,12 @@ export const bookings = pgTable(
       .references(() => addresses.id, { onDelete: "restrict" }),
     bagCount: integer("bag_count").notNull(),
     slotId: uuid("slot_id").references(() => slots.id, { onDelete: "restrict" }),
+    /**
+     * Pickup-day contact number for email-only customers (no verified phone on
+     * the user). Plain text, never OTP-verified — the driver just needs a
+     * number to call at the door.
+     */
+    contactPhone: varchar("contact_phone", { length: 20 }),
 
     // --- Money ----------------------------------------------------------
     priceCents: integer("price_cents").notNull(),

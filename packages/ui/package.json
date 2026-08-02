@@ -12,7 +12,9 @@
   "scripts": {
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
-    "clean": "rm -rf .turbo node_modules dist *.tsbuildinfo"
+    "clean": "rm -rf .turbo node_modules dist *.tsbuildinfo",
+    "storybook": "storybook dev -p 6006",
+    "build-storybook": "storybook build"
   },
   "dependencies": {
     "@gsap/react": "^2.1.2",
@@ -32,12 +34,17 @@
   },
   "devDependencies": {
     "@koolee/config": "workspace:*",
+    "@storybook/react-vite": "^10.5.5",
+    "@tailwindcss/vite": "^4.3.3",
     "@types/react": "^19.0.8",
     "@types/react-dom": "^19.0.3",
     "eslint": "^10.8.0",
-    "react": "^19.0.0",
-    "react-dom": "^19.0.0",
-    "typescript": "^5.7.3"
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "storybook": "^10.5.5",
+    "tailwindcss": "^4.3.3",
+    "typescript": "^5.7.3",
+    "vite": "^8.2.0"
   },
   "peerDependencies": {
     "react": "^19.0.0",

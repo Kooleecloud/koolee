@@ -4,6 +4,7 @@ export * from "./identity";
 export * from "./airports";
 export * from "./slots";
 export * from "./bookings";
+export * from "./drafts";
 export * from "./custody";
 export * from "./tasks";
 export * from "./ops";

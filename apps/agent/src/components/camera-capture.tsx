@@ -8,6 +8,7 @@ import {
   CardDescription,
   CardHeader,
   CardTitle,
+  ConfirmDialog,
 } from "@koolee/ui";
 
 type CameraState =
@@ -134,7 +135,7 @@ export function CameraCapture() {
 
         <div className="flex flex-wrap gap-2">
           {state.kind !== "live" ? (
-            <Button onClick={() => void start()} disabled={state.kind === "requesting"}>
+            <Button onClick={() => void start()} loading={state.kind === "requesting"}>
               {state.kind === "requesting" ? "Requesting…" : "Start camera"}
             </Button>
           ) : (
@@ -175,9 +176,17 @@ export function CameraCapture() {
               alt="Captured bag photo"
               className="w-full rounded-lg border"
             />
-            <Button variant="ghost" size="sm" onClick={() => setSnapshot(null)}>
-              Discard
-            </Button>
+            <ConfirmDialog
+              destructive
+              title="Discard this photo?"
+              description="You'll need to retake it."
+              trigger={
+                <Button variant="ghost" size="sm">
+                  Discard
+                </Button>
+              }
+              onConfirm={() => setSnapshot(null)}
+            />
           </div>
         )}
       </CardContent>

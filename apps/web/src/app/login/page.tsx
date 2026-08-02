@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { KooleeLogo } from "@koolee/ui";
+import { AppHeader, PageHeader } from "@koolee/ui";
 
 import { sanitizeReturnTo } from "@/lib/return-to";
 import { getCustomerSession } from "@/lib/session";
@@ -9,7 +9,7 @@ import { getCustomerSession } from "@/lib/session";
 import { LoginFlow } from "./login-flow";
 
 export const metadata: Metadata = {
-  title: "Get Started",
+  title: "Welcome back",
   description:
     "Sign in to Koolee with your phone number to book a doorstep luggage pickup, delivered to your airline's bag drop at JFK, LGA, or EWR.",
 };
@@ -29,26 +29,14 @@ export default async function LoginPage({
 
   return (
     <div className="flex min-h-dvh flex-col">
-      <header className="container flex h-16 items-center">
-        <Link
-          href="/"
-          className="rounded-md focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-        >
-          <KooleeLogo />
-        </Link>
-      </header>
+      <AppHeader linkComponent={Link} sticky={false} />
 
       <main className="flex flex-1 items-start justify-center px-6 pb-20 pt-8 sm:items-center sm:pt-0">
         <div className="flex w-full max-w-md flex-col gap-8">
-          <div className="flex flex-col gap-2">
-            <h1 className="font-display text-display-sm font-semibold text-navy-800">
-              Let&apos;s get you packing lighter.
-            </h1>
-            <p className="text-muted-foreground">
-              Sign in — or create your account — with your phone number. No passwords,
-              just a code we text you.
-            </p>
-          </div>
+          <PageHeader
+            title="Welcome back"
+            subtitle="Sign in with your phone number. No passwords, just a code we text you."
+          />
 
           <LoginFlow returnTo={returnTo} />
 
