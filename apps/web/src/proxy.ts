@@ -4,16 +4,20 @@ import { createServerClient } from "@supabase/ssr";
 /**
  * Session refresh + auth gate.
  *
- * Protected: /trips/* and /book/pay (payment onwards). Earlier booking steps
- * stay public — the flow asks for sign-in right before money changes hands.
+ * Protected (verified accounts only — an anonymous funnel session does not
+ * count): /trips/* and /dashboard/*. The payment step (/book/pay) bounces
+ * unverified visitors into the funnel's verification step instead of /login —
+ * the flow asks for verification right before money changes hands, nowhere
+ * else.
  *
  * When Supabase is not configured the gate is open (scaffold convention: the
  * app must be fully navigable with zero credentials).
  */
 
-const PROTECTED = [/^\/trips(\/|$)/, /^\/book\/pay(\/|$)/];
+const VERIFIED_ONLY = [/^\/trips(\/|$)/, /^\/dashboard(\/|$)/];
+const PAY_GATE = /^\/book\/pay(\/|$)/;
 
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   let response = NextResponse.next({ request });
 
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -42,7 +46,9 @@ export async function middleware(request: NextRequest) {
   } = await supabase.auth.getUser();
 
   const { pathname, search } = request.nextUrl;
-  if (!user && PROTECTED.some((pattern) => pattern.test(pathname))) {
+  const verified = Boolean(user) && user?.is_anonymous !== true;
+
+  if (!verified && VERIFIED_ONLY.some((pattern) => pattern.test(pathname))) {
     const loginUrl = request.nextUrl.clone();
     loginUrl.pathname = "/login";
     loginUrl.search = "";
@@ -50,9 +56,16 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(loginUrl);
   }
 
+  if (!verified && PAY_GATE.test(pathname)) {
+    const verifyUrl = request.nextUrl.clone();
+    verifyUrl.pathname = "/book/verify";
+    verifyUrl.search = "";
+    return NextResponse.redirect(verifyUrl);
+  }
+
   return response;
 }
 
 export const config = {
-  matcher: ["/trips/:path*", "/book/:path*", "/login"],
+  matcher: ["/trips/:path*", "/dashboard/:path*", "/book/:path*", "/login"],
 };

@@ -3,6 +3,7 @@ import { Slot } from "@radix-ui/react-slot";
 import { cva, type VariantProps } from "class-variance-authority";
 
 import { cn } from "../lib/utils";
+import { Spinner } from "./spinner";
 
 /**
  * The primary call to action, styled as a luggage tag: rounded tab end with a
@@ -20,7 +21,7 @@ const ctaButtonVariants = cva(
   [
     "group relative inline-flex select-none items-center justify-center gap-2",
     "whitespace-nowrap font-semibold transition-all duration-200 ease-out-expo",
-    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+    "focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring",
     "focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50",
     "[&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0",
   ].join(" "),
@@ -69,17 +70,33 @@ export interface CTAButtonProps
     VariantProps<typeof ctaButtonVariants> {
   /** Render the child element (e.g. a Next.js Link) with tag styling. */
   asChild?: boolean;
+  /** Pending state — see Button. Ignored with `asChild`. */
+  loading?: boolean;
 }
 
 const CTAButton = React.forwardRef<HTMLButtonElement, CTAButtonProps>(
-  ({ className, variant, size, asChild = false, ...props }, ref) => {
+  (
+    { className, variant, size, asChild = false, loading = false, disabled, children, ...props },
+    ref,
+  ) => {
     const Comp = asChild ? Slot : "button";
     return (
       <Comp
         className={cn(ctaButtonVariants({ variant, size, className }))}
         ref={ref}
+        disabled={disabled || (loading && !asChild) || undefined}
+        aria-busy={loading && !asChild ? true : undefined}
         {...props}
-      />
+      >
+        {asChild ? (
+          children
+        ) : (
+          <>
+            {loading ? <Spinner /> : null}
+            {children}
+          </>
+        )}
+      </Comp>
     );
   },
 );

@@ -141,7 +141,7 @@ function PriceEstimator({
               className={cn(
                 "inline-flex size-10 items-center justify-center rounded-full border",
                 "border-input bg-white text-navy-800 transition-colors hover:bg-navy-50",
-                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                "focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring",
                 "disabled:pointer-events-none disabled:opacity-40",
               )}
             >
@@ -162,7 +162,7 @@ function PriceEstimator({
               className={cn(
                 "inline-flex size-10 items-center justify-center rounded-full border",
                 "border-input bg-white text-navy-800 transition-colors hover:bg-navy-50",
-                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                "focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring",
                 "disabled:pointer-events-none disabled:opacity-40",
               )}
             >

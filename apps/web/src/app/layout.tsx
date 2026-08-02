@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Inter, Sora } from "next/font/google";
 import { Toaster } from "@koolee/ui";
 
+import { DevPanel } from "@/components/dev-panel";
 import { optionalEnv } from "@/env";
 
 import "./globals.css";
@@ -50,10 +51,13 @@ export default function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en" suppressHydrationWarning>
+    // data-scroll-behavior keeps Next 16 overriding our CSS smooth-scroll
+    // during SPA navigations (instant scroll-to-top), as 15 did by default.
+    <html lang="en" suppressHydrationWarning data-scroll-behavior="smooth">
       <body className={`${sora.variable} ${inter.variable} min-h-dvh font-sans`}>
         {children}
         <Toaster />
+        <DevPanel />
       </body>
     </html>
   );

@@ -1,6 +1,13 @@
 import Link from "next/link";
 import { format } from "date-fns";
-import { Badge, Card, CardDescription, CardHeader, CardTitle } from "@koolee/ui";
+import {
+  BookingStatusBadge,
+  Button,
+  ContentColumn,
+  DatabaseNotConfigured,
+  EmptyState,
+  PageHeader,
+} from "@koolee/ui";
 import { listBookings, type Booking, type BookingStatus } from "@koolee/core";
 
 import { tryGetCore } from "@/lib/core";
@@ -47,13 +54,11 @@ export default async function BookingsPage({
   }
 
   return (
-    <main className="container flex flex-col gap-6 py-8">
-      <header className="flex flex-col gap-1">
-        <h1 className="text-2xl font-semibold tracking-tight">Bookings</h1>
-        <p className="text-sm text-muted-foreground">
-          {unavailable ? "Database not configured." : `${bookings.length} shown`}
-        </p>
-      </header>
+    <ContentColumn width="full">
+      <PageHeader
+        title="Bookings"
+        subtitle={unavailable ? "Database not configured." : `${bookings.length} shown`}
+      />
 
       <nav className="flex flex-wrap gap-2 text-sm">
         <FilterLink href="/bookings" label="All" active={!filter} />
@@ -68,24 +73,21 @@ export default async function BookingsPage({
       </nav>
 
       {unavailable ? (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Database not configured</CardTitle>
-            <CardDescription>
-              Set <code>DATABASE_URL</code> in <code>.env.local</code>, then run{" "}
-              <code>pnpm db:migrate &amp;&amp; pnpm seed</code>.
-            </CardDescription>
-          </CardHeader>
-        </Card>
+        <DatabaseNotConfigured />
       ) : bookings.length === 0 ? (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">No bookings</CardTitle>
-            <CardDescription>
-              {filter ? `Nothing is ${filter}.` : "No bookings have been made yet."}
-            </CardDescription>
-          </CardHeader>
-        </Card>
+        <EmptyState
+          title="No bookings"
+          description={
+            filter ? `Nothing is ${filter}.` : "No bookings have been made yet."
+          }
+          action={
+            filter ? (
+              <Button asChild variant="outline">
+                <Link href="/bookings">Clear filter</Link>
+              </Button>
+            ) : undefined
+          }
+        />
       ) : (
         <div className="overflow-x-auto rounded-lg border">
           <table className="w-full text-sm">
@@ -120,19 +122,7 @@ export default async function BookingsPage({
                   <td className="px-4 py-2">{booking.bagCount}</td>
                   <td className="px-4 py-2">${(booking.priceCents / 100).toFixed(2)}</td>
                   <td className="px-4 py-2">
-                    <Badge
-                      variant={
-                        booking.status === "exception"
-                          ? "warning"
-                          : booking.status === "cancelled"
-                            ? "destructive"
-                            : booking.status === "completed"
-                              ? "success"
-                              : "secondary"
-                      }
-                    >
-                      {booking.status}
-                    </Badge>
+                    <BookingStatusBadge status={booking.status} />
                   </td>
                 </tr>
               ))}
@@ -140,7 +130,7 @@ export default async function BookingsPage({
           </table>
         </div>
       )}
-    </main>
+    </ContentColumn>
   );
 }
 

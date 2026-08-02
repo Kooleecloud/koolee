@@ -1,6 +1,16 @@
 import Link from "next/link";
 import { format } from "date-fns";
-import { Badge, Button, Card, CardDescription, CardHeader, CardTitle } from "@koolee/ui";
+import {
+  Badge,
+  Card,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+  ContentColumn,
+  DatabaseNotConfigured,
+  EmptyState,
+  PageHeader,
+} from "@koolee/ui";
 import { listAssignedTasks, type PickupTask, type VerificationTask } from "@koolee/core";
 
 import { tryGetCore } from "@/lib/core";
@@ -16,14 +26,15 @@ export default async function TasksPage() {
   const sessionResult = await tryGetAgentSession();
   if ("error" in sessionResult) {
     return (
-      <Shell>
+      <ContentColumn width="narrow">
+        <PageHeader title="My tasks" />
         <Card className="border-destructive/40">
           <CardHeader>
             <CardTitle className="text-base">Not signed in</CardTitle>
             <CardDescription>{sessionResult.error}</CardDescription>
           </CardHeader>
         </Card>
-      </Shell>
+      </ContentColumn>
     );
   }
 
@@ -50,26 +61,15 @@ export default async function TasksPage() {
   }
 
   return (
-    <Shell>
+    <ContentColumn width="narrow">
+      <PageHeader title="My tasks" />
       {unavailable ? (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Database not configured</CardTitle>
-            <CardDescription>
-              Set <code>DATABASE_URL</code> in <code>.env.local</code>, then run{" "}
-              <code>pnpm db:migrate</code>.
-            </CardDescription>
-          </CardHeader>
-        </Card>
+        <DatabaseNotConfigured />
       ) : rows.length === 0 ? (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Nothing assigned</CardTitle>
-            <CardDescription>
-              Verification and pickup tasks assigned to you will appear here.
-            </CardDescription>
-          </CardHeader>
-        </Card>
+        <EmptyState
+          title="Nothing assigned"
+          description="Verification and pickup tasks assigned to you will appear here."
+        />
       ) : (
         <ul className="flex flex-col gap-3">
           {rows.map(({ kind, task }) => (
@@ -96,20 +96,6 @@ export default async function TasksPage() {
           ))}
         </ul>
       )}
-    </Shell>
-  );
-}
-
-function Shell({ children }: { children: React.ReactNode }) {
-  return (
-    <main className="container flex max-w-md flex-col gap-6 py-8">
-      <header className="flex items-center justify-between gap-4">
-        <h1 className="text-xl font-semibold tracking-tight">My tasks</h1>
-        <Button asChild variant="ghost" size="sm">
-          <Link href="/">Home</Link>
-        </Button>
-      </header>
-      {children}
-    </main>
+    </ContentColumn>
   );
 }

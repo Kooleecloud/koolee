@@ -1,33 +1,47 @@
-import {
-  Button,
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-  Input,
-  Label,
-} from "@koolee/ui";
+import { redirect } from "next/navigation";
+import { format } from "date-fns";
+import { FormMessage, Input, Label, PageHeader, Select } from "@koolee/ui";
 
 import { submitFlight } from "@/app/book/actions";
 import { StepForm } from "@/components/step-form";
+import { TicketUpload } from "@/components/ticket-upload";
 import { readDraft } from "@/lib/booking-draft";
 
 export const metadata = { title: "Your flight" };
 export const dynamic = "force-dynamic";
 
-export default async function FlightStepPage() {
+export default async function FlightStepPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ from?: string }>;
+}) {
   const draft = await readDraft();
+  if (!draft.zip) redirect("/book/zip");
+
+  const { from } = await searchParams;
+  const fromTicket = from === "ticket";
+
+  const departureAtDefault = draft.departureAt
+    ? format(new Date(draft.departureAt), "yyyy-MM-dd'T'HH:mm")
+    : "";
 
   return (
     <div className="flex flex-col gap-6">
-      <header className="flex flex-col gap-2">
-        <h1 className="text-2xl font-semibold tracking-tight">Your flight</h1>
-        <p className="text-sm text-muted-foreground">
-          We use your airline&apos;s bag-drop cutoff to work out which pickup windows can
-          still get your bags there in time.
-        </p>
-      </header>
+      <PageHeader
+        title={fromTicket ? "Review your flight details" : "Your flight"}
+        subtitle={
+          fromTicket
+            ? "Here's what we read from your ticket — check every field before continuing."
+            : "We use your airline's bag-drop cutoff to work out which pickup windows can still get your bags there in time."
+        }
+      />
+
+      {fromTicket && (
+        <FormMessage variant="info">
+          We filled this in from your e-ticket. Nothing is booked until you review and
+          continue.
+        </FormMessage>
+      )}
 
       <StepForm action={submitFlight} submitLabel="Continue">
         <div className="grid gap-2">
@@ -44,17 +58,16 @@ export default async function FlightStepPage() {
 
         <div className="grid gap-2">
           <Label htmlFor="departureAirport">Departing from</Label>
-          <select
+          <Select
             id="departureAirport"
             name="departureAirport"
             defaultValue={draft.departureAirport ?? "JFK"}
-            className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             required
           >
             <option value="JFK">JFK — John F. Kennedy</option>
             <option value="LGA">LGA — LaGuardia</option>
             <option value="EWR">EWR — Newark Liberty</option>
-          </select>
+          </Select>
         </div>
 
         <div className="grid gap-2">
@@ -63,22 +76,17 @@ export default async function FlightStepPage() {
             id="departureAt"
             name="departureAt"
             type="datetime-local"
-            defaultValue={draft.departureAt?.slice(0, 16) ?? ""}
+            defaultValue={departureAtDefault}
             required
           />
         </div>
 
         <div className="grid gap-2">
           <Label htmlFor="scope">Destination</Label>
-          <select
-            id="scope"
-            name="scope"
-            defaultValue={draft.scope ?? "domestic"}
-            className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          >
+          <Select id="scope" name="scope" defaultValue={draft.scope ?? "domestic"}>
             <option value="domestic">Domestic</option>
             <option value="international">International</option>
-          </select>
+          </Select>
           <p className="text-xs text-muted-foreground">
             International flights usually have an earlier bag-drop cutoff.
           </p>
@@ -100,19 +108,7 @@ export default async function FlightStepPage() {
         </div>
       </StepForm>
 
-      <Card className="border-dashed">
-        <CardHeader>
-          <CardTitle className="text-base">Upload your ticket instead</CardTitle>
-          <CardDescription>
-            Coming soon — we&apos;ll read the flight details off your e-ticket PDF.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Button type="button" variant="outline" disabled>
-            Upload ticket PDF
-          </Button>
-        </CardContent>
-      </Card>
+      <TicketUpload />
     </div>
   );
 }

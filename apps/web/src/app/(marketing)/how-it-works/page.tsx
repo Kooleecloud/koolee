@@ -152,7 +152,7 @@ export default function HowItWorksPage() {
           </h2>
           <div className="flex flex-wrap items-center justify-center gap-3">
             <CTAButton size="lg" asChild>
-              <Link href="/login">Get Started</Link>
+              <Link href="/book/zip">Book a pickup</Link>
             </CTAButton>
             <CTAButton variant="ghost-inverse" size="lg" asChild>
               <Link href="/pricing">See pricing</Link>

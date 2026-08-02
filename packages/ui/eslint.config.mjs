@@ -1,3 +1,3 @@
 import reactConfig from "@koolee/config/eslint/react";
 
-export default reactConfig;
+export default [{ ignores: ["storybook-static/**"] }, ...reactConfig];

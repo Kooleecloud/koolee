@@ -3,8 +3,8 @@
 import * as React from "react";
 import Link from "next/link";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
-import { CTAButton, Input, Label } from "@koolee/ui";
-import { CheckCircle2 } from "lucide-react";
+import { CTAButton, FormMessage, Input, Label } from "@koolee/ui";
+import { CircleCheck } from "lucide-react";
 
 import { joinWaitlist, type WaitlistState } from "./actions";
 
@@ -31,7 +31,7 @@ export function WaitlistForm() {
             className="flex flex-col items-start gap-3"
             role="status"
           >
-            <CheckCircle2 aria-hidden="true" className="size-8 text-success" />
+            <CircleCheck aria-hidden="true" className="size-8 text-success" />
             <h2 className="font-display text-lg font-semibold text-navy-800">
               You&apos;re on the list.
             </h2>
@@ -47,7 +47,7 @@ export function WaitlistForm() {
             className="flex flex-col items-start gap-3"
             role="status"
           >
-            <CheckCircle2 aria-hidden="true" className="size-8 text-success" />
+            <CircleCheck aria-hidden="true" className="size-8 text-success" />
             <h2 className="font-display text-lg font-semibold text-navy-800">
               Good news — we already cover you.
             </h2>
@@ -56,7 +56,7 @@ export function WaitlistForm() {
               pickup right now.
             </p>
             <CTAButton asChild className="mt-2">
-              <Link href="/book/flight">Book a pickup</Link>
+              <Link href="/book/zip">Book a pickup</Link>
             </CTAButton>
           </motion.div>
         ) : (
@@ -94,12 +94,10 @@ export function WaitlistForm() {
             </div>
 
             {state.status === "error" && state.message ? (
-              <p role="alert" className="text-sm text-destructive">
-                {state.message}
-              </p>
+              <FormMessage variant="error">{state.message}</FormMessage>
             ) : null}
 
-            <CTAButton type="submit" size="lg" className="w-full" disabled={pending}>
+            <CTAButton type="submit" size="lg" className="w-full" loading={pending}>
               {pending ? "Adding you…" : "Join the waitlist"}
             </CTAButton>
           </motion.form>

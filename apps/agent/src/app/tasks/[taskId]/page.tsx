@@ -1,13 +1,17 @@
 import Link from "next/link";
 import { format } from "date-fns";
 import {
-  Badge,
+  BackLink,
+  BookingStatusBadge,
   Button,
   Card,
   CardContent,
   CardDescription,
   CardHeader,
   CardTitle,
+  ContentColumn,
+  DatabaseNotConfigured,
+  PageHeader,
 } from "@koolee/ui";
 import { getBooking, getTimeline, type Booking } from "@koolee/core";
 
@@ -38,18 +42,15 @@ export default async function TaskDetailPage({
   }
 
   return (
-    <main className="container flex max-w-md flex-col gap-6 py-8">
-      <header className="flex items-center justify-between gap-4">
-        <div className="flex flex-col gap-1">
-          <h1 className="text-xl font-semibold tracking-tight">
-            {kind === "pickup" ? "Collect and deliver" : "Verify and seal"}
-          </h1>
-          <p className="font-mono text-xs text-muted-foreground">{taskId}</p>
-        </div>
-        <Button asChild variant="ghost" size="sm">
-          <Link href="/tasks">Back</Link>
-        </Button>
-      </header>
+    <ContentColumn width="narrow">
+      <BackLink href="/tasks" linkComponent={Link} className="self-start">
+        Back
+      </BackLink>
+
+      <PageHeader
+        title={kind === "pickup" ? "Collect and deliver" : "Verify and seal"}
+        subtitle={<span className="font-mono text-xs">{taskId}</span>}
+      />
 
       {booking ? (
         <Card>
@@ -58,7 +59,7 @@ export default async function TaskDetailPage({
               <span>
                 {booking.flightNumber} · {booking.departureAirport}
               </span>
-              <Badge variant="secondary">{booking.status}</Badge>
+              <BookingStatusBadge status={booking.status} />
             </CardTitle>
             <CardDescription>
               Departs {format(booking.departureAt, "EEE d MMM, h:mm a")} · {timelineCount}{" "}
@@ -66,17 +67,17 @@ export default async function TaskDetailPage({
             </CardDescription>
           </CardHeader>
         </Card>
-      ) : (
+      ) : core ? (
         <Card>
           <CardHeader>
             <CardTitle className="text-base">Booking not loaded</CardTitle>
             <CardDescription>
-              {core
-                ? "Pass ?booking=<id> to load booking details for this task."
-                : "Database not configured — set DATABASE_URL in .env.local."}
+              {"Pass ?booking=<id> to load booking details for this task."}
             </CardDescription>
           </CardHeader>
         </Card>
+      ) : (
+        <DatabaseNotConfigured />
       )}
 
       {kind === "verification" ? (
@@ -106,6 +107,6 @@ export default async function TaskDetailPage({
       <Button asChild variant="outline">
         <Link href="/scan">Open camera</Link>
       </Button>
-    </main>
+    </ContentColumn>
   );
 }

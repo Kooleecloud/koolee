@@ -110,7 +110,7 @@ export default function PricingPage() {
             Ready when you are.
           </h2>
           <CTAButton size="lg" asChild>
-            <Link href="/login">Get Started</Link>
+            <Link href="/book/zip">Book a pickup</Link>
           </CTAButton>
         </Reveal>
       </Section>

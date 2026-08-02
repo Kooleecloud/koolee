@@ -1,9 +1,11 @@
 import { and, eq, gte, lte } from "drizzle-orm";
 import { airlineCutoffs, bookings, verificationTasks } from "@koolee/db";
 import { subHours } from "date-fns";
+import { cron } from "inngest";
 
 import type { CoreConfig } from "../config";
 import { minutesUntilCutoff, resolveCutoffMinutes } from "../slots/cutoff";
+import { agentNoShowCheck as agentNoShowCheckEvent, bookingConfirmed } from "./client";
 import type { KooleeInngest } from "./client";
 
 /**
@@ -52,8 +54,11 @@ export function createKooleeFunctions(
    * `setTimeout` would not.
    */
   const pickupReminder = inngest.createFunction(
-    { id: "booking-pickup-reminder", name: "Send pickup reminder SMS" },
-    { event: "booking/confirmed" },
+    {
+      id: "booking-pickup-reminder",
+      name: "Send pickup reminder SMS",
+      triggers: [bookingConfirmed],
+    },
     async ({ event, step, logger }) => {
       const pickupStartAt = new Date(event.data.pickupStartAt);
       const remindAt = subHours(pickupStartAt, REMINDER_LEAD_HOURS);
@@ -115,8 +120,8 @@ export function createKooleeFunctions(
     {
       id: "cutoff-risk-monitor",
       name: "Alert ops on bookings at risk of missing cutoff",
+      triggers: [cron("*/5 * * * *")],
     },
-    { cron: "*/5 * * * *" },
     async ({ step, logger }) => {
       const atRisk = await step.run("scan-in-transit-bookings", async () => {
         const config = getConfig();
@@ -206,8 +211,11 @@ export function createKooleeFunctions(
    * actually began the verification task. If not, escalates to ops.
    */
   const agentNoShowCheck = inngest.createFunction(
-    { id: "agent-no-show-check", name: "Escalate when an agent has not checked in" },
-    { event: "booking/agent_no_show_check" },
+    {
+      id: "agent-no-show-check",
+      name: "Escalate when an agent has not checked in",
+      triggers: [agentNoShowCheckEvent],
+    },
     async ({ event, step, logger }) => {
       const deadline = new Date(
         new Date(event.data.slotStartAt).getTime() + NO_SHOW_GRACE_MINUTES * 60_000,

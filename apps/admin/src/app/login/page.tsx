@@ -7,6 +7,8 @@ import {
   CardDescription,
   CardHeader,
   CardTitle,
+  ContentColumn,
+  PageHeader,
 } from "@koolee/ui";
 
 import { tryGetAdminSession } from "@/lib/session";
@@ -18,8 +20,8 @@ export default async function AdminLoginPage() {
   const result = await tryGetAdminSession();
 
   return (
-    <main className="container flex max-w-md flex-col gap-6 py-10">
-      <h1 className="text-2xl font-semibold tracking-tight">Sign in</h1>
+    <ContentColumn width="narrow">
+      <PageHeader title="Sign in" />
 
       {"error" in result ? (
         <Card className="border-destructive/40">
@@ -57,6 +59,6 @@ export default async function AdminLoginPage() {
           </CardContent>
         </Card>
       )}
-    </main>
+    </ContentColumn>
   );
 }

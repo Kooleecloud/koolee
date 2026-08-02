@@ -6,7 +6,14 @@ import {
   CardDescription,
   CardHeader,
   CardTitle,
+  CTAButton,
+  PageHeader,
 } from "@koolee/ui";
+import { getCustomerById } from "@koolee/core";
+
+import { ConfirmationEmailCard } from "@/components/confirmation-email-card";
+import { getAuthUser } from "@/lib/auth";
+import { tryGetCore } from "@/lib/core";
 
 export const metadata = { title: "Booking confirmed" };
 export const dynamic = "force-dynamic";
@@ -18,15 +25,24 @@ export default async function ConfirmedPage({
 }) {
   const { booking } = await searchParams;
 
+  // Show the email block only when the account has no email yet.
+  const authUser = await getAuthUser();
+  const core = tryGetCore();
+  const userRow =
+    authUser && core ? await getCustomerById(core.db, authUser.id).catch(() => null) : null;
+  const hasEmail = Boolean(userRow?.email ?? authUser?.email);
+
   return (
     <div className="flex flex-col gap-6">
-      <header className="flex flex-col gap-2">
-        <h1 className="text-2xl font-semibold tracking-tight">You&apos;re booked</h1>
-        <p className="text-sm text-muted-foreground">
-          We&apos;ve authorized your payment. You&apos;ll be charged when an agent
-          collects your bags.
-        </p>
-      </header>
+      <PageHeader
+        title={<>You&apos;re booked</>}
+        subtitle={
+          <>
+            We&apos;ve authorized your payment. You&apos;ll be charged when an agent
+            collects your bags.
+          </>
+        }
+      />
 
       <Card>
         <CardHeader>
@@ -62,14 +78,16 @@ export default async function ConfirmedPage({
         </CardContent>
       </Card>
 
+      {!hasEmail && booking ? <ConfirmationEmailCard bookingId={booking} /> : null}
+
       <div className="flex flex-wrap gap-3">
         {booking ? (
-          <Button asChild>
-            <Link href={`/trips/${booking}`}>Track this booking</Link>
-          </Button>
+          <CTAButton asChild>
+            <Link href={`/trips/${booking}`}>Track my pickup</Link>
+          </CTAButton>
         ) : null}
-        <Button asChild variant="outline">
-          <Link href="/">Back home</Link>
+        <Button asChild variant="ghost">
+          <Link href="/dashboard/profile">Complete my profile</Link>
         </Button>
       </div>
     </div>

@@ -11,7 +11,7 @@ export const metadata: Metadata = {
 const SECTIONS = [
   {
     title: "1. The service",
-    body: "Koolee collects checked luggage at a customer's pickup address, applies serialized tamper-evident seals, transports the sealed bags to the departure airport, and delivers them to the customer's airline bag-drop counter. Koolee does not provide airline check-in, does not act as an agent of any airline, and does not transport passengers.",
+    body: "Koolee collects checked luggage at a customer's pickup address, applies serialized tamper-evident seals, transports the sealed bags to the departure airport, and delivers them to the customer's airline bag-drop counter. Koolee does not complete any airline formalities on a customer's behalf, does not act as an agent of any airline, and does not transport passengers.",
   },
   {
     title: "2. Bookings and payment",

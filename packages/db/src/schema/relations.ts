@@ -3,6 +3,7 @@ import { relations } from "drizzle-orm";
 import { airlineCutoffs, airports } from "./airports";
 import { payments, pricingRules } from "./billing";
 import { bags, bookings } from "./bookings";
+import { bookingDrafts } from "./drafts";
 import { custodyEvents } from "./custody";
 import { addresses, agents, drivers, users } from "./identity";
 import { routes } from "./ops";
@@ -17,8 +18,13 @@ import { pickupTasks, verificationTasks } from "./tasks";
 export const usersRelations = relations(users, ({ many, one }) => ({
   addresses: many(addresses),
   bookings: many(bookings),
+  bookingDraft: one(bookingDrafts),
   agent: one(agents),
   driver: one(drivers),
+}));
+
+export const bookingDraftsRelations = relations(bookingDrafts, ({ one }) => ({
+  user: one(users, { fields: [bookingDrafts.userId], references: [users.id] }),
 }));
 
 export const addressesRelations = relations(addresses, ({ one, many }) => ({

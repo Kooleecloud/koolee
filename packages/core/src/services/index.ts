@@ -28,12 +28,37 @@ export {
 export { handlePaymentEvent, type WebhookOutcome } from "./webhooks";
 
 export {
+  attachEmail,
+  attachVerifiedPhone,
+  completeProfile,
+  deleteAnonymousCustomer,
   ensureAddress,
+  ensureCustomerFromAuth,
   ensureCustomerWithAddress,
+  getCustomerById,
+  markEmailVerified,
   upsertCustomerByPhone,
   upsertCustomerFromAuth,
   type AddressInput,
+  type CompleteProfileInput,
+  type EnsureCustomerFromAuthInput,
   type EnsureCustomerWithAddressInput,
   type UpsertCustomerInput,
   type UpsertCustomerFromAuthInput,
 } from "./customers";
+
+export {
+  deleteBookingDraft,
+  getBookingDraft,
+  reparentBookingDraft,
+  upsertBookingDraft,
+  type UpsertBookingDraftInput,
+} from "./booking-drafts";
+
+export {
+  quoteBookingPrice,
+  type QuoteBookingPriceInput,
+  type QuoteBookingPriceResult,
+} from "./quote";
+
+export { sendBookingConfirmationEmail } from "./confirmation-email";

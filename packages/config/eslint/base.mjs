@@ -82,8 +82,6 @@ export const baseConfig = [
       "**/*.config.{js,mjs,cjs,ts}",
       "**/*.setup.{js,mjs,cjs,ts}",
       "**/*.cjs",
-      "**/tailwind-preset.js",
-      "**/theme-tokens.js",
     ],
     languageOptions: {
       globals: { ...globals.node, module: "writable", require: "readonly" },

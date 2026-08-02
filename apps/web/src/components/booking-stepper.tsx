@@ -5,21 +5,28 @@ import { Check } from "lucide-react";
 import { cn } from "@koolee/ui";
 
 const STEPS = [
-  { href: "/book/flight", label: "Flight" },
-  { href: "/book/address", label: "Address" },
-  { href: "/book/bags", label: "Bags" },
-  { href: "/book/slot", label: "Pickup" },
-  { href: "/book/pay", label: "Pay" },
+  { href: "/book/zip", label: "ZIP", also: [] as string[] },
+  { href: "/book/flight", label: "Flight", also: [] as string[] },
+  { href: "/book/address", label: "Address", also: [] as string[] },
+  { href: "/book/bags", label: "Bags", also: [] as string[] },
+  { href: "/book/slot", label: "Pickup", also: [] as string[] },
+  { href: "/book/price", label: "Price", also: [] as string[] },
+  // The verification gate lives between price and payment; highlight "Pay".
+  { href: "/book/pay", label: "Pay", also: ["/book/verify"] },
 ] as const;
 
 /** Progress indicator for the booking flow — knows the current step from the URL. */
 export function BookingStepper() {
   const pathname = usePathname();
-  const currentIndex = STEPS.findIndex((step) => pathname.startsWith(step.href));
+  const currentIndex = STEPS.findIndex(
+    (step) =>
+      pathname.startsWith(step.href) ||
+      step.also.some((alias) => pathname.startsWith(alias)),
+  );
 
   return (
     <nav aria-label="Booking progress" className="border-b bg-white">
-      <ol className="container flex max-w-2xl items-center gap-1 overflow-x-auto py-3">
+      <ol className="container flex max-w-3xl items-center gap-1 overflow-x-auto py-3">
         {STEPS.map((step, i) => {
           const state =
             currentIndex === -1

@@ -25,17 +25,17 @@
     "@date-fns/tz": "^1.2.0",
     "@koolee/db": "workspace:*",
     "date-fns": "^4.1.0",
-    "drizzle-orm": "^0.38.4",
-    "inngest": "^3.29.3",
-    "stripe": "^17.5.0",
-    "zod": "^3.24.1"
+    "drizzle-orm": "^0.45.2",
+    "inngest": "^4.14.0",
+    "stripe": "^22.4.0",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@koolee/config": "workspace:*",
-    "@types/node": "^22.10.7",
-    "eslint": "^9.18.0",
+    "@types/node": "^24.13.3",
+    "eslint": "^10.8.0",
     "postgres": "^3.4.5",
     "typescript": "^5.7.3",
-    "vitest": "^2.1.8"
+    "vitest": "^4.1.10"
   }
 }

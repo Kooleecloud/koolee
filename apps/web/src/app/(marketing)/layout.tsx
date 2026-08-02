@@ -1,7 +1,7 @@
-import Link from "next/link";
 import { MarketingFooter, MarketingNav } from "@koolee/ui";
 
 import { AuthNavActions } from "@/components/auth-nav-actions";
+import { ClientLink } from "@/components/client-link";
 
 const NAV_LINKS = [
   { href: "/how-it-works", label: "How it works" },
@@ -39,11 +39,11 @@ const FOOTER_GROUPS = [
 export default function MarketingLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex min-h-dvh flex-col">
-      <MarketingNav links={NAV_LINKS} linkComponent={Link} actions={<AuthNavActions />} />
+      <MarketingNav links={NAV_LINKS} linkComponent={ClientLink} actions={<AuthNavActions />} />
       <main className="flex-1">{children}</main>
       <MarketingFooter
         groups={FOOTER_GROUPS}
-        linkComponent={Link}
+        linkComponent={ClientLink}
         contactEmail="hello@koolee.nyc"
       />
     </div>

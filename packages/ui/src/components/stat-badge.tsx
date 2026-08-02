@@ -21,7 +21,7 @@ function StatBadge({ icon, label, description, className, ...props }: StatBadgeP
     <div
       className={cn(
         "inline-flex items-center gap-2.5 rounded-full border border-border",
-        "bg-white px-4 py-2 text-sm text-navy-800 shadow-sm",
+        "bg-white px-4 py-2 text-sm text-navy-800 shadow-xs",
         className,
       )}
       {...props}

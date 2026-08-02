@@ -9,7 +9,7 @@ import { z } from "zod";
  */
 
 const optionalString = z.string().min(1).optional().catch(undefined);
-const optionalUrl = z.string().url().optional().catch(undefined);
+const optionalUrl = z.url().optional().catch(undefined);
 
 const schema = z.object({
   NODE_ENV: z

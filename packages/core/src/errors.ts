@@ -17,7 +17,8 @@ export type CoreErrorCode =
   | "NOT_AUTHENTICATED"
   | "NOT_AUTHORIZED"
   | "NOT_FOUND"
-  | "NOT_IMPLEMENTED";
+  | "NOT_IMPLEMENTED"
+  | "CONFLICT";
 
 export abstract class CoreError extends Error {
   abstract readonly code: CoreErrorCode;
@@ -114,6 +115,18 @@ export class NotFoundError extends CoreError {
 
   constructor(what: string, id: string) {
     super(`${what} ${id} not found.`);
+  }
+}
+
+/** A unique identifier (phone, email) already belongs to another account. */
+export class ConflictError extends CoreError {
+  readonly code = "CONFLICT" as const;
+  /** Which identifier collided. */
+  readonly field: "phone" | "email";
+
+  constructor(field: "phone" | "email", message?: string) {
+    super(message ?? `That ${field} already belongs to another account.`);
+    this.field = field;
   }
 }
 

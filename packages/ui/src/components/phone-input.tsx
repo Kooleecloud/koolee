@@ -42,7 +42,7 @@ const PhoneInput = React.forwardRef<HTMLInputElement, PhoneInputProps>(
       <div
         className={cn(
           "flex h-12 w-full items-stretch overflow-hidden rounded-lg border bg-white",
-          "shadow-sm transition-colors focus-within:ring-2 focus-within:ring-ring",
+          "shadow-xs transition-colors focus-within:ring-2 focus-within:ring-ring",
           "focus-within:ring-offset-2",
           invalid ? "border-destructive" : "border-input",
           className,
@@ -65,7 +65,7 @@ const PhoneInput = React.forwardRef<HTMLInputElement, PhoneInputProps>(
           aria-invalid={invalid || undefined}
           className={cn(
             "w-full bg-transparent px-3.5 text-base text-navy-900 placeholder:text-muted-foreground",
-            "focus:outline-none disabled:cursor-not-allowed disabled:opacity-50",
+            "focus:outline-hidden disabled:cursor-not-allowed disabled:opacity-50",
           )}
           {...props}
         />

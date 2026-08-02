@@ -15,6 +15,13 @@
       "when": 1785541723990,
       "tag": "0001_custody_guard_and_rls",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1785652961686,
+      "tag": "0002_auth_profile_fields",
+      "breakpoints": true
     }
   ]
 }

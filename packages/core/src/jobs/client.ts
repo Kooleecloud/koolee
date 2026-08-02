@@ -1,4 +1,4 @@
-import { EventSchemas, Inngest } from "inngest";
+import { Inngest, eventType, staticSchema } from "inngest";
 
 /**
  * Inngest client and event catalogue.
@@ -7,6 +7,10 @@ import { EventSchemas, Inngest } from "inngest";
  * serialised to JSON between steps, and a `Date` would silently arrive as a
  * string on the other side. Being explicit removes a whole class of "why is
  * this a string" bug.
+ *
+ * v4 note: schemas moved from the client (`EventSchemas.fromRecord`) onto
+ * per-event `eventType()` definitions. `staticSchema` keeps the v3 semantics —
+ * compile-time types only, no runtime validation.
  */
 
 export type KooleeEvents = {
@@ -39,25 +43,38 @@ export type KooleeEvents = {
   };
 };
 
+export const bookingConfirmed = eventType("booking/confirmed", {
+  schema: staticSchema<KooleeEvents["booking/confirmed"]["data"]>(),
+});
+
+export const agentNoShowCheck = eventType("booking/agent_no_show_check", {
+  schema: staticSchema<KooleeEvents["booking/agent_no_show_check"]["data"]>(),
+});
+
+export const exceptionRaised = eventType("booking/exception_raised", {
+  schema: staticSchema<KooleeEvents["booking/exception_raised"]["data"]>(),
+});
+
 /**
  * The event key is optional: the local dev server (`pnpm dev:inngest`) does not
  * need one, which keeps the zero-credentials boot requirement intact.
+ *
+ * The signing key lives on the client in v4 (it was a `serve()` option in v3)
+ * and is only needed against Inngest Cloud.
  */
 export interface InngestClientConfig {
   eventKey?: string | undefined;
+  signingKey?: string | undefined;
   isDev?: boolean;
 }
 
-export function createInngestClient(config: InngestClientConfig = {}): Inngest<{
-  id: "koolee";
-  schemas: EventSchemas & { "^": KooleeEvents };
-}> {
+export function createInngestClient(config: InngestClientConfig = {}) {
   return new Inngest({
     id: "koolee",
-    schemas: new EventSchemas().fromRecord<KooleeEvents>(),
     ...(config.eventKey ? { eventKey: config.eventKey } : {}),
+    ...(config.signingKey ? { signingKey: config.signingKey } : {}),
     ...(config.isDev === undefined ? {} : { isDev: config.isDev }),
-  }) as never;
+  });
 }
 
 export type KooleeInngest = ReturnType<typeof createInngestClient>;

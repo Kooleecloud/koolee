@@ -1,4 +1,4 @@
-import { Input, Label } from "@koolee/ui";
+import { Input, Label, PageHeader } from "@koolee/ui";
 
 import { submitAddress } from "@/app/book/actions";
 import { AddressStepForm } from "@/components/address-step-form";
@@ -12,12 +12,7 @@ export default async function AddressStepPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <header className="flex flex-col gap-2">
-        <h1 className="text-2xl font-semibold tracking-tight">Pickup address</h1>
-        <p className="text-sm text-muted-foreground">
-          Where should we collect your bags?
-        </p>
-      </header>
+      <PageHeader title="Pickup address" subtitle="Where should we collect your bags?" />
 
       <AddressStepForm action={submitAddress}>
         <div className="grid gap-2">
