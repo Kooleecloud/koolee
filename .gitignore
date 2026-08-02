@@ -44,3 +44,5 @@ pnpm-debug.log*
 # next-pwa generated service worker artifacts
 apps/agent/public/workbox-*.js
 apps/agent/public/sw.js.map
+
+brand*
