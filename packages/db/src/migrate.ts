@@ -7,7 +7,18 @@ import { migrate } from "drizzle-orm/postgres-js/migrator";
 
 import { createMigrationClient } from "./client";
 
+// Capture what the shell provided BEFORE dotenv fills the gaps. dotenv never
+// overrides variables that are already set, but it cannot help with the
+// cross-variable case: an inline `DATABASE_URL=... pnpm db:migrate` used to be
+// silently ignored because only DIRECT_DATABASE_URL was consulted — and
+// packages/db/.env points that at the cloud project. Shell always wins here.
+const shellDirectUrl = process.env.DIRECT_DATABASE_URL;
+const shellDatabaseUrl = process.env.DATABASE_URL;
+
 loadEnv({ path: [".env.local", ".env", "../../.env.local", "../../.env"], quiet: true });
+
+const connectionString =
+  shellDirectUrl ?? shellDatabaseUrl ?? process.env.DIRECT_DATABASE_URL ?? process.env.DATABASE_URL;
 
 const migrationsFolder = path.join(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -21,9 +32,12 @@ const migrationsFolder = path.join(
  * lock and issues DDL, both of which need a stable backend connection.
  */
 async function main(): Promise<void> {
-  const client = createMigrationClient();
+  const client = createMigrationClient(connectionString);
   const db = drizzle(client);
 
+  // Host only — never the credentials. Migrations silently landing on the
+  // wrong database is exactly the failure this line exists to make visible.
+  console.log(`Target host: ${new URL(connectionString!).hostname}`);
   console.log(`Applying migrations from ${migrationsFolder}`);
   await migrate(db, { migrationsFolder });
   console.log("Migrations applied.");

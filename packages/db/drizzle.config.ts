@@ -2,6 +2,12 @@ import { config as loadEnv } from "dotenv";
 import { defineConfig } from "drizzle-kit";
 
 // Local dev convenience. In CI these come from the environment.
+// Same shell-first rule as src/migrate.ts: an inline DATABASE_URL /
+// DIRECT_DATABASE_URL must beat every dotenv file (packages/db/.env points at
+// the cloud project).
+const shellDirectUrl = process.env.DIRECT_DATABASE_URL;
+const shellDatabaseUrl = process.env.DATABASE_URL;
+
 loadEnv({ path: [".env.local", ".env", "../../.env.local", "../../.env"], quiet: true });
 
 /**
@@ -19,7 +25,12 @@ export default defineConfig({
   schema: "./src/schema/index.ts",
   out: "./drizzle",
   dbCredentials: {
-    url: process.env.DIRECT_DATABASE_URL ?? "postgres://localhost:5432/postgres",
+    url:
+      shellDirectUrl ??
+      shellDatabaseUrl ??
+      process.env.DIRECT_DATABASE_URL ??
+      process.env.DATABASE_URL ??
+      "postgres://localhost:5432/postgres",
   },
   strict: true,
   verbose: true,

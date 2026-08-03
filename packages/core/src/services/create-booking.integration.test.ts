@@ -25,6 +25,7 @@ import {
 import { createCoreConfig, fixedClock, type CoreConfig } from "../config";
 import { OutOfCoverageError, SlotNotSellableError, SlotSoldOutError } from "../errors";
 import { FakePaymentProvider } from "../payments/fake";
+import { errorChainMessage, pgErrorCode } from "../test-utils/db-errors";
 import { createBooking } from "./create-booking";
 
 /**
@@ -66,6 +67,10 @@ describeIntegration("createBooking (integration)", () => {
   let db: Database;
   let paymentProvider: FakePaymentProvider;
   let config: CoreConfig;
+  // Two configs on separate single-connection pools, so the race test's
+  // concurrent callers provably arrive over distinct database connections.
+  let configA: CoreConfig;
+  let configB: CoreConfig;
 
   // A fixed "now" keeps slot sellability deterministic.
   const now = new Date("2025-06-10T10:00:00Z");
@@ -83,6 +88,21 @@ describeIntegration("createBooking (integration)", () => {
     paymentProvider = new FakePaymentProvider();
     config = createCoreConfig({
       db,
+      payments: paymentProvider,
+      clock: fixedClock(now),
+      defaults: { minimumLeadMinutes: 0 },
+    });
+
+    // Like `db` above, these pools are reaped by idle_timeout rather than
+    // closed explicitly — the suite has no handle to end a createDb pool.
+    configA = createCoreConfig({
+      db: createDb({ url: TEST_DATABASE_URL!, max: 1 }),
+      payments: paymentProvider,
+      clock: fixedClock(now),
+      defaults: { minimumLeadMinutes: 0 },
+    });
+    configB = createCoreConfig({
+      db: createDb({ url: TEST_DATABASE_URL!, max: 1 }),
       payments: paymentProvider,
       clock: fixedClock(now),
       defaults: { minimumLeadMinutes: 0 },
@@ -226,9 +246,58 @@ describeIntegration("createBooking (integration)", () => {
     expect(slotRow!.bookedCount).toBe(1);
   });
 
+  /**
+   * Runs concurrent bookings that all provably race at the capacity claim.
+   *
+   * A gate transaction pins the slot row FOR UPDATE. Plain reads don't block,
+   * so every caller passes the sellability pre-check, then queues on its
+   * conditional-UPDATE claim. The gate opens only after all of them are
+   * observed waiting on the lock — losers therefore fail at the locked claim
+   * (SlotSoldOutError), never at the pre-check (SlotNotSellableError). Without
+   * the gate the loser's error depends on timing, which is exactly the
+   * flakiness this avoids.
+   */
+  async function raceAtSlotClaim(launch: () => Promise<unknown>[]) {
+    let openGate!: () => void;
+    const gateOpened = new Promise<void>((resolve) => (openGate = resolve));
+    let signalLockHeld!: () => void;
+    const lockHeld = new Promise<void>((resolve) => (signalLockHeld = resolve));
+
+    const gate = sqlClient.begin(async (tx) => {
+      await tx`SELECT id FROM slots WHERE id = ${slotId} FOR UPDATE`;
+      signalLockHeld();
+      await gateOpened;
+    });
+    await lockHeld;
+
+    const attempts = launch();
+
+    // The poll pattern is anchored (no leading %) and the polling query's own
+    // text starts with whitespace, so it never matches itself.
+    let allQueued = false;
+    const deadline = Date.now() + 10_000;
+    while (!allQueued && Date.now() < deadline) {
+      const rows = await db.execute(sql`
+        SELECT count(*)::int AS waiting
+        FROM pg_stat_activity
+        WHERE wait_event_type = 'Lock' AND query LIKE 'update "slots"%'
+      `);
+      allQueued = Number(rows[0]?.waiting) >= attempts.length;
+      if (!allQueued) await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    openGate();
+    await gate;
+
+    const results = await Promise.allSettled(attempts);
+    expect(allQueued, "every claim must reach the slot row lock before it releases").toBe(
+      true,
+    );
+    return results;
+  }
+
   it("does not oversell a slot under concurrency", async () => {
-    // capacity 2, three simultaneous attempts.
-    const results = await Promise.allSettled([
+    // capacity 2, three attempts racing at the claim.
+    const results = await raceAtSlotClaim(() => [
       createBooking(config, input()),
       createBooking(config, input()),
       createBooking(config, input()),
@@ -251,10 +320,43 @@ describeIntegration("createBooking (integration)", () => {
     expect(bookingRows).toHaveLength(2);
   });
 
-  it("rolls back completely when the slot is already full", async () => {
+  it("settles a race for the last seat at the row lock: one winner, one SlotSoldOutError", async () => {
+    // Exactly one seat remaining; two real concurrent calls over two separate
+    // connections (configA/B each own a single-connection pool).
+    await db.update(slots).set({ bookedCount: 1 }).where(eq(slots.id, slotId));
+
+    const results = await raceAtSlotClaim(() => [
+      createBooking(configA, input()),
+      createBooking(configB, input()),
+    ]);
+
+    const fulfilled = results.filter((r) => r.status === "fulfilled");
+    const rejected = results.filter((r) => r.status === "rejected");
+    expect(fulfilled).toHaveLength(1);
+    expect(rejected).toHaveLength(1);
+    expect((rejected[0] as PromiseRejectedResult).reason).toBeInstanceOf(SlotSoldOutError);
+
+    const [slotRow] = await db.select().from(slots).where(eq(slots.id, slotId));
+    expect(slotRow!.bookedCount).toBe(2);
+    expect(slotRow!.bookedCount).toBeLessThanOrEqual(slotRow!.capacity);
+
+    // The loser's transaction rolled back whole — only the winner's rows exist.
+    expect(await db.select().from(bookings)).toHaveLength(1);
+    expect(await db.select().from(payments)).toHaveLength(1);
+  });
+
+  it("refuses a slot already full at request time, writing nothing", async () => {
     await db.update(slots).set({ bookedCount: 2 }).where(eq(slots.id, slotId));
 
-    await expect(createBooking(config, input())).rejects.toThrow(SlotSoldOutError);
+    // Known-full at request time is the sellability pre-check's job —
+    // SlotSoldOutError is reserved for losing the race at the row lock
+    // (covered by the concurrency tests above).
+    const error = await createBooking(config, input()).then(
+      () => null,
+      (e: unknown) => e,
+    );
+    expect(error).toBeInstanceOf(SlotNotSellableError);
+    expect((error as SlotNotSellableError).reason).toBe("at_capacity");
 
     expect(await db.select().from(bookings)).toHaveLength(0);
     expect(await db.select().from(bags)).toHaveLength(0);
@@ -435,20 +537,34 @@ describeIntegration("custody_events append-only trigger", () => {
       .values({ bookingId: booking!.id, eventType: "booking.created" })
       .returning();
 
-    await expect(
-      db
-        .update(custodyEvents)
-        .set({ eventType: "tampered" })
-        .where(eq(custodyEvents.id, event!.id)),
-    ).rejects.toThrow(/append-only/);
+    // drizzle wraps Postgres errors in DrizzleQueryError ("Failed query: …");
+    // the trigger's message and SQLSTATE live on the cause chain. The trigger
+    // raises ERRCODE 'restrict_violation' (23001) — assert that too, since a
+    // code is a more stable contract than message text.
+    const updateError = await db
+      .update(custodyEvents)
+      .set({ eventType: "tampered" })
+      .where(eq(custodyEvents.id, event!.id))
+      .then(() => null, (e: unknown) => e);
+    expect(updateError).toBeInstanceOf(Error);
+    expect(errorChainMessage(updateError)).toMatch(/append-only/);
+    expect(pgErrorCode(updateError)).toBe("23001");
 
-    await expect(
-      db.delete(custodyEvents).where(eq(custodyEvents.id, event!.id)),
-    ).rejects.toThrow(/append-only/);
+    const deleteError = await db
+      .delete(custodyEvents)
+      .where(eq(custodyEvents.id, event!.id))
+      .then(() => null, (e: unknown) => e);
+    expect(deleteError).toBeInstanceOf(Error);
+    expect(errorChainMessage(deleteError)).toMatch(/append-only/);
+    expect(pgErrorCode(deleteError)).toBe("23001");
 
-    await expect(sqlClient.unsafe(`TRUNCATE custody_events`)).rejects.toThrow(
-      /append-only/,
-    );
+    // Raw postgres.js is not wrapped, but the helpers handle a chain of one.
+    const truncateError = await sqlClient
+      .unsafe(`TRUNCATE custody_events`)
+      .then(() => null, (e: unknown) => e);
+    expect(truncateError).toBeInstanceOf(Error);
+    expect(errorChainMessage(truncateError)).toMatch(/append-only/);
+    expect(pgErrorCode(truncateError)).toBe("23001");
 
     // The supported way to correct the record.
     await db.insert(custodyEvents).values({
@@ -470,4 +586,3 @@ describeIntegration("custody_events append-only trigger", () => {
 
 // Referenced so the imports stay honest if the suite is skipped.
 void subMinutes;
-void sql;
