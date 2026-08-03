@@ -185,9 +185,6 @@ what happens without it.
 | `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` | Stripe → Developers → API keys                                                       | Mounting Stripe Elements                     | Checkout shows the dev payment path                                                |
 | `INNGEST_EVENT_KEY`                  | Inngest Cloud → Events → Event keys                                                  | Sending events to Inngest Cloud              | Works against `pnpm dev:inngest`                                                   |
 | `INNGEST_SIGNING_KEY`                | Inngest Cloud → Deploy → Signing key                                                 | Serving functions to Inngest Cloud           | Works against `pnpm dev:inngest`                                                   |
-| `TWILIO_ACCOUNT_SID`                 | Twilio Console                                                                       | Real SMS                                     | `ConsoleNotifier` logs instead                                                     |
-| `TWILIO_AUTH_TOKEN`                  | Twilio Console                                                                       | Real SMS                                     | As above                                                                           |
-| `TWILIO_MESSAGING_SERVICE_SID`       | Twilio → Messaging → Services                                                        | Real SMS                                     | As above                                                                           |
 | `RESEND_API_KEY`                     | Resend → API Keys                                                                    | Real email                                   | `ConsoleNotifier` logs instead                                                     |
 | `AEROAPI_KEY`                        | FlightAware AeroAPI                                                                  | Flight lookup                                | Stubbed — flight details are typed in                                              |
 | `GOOGLE_MAPS_API_KEY`                | Google Cloud → Maps Platform                                                         | Real drive-time and address autocomplete     | Fixed drive-time estimate is used                                                  |
@@ -320,7 +317,8 @@ Listed so nobody goes looking for it:
   implemented; it is not yet threaded through.
 - **Ticket-PDF extraction with Claude.** The upload button is present and
   disabled.
-- **Real AeroAPI, Maps, Twilio, Resend integrations.** Interfaces and stubs
-  only.
+- **Real AeroAPI, Maps, custody-SMS, Resend integrations.** Interfaces and
+  stubs only. Auth OTP SMS already works — Supabase Auth owns it end-to-end
+  and its provider credentials live in the Supabase dashboard, not app env.
 - **React Native.**
 - **Vercel deploy config** beyond the repo being deploy-ready.

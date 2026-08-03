@@ -7,3 +7,9 @@ export {
   type OpsAlerter,
   type SmsMessage,
 } from "./notifier";
+
+export {
+  NoopDispatcher,
+  type NotificationChannel,
+  type NotificationDispatcher,
+} from "./dispatcher";

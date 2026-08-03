@@ -88,8 +88,8 @@ export function createKooleeFunctions(
           return { sent: false, reason: "cancelled" };
         }
 
-        // TODO(twilio): ConsoleNotifier is the default. Wire the real Twilio
-        // implementation and this starts sending for free.
+        // TODO(notifications): ConsoleNotifier is the default. Wire the real
+        // SMS adapter (notifications work item) and this starts sending for free.
         await config.notifier.sendSms({
           to: event.data.customerPhone,
           body:

@@ -212,8 +212,10 @@ export async function submitFlight(
 
   // First server-side persistence: anonymous session (when available) + the
   // user-owned draft row. Failure degrades to cookie-only state — never blocks.
+  // The Turnstile token comes from the field mounted on the flight form;
+  // Supabase verifies it during signInAnonymously.
   try {
-    await ensureDraftSession();
+    await ensureDraftSession(str(form, "turnstileToken") || null);
   } catch (error) {
     console.error("[book] ensureDraftSession failed", error);
   }

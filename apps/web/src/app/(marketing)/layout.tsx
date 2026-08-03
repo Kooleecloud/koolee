@@ -2,6 +2,7 @@ import { MarketingFooter, MarketingNav } from "@koolee/ui";
 
 import { AuthNavActions } from "@/components/auth-nav-actions";
 import { ClientLink } from "@/components/client-link";
+import { SITE } from "@/lib/site";
 
 const NAV_LINKS = [
   { href: "/how-it-works", label: "How it works" },
@@ -44,7 +45,7 @@ export default function MarketingLayout({ children }: { children: React.ReactNod
       <MarketingFooter
         groups={FOOTER_GROUPS}
         linkComponent={ClientLink}
-        contactEmail="hello@koolee.nyc"
+        contactEmail={SITE.contactEmail}
       />
     </div>
   );

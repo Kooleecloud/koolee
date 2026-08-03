@@ -9,19 +9,27 @@ import {
   ConflictError,
   deleteAnonymousCustomer,
   ensureCustomerFromAuth,
+  reconcileEmailClaims,
+  reconcilePhoneClaims,
+  recordOtpSend,
   reparentBookingDraft,
   sendBookingConfirmationEmail,
 } from "@koolee/core";
 
+import { optionalEnv } from "@/env";
 import { tryGetCore } from "@/lib/core";
 import { syncDraftRow } from "@/lib/draft-sync";
 import { toE164UsCa } from "@/lib/phone";
 import { sanitizeReturnTo } from "@/lib/return-to";
 import { deleteAuthUser } from "@/lib/supabase/admin";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
-import { verifyTurnstileToken } from "@/lib/turnstile";
 
 /**
+ * OTP delivery is owned by Supabase Auth (provider: Twilio Verify).
+ * Credentials live ONLY in the Supabase dashboard — never in app env.
+ * Do not import the Twilio SDK here. Codes are generated and validated by
+ * Twilio Verify; Supabase never sees them and neither do we.
+ *
  * Auth server actions: anonymous draft session, the OTP gate (Screens A/B),
  * returning sign-in, and post-booking email attach.
  *
@@ -35,8 +43,8 @@ export type AuthErrorCode =
   | "captcha_failed"
   | "resend_capped"
   | "rate_limited"
-  | "phone_conflict"
-  | "email_conflict"
+  | "PHONE_EXISTS"
+  | "EMAIL_EXISTS"
   | "otp_invalid"
   | "not_configured"
   | "provider_error";
@@ -119,19 +127,104 @@ function isOtpInvalid(error: SupabaseishError): boolean {
   );
 }
 
-async function requireTurnstile(token: string | null): Promise<AuthActionResult> {
-  const hdrs = await headers();
-  const remoteIp =
-    hdrs.get("cf-connecting-ip") ?? hdrs.get("x-forwarded-for")?.split(",")[0] ?? null;
-  const verdict = await verifyTurnstileToken(token, { remoteIp });
-  if (!verdict.ok) {
+/**
+ * Turnstile verification is performed by Supabase Auth, not by us: the client
+ * token is forwarded as `options.captchaToken` and GoTrue calls siteverify
+ * with the secret that lives only in the Supabase dashboard. This app never
+ * calls siteverify and holds no Turnstile secret.
+ *
+ * With no site key configured (fresh clone) the widget never rendered, so a
+ * missing token is only an error when the widget was supposed to be there.
+ * `updateUser()` cannot carry a token — those sends are covered by the
+ * captcha-gated session + the `guardUpgradeSend` throttle instead.
+ */
+function requireCaptchaToken(
+  token: string | null,
+): AuthActionResult<{ token?: string }> {
+  if (!token && optionalEnv("NEXT_PUBLIC_TURNSTILE_SITE_KEY")) {
     return {
       ok: false,
       code: "captcha_failed",
       message: "We couldn't confirm you're human. Refresh and try again.",
     };
   }
+  return { ok: true, ...(token ? { token } : {}) };
+}
+
+function captchaOptions(token: string | undefined): { captchaToken?: string } {
+  return token ? { captchaToken: token } : {};
+}
+
+/**
+ * The two controls that stand in for the captcha on `updateUser()` sends
+ * (anonymous → permanent upgrade), run BEFORE Supabase triggers the SMS/email:
+ *
+ *  1. server-side throttle — 3 sends / user / 15 min, 5 sends / destination /
+ *     60 min across all users (`otp_send_log`);
+ *  2. claim reconciliation — abandoned anonymous sessions holding the same
+ *     phone/email in `auth.users.phone_change`/`email_change` are deleted so
+ *     `verifyOtp` cannot attach the identifier to the wrong row, and an
+ *     existing PERMANENT account is reported as a conflict before any SMS is
+ *     sent (no verification fee, no error-message parsing).
+ */
+async function guardUpgradeSend(input: {
+  userId: string;
+  destination: string;
+  kind: "phone" | "email";
+  conflictMessage: string;
+}): Promise<AuthActionResult> {
+  const core = tryGetCore();
+  // No database: scaffold degrade — Supabase's own limits still apply.
+  if (!core) return { ok: true };
+
+  const allowance = await recordOtpSend(core.db, {
+    userId: input.userId,
+    destination: input.destination,
+    kind: input.kind,
+  });
+  if (!allowance.allowed) {
+    return { ok: false, code: "rate_limited", message: RATE_LIMIT_COPY };
+  }
+
+  try {
+    const reconciled =
+      input.kind === "phone"
+        ? await reconcilePhoneClaims(core.db, input.destination, {
+            currentUserId: input.userId,
+            deleteAuthUser,
+          })
+        : await reconcileEmailClaims(core.db, input.destination, {
+            currentUserId: input.userId,
+            deleteAuthUser,
+          });
+    if (reconciled.conflict) {
+      return {
+        ok: false,
+        code: input.kind === "phone" ? "PHONE_EXISTS" : "EMAIL_EXISTS",
+        message: input.conflictMessage,
+      };
+    }
+  } catch (error) {
+    // A database without GoTrue (local docker Postgres) has no auth.users —
+    // there is nothing to reconcile against. Anything else fails closed:
+    // sending with an unresolved claim is the wrong-user bug this exists for.
+    if (isMissingAuthSchema(error)) return { ok: true };
+    console.error("[auth] claim reconciliation failed", error);
+    return {
+      ok: false,
+      code: "provider_error",
+      message: "We couldn't send a code just now. Try again in a minute.",
+    };
+  }
+
   return { ok: true };
+}
+
+/** Postgres 42P01 (undefined_table), possibly wrapped by drizzle. */
+function isMissingAuthSchema(error: unknown): boolean {
+  if (typeof error !== "object" || error === null) return false;
+  const candidate = error as { code?: string; cause?: { code?: string } };
+  return candidate.code === "42P01" || candidate.cause?.code === "42P01";
 }
 
 /* ------------------------------------------------------------------ */
@@ -149,8 +242,14 @@ export interface DraftSessionState {
  * confirmed). Creates the anonymous Supabase session + `public.users` row +
  * draft row — or degrades to cookie-only state when anonymous sign-ins are
  * disabled, in which case the user is created at the OTP gate instead.
+ *
+ * `captchaToken` comes from the Turnstile field mounted on the flight form:
+ * with CAPTCHA protection enabled on the Supabase project,
+ * `signInAnonymously` fails without one.
  */
-export async function ensureDraftSession(): Promise<DraftSessionState> {
+export async function ensureDraftSession(
+  captchaToken: string | null = null,
+): Promise<DraftSessionState> {
   const supabase = await getSupabaseServerClient();
   if (!supabase) return { userId: null, anonymousAvailable: false };
 
@@ -163,7 +262,9 @@ export async function ensureDraftSession(): Promise<DraftSessionState> {
   const anonymousAvailable = true;
 
   if (!uid) {
-    const { data, error } = await supabase.auth.signInAnonymously();
+    const { data, error } = await supabase.auth.signInAnonymously({
+      options: captchaOptions(captchaToken ?? undefined),
+    });
     if (error || !data.user) {
       // Most likely `anonymous_provider_disabled` — the funnel continues on
       // cookie state and the user is created at the verification gate.
@@ -223,7 +324,7 @@ export async function sendOtp(
   }
   const { turnstileToken, intent } = parsed.data;
 
-  const captcha = await requireTurnstile(turnstileToken);
+  const captcha = requireCaptchaToken(turnstileToken);
   if (!captcha.ok) return captcha;
 
   const supabase = await getSupabaseServerClient();
@@ -248,12 +349,23 @@ export async function sendOtp(
     } = await supabase.auth.getUser();
 
     if (user && intent === "upgrade") {
+      // `updateUser` cannot carry a captchaToken — throttle and reconcile
+      // BEFORE Supabase sends anything (see guardUpgradeSend).
+      const guard = await guardUpgradeSend({
+        userId: user.id,
+        destination: email,
+        kind: "email",
+        conflictMessage: "That email already has bookings with us — sign in to continue.",
+      });
+      if (!guard.ok) return guard;
+
       const { error } = await supabase.auth.updateUser({ email });
       if (error) {
+        // Defensive fallback only — reconciliation reports conflicts first.
         if (isEmailExists(error)) {
           return {
             ok: false,
-            code: "email_conflict",
+            code: "EMAIL_EXISTS",
             message:
               "That email already has bookings with us — sign in to continue.",
           };
@@ -268,7 +380,7 @@ export async function sendOtp(
 
     const { error } = await supabase.auth.signInWithOtp({
       email,
-      options: { shouldCreateUser: true },
+      options: { shouldCreateUser: true, ...captchaOptions(captcha.token) },
     });
     if (error) {
       if (isRateLimit(error)) {
@@ -304,12 +416,25 @@ export async function sendOtp(
   // Anonymous (or signed-in) user attaching/changing a phone: phone_change OTP,
   // same uid before and after.
   if (user && intent === "upgrade") {
+    // `updateUser` cannot carry a captchaToken — throttle and reconcile
+    // BEFORE Supabase sends the SMS (see guardUpgradeSend). A permanent
+    // account holding this number comes back as `PHONE_EXISTS` here,
+    // before any verification fee is incurred.
+    const guard = await guardUpgradeSend({
+      userId: user.id,
+      destination: e164,
+      kind: "phone",
+      conflictMessage: CONFLICT_COPY,
+    });
+    if (!guard.ok) return guard;
+
     const { error } = await supabase.auth.updateUser({ phone: e164 });
     if (error) {
+      // Defensive fallback only — reconciliation reports conflicts first.
       if (isPhoneExists(error)) {
         return {
           ok: false,
-          code: "phone_conflict",
+          code: "PHONE_EXISTS",
           message: CONFLICT_COPY,
         };
       }
@@ -327,7 +452,7 @@ export async function sendOtp(
   const conflictFromUid = user && user.is_anonymous === true ? user.id : undefined;
   const { error } = await supabase.auth.signInWithOtp({
     phone: e164,
-    ...(turnstileToken ? { options: { captchaToken: turnstileToken } } : {}),
+    options: captchaOptions(captcha.token),
   });
   if (error) {
     if (isRateLimit(error)) {
@@ -436,7 +561,7 @@ export async function verifyOtp(
       if (dbError instanceof ConflictError) {
         return {
           ok: false,
-          code: dbError.field === "phone" ? "phone_conflict" : "email_conflict",
+          code: dbError.field === "phone" ? "PHONE_EXISTS" : "EMAIL_EXISTS",
           message: CONFLICT_COPY,
         };
       }
@@ -466,7 +591,7 @@ export async function sendMagicLink(
     return { ok: false, code: "invalid_input", message: "Enter a valid email address." };
   }
 
-  const captcha = await requireTurnstile(parsed.data.turnstileToken);
+  const captcha = requireCaptchaToken(parsed.data.turnstileToken);
   if (!captcha.ok) return captcha;
 
   const supabase = await getSupabaseServerClient();
@@ -484,6 +609,7 @@ export async function sendMagicLink(
     options: {
       shouldCreateUser: false,
       emailRedirectTo: `${origin}/auth/callback?next=${encodeURIComponent(next)}`,
+      ...captchaOptions(captcha.token),
     },
   });
 
@@ -535,12 +661,23 @@ export async function attachEmailPostBooking(
     return { ok: false, code: "provider_error", message: "Your session has expired." };
   }
 
+  // Same guarded path as every other `updateUser` send: throttle first,
+  // reconcile `email_change` claims, and report an existing account before
+  // Supabase sends anything.
+  const guard = await guardUpgradeSend({
+    userId: user.id,
+    destination: email,
+    kind: "email",
+    conflictMessage: "That email already belongs to another account.",
+  });
+  if (!guard.ok) return guard;
+
   // Fire the Supabase confirmation email; never block the screen on it.
   const { error } = await supabase.auth.updateUser({ email });
   if (error && isEmailExists(error)) {
     return {
       ok: false,
-      code: "email_conflict",
+      code: "EMAIL_EXISTS",
       message: "That email already belongs to another account.",
     };
   }
@@ -560,7 +697,7 @@ export async function attachEmailPostBooking(
       if (dbError instanceof ConflictError) {
         return {
           ok: false,
-          code: "email_conflict",
+          code: "EMAIL_EXISTS",
           message: "That email already belongs to another account.",
         };
       }

@@ -1,5 +1,7 @@
 import { ImageResponse } from "next/og";
 
+import { SITE } from "@/lib/site";
+
 /**
  * Social share card: inverse Tag-K lockup on navy, tagline, coverage line.
  * The lockup is inline SVG (baked outlines from brand/logo-full-inverse.svg)
@@ -95,11 +97,11 @@ export default async function OpenGraphImage() {
             }}
           >
             <div style={{ fontSize: 52, fontWeight: 600, color: "#F4F7FA" }}>
-              Fly Hassle-Free.
+              {SITE.tagline}.
             </div>
             <div style={{ fontSize: 26, color: "#AEBFD6" }}>
-              Doorstep luggage pickup — delivered to your airline&apos;s bag drop ·
-              JFK · LGA · EWR
+              Doorstep luggage pickup — delivered to your airline&apos;s bag drop ·{" "}
+              {SITE.airports.join(" · ")}
             </div>
           </div>
         ) : null}

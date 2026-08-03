@@ -1,6 +1,8 @@
 import { and, eq, exists, lt, not } from "drizzle-orm";
 import { bookingDrafts, bookings, users, type Database } from "@koolee/db";
 
+import { pruneOtpSendLog } from "../auth/otp-throttle";
+
 /**
  * Abandoned-draft + anonymous-user GC.
  *
@@ -38,6 +40,8 @@ export interface CleanupAnonymousUsersResult {
   deletedDrafts: number;
   skippedWithBookings: number;
   authDeleteFailures: number;
+  /** OTP-throttle log rows past the 24h retention horizon, deleted. */
+  prunedOtpSends: number;
 }
 
 export async function cleanupAnonymousUsers(
@@ -110,15 +114,25 @@ export async function cleanupAnonymousUsers(
     }
   }
 
+  let prunedOtpSends = 0;
+  try {
+    prunedOtpSends = await pruneOtpSendLog(db, { now });
+  } catch (error) {
+    log(
+      `otp_send_log prune failed: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+
   const result: CleanupAnonymousUsersResult = {
     scanned: stale.length,
     deletedUsers,
     deletedDrafts,
     skippedWithBookings,
     authDeleteFailures,
+    prunedOtpSends,
   };
   log(
-    `scanned=${result.scanned} deletedUsers=${result.deletedUsers} deletedDrafts=${result.deletedDrafts} skippedWithBookings=${result.skippedWithBookings} authDeleteFailures=${result.authDeleteFailures}`,
+    `scanned=${result.scanned} deletedUsers=${result.deletedUsers} deletedDrafts=${result.deletedDrafts} skippedWithBookings=${result.skippedWithBookings} authDeleteFailures=${result.authDeleteFailures} prunedOtpSends=${result.prunedOtpSends}`,
   );
   return result;
 }

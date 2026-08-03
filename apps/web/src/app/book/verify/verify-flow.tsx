@@ -11,7 +11,7 @@ import {
   type OtpMode,
   type SendOtpSuccess,
 } from "@/actions/auth";
-import { TurnstileWidget } from "@/components/turnstile-widget";
+import { TurnstileGate, type TurnstileGateHandle } from "@/components/auth/turnstile-gate";
 
 /**
  * Screens A + B of the payment-gate verification, per the auth-flow spec:
@@ -48,7 +48,7 @@ export function VerifyFlow({
   const [sent, setSent] = React.useState<SendOtpSuccess | null>(null);
   const [otpKey, setOtpKey] = React.useState(0);
   const [shake, setShake] = React.useState(0);
-  const turnstileToken = React.useRef<string | null>(null);
+  const turnstile = React.useRef<TurnstileGateHandle>(null);
 
   React.useEffect(() => {
     if (resendIn <= 0) return;
@@ -72,16 +72,21 @@ export function VerifyFlow({
     setBusy(true);
     setError(null);
 
+    // Tokens are single-use: mint a fresh one per send.
+    const token = (await turnstile.current?.getToken()) ?? null;
+
     const result = await sendOtp({
       ...(channel === "phone" ? { phone: target! } : { email: target! }),
-      turnstileToken: turnstileToken.current,
+      turnstileToken: token,
       intent: opts.intent,
       isResend: opts.isResend ?? false,
     });
     setBusy(false);
 
     if (!result.ok) {
-      if (result.code === "phone_conflict") {
+      // Returning customer ("Welcome back"): route into sign-in, not a
+      // generic failure. Both codes are canonical — see AuthErrorCode.
+      if (result.code === "PHONE_EXISTS" || result.code === "EMAIL_EXISTS") {
         setConflict(true);
         setError(result.message);
         return;
@@ -138,6 +143,10 @@ export function VerifyFlow({
 
   return (
     <div className="flex flex-col gap-6">
+      {/* Outside AnimatePresence: resends from the code screen still need
+          fresh tokens, so the gate must survive the screen swap. */}
+      <TurnstileGate ref={turnstile} />
+
       <AnimatePresence mode="wait" initial={false}>
         {screen === "contact" ? (
           <motion.div
@@ -214,19 +223,15 @@ export function VerifyFlow({
                 </div>
               )}
 
-              <TurnstileWidget
-                onToken={(token) => {
-                  turnstileToken.current = token;
-                }}
-              />
-
               {error ? <FormMessage variant="error">{error}</FormMessage> : null}
 
               <CTAButton type="submit" size="lg" className="w-full" loading={busy}>
                 {busy
                   ? "Sending…"
                   : conflict
-                    ? "Sign in with this number"
+                    ? channel === "phone"
+                      ? "Sign in with this number"
+                      : "Sign in with this email"
                     : channel === "phone"
                       ? "Text me a code"
                       : "Email me a code"}

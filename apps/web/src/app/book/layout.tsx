@@ -2,6 +2,7 @@ import Link from "next/link";
 import { AppFooter, AppHeader, Button, ContentColumn } from "@koolee/ui";
 
 import { BookingStepper } from "@/components/booking-stepper";
+import { ContactEmailLink } from "@/components/contact-email-link";
 
 export default function BookLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -22,12 +23,7 @@ export default function BookLayout({ children }: { children: React.ReactNode }) 
       <AppFooter>
         Every pickup is ID-verified, sealed with a serialized tag, and photographed at
         each hand-off. Questions?{" "}
-        <a
-          href="mailto:hello@koolee.nyc"
-          className="text-sky-700 underline underline-offset-4 hover:text-sky-600"
-        >
-          hello@koolee.nyc
-        </a>
+        <ContactEmailLink />
       </AppFooter>
     </div>
   );

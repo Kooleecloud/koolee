@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { Reveal, Section, SectionHeader } from "@koolee/ui";
 
+import { ContactEmailLink } from "@/components/contact-email-link";
+
 export const metadata: Metadata = {
   title: "Terms of Service",
   description:
@@ -65,12 +67,7 @@ export default function TermsPage() {
         </div>
         <p className="mt-10 text-sm text-muted-foreground">
           Questions about these terms:{" "}
-          <a
-            href="mailto:hello@koolee.nyc"
-            className="text-sky-700 underline underline-offset-4 hover:text-sky-600"
-          >
-            hello@koolee.nyc
-          </a>
+          <ContactEmailLink />
         </p>
       </Reveal>
     </Section>

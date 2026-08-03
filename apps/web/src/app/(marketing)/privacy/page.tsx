@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { Reveal, Section, SectionHeader } from "@koolee/ui";
 
+import { ContactEmailLink } from "@/components/contact-email-link";
+
 export const metadata: Metadata = {
   title: "Privacy Policy",
   description:
@@ -61,12 +63,7 @@ export default function PrivacyPage() {
         </div>
         <p className="mt-10 text-sm text-muted-foreground">
           Privacy questions:{" "}
-          <a
-            href="mailto:hello@koolee.nyc"
-            className="text-sky-700 underline underline-offset-4 hover:text-sky-600"
-          >
-            hello@koolee.nyc
-          </a>
+          <ContactEmailLink />
         </p>
       </Reveal>
     </Section>

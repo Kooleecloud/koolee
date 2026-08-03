@@ -4,6 +4,7 @@ import { Toaster } from "@koolee/ui";
 
 import { DevPanel } from "@/components/dev-panel";
 import { optionalEnv } from "@/env";
+import { SITE } from "@/lib/site";
 
 import "./globals.css";
 
@@ -29,17 +30,15 @@ const appUrl = optionalEnv("NEXT_PUBLIC_APP_URL") ?? "http://localhost:3000";
 export const metadata: Metadata = {
   metadataBase: new URL(appUrl),
   title: {
-    default: "Koolee — Fly Hassle-Free",
-    template: "%s · Koolee",
+    default: SITE.title,
+    template: SITE.titleTemplate,
   },
-  description:
-    "Doorstep luggage pickup in NYC. We seal your bags at your door and deliver them to your airline's bag drop at JFK, LGA, or EWR — so you walk into the airport carrying nothing.",
+  description: SITE.description,
   openGraph: {
-    siteName: "Koolee",
+    siteName: SITE.name,
     type: "website",
-    title: "Koolee — Fly Hassle-Free",
-    description:
-      "Doorstep luggage pickup, sealed and delivered to your airline's bag drop at JFK, LGA, and EWR.",
+    title: SITE.title,
+    description: SITE.ogDescription,
   },
 };
 

@@ -1,6 +1,10 @@
 import type { Database } from "@koolee/db";
 
 import {
+  NoopDispatcher,
+  type NotificationDispatcher,
+} from "./notifications/dispatcher";
+import {
   ConsoleNotifier,
   ConsoleOpsAlerter,
   type Notifier,
@@ -50,6 +54,8 @@ export interface CoreConfig {
   db: Database;
   payments: PaymentProvider;
   notifier: Notifier;
+  /** Custody-event customer notifications. Noop until the notifications work item. */
+  dispatcher: NotificationDispatcher;
   opsAlerter: OpsAlerter;
   clock: Clock;
   defaults: CoreDefaults;
@@ -59,6 +65,7 @@ export interface CoreConfigInput {
   db: Database;
   payments: PaymentProvider;
   notifier?: Notifier;
+  dispatcher?: NotificationDispatcher;
   opsAlerter?: OpsAlerter;
   clock?: Clock;
   defaults?: Partial<CoreDefaults>;
@@ -70,6 +77,7 @@ export function createCoreConfig(input: CoreConfigInput): CoreConfig {
     db: input.db,
     payments: input.payments,
     notifier: input.notifier ?? new ConsoleNotifier(),
+    dispatcher: input.dispatcher ?? new NoopDispatcher(),
     opsAlerter: input.opsAlerter ?? new ConsoleOpsAlerter(),
     clock: input.clock ?? systemClock,
     defaults: { ...DEFAULTS, ...input.defaults },

@@ -5,6 +5,7 @@ export * from "./airports";
 export * from "./slots";
 export * from "./bookings";
 export * from "./drafts";
+export * from "./otp";
 export * from "./custody";
 export * from "./tasks";
 export * from "./ops";

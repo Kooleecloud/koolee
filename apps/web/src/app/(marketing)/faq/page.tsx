@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { FAQAccordion, Reveal, Section, SectionHeader } from "@koolee/ui";
 
+import { ContactEmailLink } from "@/components/contact-email-link";
 import { FAQS } from "@/lib/faq";
 
 export const metadata: Metadata = {
@@ -28,12 +29,7 @@ export default function FAQPage() {
           <FAQAccordion items={FAQS} defaultOpenId="safety" />
           <p className="mt-10 text-sm text-muted-foreground">
             Still curious?{" "}
-            <a
-              href="mailto:hello@koolee.nyc"
-              className="text-sky-700 underline underline-offset-4 hover:text-sky-600"
-            >
-              hello@koolee.nyc
-            </a>
+            <ContactEmailLink />
           </p>
         </Reveal>
       </Section>

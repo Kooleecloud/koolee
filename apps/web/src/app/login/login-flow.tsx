@@ -5,7 +5,7 @@ import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { CTAButton, FormMessage, formatUsPhone, Input, Label, OTPInput, PhoneInput, toE164 } from "@koolee/ui";
 
 import { type SendOtpSuccess } from "@/actions/auth";
-import { TurnstileWidget } from "@/components/turnstile-widget";
+import { TurnstileGate, type TurnstileGateHandle } from "@/components/auth/turnstile-gate";
 
 import { sendMagicLink, sendOtp, verifyOtp } from "./actions";
 
@@ -32,7 +32,7 @@ export function LoginFlow({ returnTo }: { returnTo: string | null }) {
   const [resends, setResends] = React.useState(0);
   const [sent, setSent] = React.useState<SendOtpSuccess | null>(null);
   const [otpKey, setOtpKey] = React.useState(0);
-  const turnstileToken = React.useRef<string | null>(null);
+  const turnstile = React.useRef<TurnstileGateHandle>(null);
 
   React.useEffect(() => {
     if (resendIn <= 0) return;
@@ -50,9 +50,12 @@ export function LoginFlow({ returnTo }: { returnTo: string | null }) {
     setBusy(true);
     setError(null);
 
+    // Tokens are single-use: mint a fresh one per send.
+    const token = (await turnstile.current?.getToken()) ?? null;
+
     const result = await sendOtp({
       phone: e164,
-      turnstileToken: turnstileToken.current,
+      turnstileToken: token,
       intent: "signin",
       isResend,
     });
@@ -103,9 +106,11 @@ export function LoginFlow({ returnTo }: { returnTo: string | null }) {
     setBusy(true);
     setError(null);
 
+    const token = (await turnstile.current?.getToken()) ?? null;
+
     const result = await sendMagicLink({
       email: email.trim().toLowerCase(),
-      turnstileToken: turnstileToken.current,
+      turnstileToken: token,
       next: returnTo ?? "/trips",
     });
     setBusy(false);
@@ -128,6 +133,10 @@ export function LoginFlow({ returnTo }: { returnTo: string | null }) {
 
   return (
     <div className="rounded-2xl border border-border bg-white p-6 shadow-lift sm:p-8">
+      {/* Outside AnimatePresence so resends from the code step and the email
+          step share one gate that survives screen swaps. */}
+      <TurnstileGate ref={turnstile} />
+
       <AnimatePresence mode="wait" initial={false}>
         {step === "phone" && (
           <motion.form
@@ -154,12 +163,6 @@ export function LoginFlow({ returnTo }: { returnTo: string | null }) {
                 invalid={Boolean(error)}
               />
             </div>
-
-            <TurnstileWidget
-              onToken={(token) => {
-                turnstileToken.current = token;
-              }}
-            />
 
             {error ? <FormMessage variant="error">{error}</FormMessage> : null}
 
@@ -274,12 +277,6 @@ export function LoginFlow({ returnTo }: { returnTo: string | null }) {
                 className="h-12 rounded-lg bg-white px-3.5 text-base"
               />
             </div>
-
-            <TurnstileWidget
-              onToken={(token) => {
-                turnstileToken.current = token;
-              }}
-            />
 
             {error ? <FormMessage variant="error">{error}</FormMessage> : null}
 

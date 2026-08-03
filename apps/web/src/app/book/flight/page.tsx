@@ -3,6 +3,7 @@ import { format } from "date-fns";
 import { FormMessage, Input, Label, PageHeader, Select } from "@koolee/ui";
 
 import { submitFlight } from "@/app/book/actions";
+import { TurnstileFormField } from "@/components/auth/turnstile-gate";
 import { StepForm } from "@/components/step-form";
 import { TicketUpload } from "@/components/ticket-upload";
 import { readDraft } from "@/lib/booking-draft";
@@ -106,6 +107,11 @@ export default async function FlightStepPage({
             Our agent checks this against your photo ID at pickup.
           </p>
         </div>
+
+        {/* Confirming this form creates the anonymous Supabase session, which
+            needs a captchaToken once CAPTCHA protection is on. Invisible;
+            never blocks paint. */}
+        <TurnstileFormField />
       </StepForm>
 
       <TicketUpload />

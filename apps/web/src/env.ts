@@ -10,6 +10,8 @@ import { z } from "zod";
  *    code path that genuinely needs it executes — call `requireEnv()` there.
  *  - Malformed values degrade to `undefined` with a dev warning rather than
  *    crashing the process.
+ *  - ONE exception: OTP_LOG_HMAC_KEY is validated at import whenever
+ *    DATABASE_URL is set — see the boot check below `requireEnv`.
  *
  * NEXT_PUBLIC_* vars are referenced as literal `process.env.X` member
  * expressions so the Next compiler can inline them into the client bundle.
@@ -40,8 +42,16 @@ const schema = z.object({
   SUPABASE_SERVICE_ROLE_KEY: optionalString,
 
   // --- Bot protection (Cloudflare Turnstile) ------------------------------
+  // Site key only. The SECRET key lives in the Supabase dashboard (Auth →
+  // Attack Protection): Supabase verifies the captchaToken we forward on
+  // auth calls, so this app never calls siteverify.
   NEXT_PUBLIC_TURNSTILE_SITE_KEY: optionalString,
-  TURNSTILE_SECRET_KEY: optionalString,
+
+  // --- OTP send-log hashing ------------------------------------------------
+  // Server-side only. HMAC key for otp_send_log.destination_hash; the OTP
+  // throttle persists hashes, never plaintext phones/emails. Required (min
+  // 32 chars) whenever DATABASE_URL is set — enforced at boot below.
+  OTP_LOG_HMAC_KEY: optionalString,
 
   // --- Scheduled jobs ------------------------------------------------------
   /** Shared secret for manually-invoked job routes (/api/jobs/*). */
@@ -57,9 +67,10 @@ const schema = z.object({
   INNGEST_SIGNING_KEY: optionalString,
 
   // --- Notifications -----------------------------------------------------
-  TWILIO_ACCOUNT_SID: optionalString,
-  TWILIO_AUTH_TOKEN: optionalString,
-  TWILIO_MESSAGING_SERVICE_SID: optionalString,
+  // Auth OTP delivery is owned by Supabase Auth; its SMS provider credentials
+  // live ONLY in the Supabase dashboard, never here. Custody-event SMS
+  // credentials land with the notifications work item (NotificationDispatcher
+  // in @koolee/core is the seam).
   RESEND_API_KEY: optionalString,
 
   // --- Third-party data --------------------------------------------------
@@ -91,7 +102,8 @@ const raw = {
   SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY,
 
   NEXT_PUBLIC_TURNSTILE_SITE_KEY: process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY,
-  TURNSTILE_SECRET_KEY: process.env.TURNSTILE_SECRET_KEY,
+
+  OTP_LOG_HMAC_KEY: process.env.OTP_LOG_HMAC_KEY,
 
   CRON_SECRET: process.env.CRON_SECRET,
 
@@ -102,9 +114,6 @@ const raw = {
   INNGEST_EVENT_KEY: process.env.INNGEST_EVENT_KEY,
   INNGEST_SIGNING_KEY: process.env.INNGEST_SIGNING_KEY,
 
-  TWILIO_ACCOUNT_SID: process.env.TWILIO_ACCOUNT_SID,
-  TWILIO_AUTH_TOKEN: process.env.TWILIO_AUTH_TOKEN,
-  TWILIO_MESSAGING_SERVICE_SID: process.env.TWILIO_MESSAGING_SERVICE_SID,
   RESEND_API_KEY: process.env.RESEND_API_KEY,
 
   AEROAPI_KEY: process.env.AEROAPI_KEY,
@@ -142,9 +151,11 @@ const HINTS: Partial<Record<EnvKey, string>> = {
   SUPABASE_SERVICE_ROLE_KEY:
     "Supabase → Project Settings → API → service_role key. Server-side only.",
   NEXT_PUBLIC_TURNSTILE_SITE_KEY:
-    "Cloudflare Dashboard → Turnstile → your site → Site key (invisible mode).",
-  TURNSTILE_SECRET_KEY:
-    "Cloudflare Dashboard → Turnstile → your site → Secret key. Server-side only.",
+    "Cloudflare Dashboard → Turnstile → your site → Site key (invisible mode). " +
+    "The secret key goes in the Supabase dashboard, not in app env.",
+  OTP_LOG_HMAC_KEY:
+    "Generate with `openssl rand -hex 32` (min 32 chars). Rotating it resets " +
+    "OTP rate-limit windows, which is harmless.",
   CRON_SECRET: "Any random string; protects /api/jobs/* manual triggers.",
   INNGEST_EVENT_KEY:
     "Inngest Cloud → Events → Event keys. Not needed for `pnpm dev:inngest`.",
@@ -166,6 +177,22 @@ export function requireEnv(key: EnvKey): string {
 export function optionalEnv(key: EnvKey): string | undefined {
   const value = env[key];
   return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+/*
+ * The one exception to the never-throw contract: with a database configured
+ * the OTP throttle WILL write `destination_hash` rows, so a missing or short
+ * OTP_LOG_HMAC_KEY must fail HERE at env validation — not at the first OTP
+ * send. A fresh clone with no DATABASE_URL still boots green: without a
+ * database the throttle never runs and the key is never read.
+ * `typeof window` guard: the server bundle is where the key matters; client
+ * bundles never see server-side vars and must not throw over their absence.
+ */
+if (typeof window === "undefined" && env.DATABASE_URL) {
+  const key = env.OTP_LOG_HMAC_KEY;
+  if (!key || key.length < 32) {
+    throw new MissingEnvError("OTP_LOG_HMAC_KEY", HINTS.OTP_LOG_HMAC_KEY!);
+  }
 }
 
 export const isDev = env.NODE_ENV === "development";
@@ -202,9 +229,10 @@ export function describeEnvStatus(): ServiceStatus[] {
     },
     {
       service: "Turnstile (bot protection)",
-      configured: has("NEXT_PUBLIC_TURNSTILE_SITE_KEY", "TURNSTILE_SECRET_KEY"),
-      fallback: "OTP sends skip the bot check (dev only — configure for production).",
-      keys: ["NEXT_PUBLIC_TURNSTILE_SITE_KEY", "TURNSTILE_SECRET_KEY"],
+      configured: has("NEXT_PUBLIC_TURNSTILE_SITE_KEY"),
+      fallback:
+        "Auth calls send no captchaToken — enable Supabase CAPTCHA protection only once this is set.",
+      keys: ["NEXT_PUBLIC_TURNSTILE_SITE_KEY"],
     },
     {
       service: "Stripe",
@@ -221,12 +249,6 @@ export function describeEnvStatus(): ServiceStatus[] {
       configured: has("INNGEST_EVENT_KEY"),
       fallback: "Works against the local Inngest dev server (`pnpm dev:inngest`).",
       keys: ["INNGEST_EVENT_KEY", "INNGEST_SIGNING_KEY"],
-    },
-    {
-      service: "Twilio SMS",
-      configured: has("TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN"),
-      fallback: "Notifier logs to console.",
-      keys: ["TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN", "TWILIO_MESSAGING_SERVICE_SID"],
     },
     {
       service: "Resend email",

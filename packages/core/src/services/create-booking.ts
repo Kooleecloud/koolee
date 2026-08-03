@@ -275,6 +275,20 @@ export async function createBooking(
     return updated;
   });
 
+  // The custody chain is open — customer messaging for it routes through the
+  // dispatcher (a logging stub until the notifications work item). Never
+  // blocks or fails the booking.
+  try {
+    await config.dispatcher.send({
+      userId: input.userId,
+      template: "booking.created",
+      data: { bookingId: settled.id, status: settled.status },
+      preferredChannel: "sms",
+    });
+  } catch (error) {
+    console.error("[create-booking] notification dispatch failed", error);
+  }
+
   return { booking: settled, breakdown, payment: auth };
 }
 
