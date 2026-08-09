@@ -27,6 +27,9 @@ export const OTP_USER_WINDOW_MINUTES = 15;
 export const OTP_MAX_SENDS_PER_DESTINATION = 5;
 export const OTP_DESTINATION_WINDOW_MINUTES = 60;
 
+/** The transaction handle drizzle passes to a `db.transaction` callback. */
+export type GuardTx = Parameters<Parameters<Database["transaction"]>[0]>[0];
+
 export interface RecordOtpSendInput {
   /** Supabase auth uid of the session requesting the send. */
   userId: string;
@@ -44,16 +47,88 @@ export interface OtpSendAllowance {
 }
 
 /**
+ * Takes BOTH advisory locks a guarded send serializes on, in fixed order —
+ * user first, then destination. The order is load-bearing: two requests that
+ * lock the same (user, destination) pair in opposite orders can deadlock.
+ *
+ * The user lock is what makes the per-user cap hard under concurrency: with
+ * only the destination lock, one session bursting sends to DIFFERENT numbers
+ * never contends on any lock, and every burst member can pass the count check
+ * before the first row is visible.
+ *
+ * `reconcile-claims.ts` locks only on the destination hash — it reads by
+ * identifier, never by user — so it stays deadlock-free against this pair.
+ */
+export async function acquireOtpSendLocks(
+  tx: GuardTx,
+  userId: string,
+  destinationHash: string,
+): Promise<void> {
+  await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${userId}, 0))`);
+  await tx.execute(
+    sql`select pg_advisory_xact_lock(hashtextextended(${destinationHash}, 0))`,
+  );
+}
+
+/**
+ * The window checks + insert, assuming `acquireOtpSendLocks` already ran in
+ * this transaction. Split out so `guardUpgradeOtpSend` can run the throttle
+ * and claim reconciliation under ONE lock scope (see `upgrade-guard.ts`).
+ */
+export async function checkAndRecordOtpSend(
+  tx: GuardTx,
+  input: { userId: string; destinationHash: string; now: Date },
+): Promise<OtpSendAllowance> {
+  const userWindowStart = new Date(
+    input.now.getTime() - OTP_USER_WINDOW_MINUTES * 60_000,
+  );
+  const destWindowStart = new Date(
+    input.now.getTime() - OTP_DESTINATION_WINDOW_MINUTES * 60_000,
+  );
+
+  const [byUser] = await tx
+    .select({ count: sql<number>`count(*)::int` })
+    .from(otpSendLog)
+    .where(
+      and(eq(otpSendLog.userId, input.userId), gte(otpSendLog.createdAt, userWindowStart)),
+    );
+  if ((byUser?.count ?? 0) >= OTP_MAX_SENDS_PER_USER) {
+    return { allowed: false, reason: "user_capped" as const };
+  }
+
+  const [byDest] = await tx
+    .select({ count: sql<number>`count(*)::int` })
+    .from(otpSendLog)
+    .where(
+      and(
+        eq(otpSendLog.destinationHash, input.destinationHash),
+        gte(otpSendLog.createdAt, destWindowStart),
+      ),
+    );
+  if ((byDest?.count ?? 0) >= OTP_MAX_SENDS_PER_DESTINATION) {
+    return { allowed: false, reason: "destination_capped" as const };
+  }
+
+  await tx.insert(otpSendLog).values({
+    userId: input.userId,
+    destinationHash: input.destinationHash,
+    createdAt: input.now,
+  });
+  return { allowed: true };
+}
+
+/**
  * Checks both rolling windows and, when allowed, records the send. Call this
  * BEFORE the Supabase call that triggers the SMS/email; skip the send when
  * `allowed` is false.
  *
- * Lock, counts, and insert run in ONE transaction, with the per-destination
- * advisory lock taken FIRST: without it, a burst of concurrent requests could
- * each pass the count check before any row is visible, making the limit soft
- * under exactly the conditions it exists to stop. `reconcile-claims.ts` locks
- * on the same key (the destination hash) so the two guards serialize instead
- * of deadlocking.
+ * Locks, counts, and insert run in ONE transaction, locks FIRST: without
+ * them, a burst of concurrent requests could each pass the count checks
+ * before any row is visible, making the limits soft under exactly the
+ * conditions they exist to stop.
+ *
+ * For the upgrade path, prefer `guardUpgradeOtpSend` — it runs this AND claim
+ * reconciliation without releasing the locks in between.
  */
 export async function recordOtpSend(
   db: Database,
@@ -61,45 +136,10 @@ export async function recordOtpSend(
 ): Promise<OtpSendAllowance> {
   const now = input.now ?? new Date();
   const destinationHash = hashDestination(input.destination, input.kind);
-  const userWindowStart = new Date(now.getTime() - OTP_USER_WINDOW_MINUTES * 60_000);
-  const destWindowStart = new Date(
-    now.getTime() - OTP_DESTINATION_WINDOW_MINUTES * 60_000,
-  );
 
   return db.transaction(async (tx) => {
-    await tx.execute(
-      sql`select pg_advisory_xact_lock(hashtextextended(${destinationHash}, 0))`,
-    );
-
-    const [byUser] = await tx
-      .select({ count: sql<number>`count(*)::int` })
-      .from(otpSendLog)
-      .where(
-        and(eq(otpSendLog.userId, input.userId), gte(otpSendLog.createdAt, userWindowStart)),
-      );
-    if ((byUser?.count ?? 0) >= OTP_MAX_SENDS_PER_USER) {
-      return { allowed: false, reason: "user_capped" as const };
-    }
-
-    const [byDest] = await tx
-      .select({ count: sql<number>`count(*)::int` })
-      .from(otpSendLog)
-      .where(
-        and(
-          eq(otpSendLog.destinationHash, destinationHash),
-          gte(otpSendLog.createdAt, destWindowStart),
-        ),
-      );
-    if ((byDest?.count ?? 0) >= OTP_MAX_SENDS_PER_DESTINATION) {
-      return { allowed: false, reason: "destination_capped" as const };
-    }
-
-    await tx.insert(otpSendLog).values({
-      userId: input.userId,
-      destinationHash,
-      createdAt: now,
-    });
-    return { allowed: true };
+    await acquireOtpSendLocks(tx, input.userId, destinationHash);
+    return checkAndRecordOtpSend(tx, { userId: input.userId, destinationHash, now });
   });
 }
 

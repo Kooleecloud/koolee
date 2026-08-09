@@ -264,6 +264,18 @@ otp_expiry = 3600
 # subject = "You have been invited"
 # content_path = "./supabase/templates/invite.html"
 
+# NOTE (koolee): the default magic-link/email-change templates carry only a
+# link, but the app's verify screen asks for the 6-digit code ({{ .Token }}) —
+# the hosted project's dashboard templates include it, so local must too or
+# the email gate cannot be exercised end-to-end against this stack.
+[auth.email.template.magic_link]
+subject = "Your Koolee sign-in code"
+content_path = "./supabase/templates/magic-link.html"
+
+[auth.email.template.email_change]
+subject = "Confirm your new email"
+content_path = "./supabase/templates/email-change.html"
+
 # Uncomment to customize notification email template
 # [auth.email.notification.password_changed]
 # enabled = true

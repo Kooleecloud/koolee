@@ -10,8 +10,9 @@ import { z } from "zod";
  *    code path that genuinely needs it executes — call `requireEnv()` there.
  *  - Malformed values degrade to `undefined` with a dev warning rather than
  *    crashing the process.
- *  - ONE exception: OTP_LOG_HMAC_KEY is validated at import whenever
- *    DATABASE_URL is set — see the boot check below `requireEnv`.
+ *  - TWO exceptions, both server-side boot checks below: OTP_LOG_HMAC_KEY is
+ *    validated at import whenever DATABASE_URL is set, and a production boot
+ *    with Supabase configured must pass `assertProductionSecurityConfig`.
  *
  * NEXT_PUBLIC_* vars are referenced as literal `process.env.X` member
  * expressions so the Next compiler can inline them into the client bundle.
@@ -40,6 +41,14 @@ const schema = z.object({
   NEXT_PUBLIC_SUPABASE_URL: optionalUrl,
   NEXT_PUBLIC_SUPABASE_ANON_KEY: optionalString,
   SUPABASE_SERVICE_ROLE_KEY: optionalString,
+  /**
+   * Declares whether DATABASE_URL points at a database with GoTrue's `auth`
+   * schema. "false" (bare local Postgres) skips claim reconciliation on
+   * upgrade sends — an explicit signal, not the 42P01 error-code sniffing it
+   * replaced. Unset counts as available: a genuinely missing schema then
+   * fails the send loudly instead of silently disabling reconciliation.
+   */
+  AUTH_SCHEMA_AVAILABLE: z.enum(["true", "false"]).optional().catch(undefined),
 
   // --- Bot protection (Cloudflare Turnstile) ------------------------------
   // Site key only. The SECRET key lives in the Supabase dashboard (Auth →
@@ -100,6 +109,7 @@ const raw = {
   NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL,
   NEXT_PUBLIC_SUPABASE_ANON_KEY: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
   SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY,
+  AUTH_SCHEMA_AVAILABLE: process.env.AUTH_SCHEMA_AVAILABLE,
 
   NEXT_PUBLIC_TURNSTILE_SITE_KEY: process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY,
 
@@ -150,6 +160,9 @@ const HINTS: Partial<Record<EnvKey, string>> = {
   NEXT_PUBLIC_SUPABASE_ANON_KEY: "Supabase → Project Settings → API → anon public key.",
   SUPABASE_SERVICE_ROLE_KEY:
     "Supabase → Project Settings → API → service_role key. Server-side only.",
+  AUTH_SCHEMA_AVAILABLE:
+    'Set "false" only when DATABASE_URL is a bare Postgres with no GoTrue ' +
+    "auth schema (local docker). Leave unset against any Supabase project.",
   NEXT_PUBLIC_TURNSTILE_SITE_KEY:
     "Cloudflare Dashboard → Turnstile → your site → Site key (invisible mode). " +
     "The secret key goes in the Supabase dashboard, not in app env.",
@@ -197,6 +210,60 @@ if (typeof window === "undefined" && env.DATABASE_URL) {
 
 export const isDev = env.NODE_ENV === "development";
 export const isProd = env.NODE_ENV === "production";
+
+/**
+ * Whether the database carries GoTrue's `auth` schema, i.e. whether upgrade
+ * sends can (and therefore MUST) reconcile phone/email claims. Unset counts
+ * as available on purpose: against a database that unexpectedly lacks the
+ * schema, reconciliation then fails the send loudly instead of being
+ * silently skipped — only an explicit "false" opts out.
+ */
+export const authSchemaAvailable = env.AUTH_SCHEMA_AVAILABLE !== "false";
+
+/**
+ * Fail-closed production gate for the auth funnel's security config. Each
+ * item, when absent, silently DISABLES a control rather than erroring:
+ *
+ *  - no Turnstile site key → no widget is mounted, so `requireCaptchaToken`
+ *    never demands a token and CAPTCHA is off across the whole funnel;
+ *  - no service-role key → `deleteAuthUser` degrades to a logged no-op and
+ *    reconciliation stops removing orphaned GoTrue users — reinstating the
+ *    phone_change collision bug acceptance tests 15/16 close out;
+ *  - no DATABASE_URL → `guardUpgradeSend` degrades to allow-all: no
+ *    throttle, no reconciliation, while Supabase still sends real SMS;
+ *  - AUTH_SCHEMA_AVAILABLE=false → reconciliation is explicitly skipped,
+ *    which is a dev-only posture.
+ *
+ * Acceptable degradations on a fresh clone; not in production with auth
+ * live. Runs at import (below) whenever a production server has Supabase
+ * configured — without Supabase the funnel is inert and nothing fails open.
+ */
+export function assertProductionSecurityConfig(): void {
+  const missing: string[] = [];
+  if (!optionalEnv("NEXT_PUBLIC_TURNSTILE_SITE_KEY")) {
+    missing.push("NEXT_PUBLIC_TURNSTILE_SITE_KEY (CAPTCHA silently off without it)");
+  }
+  if (!optionalEnv("SUPABASE_SERVICE_ROLE_KEY")) {
+    missing.push("SUPABASE_SERVICE_ROLE_KEY (orphaned auth users never deleted without it)");
+  }
+  if (!optionalEnv("DATABASE_URL")) {
+    missing.push("DATABASE_URL (OTP throttle and claim reconciliation off without it)");
+  }
+  if (env.AUTH_SCHEMA_AVAILABLE === "false") {
+    missing.push('AUTH_SCHEMA_AVAILABLE="false" (claim reconciliation explicitly disabled)');
+  }
+  if (missing.length > 0) {
+    throw new Error(
+      "Refusing to run the auth funnel in production with security config " +
+        `incomplete:\n${missing.map((m) => `  - ${m}`).join("\n")}\n` +
+        "See apps/web/docs/pre-launch-security.md (item 3).",
+    );
+  }
+}
+
+if (typeof window === "undefined" && isProd && env.NEXT_PUBLIC_SUPABASE_URL) {
+  assertProductionSecurityConfig();
+}
 
 /* ------------------------------------------------------------------ */
 /* Dev-only diagnostics                                                */

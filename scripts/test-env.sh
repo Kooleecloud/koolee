@@ -10,7 +10,7 @@
 #
 # SAFETY: every subcommand that touches a database refuses to run unless the
 # resolved DATABASE_URL host is 127.0.0.1 or localhost. There is no bypass
-# flag. See assert_local below. Full docs: docs/local-test-env.md
+# flag. See assert_local below. Full docs: packages/core/docs/local-test-env.md
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -23,7 +23,7 @@ ENV_TEST_FILE="$REPO_ROOT/.env.test"
 CONFIG_TOML="$REPO_ROOT/supabase/config.toml"
 DRIZZLE_DIR="$REPO_ROOT/packages/db/drizzle"
 STATUS_ENV_FILE="/tmp/koolee-supabase-status.env"
-DOCS="docs/local-test-env.md"
+DOCS="packages/core/docs/local-test-env.md"
 
 # ---------------------------------------------------------------- output ----
 if [[ -t 1 ]]; then

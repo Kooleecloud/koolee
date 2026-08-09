@@ -96,10 +96,10 @@ export default async function OpenGraphImage() {
               fontFamily: "Sora",
             }}
           >
-            <div style={{ fontSize: 52, fontWeight: 600, color: "#F4F7FA" }}>
+            <div style={{ display: "flex", fontSize: 52, fontWeight: 600, color: "#F4F7FA" }}>
               {SITE.tagline}.
             </div>
-            <div style={{ fontSize: 26, color: "#AEBFD6" }}>
+            <div style={{ display: "flex", fontSize: 26, color: "#AEBFD6" }}>
               Doorstep luggage pickup — delivered to your airline&apos;s bag drop ·{" "}
               {SITE.airports.join(" · ")}
             </div>

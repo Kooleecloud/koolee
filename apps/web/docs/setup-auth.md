@@ -69,15 +69,25 @@ throttled.
 ## Server-side OTP send throttle (`otp_send_log`)
 
 `guardUpgradeSend` in `apps/web/src/actions/auth.ts`, backed by
-`recordOtpSend` in `packages/core/src/auth/otp-throttle.ts`, runs before every
-`updateUser` send:
+`guardUpgradeOtpSend` in `packages/core/src/auth/upgrade-guard.ts`, runs
+before every `updateUser` send. The throttle and the claim reconciliation
+below execute as **one transaction** holding two advisory locks in fixed
+order — user, then destination — so neither cap goes soft under concurrent
+bursts and no other guarded send can interleave between the two steps:
 
-- max **3** sends per user per rolling **15 minutes**;
+- max **3** sends per user per rolling **15 minutes** (the user lock is what
+  makes this hold across a burst to *different* destinations);
 - max **5** sends per destination per rolling **60 minutes**, across all
   users — this blocks farming one number through fresh anonymous sessions;
 - exceeded → the action returns `rate_limited` and **no SMS is sent**;
 - rows older than 24h are pruned by the daily cleanup job
   (`cleanupAnonymousUsers`).
+
+Whether reconciliation runs is declared by the `AUTH_SCHEMA_AVAILABLE` env
+var (set `"false"` only for a bare local Postgres with no GoTrue schema);
+any unexpected guard failure returns `provider_error` and sends nothing.
+Production boots refuse to start with this security config incomplete
+(`assertProductionSecurityConfig` in `apps/web/src/env.ts`).
 
 ## `phone_change` collision reconciliation
 
@@ -86,9 +96,10 @@ abandoned anonymous sessions that may have written one. Without reconciliation
 `verifyOtp({ type: "phone_change" })` can attach a phone to the wrong row —
 a customer landing in a stranger's session.
 
-`reconcilePhoneClaims` / `reconcileEmailClaims`
-(`packages/core/src/auth/reconcile-claims.ts`) run before every upgrade send,
-under a per-identifier Postgres advisory lock:
+Reconciliation runs inside the guarded transaction above, before every
+upgrade send (standalone `reconcilePhoneClaims` / `reconcileEmailClaims` in
+`packages/core/src/auth/reconcile-claims.ts` remain for direct use), under
+the same per-identifier advisory lock:
 
 - colliding **anonymous** rows are abandoned sessions: their draft,
   `public.users` row, and auth user are deleted;
@@ -100,8 +111,9 @@ under a per-identifier Postgres advisory lock:
 ## Acceptance checks
 
 ```bash
-# No Twilio in auth code, env keys, or imports
-grep -ri "twilio" apps/ packages/ --include='*.ts' --include='*.tsx'
+# No Twilio env keys or imports. (Not a bare "twilio" grep: the mandated
+# provider-ownership comments in auth code legitimately contain the word.)
+grep -riE "TWILIO_|from ['\"]twilio" apps/ packages/ --include='*.ts' --include='*.tsx'
 # No Turnstile secret anywhere
 grep -ri "TURNSTILE_SECRET" .
 ```
