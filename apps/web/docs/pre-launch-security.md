@@ -186,7 +186,12 @@ just the site key type.
 15555550102 = "111111"
 ```
 
-— is what makes local dev and CI possible without a real Twilio spend, and
+— plus `15555550103` and, since 2026-08-09, the **valid-format**
+`13322602829` (added for manual UI testing: the app's libphonenumber
+validation rejects the fictional 555 numbers at the form, so only a
+real-format number can exercise the phone gate; it mirrors the hosted
+project's dashboard test phone) — is what makes local dev and CI possible
+without a real Twilio spend, and
 is exactly what acceptance tests 15/16
 (`packages/core/src/auth/upgrade-guard.integration.test.ts`) depend on. It is
 also, by construction, **a permanent auth bypass**: anyone who knows one of

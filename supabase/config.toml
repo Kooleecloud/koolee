@@ -303,6 +303,14 @@ max_frequency = "1s"
 15555550101 = "654321"
 15555550102 = "111111"
 15555550103 = "222222"
+# The 555 numbers above are what the integration tests use — they are safe
+# BECAUSE they are fictional, but that also means the app's libphonenumber
+# validation rejects them at the form, so they cannot exercise the UI's phone
+# gate. The VALID-format number below exists for manual UI testing only (it
+# mirrors the test phone configured on the hosted project). It raises the
+# stakes of pre-launch-security item 6: this block must NEVER reach the
+# production project.
+13322602829 = "123456"
 
 # Configure logged in session timeouts.
 # [auth.sessions]
