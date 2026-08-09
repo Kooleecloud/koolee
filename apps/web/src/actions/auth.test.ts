@@ -9,6 +9,10 @@ import { sendOtp } from "./auth";
  * these codes into the returning-user ("Welcome back") sign-in branch, and no
  * SMS/verification fee is ever incurred. The mapping itself lives in
  * verify-flow.tsx and is compile-checked against AuthErrorCode.
+ *
+ * Both pre-send controls run through ONE core call, `guardUpgradeOtpSend`
+ * (throttle + reconciliation in a single transaction) — these tests pin the
+ * action's mapping of its result to the client-facing codes.
  */
 
 const ANON_UID = "00000000-0000-4000-8000-0000000000aa";
@@ -17,15 +21,11 @@ const h = vi.hoisted(() => ({
   getUser: vi.fn(),
   updateUser: vi.fn(),
   signInWithOtp: vi.fn(),
-  recordOtpSend: vi.fn(),
-  reconcilePhoneClaims: vi.fn(),
-  reconcileEmailClaims: vi.fn(),
+  guardUpgradeOtpSend: vi.fn(),
 }));
 
 vi.mock("@koolee/core", () => ({
-  recordOtpSend: h.recordOtpSend,
-  reconcilePhoneClaims: h.reconcilePhoneClaims,
-  reconcileEmailClaims: h.reconcileEmailClaims,
+  guardUpgradeOtpSend: h.guardUpgradeOtpSend,
   attachEmail: vi.fn(),
   attachVerifiedPhone: vi.fn(),
   deleteAnonymousCustomer: vi.fn(),
@@ -41,7 +41,7 @@ vi.mock("@koolee/core", () => ({
   },
 }));
 
-vi.mock("@/env", () => ({ optionalEnv: () => undefined }));
+vi.mock("@/env", () => ({ optionalEnv: () => undefined, authSchemaAvailable: true }));
 vi.mock("@/lib/core", () => ({ tryGetCore: () => ({ db: {} }) }));
 vi.mock("@/lib/supabase/admin", () => ({ deleteAuthUser: vi.fn() }));
 vi.mock("@/lib/draft-sync", () => ({ syncDraftRow: vi.fn() }));
@@ -68,11 +68,16 @@ describe("sendOtp — proactive conflict detection", () => {
     h.getUser.mockResolvedValue({
       data: { user: { id: ANON_UID, is_anonymous: true } },
     });
-    h.recordOtpSend.mockResolvedValue({ allowed: true });
+    h.guardUpgradeOtpSend.mockResolvedValue({
+      allowed: true,
+      conflict: false,
+      removedAnonymousUserIds: [],
+    });
   });
 
   it("returns canonical PHONE_EXISTS and attempts no SMS send on a phone conflict", async () => {
-    h.reconcilePhoneClaims.mockResolvedValue({
+    h.guardUpgradeOtpSend.mockResolvedValue({
+      allowed: true,
       conflict: true,
       removedAnonymousUserIds: [],
     });
@@ -91,7 +96,8 @@ describe("sendOtp — proactive conflict detection", () => {
   });
 
   it("returns canonical EMAIL_EXISTS and attempts no email send on an email conflict", async () => {
-    h.reconcileEmailClaims.mockResolvedValue({
+    h.guardUpgradeOtpSend.mockResolvedValue({
+      allowed: true,
       conflict: true,
       removedAnonymousUserIds: [],
     });
@@ -107,27 +113,32 @@ describe("sendOtp — proactive conflict detection", () => {
     expect(h.signInWithOtp).not.toHaveBeenCalled();
   });
 
-  it("hands the throttle the plaintext destination plus its kind — hashing is internal", async () => {
-    h.reconcilePhoneClaims.mockResolvedValue({
-      conflict: false,
-      removedAnonymousUserIds: [],
-    });
+  it("hands the guard the plaintext destination, its kind, and the env's reconcile decision", async () => {
     h.updateUser.mockResolvedValue({ error: null });
 
     await sendOtp({ phone: "3322602829", turnstileToken: null, intent: "upgrade" });
 
-    expect(h.recordOtpSend).toHaveBeenCalledWith(
+    expect(h.guardUpgradeOtpSend).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({
         userId: ANON_UID,
         destination: "+13322602829",
         kind: "phone",
+        // Mirrors `authSchemaAvailable` from @/env — the explicit declaration
+        // that replaced 42P01 error-code sniffing.
+        reconcile: true,
+        deleteAuthUser: expect.any(Function),
       }),
     );
   });
 
-  it("stops at rate_limited before reconciliation or any send", async () => {
-    h.recordOtpSend.mockResolvedValue({ allowed: false, reason: "destination_capped" });
+  it("stops at rate_limited before any send", async () => {
+    h.guardUpgradeOtpSend.mockResolvedValue({
+      allowed: false,
+      reason: "destination_capped",
+      conflict: false,
+      removedAnonymousUserIds: [],
+    });
 
     const result = await sendOtp({
       phone: "3322602829",
@@ -136,7 +147,23 @@ describe("sendOtp — proactive conflict detection", () => {
     });
 
     expect(result).toMatchObject({ ok: false, code: "rate_limited" });
-    expect(h.reconcilePhoneClaims).not.toHaveBeenCalled();
+    expect(h.updateUser).not.toHaveBeenCalled();
+    expect(h.signInWithOtp).not.toHaveBeenCalled();
+  });
+
+  it("fails closed to provider_error when the guard itself throws", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    h.guardUpgradeOtpSend.mockRejectedValue(new Error("relation auth.users does not exist"));
+
+    const result = await sendOtp({
+      phone: "3322602829",
+      turnstileToken: null,
+      intent: "upgrade",
+    });
+
+    // Sending with an unresolved claim is the wrong-user bug the guard
+    // exists for — a broken guard must block the send, not wave it through.
+    expect(result).toMatchObject({ ok: false, code: "provider_error" });
     expect(h.updateUser).not.toHaveBeenCalled();
     expect(h.signInWithOtp).not.toHaveBeenCalled();
   });

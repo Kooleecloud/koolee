@@ -13,9 +13,28 @@ const USER_ID = "00000000-0000-4000-8000-000000000001";
 const PHONE = "+13322602829";
 
 interface FakeDbState {
-  /** Operation order inside the transaction: "lock" | "count" | "insert". */
+  /** Operation order inside the transaction: "lock(<param>)" | "count" | "insert". */
   ops: string[];
   inserted: Array<Record<string, unknown>>;
+}
+
+/**
+ * Values bound into a drizzle sql`` template — everything in `queryChunks`
+ * that is not a StringChunk (its `value` is a string[]) or a nested SQL.
+ */
+function sqlParams(query: unknown): unknown[] {
+  const chunks = (query as { queryChunks?: unknown[] }).queryChunks ?? [];
+  return chunks
+    .filter((c) => {
+      if (typeof c !== "object" || c === null) return true; // raw bound value
+      if ("queryChunks" in c) return false; // nested SQL
+      return !("value" in c && Array.isArray((c as { value: unknown }).value));
+    })
+    .map((c) =>
+      typeof c === "object" && c !== null && "value" in c
+        ? (c as { value: unknown }).value
+        : c,
+    );
 }
 
 /**
@@ -27,8 +46,8 @@ function fakeDb(counts: number[]): { db: Database; state: FakeDbState } {
   const state: FakeDbState = { ops: [], inserted: [] };
   const queue = [...counts];
   const tx = {
-    execute: async () => {
-      state.ops.push("lock");
+    execute: async (query: unknown) => {
+      state.ops.push(`lock(${String(sqlParams(query)[0])})`);
       return [];
     },
     select: () => ({
@@ -76,10 +95,17 @@ describe("recordOtpSend", () => {
     expect(JSON.stringify(state.inserted)).not.toContain("3322602829");
   });
 
-  it("takes the advisory lock before counting or inserting", async () => {
+  it("takes the user lock, then the destination lock, before counting or inserting", async () => {
     const { db, state } = fakeDb([0, 0]);
     await recordOtpSend(db, { userId: USER_ID, destination: PHONE, kind: "phone" });
-    expect(state.ops).toEqual(["lock", "count", "count", "insert"]);
+    // Fixed order is load-bearing: opposite orders on the same pair deadlock.
+    expect(state.ops).toEqual([
+      `lock(${USER_ID})`,
+      `lock(${hashDestination(PHONE, "phone")})`,
+      "count",
+      "count",
+      "insert",
+    ]);
   });
 
   it("puts two differently-formatted spellings of one phone in one bucket", async () => {
@@ -119,7 +145,11 @@ describe("recordOtpSend", () => {
     });
     expect(result).toEqual({ allowed: false, reason: "user_capped" });
     expect(state.inserted).toHaveLength(0);
-    expect(state.ops).toEqual(["lock", "count"]);
+    expect(state.ops).toEqual([
+      `lock(${USER_ID})`,
+      `lock(${hashDestination(PHONE, "phone")})`,
+      "count",
+    ]);
   });
 
   it("caps the destination window without inserting", async () => {

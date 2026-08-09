@@ -169,8 +169,14 @@ sell** rather than guessing. A guessed cutoff is how bags miss flights.
 
 ## Environment
 
-Every variable is optional at boot. This table says what each one unlocks and
-what happens without it.
+Every variable is optional at boot, with two server-side exceptions enforced
+in `apps/web/src/env.ts`: `OTP_LOG_HMAC_KEY` becomes required the moment
+`DATABASE_URL` is set, and a **production** boot with Supabase configured
+refuses to start unless the Turnstile site key, service-role key, and
+`DATABASE_URL` are all present and `AUTH_SCHEMA_AVAILABLE` is not `"false"`
+(`assertProductionSecurityConfig` — each of those, absent, silently disables
+a security control). This table says what each variable unlocks and what
+happens without it.
 
 | Variable                             | Where to get it                                                                      | Required when                                | Without it                                                                         |
 | ------------------------------------ | ------------------------------------------------------------------------------------ | -------------------------------------------- | ---------------------------------------------------------------------------------- |
@@ -179,7 +185,11 @@ what happens without it.
 | `DIRECT_DATABASE_URL`                | Supabase → Settings → Database → Direct connection, port 5432                        | `pnpm db:migrate`, `pnpm db:studio`          | Migrations fail with a named error. `pnpm db:generate` still works — it is offline |
 | `NEXT_PUBLIC_SUPABASE_URL`           | Supabase → Settings → API → Project URL                                              | Browser Realtime / Storage                   | No live timeline updates; no photo upload                                          |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY`      | Supabase → Settings → API → anon public                                              | Browser Realtime / Storage                   | As above                                                                           |
-| `SUPABASE_SERVICE_ROLE_KEY`          | Supabase → Settings → API → service_role                                             | Server-side Storage writes                   | Bag photos are not uploaded                                                        |
+| `SUPABASE_SERVICE_ROLE_KEY`          | Supabase → Settings → API → service_role                                             | Server-side Storage writes; deleting orphaned auth users during claim reconciliation | Bag photos are not uploaded; orphan deletion degrades to a logged no-op (production refuses to boot — see below) |
+| `NEXT_PUBLIC_TURNSTILE_SITE_KEY`     | Cloudflare → Turnstile → site key. The SECRET key lives in the Supabase dashboard    | Mounting the CAPTCHA widget on auth sends    | No widget; auth calls carry no captchaToken — leave Supabase CAPTCHA off (production refuses to boot — see below) |
+| `OTP_LOG_HMAC_KEY`                   | `openssl rand -hex 32` (min 32 chars)                                                | Whenever `DATABASE_URL` is set — enforced at boot | With a database configured, boot fails with a named error                     |
+| `AUTH_SCHEMA_AVAILABLE`              | Set `"false"` ONLY for a bare local Postgres with no GoTrue `auth` schema            | Skipping claim reconciliation against local docker | Unset counts as available; a genuinely missing schema fails the send loudly  |
+| `CRON_SECRET`                        | Any random string                                                                    | Manual `/api/jobs/*` triggers                | Those routes refuse to run                                                         |
 | `STRIPE_SECRET_KEY`                  | Stripe → Developers → API keys                                                       | Real card authorization and capture          | Booking uses `FakePaymentProvider`; no money moves                                 |
 | `STRIPE_WEBHOOK_SECRET`              | Stripe → Developers → Webhooks, or `stripe listen`                                   | Verifying `/api/webhooks/stripe`             | The route rejects every webhook rather than trusting it                            |
 | `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` | Stripe → Developers → API keys                                                       | Mounting Stripe Elements                     | Checkout shows the dev payment path                                                |
@@ -257,6 +267,14 @@ What is covered:
 - **Payments** — the `FakePaymentProvider` authorize → capture → refund state
   machine and its rejections.
 - **Coverage** — ZIP normalisation and the service-area allowlist.
+- **Auth upgrade guard** — destination hashing (never plaintext), both OTP
+  throttle windows, and the merged throttle + claim-reconciliation
+  transaction: lock order, capped-send short-circuit, conflict-still-counted,
+  anonymous-claimant removal. Integration tiers add real-lock concurrency
+  (per-user and per-destination caps under burst) and, against the
+  `pnpm test:env:up` GoTrue stack, acceptance tests 15/16 plus the
+  overlapping-guard serialization test (see
+  [packages/core/docs/local-test-env.md](packages/core/docs/local-test-env.md)).
 - **Integration** — `createBooking` end to end: transactional consistency,
   concurrent overselling (three racing bookings against a capacity of two),
   rollback on a full slot, compensation when payment authorization fails, and

@@ -10,7 +10,12 @@ import {
   FormMessage,
   PageHeader,
 } from "@koolee/ui";
-import { formatWindowInAirportTz, listSellableSlots, type Slot } from "@koolee/core";
+import {
+  CutoffUnknownError,
+  formatWindowInAirportTz,
+  listSellableSlots,
+  type Slot,
+} from "@koolee/core";
 
 import { submitSlot } from "@/app/book/actions";
 import { StepForm } from "@/components/step-form";
@@ -52,7 +57,17 @@ export default async function SlotStepPage() {
     tz = result.tz;
     cutoffMinutes = result.cutoffMinutes;
   } catch (error: unknown) {
-    loadError = error instanceof Error ? error.message : "Could not load pickup windows.";
+    // Refusing to sell without a cutoff on record is a customer-facing
+    // outcome; anything else is infrastructure and its message (raw SQL,
+    // driver detail) must not reach the page.
+    if (error instanceof CutoffUnknownError) {
+      loadError =
+        `We don't have a confirmed bag-drop cutoff for ${draft.airlineIata} at ` +
+        `${draft.departureAirport} yet, so we can't sell a pickup for this flight.`;
+    } else {
+      console.error("[book/slot] failed to load sellable windows", error);
+      loadError = "We couldn't load pickup windows just now. Refresh to try again.";
+    }
   }
 
   return (

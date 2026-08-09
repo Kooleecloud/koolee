@@ -9,14 +9,12 @@ import {
   ConflictError,
   deleteAnonymousCustomer,
   ensureCustomerFromAuth,
-  reconcileEmailClaims,
-  reconcilePhoneClaims,
-  recordOtpSend,
+  guardUpgradeOtpSend,
   reparentBookingDraft,
   sendBookingConfirmationEmail,
 } from "@koolee/core";
 
-import { optionalEnv } from "@/env";
+import { authSchemaAvailable, optionalEnv } from "@/env";
 import { tryGetCore } from "@/lib/core";
 import { syncDraftRow } from "@/lib/draft-sync";
 import { toE164UsCa } from "@/lib/phone";
@@ -177,54 +175,41 @@ async function guardUpgradeSend(input: {
   // No database: scaffold degrade — Supabase's own limits still apply.
   if (!core) return { ok: true };
 
-  const allowance = await recordOtpSend(core.db, {
-    userId: input.userId,
-    destination: input.destination,
-    kind: input.kind,
-  });
-  if (!allowance.allowed) {
-    return { ok: false, code: "rate_limited", message: RATE_LIMIT_COPY };
-  }
-
   try {
-    const reconciled =
-      input.kind === "phone"
-        ? await reconcilePhoneClaims(core.db, input.destination, {
-            currentUserId: input.userId,
-            deleteAuthUser,
-          })
-        : await reconcileEmailClaims(core.db, input.destination, {
-            currentUserId: input.userId,
-            deleteAuthUser,
-          });
-    if (reconciled.conflict) {
+    // Throttle + reconciliation as ONE transaction under one lock scope —
+    // two separate transactions release the destination lock in between,
+    // and concurrent claims on the same number can interleave into the gap.
+    // Whether reconciliation runs at all is the explicit env declaration
+    // (`AUTH_SCHEMA_AVAILABLE`), not error-code sniffing: against a database
+    // that unexpectedly lacks auth.users this now fails closed below.
+    const guard = await guardUpgradeOtpSend(core.db, {
+      userId: input.userId,
+      destination: input.destination,
+      kind: input.kind,
+      reconcile: authSchemaAvailable,
+      deleteAuthUser,
+    });
+    if (!guard.allowed) {
+      return { ok: false, code: "rate_limited", message: RATE_LIMIT_COPY };
+    }
+    if (guard.conflict) {
       return {
         ok: false,
         code: input.kind === "phone" ? "PHONE_EXISTS" : "EMAIL_EXISTS",
         message: input.conflictMessage,
       };
     }
+    return { ok: true };
   } catch (error) {
-    // A database without GoTrue (local docker Postgres) has no auth.users —
-    // there is nothing to reconcile against. Anything else fails closed:
-    // sending with an unresolved claim is the wrong-user bug this exists for.
-    if (isMissingAuthSchema(error)) return { ok: true };
-    console.error("[auth] claim reconciliation failed", error);
+    // Fail closed: sending with an unresolved claim is the wrong-user bug
+    // this guard exists for.
+    console.error("[auth] upgrade-send guard failed", error);
     return {
       ok: false,
       code: "provider_error",
       message: "We couldn't send a code just now. Try again in a minute.",
     };
   }
-
-  return { ok: true };
-}
-
-/** Postgres 42P01 (undefined_table), possibly wrapped by drizzle. */
-function isMissingAuthSchema(error: unknown): boolean {
-  if (typeof error !== "object" || error === null) return false;
-  const candidate = error as { code?: string; cause?: { code?: string } };
-  return candidate.code === "42P01" || candidate.cause?.code === "42P01";
 }
 
 /* ------------------------------------------------------------------ */

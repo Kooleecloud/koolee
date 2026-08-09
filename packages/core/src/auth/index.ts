@@ -24,6 +24,8 @@ export {
 
 export { requireUser, requireVerifiedUser } from "./guards";
 
+export { assertRole } from "./require-role";
+
 export {
   OTP_DESTINATION_WINDOW_MINUTES,
   OTP_MAX_SENDS_PER_DESTINATION,
@@ -41,6 +43,12 @@ export {
   type ReconcileClaimsOptions,
   type ReconcileClaimsResult,
 } from "./reconcile-claims";
+
+export {
+  guardUpgradeOtpSend,
+  type UpgradeSendGuardInput,
+  type UpgradeSendGuardResult,
+} from "./upgrade-guard";
 
 export {
   createDevAdminSessionReader,

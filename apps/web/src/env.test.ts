@@ -40,3 +40,76 @@ describe("env — OTP_LOG_HMAC_KEY boot validation", () => {
     await expect(import("./env")).resolves.toBeDefined();
   });
 });
+
+/**
+ * Fail-closed production gate: with Supabase configured, a production boot
+ * must have the complete auth-funnel security config — each missing piece
+ * silently DISABLES a control instead of erroring (Turnstile key → CAPTCHA
+ * off; service-role key → orphan deletion off; DATABASE_URL → throttle and
+ * reconciliation off; AUTH_SCHEMA_AVAILABLE=false → reconciliation off).
+ */
+describe("env — assertProductionSecurityConfig boot gate", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.resetModules();
+  });
+
+  /** Everything the gate demands, present. Individual tests blank one piece. */
+  function stubCompleteProdConfig(): void {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "https://example.supabase.co");
+    vi.stubEnv("DATABASE_URL", "postgres://localhost:6543/postgres");
+    vi.stubEnv("OTP_LOG_HMAC_KEY", "f".repeat(64));
+    vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "service-role-key");
+    vi.stubEnv("NEXT_PUBLIC_TURNSTILE_SITE_KEY", "1x00000000000000000000BB");
+  }
+
+  it("boots when the production security config is complete", async () => {
+    stubCompleteProdConfig();
+    vi.resetModules();
+    await expect(import("./env")).resolves.toBeDefined();
+  });
+
+  it("throws at import when the Turnstile site key is missing", async () => {
+    stubCompleteProdConfig();
+    vi.stubEnv("NEXT_PUBLIC_TURNSTILE_SITE_KEY", "");
+    vi.resetModules();
+    await expect(import("./env")).rejects.toThrow(/NEXT_PUBLIC_TURNSTILE_SITE_KEY/);
+  });
+
+  it("throws at import when the service-role key is missing", async () => {
+    stubCompleteProdConfig();
+    vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "");
+    vi.resetModules();
+    await expect(import("./env")).rejects.toThrow(/SUPABASE_SERVICE_ROLE_KEY/);
+  });
+
+  it("throws at import when DATABASE_URL is missing (throttle and reconcile would be off)", async () => {
+    stubCompleteProdConfig();
+    vi.stubEnv("DATABASE_URL", "");
+    vi.resetModules();
+    await expect(import("./env")).rejects.toThrow(/DATABASE_URL/);
+  });
+
+  it('throws at import when AUTH_SCHEMA_AVAILABLE is explicitly "false"', async () => {
+    stubCompleteProdConfig();
+    vi.stubEnv("AUTH_SCHEMA_AVAILABLE", "false");
+    vi.resetModules();
+    await expect(import("./env")).rejects.toThrow(/AUTH_SCHEMA_AVAILABLE/);
+  });
+
+  it("does not gate a production boot with no Supabase configured — the funnel is inert", async () => {
+    stubCompleteProdConfig();
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "");
+    vi.stubEnv("NEXT_PUBLIC_TURNSTILE_SITE_KEY", "");
+    vi.resetModules();
+    await expect(import("./env")).resolves.toBeDefined();
+  });
+
+  it("does not gate development boots (fresh-clone contract)", async () => {
+    vi.stubEnv("NODE_ENV", "development");
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "https://example.supabase.co");
+    vi.resetModules();
+    await expect(import("./env")).resolves.toBeDefined();
+  });
+});

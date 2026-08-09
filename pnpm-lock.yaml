@@ -289,6 +289,9 @@ importers:
       '@koolee/config':
         specifier: workspace:*
         version: link:../config
+      '@supabase/supabase-js':
+        specifier: ^2.111.0
+        version: 2.111.0
       '@types/node':
         specifier: ^24.13.3
         version: 24.13.3
