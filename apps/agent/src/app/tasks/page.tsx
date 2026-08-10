@@ -1,6 +1,5 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { format } from "date-fns";
 import {
   Badge,
   ContentColumn,
@@ -8,7 +7,12 @@ import {
   EmptyState,
   PageHeader,
 } from "@koolee/ui";
-import { listAssignedTasks, type PickupTask, type VerificationTask } from "@koolee/core";
+import {
+  formatInstantInAirportTz,
+  listAssignedTasks,
+  type PickupTask,
+  type VerificationTask,
+} from "@koolee/core";
 
 import { tryGetCore } from "@/lib/core";
 import { getAgentSession } from "@/lib/session";
@@ -17,7 +21,8 @@ export const metadata = { title: "My tasks" };
 export const dynamic = "force-dynamic";
 
 type Row =
-  { kind: "verification"; task: VerificationTask } | { kind: "pickup"; task: PickupTask };
+  | { kind: "verification"; task: VerificationTask; tz: string }
+  | { kind: "pickup"; task: PickupTask; tz: string };
 
 export default async function TasksPage() {
   // The role gate: only an active `agent` staff session sees a task list —
@@ -34,8 +39,11 @@ export default async function TasksPage() {
     try {
       const tasks = await listAssignedTasks(core.db, session.userId);
       rows = [
-        ...tasks.verification.map((task) => ({ kind: "verification" as const, task })),
-        ...tasks.pickup.map((task) => ({ kind: "pickup" as const, task })),
+        ...tasks.verification.map((row) => ({ kind: "verification" as const, ...row })),
+        ...tasks.pickup.map((row) => ({ kind: "pickup" as const, ...row })),
+        // Sorted by absolute instant, never by rendered local time: with more
+        // than one airport in the list, a 9 AM Pacific visit would otherwise
+        // sort above a 10 AM Eastern one that happens three hours earlier.
       ].sort(
         (a, b) =>
           (a.task.scheduledStart?.getTime() ?? Infinity) -
@@ -58,7 +66,7 @@ export default async function TasksPage() {
         />
       ) : (
         <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-          {rows.map(({ kind, task }) => (
+          {rows.map(({ kind, task, tz }) => (
             <li key={`${kind}-${task.id}`}>
               <Link
                 href={`/tasks/${task.id}?kind=${kind}`}
@@ -70,7 +78,7 @@ export default async function TasksPage() {
                   </span>
                   <span className="text-sm text-muted-foreground">
                     {task.scheduledStart
-                      ? format(task.scheduledStart, "EEE d MMM, h:mm a")
+                      ? formatInstantInAirportTz(task.scheduledStart, tz)
                       : "Unscheduled"}
                   </span>
                 </span>

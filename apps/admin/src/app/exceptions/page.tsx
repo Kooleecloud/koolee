@@ -1,6 +1,5 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { format } from "date-fns";
 import {
   Button,
   Card,
@@ -13,7 +12,13 @@ import {
   EmptyState,
   PageHeader,
 } from "@koolee/ui";
-import { listBookings, type Booking } from "@koolee/core";
+import {
+  formatInstantInAirportTz,
+  getDisplayZones,
+  listBookings,
+  zoneFor,
+  type Booking,
+} from "@koolee/core";
 
 import { tryGetCore } from "@/lib/core";
 import { getAdminSession } from "@/lib/session";
@@ -40,11 +45,16 @@ export default async function ExceptionsPage() {
   const core = tryGetCore();
 
   let exceptions: Booking[] = [];
+  let zones: Record<string, string> = {};
   let unavailable = core === null;
 
   if (core) {
     try {
-      exceptions = await listBookings(core.db, { status: "exception", limit: 100 });
+      // Exceptions can span airports, so each row renders in its own zone.
+      [exceptions, zones] = await Promise.all([
+        listBookings(core.db, { status: "exception", limit: 100 }),
+        getDisplayZones(core.db),
+      ]);
     } catch {
       unavailable = true;
     }
@@ -74,7 +84,12 @@ export default async function ExceptionsPage() {
                     {booking.flightNumber} · {booking.departureAirport}
                   </span>
                   <span className="text-sm text-muted-foreground">
-                    Departs {format(booking.departureAt, "EEE d MMM, HH:mm")} ·{" "}
+                    Departs{" "}
+                    {formatInstantInAirportTz(
+                      booking.departureAt,
+                      zoneFor(zones, booking.departureAirport),
+                    )}{" "}
+                    ·{" "}
                     {booking.paxName}
                   </span>
                 </span>

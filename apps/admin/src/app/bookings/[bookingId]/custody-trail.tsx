@@ -1,6 +1,5 @@
-import { format } from "date-fns";
 import { Badge, CustodyTimeline, RawDataDisclosure } from "@koolee/ui";
-import type { CustodyEvent } from "@koolee/core";
+import { formatInstantInAirportTz, type CustodyEvent } from "@koolee/core";
 
 import { describeCustodyEvent } from "@/lib/custody-copy";
 
@@ -15,16 +14,19 @@ import { describeCustodyEvent } from "@/lib/custody-copy";
 export function CustodyTrail({
   events,
   signedUrls,
+  tz,
 }: {
   events: CustodyEvent[];
   /** storage path → short-lived signed URL, for evidence photos. */
   signedUrls: Map<string, string>;
+  /** The booking's display zone — the trail must agree with the window above it. */
+  tz: string;
 }) {
   return (
     <CustodyTimeline
       emptyMessage="No custody events yet."
       items={events.map((event, i) => {
-        const { headline, details } = describeCustodyEvent(event);
+        const { headline, details } = describeCustodyEvent(event, tz);
         return {
           id: event.id,
           title: headline,
@@ -49,7 +51,7 @@ export function CustodyTrail({
               ) : null}
             </>
           ),
-          meta: format(event.createdAt, "d MMM yyyy, HH:mm:ss"),
+          meta: formatInstantInAirportTz(event.createdAt, tz),
           metaDateTime: event.createdAt.toISOString(),
           ...(event.photoUrl && signedUrls.has(event.photoUrl)
             ? { photoUrl: signedUrls.get(event.photoUrl), photoAlt: "Custody evidence" }

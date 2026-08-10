@@ -44,10 +44,18 @@ Until then it lives in the app that needs it.
   `default` spans the same `container` as the header, so pages use the full
   frame and cap individual fields themselves · `focused` (max-w-3xl) guided
   step flows (booking funnel, agent visit) · `narrow` (max-w-md) auth forms
-  and small utility screens · `full` is an alias of `default`, kept for
-  existing dense-table callers.
+  and small utility screens · `full` is **genuinely full-bleed** — it drops
+  `container` entirely and keeps only its 1.5rem gutters, for dense
+  operational tables where every column matters more than the centered
+  rhythm. Each variant owns its whole horizontal box, `container` included;
+  before 2026-08-10 `full` still applied `container` and so was a silent
+  alias of `default`.
   Rhythm is fixed: `py-10` page padding, `gap-6` between blocks. `AppFooter`
   takes the same `width` so the footer stays aligned to its page.
+- **Dense tables**: cells and headers get `whitespace-nowrap` — an operator
+  scanning a board reads rows, and a wrapped cell breaks the scan. Nothing is
+  truncated: when columns outgrow the viewport the table scrolls inside its
+  own `overflow-x-auto` wrapper, so the page body never scrolls sideways.
 - **Page titles**: `PageHeader` only. Sora display (`text-display-sm`),
   optional muted subtitle, optional trailing `actions`.
 - **Route states**: every data route ships `loading.tsx` (`PageSkeleton`),

@@ -30,6 +30,7 @@ import type { CoreConfig } from "../config";
 import { NotAuthorizedError, NotFoundError, type Result } from "../errors";
 import { IllegalTransitionError } from "../booking/state-machine";
 import { canActOnBooking, type Session } from "../auth/types";
+import { FALLBACK_DISPLAY_TZ } from "./display-tz";
 
 /**
  * Read and transition services for bookings.
@@ -213,7 +214,12 @@ export interface BookingDetail {
   bagDropCutoffAt: Date | null;
 }
 
-const FALLBACK_TZ = "America/New_York";
+/**
+ * Legacy rows only. Bookings created since `display_tz` landed carry their own
+ * zone; this covers the pre-column rows that the migration backfilled but that
+ * a stale read could still surface as empty.
+ */
+const FALLBACK_TZ = FALLBACK_DISPLAY_TZ;
 
 /**
  * Full booking detail — timeline, bags (with seal ids when present), payment
@@ -235,7 +241,9 @@ export async function getBookingDetailForSession(
         .select()
         .from(bags)
         .where(eq(bags.bookingId, bookingId))
-        .orderBy(asc(bags.createdAt)),
+        // By ordinal, never createdAt: a booking's bags share a timestamp, so
+        // that ordering was a non-deterministic tie (see bags.ordinal).
+        .orderBy(asc(bags.ordinal)),
       db
         .select()
         .from(payments)
@@ -287,7 +295,10 @@ export async function getBookingDetailForSession(
           taskStatus: assignee.taskStatus,
         }
       : null,
-    tz: airportRow?.tz ?? FALLBACK_TZ,
+    // The booking's own snapshot first — that column exists precisely so a
+    // render needs no join. The airport lookup stays as the fallback for rows
+    // written before it, and for the airport-not-found case.
+    tz: booking.displayTz || (airportRow?.tz ?? FALLBACK_TZ),
     bagDropCutoffAt:
       cutoffMinutes === null
         ? null

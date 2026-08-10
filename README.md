@@ -33,7 +33,14 @@ cp packages/db/.env.example packages/db/.env
 # inline. `migrate.ts` prints its target host; read that line before confirming.
 
 pnpm test:env:up               # local Supabase stack (Postgres + GoTrue) on 127.0.0.1
-pnpm db:migrate                # applies migrations over the DIRECT connection
+                               # …also creates/migrates the disposable koolee_test DB
+
+# Migrate the LOCAL database. Pin the URL: bare `pnpm db:migrate` reads
+# packages/db/.env and would target the hosted project (see note above).
+DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres \
+DIRECT_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres \
+  pnpm db:migrate
+
 pnpm seed:local                # reference data + dev staff/customer accounts
 pnpm dev                       # all three apps
 ```
@@ -43,6 +50,19 @@ In a second terminal, for background jobs:
 ```bash
 pnpm dev:inngest               # Inngest dev server, discovers /api/inngest on :3000
 ```
+
+Locally this needs **no credentials** — the client passes
+`isDev: NODE_ENV !== "production"`, so the SDK talks to that dev server and
+ignores Inngest Cloud even when keys are present. A local run therefore never
+appears in the Cloud dashboard; the dev server's own UI is at
+<http://localhost:8288>.
+
+**For production, keys alone are not enough.** All five functions are served
+from `apps/web`, so put `INNGEST_EVENT_KEY` and `INNGEST_SIGNING_KEY` in that
+app's deployed environment (agent and admin need neither), then **sync the app
+to `https://<web-domain>/api/inngest`** in the Inngest dashboard. Crons do not
+fire until that sync happens — it is the step that gets missed. Keys are
+per-environment, so staging gets its own pair.
 
 | App          | Port | What it is                                                 |
 | ------------ | ---- | ---------------------------------------------------------- |
@@ -237,8 +257,8 @@ This table says what each variable unlocks and what happens without it.
 | `STRIPE_WEBHOOK_SECRET`              | Stripe → Developers → Webhooks, or `stripe listen`                                   | Verifying `/api/webhooks/stripe`                                                     | The route rejects every webhook rather than trusting it; the return page's server-side status re-check still advances paid bookings                      |
 | `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` | Stripe → Developers → API keys                                                       | Mounting the Stripe Payment Element                                                  | With no secret key either: the dev payment path. With a secret key set: the pay step refuses loudly (misconfiguration — the browser could never confirm) |
 | `NEXT_PUBLIC_AGENT_APP_URL`          | The agent app's own origin — `http://localhost:3001` locally                         | Admin console building agent invite links                                            | Invite links default to `http://localhost:3001` (production boot refuses — see above)                                                                    |
-| `INNGEST_EVENT_KEY`                  | Inngest Cloud → Events → Event keys                                                  | Sending events to Inngest Cloud                                                      | Works against `pnpm dev:inngest`                                                                                                                         |
-| `INNGEST_SIGNING_KEY`                | Inngest Cloud → Deploy → Signing key                                                 | Serving functions to Inngest Cloud                                                   | Works against `pnpm dev:inngest`                                                                                                                         |
+| `INNGEST_EVENT_KEY`                  | Inngest Cloud → Events → Event keys                                                  | Sending events to Inngest Cloud. One key covers every event name — names are declared in code, not registered in the dashboard. Unused today: nothing calls `inngest.send()` yet | Works against `pnpm dev:inngest`                                                                                                                         |
+| `INNGEST_SIGNING_KEY`                | Inngest Cloud → Deploy → Signing key                                                 | Serving functions to Inngest Cloud — the direction the crons use, so this is the one that matters for the capture sweep | Works against `pnpm dev:inngest`                                                                                                                         |
 | `RESEND_API_KEY`                     | Resend → API Keys                                                                    | Real email                                                                           | `ConsoleNotifier` logs instead                                                                                                                           |
 | `AEROAPI_KEY`                        | FlightAware AeroAPI                                                                  | Flight lookup                                                                        | Stubbed — flight details are typed in                                                                                                                    |
 | `GOOGLE_MAPS_API_KEY`                | Google Cloud → Maps Platform                                                         | Real drive-time and address autocomplete                                             | Fixed drive-time estimate is used                                                                                                                        |
@@ -336,11 +356,35 @@ pnpm --filter @koolee/core test:integration         # reads .env.test
 suites that need only a database, but it has no GoTrue `auth` schema, so the
 auth-acceptance tier needs the Supabase stack.
 
-They migrate and clear the database they are pointed at. **Point them at a
-throwaway instance** — and note that `.env.test` points at the same local
-Postgres the dev servers use, so a run wipes your dev rows. The suite re-seeds
-the dev roster on the way out; a hand-edited pricing rule is the one thing it
-cannot restore. Details in
+**Two databases, one Postgres container** (since 2026-08-10):
+
+| database      | who uses it                                           | safe to wipe?                  |
+| ------------- | ----------------------------------------------------- | ------------------------------ |
+| `postgres`    | the dev servers, GoTrue/Storage, bookings you make     | **no**                         |
+| `koolee_test` | nine of the twelve integration suites                  | yes — that is its whole purpose |
+
+`koolee_test` is a second database inside the container that is already
+running — no extra service. Nine suites point there and can wipe freely.
+
+A guard in `packages/core/vitest.global-setup.ts` **aborts any run** whose
+`TEST_DATABASE_URL` lacks the `__koolee_test_database` marker table, so a
+copied `.env`, a stale export, or `npx vitest run` instead of `pnpm test`
+fails closed instead of emptying your data. Seeing
+`REFUSING TO RUN: database "postgres" has no __koolee_test_database marker`
+means the guard worked — run `pnpm test:db:setup`.
+
+Three suites cannot be isolated: `upgrade-guard`, `staff-auth` and
+`booking-ownership` drive the real GoTrue API *and* read `auth.users` in the
+same connection, and GoTrue only serves `postgres`. The first two preserve
+pre-existing rows; `booking-ownership` wipes and is therefore **skipped
+unless `ALLOW_DEV_DB_WIPE=1`**.
+
+```bash
+pnpm test:db:setup    # create/migrate/mark koolee_test, point .env.test at it
+pnpm test:db:drop     # delete it; test:env:up rebuilds
+```
+
+Details in
 [packages/core/docs/local-test-env.md](packages/core/docs/local-test-env.md).
 
 What is covered:

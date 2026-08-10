@@ -19,6 +19,7 @@ import {
 } from "@koolee/core";
 
 import { confirmBooking } from "@/app/book/actions";
+import { BookedFromTzField } from "@/components/booked-from-tz-field";
 import { StepForm } from "@/components/step-form";
 import { StripeCheckout } from "@/components/stripe-checkout";
 import { readDraft } from "@/lib/booking-draft";
@@ -276,6 +277,7 @@ export default async function PayStepPage({
           </Card>
 
           <StepForm action={confirmBooking} submitLabel="Book with test payment">
+            <BookedFromTzField />
             {needsContactPhone && (
               <div className="grid gap-2">
                 <Label htmlFor="contactPhone">

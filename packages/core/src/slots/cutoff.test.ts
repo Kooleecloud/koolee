@@ -9,11 +9,13 @@ import {
   airportLocalInstant,
   computeBagDropCutoffAt,
   computeLatestPickupStart,
+  dstTransitionNote,
   formatDayInAirportTz,
   formatHourRangeInAirportTz,
   formatWindowInAirportTz,
   minutesUntilCutoff,
   resolveCutoffMinutes,
+  zoneAbbrev,
 } from "./cutoff";
 
 const NY = "America/New_York";
@@ -379,7 +381,7 @@ describe("formatWindowInAirportTz", () => {
       new Date("2025-06-10T18:00:00Z"), // 14:00 EDT
       NY,
     );
-    expect(text).toBe("Tue 10 Jun, 10:00 AM – 2:00 PM");
+    expect(text).toBe("Tue 10 Jun, 10:00 AM – 2:00 PM EDT");
   });
 
   it("spells out both dates when the window crosses local midnight", () => {
@@ -388,7 +390,7 @@ describe("formatWindowInAirportTz", () => {
       new Date("2025-06-11T06:00:00Z"), // 02:00 EDT on 11 Jun
       NY,
     );
-    expect(text).toBe("Tue 10 Jun, 10:00 PM – Wed 11 Jun, 2:00 AM");
+    expect(text).toBe("Tue 10 Jun, 10:00 PM – Wed 11 Jun, 2:00 AM EDT");
   });
 
   it("formatDayInAirportTz gives the local day heading", () => {
@@ -404,7 +406,75 @@ describe("formatWindowInAirportTz", () => {
         new Date("2025-06-10T15:00:00Z"),
         NY,
       ),
-    ).toBe("10:00 AM – 11:00 AM");
+    ).toBe("10:00 AM – 11:00 AM EDT");
+  });
+
+  /*
+   * The zone label is the whole point of the suffix: without it a customer
+   * booking from another zone reads a bare "10:00 AM" as their own.
+   */
+  it("names the zone, and names it differently across the DST boundary", () => {
+    expect(zoneAbbrev(new Date("2025-01-15T15:00:00Z"), NY)).toBe("EST");
+    expect(zoneAbbrev(new Date("2025-07-15T15:00:00Z"), NY)).toBe("EDT");
+  });
+
+  it("labels a window by the zone in force at HAND-OVER, not at the start", () => {
+    // 1:30 AM EDT → 1:30 AM EST: the window straddles the fall-back, and the
+    // agent and customer have to agree on the end of it.
+    expect(
+      formatHourRangeInAirportTz(
+        new Date("2025-11-02T05:30:00Z"),
+        new Date("2025-11-02T06:30:00Z"),
+        NY,
+      ),
+    ).toBe("1:30 AM – 1:30 AM EST");
+  });
+});
+
+/*
+ * Koolee sells windows 24/7/365, so both DST edges are inventory that gets
+ * paid for — not edge cases we can decline to render.
+ */
+describe("dstTransitionNote", () => {
+  it("says nothing on the 363 ordinary days", () => {
+    expect(dstTransitionNote(new Date("2025-06-10T14:00:00Z"), NY)).toBeNull();
+    expect(dstTransitionNote(new Date("2025-01-15T15:00:00Z"), NY)).toBeNull();
+  });
+
+  it("separates the two 1 AM windows on fall-back night", () => {
+    // Both of these render "1:00 AM – 2:00 AM". They are different hours.
+    const firstOneAm = new Date("2025-11-02T05:00:00Z"); // 1 AM EDT
+    const secondOneAm = new Date("2025-11-02T06:00:00Z"); // 1 AM EST
+
+    expect(formatHourRangeInAirportTz(firstOneAm, secondOneAm, NY)).toContain("1:00 AM");
+    expect(dstTransitionNote(firstOneAm, NY)).toBe(
+      "first of two — clocks go back during this hour",
+    );
+    expect(dstTransitionNote(secondOneAm, NY)).toBe(
+      "second of two — clocks have already gone back",
+    );
+  });
+
+  it("explains the missing hour on spring-forward night", () => {
+    // 07:00Z is 3 AM EDT; the window before it ended at 1 AM EST. No 2 AM
+    // exists, so the picker shows a jump that would otherwise read as a bug.
+    expect(dstTransitionNote(new Date("2025-03-09T07:00:00Z"), NY)).toBe(
+      "clocks go forward — there is no earlier hour tonight",
+    );
+  });
+
+  it("holds for a zone that transitions on other dates", () => {
+    // Europe/London falls back a week earlier than New York — the detector
+    // reads the zone rather than a table of US dates.
+    // London goes back at 02:00 BST = 01:00 UTC, so 00:00Z is the first 1 AM
+    // (BST) and 01:00Z is the second (GMT).
+    expect(dstTransitionNote(new Date("2025-10-26T00:00:00Z"), "Europe/London")).toBe(
+      "first of two — clocks go back during this hour",
+    );
+    expect(dstTransitionNote(new Date("2025-10-26T01:00:00Z"), "Europe/London")).toBe(
+      "second of two — clocks have already gone back",
+    );
+    expect(dstTransitionNote(new Date("2025-11-02T05:00:00Z"), "Europe/London")).toBeNull();
   });
 });
 

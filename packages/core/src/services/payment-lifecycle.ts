@@ -1,5 +1,5 @@
-import { and, desc, eq, sql } from "drizzle-orm";
-import { custodyEvents, payments, slots, type Payment } from "@koolee/db";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { bookings, custodyEvents, payments, slots, type Payment } from "@koolee/db";
 
 import type { TransitionActor } from "../booking/state-machine";
 import type { CoreConfig } from "../config";
@@ -107,6 +107,87 @@ export async function captureBookingPayment(
 
     return { ok: false, reason };
   }
+}
+
+/* ------------------------------------------------------------------ */
+/* Capture sweep                                                       */
+/* ------------------------------------------------------------------ */
+
+/** Statuses that mean the bags are sealed and in Koolee's hands. */
+const CUSTODY_TAKEN_STATUSES = [
+  "verified_sealed",
+  "awaiting_pickup",
+  "in_transit",
+  "delivered_to_bagdrop",
+] as const;
+
+export interface CaptureDueResult {
+  /** Bookings whose authorization was captured on this pass. */
+  captured: string[];
+  /** Bookings whose capture failed — each is now in `exception`, ops alerted. */
+  failed: string[];
+}
+
+/**
+ * Captures every authorization whose bags are already in our custody.
+ *
+ * This is where money moves, and it runs wherever the real payment provider
+ * is configured — the web app. It exists because the agent app must NOT hold
+ * payment credentials, so it cannot capture at the moment it completes a
+ * visit (see `completeVerificationVisit`); custody and money move on separate
+ * tracks.
+ *
+ * Safe to run on any schedule and safe to run twice: the selection only ever
+ * matches `authorized` rows for THIS config's provider, so a captured payment
+ * drops out of the set and a provider that did not write the row never sees
+ * it. Per-booking failures are already handled inside `captureBookingPayment`
+ * (exception + critical alert) and are collected here rather than aborting the
+ * pass — one stuck booking must not stop the rest from being charged.
+ *
+ * The actor is `null`/system: no human triggered this.
+ */
+export async function captureDueBookings(
+  config: CoreConfig,
+  options: { limit?: number } = {},
+): Promise<CaptureDueResult> {
+  const { db, payments: provider } = config;
+  const limit = options.limit ?? 100;
+
+  const due = await db
+    .selectDistinct({ bookingId: payments.bookingId })
+    .from(payments)
+    .innerJoin(bookings, eq(bookings.id, payments.bookingId))
+    .where(
+      and(
+        eq(payments.status, "authorized"),
+        eq(payments.provider, provider.name),
+        inArray(bookings.status, CUSTODY_TAKEN_STATUSES),
+      ),
+    )
+    .limit(limit);
+
+  const result: CaptureDueResult = { captured: [], failed: [] };
+
+  for (const { bookingId } of due) {
+    try {
+      const outcome = await captureBookingPayment(config, {
+        bookingId,
+        actor: { userId: null, role: null },
+      });
+      if (outcome.ok) result.captured.push(bookingId);
+      else result.failed.push(bookingId);
+    } catch (error) {
+      // `captureBookingPayment` throws only when there is nothing to capture
+      // (a race with another pass). Nothing to escalate; skip it.
+      console.error(
+        `[payment-lifecycle] capture sweep skipped ${bookingId}:`,
+        error instanceof Error ? error.message : error,
+      );
+      result.failed.push(bookingId);
+    }
+  }
+
+  return result;
 }
 
 export interface CancelBookingInput {

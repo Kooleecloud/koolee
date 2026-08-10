@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { format } from "date-fns";
+import { formatDistanceToNow } from "date-fns";
 import { Badge, Card, CardContent, CardHeader, CardTitle, PageHeader } from "@koolee/ui";
 import { getCustomerById, listBookingsForSession } from "@koolee/core";
 
@@ -67,7 +67,11 @@ export default async function ProfilePage() {
                 {phone ?? <span className="text-muted-foreground">none</span>}
                 {phone && userRow?.phoneVerifiedAt ? (
                   <Badge variant="success">
-                    verified {format(userRow.phoneVerifiedAt, "d MMM yyyy")}
+                    {/* Relative: an account milestone belongs to no booking,
+                        so there is no airport zone to render it in. */}
+                    verified {formatDistanceToNow(userRow.phoneVerifiedAt, {
+                      addSuffix: true,
+                    })}
                   </Badge>
                 ) : null}
               </span>

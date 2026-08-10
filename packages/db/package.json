@@ -9,6 +9,7 @@
   "scripts": {
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx src/migrate.ts",
+    "db:status": "tsx src/status.ts",
     "db:studio": "drizzle-kit studio",
     "seed": "tsx src/seed.ts",
     "seed:local": "tsx src/seed-local.ts",

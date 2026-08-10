@@ -1,8 +1,8 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { format } from "date-fns";
 import {
   BackLink,
+  Badge,
   BookingStatusBadge,
   Button,
   Card,
@@ -15,6 +15,9 @@ import {
   PageHeader,
 } from "@koolee/ui";
 import {
+  dstTransitionNote,
+  formatHourRangeInAirportTz,
+  formatInstantInAirportTz,
   getAssignedTask,
   getVisitContext,
   VISIT_EVENT_TYPES,
@@ -95,6 +98,11 @@ export default async function TaskDetailPage({
   if (!context) notFound();
 
   const { task, booking, bags, timeline } = context;
+  // Non-null on the two DST nights a year, when the wall-clock label alone is
+  // ambiguous (two 1 AMs) or looks wrong (no 2 AM).
+  const windowNote = task.scheduledStart
+    ? dstTransitionNote(task.scheduledStart, context.tz)
+    : null;
 
   const view: VisitView = {
     taskId: task.id,
@@ -106,6 +114,7 @@ export default async function TaskDetailPage({
     ),
     bags: bags.map((bag) => ({
       id: bag.id,
+      ordinal: bag.ordinal,
       sealId: bag.sealId,
       weightKg: bag.weightKg,
       photoCount: bag.photoUrls.length,
@@ -125,7 +134,7 @@ export default async function TaskDetailPage({
         subtitle={
           <>
             {booking.flightNumber} · {booking.departureAirport} · departs{" "}
-            {format(booking.departureAt, "EEE d MMM, h:mm a")}
+            {formatInstantInAirportTz(booking.departureAt, context.tz)}
           </>
         }
         actions={<BookingStatusBadge status={booking.status} />}
@@ -133,16 +142,36 @@ export default async function TaskDetailPage({
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">
-            {booking.paxName} · {bags.length} bag{bags.length === 1 ? "" : "s"}
+          <CardTitle className="flex flex-wrap items-center justify-between gap-2 text-base">
+            <span>
+              {booking.paxName} · {bags.length} bag{bags.length === 1 ? "" : "s"}
+            </span>
+            {/* Read-only. An agent needs to know the job is paid for before
+                handling someone's luggage; taking the money is ops' business
+                and this app holds no payment credentials to do it with. */}
+            {context.paymentStatus === "authorized" ||
+            context.paymentStatus === "captured" ? (
+              <Badge variant="success">Payment authorized</Badge>
+            ) : (
+              <Badge variant="warning">
+                Payment not cleared — check with ops before collecting
+              </Badge>
+            )}
           </CardTitle>
+          {/* Every time here is the BOOKING's zone, never the device's — the
+              agent must be reading the same window the customer bought. */}
           <CardDescription>
             Window{" "}
             {task.scheduledStart
-              ? `${format(task.scheduledStart, "h:mm a")}–${
-                  task.scheduledEnd ? format(task.scheduledEnd, "h:mm a") : "…"
-                }`
+              ? task.scheduledEnd
+                ? formatHourRangeInAirportTz(
+                    task.scheduledStart,
+                    task.scheduledEnd,
+                    context.tz,
+                  )
+                : `${formatInstantInAirportTz(task.scheduledStart, context.tz)}–…`
               : "unscheduled"}
+            {windowNote ? <> · {windowNote}</> : null}
             {booking.contactPhone ? <> · door contact {booking.contactPhone}</> : null}
           </CardDescription>
         </CardHeader>

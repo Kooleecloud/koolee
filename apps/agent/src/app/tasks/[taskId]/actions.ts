@@ -171,12 +171,8 @@ export async function completeVisitAction(
     });
     if (!result.ok) return { error: result.error };
     revalidatePath(`/tasks/${taskId}`);
-    if (result.capture === "capture_failed") {
-      return {
-        error:
-          "Bags are sealed and recorded, but the payment capture failed — ops has been alerted and will follow up. Don't hand back the bags.",
-      };
-    }
+    // No payment outcome to report: completing a visit records custody only.
+    // Charging is swept from the web app, which owns the payment credentials.
     return { ok: true };
   } catch (error) {
     return fail(error, "Couldn't complete the visit.");

@@ -14,7 +14,7 @@ stack on `127.0.0.1` — the script refuses any other host, with no bypass flag.
 | Command                        | When to use it                                                                                                                                                                                                          |
 | ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `pnpm test:env:up`             | Start of a work session. Idempotent — safe to re-run any time; skips whatever is already done and never regenerates `OTP_LOG_HMAC_KEY`.                                                                                 |
-| `pnpm test:env:verify`         | Quick "is my environment actually correct?" — five assertions, PASS/FAIL per line. Four are read-only; the fifth writes and deletes one throwaway `otp_send_log` row to prove the migrate role can still use the table. |
+| `pnpm test:env:verify`         | Quick "is my environment actually correct?" — eight assertions, PASS/FAIL per line. Seven are read-only (including three that check `koolee_test` exists, carries its marker, and matches the dev schema); the other writes and deletes one throwaway `otp_send_log` row to prove the migrate role can still use the table. |
 | `pnpm test:env:reset -- --yes` | Clean slate: wipes local data, re-applies Drizzle migrations, re-verifies. Without `--yes` it asks you to type `RESET`.                                                                                                 |
 | `pnpm test:env:down`           | End of session. Data persists across stop/start; only `supabase stop --no-backup` deletes it.                                                                                                                           |
 | `pnpm test:env:doctor`         | Something is confusing. Prints Docker/stack health, which env file wins, the resolved DB host (never credentials), and the config.toml values.                                                                          |
@@ -24,7 +24,7 @@ stack on `127.0.0.1` — the script refuses any other host, with no bypass flag.
 After `up`, run the integration tests with:
 
 ```sh
-pnpm --filter @koolee/core test:integration   # 69 tests, 11 files (+1 opt-in)
+pnpm --filter @koolee/core test:integration   # 71 tests, 11 files (+1 opt-in, ALLOW_DEV_DB_WIPE=1)
 pnpm --filter @koolee/core test               # 216 unit tests, 13 files, no DB
 ```
 

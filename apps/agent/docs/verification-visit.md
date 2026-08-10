@@ -9,6 +9,13 @@ Arrive → photo-ID check → per-bag loop (photo · weight · seal id) →
 completion. Steps unlock in order; completion is disabled until every bag
 is sealed. A "flag a problem" escape hatch is always visible.
 
+Bags are numbered from `bags.ordinal`, never from array position. All of a
+booking's bags are inserted in one statement and share `created_at` to the
+millisecond, so the old `order by created_at` was a non-deterministic tie —
+a sealed bag was observed jumping from "Bag 1" to "Bag 3" between two
+renders of the same page. The ordinal is assigned once at creation and is
+what the agent matches against the physical tag.
+
 ## Hard rails honoured
 
 - **Every step appends a `custody_events` row** with the real agent user id,
@@ -16,8 +23,9 @@ is sealed. A "flag a problem" escape hatch is always visible.
   geolocation (best-effort — denied/unavailable degrades to null, never
   blocks); the seal photo path lands in `photo_url`.
   Step events: `visit.arrived`, `visit.identity_verified`, `bag.sealed`;
-  the matrix writes `booking.verified_sealed` on completion and Phase 5
-  writes `booking.payment_captured`.
+  the matrix writes `booking.verified_sealed` on completion.
+  `booking.payment_captured` is written later, by the capture sweep, with a
+  NULL actor — the charge is the system's act, not the agent's.
 - **Task split unchanged**: this flow touches `verification_tasks` only;
   pickup tasks keep their placeholder card (driver flow is later work).
 - **The visit's time IS the booking's pickup window.** `assignAgentToBooking`
@@ -29,10 +37,19 @@ is sealed. A "flag a problem" escape hatch is always visible.
   filters and sorts on `scheduled_start`, and the visit header renders the
   window; a task with no window shows "unscheduled", sorts last, and stays
   on Today until it is done rather than disappearing.
-- **Completion triggers the Phase 5 capture** (`captureBookingPayment`).
-  Capture failure is ops-visible: booking → `exception` through the matrix,
-  custody event with the reason, critical ops alert — and the agent sees
-  "ops has been alerted, don't hand back the bags", never a fake success.
+- **Completion does NOT take the money** (changed 2026-08-10). It records
+  custody and closes the task, and that is all. The agent app holds no
+  payment credentials by design (see its `lib/core.ts`), so it cannot
+  capture — it shows a READ-ONLY "Payment authorized" badge sourced from the
+  `payments` row and nothing else. Charging happens in apps/web via
+  `captureDueBookings`; see
+  [payments-lifecycle.md](../../web/docs/payments-lifecycle.md).
+
+  This used to call `captureBookingPayment` from here, which failed EVERY
+  pickup: with no `STRIPE_SECRET_KEY` the app silently wired the fake
+  provider, the provider check found no matching authorized row, and each
+  booking landed in `exception` with the bags already sealed and collected.
+  The split makes that class of bug impossible rather than merely fixed.
 - **Copy never overclaims** — completion says the bags are in Koolee's
   custody "until the airline's bag drop".
 - **Photos**: PRIVATE `bag-photos` bucket, server-side upload. The agent app
@@ -66,10 +83,12 @@ values (`usePreservedFormValues`), so a retry is one tap.
 
 ## Dev notes
 
-- The fake payment provider's ledger is in-memory per process; the payments
-  factory shares one instance per process so authorize → capture works in
-  dev. A booking seeded by SQL (no in-process authorization) exercises the
-  capture-failure path instead — useful for demoing the exception rail.
+- The agent app wires the fake payment provider and never uses it — capture
+  left this app in 2026-08-10. Do NOT "fix" that by adding
+  `STRIPE_SECRET_KEY` here: the whole point is that a field device's server
+  cannot move money. To exercise capture in dev, complete a visit and then
+  hit `POST /api/jobs/capture-due` on apps/web (or let its 5-minute cron
+  run).
 - QR/RFID seal scanning: TODO(agent-flow) — manual entry ships first, the
   seal id stays an opaque string (decision #18 unchanged).
 
@@ -77,6 +96,14 @@ values (`usePreservedFormValues`), so a retry is one tap.
 
 `packages/core/src/services/agent-visit.integration.test.ts` — full happy
 path (arrive idempotency, per-bag seals with photos/weights, completion,
-capture through the seam, booking advanced, task closed, every event's
-actor asserted, append-only re-proven); completion refused with unsealed
-bags; exception path (state + reason + actor); assignment scoping.
+booking advanced, task closed, every event's actor asserted, append-only
+re-proven); completion refused with unsealed bags; exception path (state +
+reason + actor); assignment scoping.
+
+Two assertions are worth not deleting:
+
+- completing a visit leaves the payment **`authorized`**, and the sweep is
+  what captures it — the split is pinned by test, not just by convention;
+- the bag list is re-read after every seal and its ordinals, ids and
+  seal→bag links must all be unchanged, which is the regression that made
+  `bags.ordinal` necessary.

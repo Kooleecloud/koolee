@@ -97,6 +97,17 @@ history.
 - `bags.seal_id` is an **opaque string**. The seal technology (RFID vs printed
   QR) is undecided; both yield a scannable identifier. Do not parse it or infer
   structure from it.
+- `bags.ordinal` is the bag's number within its booking (`1..bag_count`),
+  assigned once at creation and never reused or reordered, with a
+  `UNIQUE (booking_id, ordinal)` index so "two bags called Bag 2" cannot
+  exist. **Order by it and label from it — never from array position.** A
+  booking's bags are inserted in one statement and therefore share
+  `created_at` to the millisecond, so `ORDER BY created_at` is a
+  non-deterministic tie that an `UPDATE` can reshuffle: a sealed bag was
+  observed moving from "Bag 1" to "Bag 3" between two renders of the same
+  page. Ordinals backfilled by migration `0014` for pre-existing rows are
+  arbitrary-but-stable (the real order was never recorded); for already
+  sealed bags the seal id is the true identity anyway.
 - `verification_tasks` and `pickup_tasks` are separate tables even though one
   person often does both. They have different SLAs and evidence requirements;
   collapsing them would make "verified but not yet collected" unrepresentable.

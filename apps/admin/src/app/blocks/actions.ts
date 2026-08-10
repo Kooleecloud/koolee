@@ -6,9 +6,9 @@ import {
   airportLocalInstant,
   createSlotBlock,
   deleteSlotBlock,
+  resolveDisplayTz,
 } from "@koolee/core";
 
-import { AIRPORT_TZ } from "@/lib/airport-tz";
 import { getCore } from "@/lib/core";
 import { requireAdminSession } from "@/lib/session";
 
@@ -68,7 +68,10 @@ export async function createBlock(
   }
 
   try {
-    const blockStart = airportLocalInstant(day, startHour, AIRPORT_TZ);
+    // "2 PM at JFK" must mean 2 PM AT JFK — resolve the hour against the
+    // zone of the airport being blocked, not a console-wide constant.
+    const tz = await resolveDisplayTz(core.db, airportCode);
+    const blockStart = airportLocalInstant(day, startHour, tz);
     const blockEnd = new Date(blockStart.getTime() + hours * 60 * 60 * 1000);
     await createSlotBlock(core, {
       airportCode,

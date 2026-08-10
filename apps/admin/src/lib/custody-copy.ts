@@ -1,5 +1,8 @@
-import { format } from "date-fns";
-import type { CustodyEvent } from "@koolee/core";
+import {
+  formatHourRangeInAirportTz,
+  formatInstantInAirportTz,
+  type CustodyEvent,
+} from "@koolee/core";
 
 /**
  * Turns a `custody_events` row into something an operator can read.
@@ -64,15 +67,19 @@ const humanizeKey = (key: string): string => {
   return spaced.charAt(0).toUpperCase() + spaced.slice(1);
 };
 
-const timeRange = (meta: Meta): string | undefined => {
+const timeRange = (meta: Meta, tz: string): string | undefined => {
   const start = str(meta, "pickupWindowStart");
   const end = str(meta, "pickupWindowEnd");
   if (!start) return undefined;
   const from = new Date(start);
   if (Number.isNaN(from.getTime())) return undefined;
   const to = end ? new Date(end) : null;
-  const tail = to && !Number.isNaN(to.getTime()) ? `–${format(to, "HH:mm")}` : "";
-  return `pickup ${format(from, "d MMM HH:mm")}${tail}`;
+  // Rendered in the booking's zone like every other time on the page: a
+  // custody line that disagreed with the pickup window above it would read as
+  // a data error rather than a formatting one.
+  return to && !Number.isNaN(to.getTime())
+    ? `pickup ${formatHourRangeInAirportTz(from, to, tz)}`
+    : `pickup ${formatInstantInAirportTz(from, tz)}`;
 };
 
 /** Keys already spoken by a headline or a detail — not repeated verbatim. */
@@ -130,7 +137,7 @@ const HEADLINES: Record<string, string> = {
  * Per-event supporting facts. Anything a headline does not already say and
  * that an operator would otherwise have to read out of the JSON.
  */
-function detailsFor(eventType: string, meta: Meta): string[] {
+function detailsFor(eventType: string, meta: Meta, tz: string): string[] {
   const details: string[] = [];
   const provider = str(meta, "provider");
   const amount = money(num(meta, "amountCents"));
@@ -140,7 +147,7 @@ function detailsFor(eventType: string, meta: Meta): string[] {
       const bags = num(meta, "bagCount");
       const price = money(num(meta, "priceCents"));
       if (bags !== undefined) details.push(`${bags} bag${bags === 1 ? "" : "s"}`);
-      const window = timeRange(meta);
+      const window = timeRange(meta, tz);
       if (window) details.push(window);
       if (price) details.push(`quoted ${price}`);
       break;
@@ -229,7 +236,7 @@ function sourceSuffix(meta: Meta): string {
   }
 }
 
-export function describeCustodyEvent(event: CustodyEvent): CustodyLine {
+export function describeCustodyEvent(event: CustodyEvent, tz: string): CustodyLine {
   const meta = (event.metadata ?? {}) as Meta;
   const known = HEADLINES[event.eventType];
   // Unknown types are readable rather than raw: `visit.bag_refused` reads as
@@ -240,6 +247,6 @@ export function describeCustodyEvent(event: CustodyEvent): CustodyLine {
 
   return {
     headline: `${sentence}${sourceSuffix(meta)}`,
-    details: detailsFor(event.eventType, meta),
+    details: detailsFor(event.eventType, meta, tz),
   };
 }

@@ -1,6 +1,5 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { format } from "date-fns";
 import {
   BackLink,
   BookingStatusBadge,
@@ -83,7 +82,7 @@ export default async function TripPage({
         title={`${booking.flightNumber} · ${booking.departureAirport}`}
         subtitle={
           <>
-            {format(booking.departureAt, "EEE d MMM yyyy, h:mm a")} · {booking.bagCount}{" "}
+            {formatInstantInAirportTz(booking.departureAt, tz)} · {booking.bagCount}{" "}
             {booking.bagCount === 1 ? "bag" : "bags"} · {booking.paxName}
           </>
         }
@@ -165,7 +164,7 @@ export default async function TripPage({
             <CardDescription>Every hand-off, recorded as it happens.</CardDescription>
           </CardHeader>
           <CardContent>
-            <CustodyTimeline events={timeline} />
+            <CustodyTimeline events={timeline} tz={tz} />
           </CardContent>
         </Card>
 
@@ -179,12 +178,12 @@ export default async function TripPage({
             </CardHeader>
             <CardContent>
               <ul className="flex flex-col gap-2 text-sm">
-                {bags.map((bag, index) => (
+                {bags.map((bag) => (
                   <li
                     key={bag.id}
                     className="flex items-center justify-between gap-3 rounded-lg border border-border px-3 py-2"
                   >
-                    <span>Bag {index + 1}</span>
+                    <span>Bag {bag.ordinal}</span>
                     <span className="font-mono text-xs">
                       {bag.sealId ? (
                         <>seal {bag.sealId}</>

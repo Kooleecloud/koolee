@@ -233,6 +233,11 @@ describeIntegration("createBooking (integration)", () => {
       .where(eq(bags.bookingId, result.booking.id));
     expect(bagRows).toHaveLength(2);
 
+    // Bags carry a stable 1..n identity assigned at creation. Asserted on the
+    // ROW, not on result order: they share `created_at` to the millisecond, so
+    // any ordering that relies on the timestamp is a coin flip.
+    expect([...bagRows].map((b) => b.ordinal).sort()).toEqual([1, 2]);
+
     const events = await db
       .select()
       .from(custodyEvents)
@@ -507,6 +512,7 @@ describeIntegration("custody_events append-only trigger", () => {
         bagCount: 1,
         pickupWindowStart,
         pickupWindowEnd,
+        displayTz: "America/New_York",
         priceCents: 1000,
       })
       .returning();

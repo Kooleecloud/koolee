@@ -13,7 +13,7 @@ import {
 import { getOpsDashboard, type OpsDashboard } from "@koolee/core";
 
 import { EnvStatus } from "@/components/env-status";
-import { AIRPORT_TZ } from "@/lib/airport-tz";
+import { OPS_CONSOLE_TZ } from "@/lib/airport-tz";
 import { tryGetCore } from "@/lib/core";
 import { getAdminSession } from "@/lib/session";
 
@@ -27,7 +27,7 @@ export default async function AdminHomePage() {
   const core = tryGetCore();
   let dashboard: OpsDashboard | null = null;
   if (core) {
-    dashboard = await getOpsDashboard(core.db, AIRPORT_TZ).catch(() => null);
+    dashboard = await getOpsDashboard(core.db, OPS_CONSOLE_TZ).catch(() => null);
   }
 
   const todayTotal =

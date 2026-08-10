@@ -39,7 +39,7 @@ enforced across marketing, UI, SMS and email ([README §Copy rules](../README.md
 | ------------- | ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Booking       | `bookings`                           | One customer, one flight, one pickup window. The spine everything hangs off.                                                                                                                             |
 | Draft         | `booking_drafts`                     | A booking-in-progress before auth/payment. Survives page reloads and anonymous → real-user upgrade.                                                                                                      |
-| Bag           | `bags`                               | One physical bag. Weight, photos, and a `seal_id`.                                                                                                                                                       |
+| Bag           | `bags`                               | One physical bag. Weight, photos, a `seal_id`, and an `ordinal` (`1..bag_count`) — the number a human reads off the tag. Order and label by `ordinal`, never by array position: a booking's bags share `created_at` to the millisecond. |
 | Seal          | `bags.seal_id`                       | Opaque tamper-evident ID. Deliberately technology-agnostic (RFID vs printed QR is still undecided — no migration either way).                                                                            |
 | Custody event | `custody_events`                     | Append-only chain of custody: who held which bag, where, when, with photo evidence.                                                                                                                      |
 | Pickup window | _(none — computed)_                  | The hour the agent comes. **Not a row.** Every flight gets the same 24 clock-aligned one-hour windows, enumerated on demand; the booking stores the one it bought in `bookings.pickup_window_start/end`. |
@@ -75,9 +75,11 @@ verified_sealed → in_transit), `apps/admin` (ops: assignment, exceptions,
 force-complete).
 
 **The money moves once.** Payment is _authorized_ at booking, then _captured_
-at pickup — not before. Cancellation before pickup voids the auth or refunds.
-That's why `paid` in the state machine means "authorized", not "we have the
-money".
+once the bags are in our custody — not before, and never on the agent's
+device: the agent app holds no payment credentials, so a sweep in `apps/web`
+does it within ~5 minutes of the visit completing. Cancellation before pickup
+voids the auth or refunds. That's why `paid` in the state machine means
+"authorized", not "we have the money".
 
 ---
 
@@ -321,10 +323,30 @@ A service is where ownership is enforced. Session-scoped reads are
 404-shaped on a foreign id — existence is itself a disclosure — and the
 `…ForSession` suffix marks the functions that carry that guarantee.
 
-**Jobs** ([jobs/functions.ts](../packages/core/src/jobs/functions.ts)) are
-three Inngest functions: `booking-pickup-reminder`, `cutoff-risk-monitor`,
-`agent-no-show-check`. They are wired and scheduled; their side effects are
-stubs pending the notification integrations.
+**Jobs** are five Inngest functions, all served from apps/web
+([api/inngest/route.ts](../apps/web/src/app/api/inngest/route.ts)) — three in
+[jobs/functions.ts](../packages/core/src/jobs/functions.ts) plus two defined in
+[apps/web/src/lib/inngest.ts](../apps/web/src/lib/inngest.ts):
+
+| function                   | trigger                | live?                                    |
+| -------------------------- | ---------------------- | ---------------------------------------- |
+| `capture-due-bookings`     | `cron("*/5 * * * *")`  | yes — charges cards once bags are in custody |
+| `cutoff-risk-monitor`      | `cron("*/5 * * * *")`  | yes                                      |
+| `cleanup-anonymous-users`  | daily 04:00 ET         | yes                                      |
+| `booking-pickup-reminder`  | event `booking/confirmed`        | **never fires** — nothing sends events   |
+| `agent-no-show-check`      | event `booking/agent_no_show_check` | **never fires**                     |
+
+Inngest rather than a plain cron service because two of them use
+`step.sleepUntil` — a durable per-booking delay (sleep until 2h before pickup,
+then send). Cloud Scheduler / Vercel Cron / `pg_cron` cannot suspend and
+resume a run; replacing that needs Cloud Tasks, EventBridge Scheduler, or a
+Postgres-backed queue. The three crons are scheduler-agnostic: each has an
+authenticated route (`/api/jobs/…` behind `CRON_SECRET`) that any scheduler
+can drive.
+
+The two event-driven functions have never run — there is no `inngest.send()`
+call anywhere yet. Their side effects remain stubs pending the notification
+integrations.
 
 ---
 
@@ -426,17 +448,25 @@ Detail: [setup-auth.md](../apps/web/docs/setup-auth.md),
 
 ## Chapter 8 — Payments end-to-end
 
-**The shape:** authorize at booking, capture at pickup. `paid` means the funds
-are _held_, not taken.
+**The shape:** authorize at booking, capture once the bags are in custody.
+`paid` means the funds are _held_, not taken.
 
 ```
 pay step        → ensureBookingPaymentIntent → one intent per draft
 browser         → Stripe Payment Element confirms
 /book/return    → reconcileBookingPayment (server-side re-read)
 webhook         → handlePaymentEvent (same transition, replay-guarded)
-agent completes → captureBookingPayment
+agent completes → custody only — NO money moves on the agent's device
+sweep (apps/web)→ captureDueBookings, every 5 min or POST /api/jobs/capture-due
 cancel          → cancelBookingWithRefund (void or refund)
 ```
+
+**Custody and money move on separate tracks** (since 2026-08-10). The agent
+app holds no payment credentials by design, so it cannot capture; a sweep in
+apps/web — the app that owns Stripe — charges any booking already in custody
+whose payment is still `authorized` for that provider. The resulting
+`booking.payment_captured` event has a NULL actor, because the charge is the
+system's act and not the agent's.
 
 **One intent per draft.** Re-visiting the pay step must not mint a second
 intent. `ensureBookingPaymentIntent`
@@ -548,11 +578,18 @@ mobile hamburger and its animation). Passing `Link` itself into a client
 component throws; passing rendered markup does not. Any component that needs
 both `linkComponent` and interactivity follows this pattern.
 
-**`ContentColumn`** has three widths: `default` (header-width, for pages whose
+**`ContentColumn`** has four widths: `default` (header-width, for pages whose
 content earns it — they arrange cards and lists in grids), `focused`
-(max-w-3xl, guided step flows like the funnel and the agent visit), and
-`narrow` (max-w-md, auth screens). `AppFooter` takes the same prop so it lines
-up with the page above it.
+(max-w-3xl, guided step flows like the funnel and the agent visit), `narrow`
+(max-w-md, auth screens), and `full` (full-bleed, no 1280px cap — dense
+operational tables where every column matters more than the centered rhythm;
+currently just the admin bookings board). `AppFooter` takes the same prop so
+it lines up with the page above it.
+
+Each variant owns its whole horizontal box, including whether it uses
+`container` at all — `full` deliberately does not, because `container` caps at
+1280px. Until 2026-08-10 `full` still applied it and was therefore a silent
+alias of `default`.
 
 **Brand** ([BRAND.md](../brand/BRAND.md)) is Tag-K: navy and sky as the system
 colours, with orange reserved for scarcity/urgency — using it decoratively

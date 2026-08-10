@@ -1,6 +1,5 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { format } from "date-fns";
 import {
   Badge,
   Button,
@@ -9,7 +8,14 @@ import {
   EmptyState,
   PageHeader,
 } from "@koolee/ui";
-import { listAssignedTasks, type PickupTask, type VerificationTask } from "@koolee/core";
+import {
+  airportLocalDayBounds,
+  formatHourRangeInAirportTz,
+  formatInstantInAirportTz,
+  listAssignedTasks,
+  type PickupTask,
+  type VerificationTask,
+} from "@koolee/core";
 
 import { EnvStatus } from "@/components/env-status";
 import { tryGetCore } from "@/lib/core";
@@ -18,7 +24,8 @@ import { getAgentSession } from "@/lib/session";
 export const dynamic = "force-dynamic";
 
 type Row =
-  { kind: "verification"; task: VerificationTask } | { kind: "pickup"; task: PickupTask };
+  | { kind: "verification"; task: VerificationTask; tz: string }
+  | { kind: "pickup"; task: PickupTask; tz: string };
 
 /** Agent home: TODAY's visits, in pickup-window order — the shift at a glance. */
 export default async function AgentHomePage() {
@@ -32,18 +39,20 @@ export default async function AgentHomePage() {
   if (core) {
     try {
       const tasks = await listAssignedTasks(core.db, session.userId);
-      const startOfToday = new Date();
-      startOfToday.setHours(0, 0, 0, 0);
-      const endOfToday = new Date(startOfToday);
-      endOfToday.setDate(endOfToday.getDate() + 1);
+      const now = new Date();
 
       today = [
-        ...tasks.verification.map((task) => ({ kind: "verification" as const, task })),
-        ...tasks.pickup.map((task) => ({ kind: "pickup" as const, task })),
+        ...tasks.verification.map((row) => ({ kind: "verification" as const, ...row })),
+        ...tasks.pickup.map((row) => ({ kind: "pickup" as const, ...row })),
       ]
-        .filter(({ task }) => {
+        .filter(({ task, tz }) => {
           if (!task.scheduledStart) return task.status !== "done";
-          return task.scheduledStart >= startOfToday && task.scheduledStart < endOfToday;
+          // "Today" means today AT THE AIRPORT, per task. `setHours(0,0,0,0)`
+          // was server-local, and production runs in UTC — which starts the
+          // agent's day at 8 PM the previous evening and drops the real
+          // morning's visits off this list.
+          const { start, end } = airportLocalDayBounds(now, tz);
+          return task.scheduledStart >= start && task.scheduledStart < end;
         })
         .sort(
           (a, b) =>
@@ -71,7 +80,7 @@ export default async function AgentHomePage() {
         />
       ) : (
         <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-          {today.map(({ kind, task }) => (
+          {today.map(({ kind, task, tz }) => (
             <li key={`${kind}-${task.id}`}>
               <Link
                 href={`/tasks/${task.id}?kind=${kind}`}
@@ -83,9 +92,14 @@ export default async function AgentHomePage() {
                   </span>
                   <span className="text-sm text-muted-foreground">
                     {task.scheduledStart
-                      ? format(task.scheduledStart, "h:mm a")
+                      ? task.scheduledEnd
+                        ? formatHourRangeInAirportTz(
+                            task.scheduledStart,
+                            task.scheduledEnd,
+                            tz,
+                          )
+                        : formatInstantInAirportTz(task.scheduledStart, tz)
                       : "Unscheduled"}
-                    {task.scheduledEnd ? `–${format(task.scheduledEnd, "h:mm a")}` : ""}
                   </span>
                 </span>
                 <Badge

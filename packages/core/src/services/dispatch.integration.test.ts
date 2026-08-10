@@ -254,7 +254,10 @@ describeIntegration("admin dispatch + overrides (integration)", () => {
     // Scoped visibility: A sees it, B does not.
     const forA = await listAssignedTasks(db, agentA);
     const forB = await listAssignedTasks(db, agentB);
-    expect(forA.verification.map((t) => t.bookingId)).toEqual([booking.id]);
+    expect(forA.verification.map((row) => row.task.bookingId)).toEqual([booking.id]);
+    // The queue carries the booking's display zone with every row, so the
+    // agent app can never fall back to the server's (UTC in production).
+    expect(forA.verification.map((row) => row.tz)).toEqual(["America/New_York"]);
     expect(forB.verification).toHaveLength(0);
 
     // The transition is on the custody log with the ADMIN as actor.

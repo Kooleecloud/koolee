@@ -135,6 +135,86 @@ export function resolveCutoffMinutes(
 /* ------------------------------------------------------------------ */
 
 /**
+ * ZONE LABELLING (why every formatter below ends in an abbreviation).
+ *
+ * A booking is read by three people in three places: the customer who buys
+ * the window, the agent who shows up for it, and the dispatcher who plans
+ * around it. They all read the SAME string, rendered in the booking's zone —
+ * never the viewer's. That guarantee is worthless if the string doesn't say
+ * which zone it is: "10:00 AM" is read as local by a customer booking from
+ * London, and they will be out when the driver arrives.
+ *
+ * The abbreviation comes from `Intl`, not date-fns. date-fns' `zzz` token on a
+ * TZDate emits the OFFSET ("GMT-5"), not the name ("EST") — verified, and
+ * "GMT-5" is worse than nothing for a customer. `Intl` is therefore allowed in
+ * this module and banned everywhere else (see the lint rule in eslint.config).
+ */
+
+/** Milliseconds in an hour — DST detection compares adjacent wall-clock hours. */
+const HOUR_MS = 60 * 60 * 1000;
+
+/**
+ * The zone's short name at a given instant — "EST" in January, "EDT" in July.
+ *
+ * Instant-dependent by necessity: the same zone has two names a year, and
+ * which one applies is exactly what disambiguates the repeated hour below.
+ */
+export function zoneAbbrev(instant: Date, tz: string): string {
+  const part = new Intl.DateTimeFormat("en-US", {
+    timeZone: tz,
+    timeZoneName: "short",
+  })
+    .formatToParts(instant)
+    .find((p) => p.type === "timeZoneName");
+  // Intl always emits the part for a valid zone; the fallback keeps a label
+  // bug from becoming a thrown exception on a booking page.
+  return part?.value ?? "";
+}
+
+/** `yyyy-MM-dd HH` in the given zone — the identity of one wall-clock hour. */
+function wallHourKey(instant: Date, tz: string): string {
+  return format(new TZDate(instant, tz), "yyyy-MM-dd HH");
+}
+
+/**
+ * Plain-language warning for the two nights a year a wall-clock label lies.
+ *
+ * Koolee sells windows 24/7/365, so both DST edge cases are inventory we
+ * actually take money for:
+ *
+ *   - fall back: two distinct one-hour windows both render "1:00 AM – 2:00 AM".
+ *     `EDT`/`EST` technically separates them, but no customer reads it that
+ *     way, so we say it in words.
+ *   - spring forward: the 2 AM hour does not exist, so the picker shows a jump
+ *     from 1 AM to 3 AM. Nothing is missing — but an unexplained gap reads as
+ *     a bug, and support pays for it.
+ *
+ * Detection is by observation, not offset arithmetic: if the next hour carries
+ * the same wall-clock label, this is the first of the pair; if the previous
+ * hour does, this is the second. That works in any zone, including the
+ * half-hour and 45-minute ones, with no table of transition dates to
+ * maintain.
+ *
+ * Returns null on all the ordinary days, which is 363 of them.
+ */
+export function dstTransitionNote(windowStart: Date, tz: string): string | null {
+  const here = wallHourKey(windowStart, tz);
+  const prev = wallHourKey(new Date(windowStart.getTime() - HOUR_MS), tz);
+  const next = wallHourKey(new Date(windowStart.getTime() + HOUR_MS), tz);
+
+  if (here === next) return "first of two — clocks go back during this hour";
+  if (here === prev) return "second of two — clocks have already gone back";
+
+  // Wall clock skipped an hour between the previous window and this one: the
+  // hour in between was never lived through.
+  const hourOf = (key: string) => Number(key.slice(-2));
+  const skipped = (hourOf(here) - hourOf(prev) + 24) % 24;
+  if (skipped === 2) return "clocks go forward — there is no earlier hour tonight";
+
+  return null;
+}
+
+/**
  * Formats a window in the airport's local time.
  *
  * The only place a timezone is applied. Everything above operates on absolute
@@ -148,10 +228,14 @@ export function formatWindowInAirportTz(
   const start = new TZDate(windowStart, tz);
   const end = new TZDate(windowEnd, tz);
 
+  // The END's abbreviation, not the start's: a window that straddles the
+  // transition is handed over after the clocks change, and the handover time
+  // is the one the agent and customer have to agree on.
+  const zone = zoneAbbrev(windowEnd, tz);
   const sameDay = format(start, "yyyy-MM-dd") === format(end, "yyyy-MM-dd");
   return sameDay
-    ? `${format(start, "EEE d MMM, h:mm a")} – ${format(end, "h:mm a")}`
-    : `${format(start, "EEE d MMM, h:mm a")} – ${format(end, "EEE d MMM, h:mm a")}`;
+    ? `${format(start, "EEE d MMM, h:mm a")} – ${format(end, "h:mm a")} ${zone}`
+    : `${format(start, "EEE d MMM, h:mm a")} – ${format(end, "EEE d MMM, h:mm a")} ${zone}`;
 }
 
 /** The airport-local calendar day an instant falls on, as `yyyy-MM-dd`. */
@@ -164,14 +248,19 @@ export function formatDayInAirportTz(instant: Date, tz: string): string {
   return format(new TZDate(instant, tz), "EEE d MMM");
 }
 
-/** Day and time of a single instant, airport-local — "Tue 10 Jun, 6:20 PM". */
+/**
+ * Day and time of a single instant, airport-local — "Tue 10 Jun, 6:20 PM EDT".
+ */
 export function formatInstantInAirportTz(instant: Date, tz: string): string {
-  return format(new TZDate(instant, tz), "EEE d MMM, h:mm a");
+  return `${format(new TZDate(instant, tz), "EEE d MMM, h:mm a")} ${zoneAbbrev(instant, tz)}`;
 }
 
 /**
- * Just the hour span, airport-local — "10:00 AM – 11:00 AM". For compact
+ * Just the hour span, airport-local — "10:00 AM – 11:00 AM EDT". For compact
  * window tiles under a day heading, where repeating the date is noise.
+ *
+ * The zone still is not noise: these tiles are what a customer picks from and
+ * what an agent reads at the door.
  */
 export function formatHourRangeInAirportTz(
   windowStart: Date,
@@ -181,7 +270,19 @@ export function formatHourRangeInAirportTz(
   return `${format(new TZDate(windowStart, tz), "h:mm a")} – ${format(
     new TZDate(windowEnd, tz),
     "h:mm a",
-  )}`;
+  )} ${zoneAbbrev(windowEnd, tz)}`;
+}
+
+/**
+ * `yyyy-MM-ddTHH:mm` in the airport's zone — the value format an
+ * `<input type="datetime-local">` expects.
+ *
+ * A datetime-local input has no zone of its own: it round-trips whatever wall
+ * clock you hand it. Feeding it a system-zone render means a customer reopens
+ * the flight step and finds their 6 PM departure showing as 22:00.
+ */
+export function formatDateTimeLocalInAirportTz(instant: Date, tz: string): string {
+  return format(new TZDate(instant, tz), "yyyy-MM-dd'T'HH:mm");
 }
 
 /**

@@ -13,11 +13,12 @@ import {
 } from "@koolee/ui";
 import {
   formatWindowInAirportTz,
+  getDisplayZones,
   listSlotBlocks,
+  zoneFor,
   type SlotBlock,
 } from "@koolee/core";
 
-import { AIRPORT_TZ } from "@/lib/airport-tz";
 import { tryGetCore } from "@/lib/core";
 import { getAdminSession } from "@/lib/session";
 
@@ -40,11 +41,16 @@ export default async function BlocksPage() {
   const core = tryGetCore();
 
   let blocks: SlotBlock[] = [];
+  // Blocks are per airport, so each one renders in its own airport's zone.
+  let zones: Record<string, string> = {};
   let unavailable = core === null;
   if (core) {
     try {
       // Only current + future blocks are actionable; history stays in the DB.
-      blocks = await listSlotBlocks(core, { from: new Date() });
+      [blocks, zones] = await Promise.all([
+        listSlotBlocks(core, { from: new Date() }),
+        getDisplayZones(core.db),
+      ]);
     } catch {
       unavailable = true;
     }
@@ -78,7 +84,7 @@ export default async function BlocksPage() {
                       {formatWindowInAirportTz(
                         block.blockStart,
                         block.blockEnd,
-                        AIRPORT_TZ,
+                        zoneFor(zones, block.airportCode),
                       )}
                     </span>
                     {block.reason ? (

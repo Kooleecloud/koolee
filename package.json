@@ -26,6 +26,7 @@
     "format:check": "prettier --check \"**/*.{ts,tsx,js,mjs,cjs,json,md,css}\"",
     "db:generate": "pnpm --filter @koolee/db db:generate",
     "db:migrate": "pnpm --filter @koolee/db db:migrate",
+    "db:status": "pnpm --filter @koolee/db db:status",
     "db:studio": "pnpm --filter @koolee/db db:studio",
     "seed": "pnpm --filter @koolee/db seed",
     "dev:inngest": "npx inngest-cli@latest dev -u http://localhost:3000/api/inngest"

@@ -27,6 +27,29 @@ import type { PaymentAuth } from "../payments/types";
 import { price, toPricingRuleInput, type PriceBreakdown } from "../pricing/engine";
 import { resolveCutoffMinutes } from "../slots/cutoff";
 import { evaluateHourlyWindow, pickupLeadMinutesFor } from "../slots/windows";
+import { resolveDisplayTz } from "./display-tz";
+
+/**
+ * A browser-reported IANA zone, or null if it is not one.
+ *
+ * Deliberately permissive about failure: this value is analytics and support
+ * context, so a VPN, a hardened browser, or a hand-edited request should cost
+ * us the field, never the booking. `Intl` is the authority on whether a zone
+ * id is real — a regex would drift from the tz database.
+ */
+function sanitizeIanaZone(raw: string | null | undefined): string | null {
+  if (typeof raw !== "string" || raw.trim() === "") return null;
+  const value = raw.trim();
+  try {
+    // Validating a zone id, not rendering a time: Intl throws on an unknown
+    // zone, which is exactly the check we want, and no instant is formatted.
+    // eslint-disable-next-line no-restricted-syntax
+    new Intl.DateTimeFormat("en-US", { timeZone: value });
+    return value;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * The booking orchestrator.
@@ -87,6 +110,17 @@ export interface CreateBookingInput {
    * (email-only sign-up). Plain text, never OTP-verified.
    */
   contactPhone?: string | null;
+
+  /**
+   * The customer's OWN IANA zone, from the browser
+   * (`Intl.DateTimeFormat().resolvedOptions().timeZone`).
+   *
+   * Stored as metadata and NEVER used to render this booking — see the
+   * `booked_from_tz` column comment. Best-effort by design: an unparseable or
+   * absent value is dropped, never an error, because no booking should fail
+   * over a browser that lies about where it is.
+   */
+  bookedFromTz?: string | null;
 }
 
 export interface CreateBookingResult {
@@ -182,6 +216,10 @@ export async function createBooking(
     },
   });
 
+  // The zone every human-facing time on this booking will be read in, resolved
+  // once here so the row carries it forever after. See display-tz.ts.
+  const displayTz = await resolveDisplayTz(db, input.departureAirport);
+
   /* --- 2. One transaction: write the booking ------------------------ */
 
   const created = await db.transaction(async (tx) => {
@@ -199,6 +237,10 @@ export async function createBooking(
         bagCount: input.bagCount,
         pickupWindowStart: input.pickupWindowStart,
         pickupWindowEnd: input.pickupWindowEnd,
+        // Snapshotted once, here, and never updated: this is what makes the
+        // row self-describing for every app that reads it later.
+        displayTz,
+        bookedFromTz: sanitizeIanaZone(input.bookedFromTz),
         contactPhone: input.contactPhone ?? null,
         priceCents: breakdown.totalCents,
         currency: defaults.currency,
@@ -210,9 +252,15 @@ export async function createBooking(
 
     if (!booking) throw new Error("Insert of booking returned no row");
 
-    await tx
-      .insert(bags)
-      .values(Array.from({ length: input.bagCount }, () => ({ bookingId: booking.id })));
+    // `ordinal` is assigned here, once, and is the bag's identity for the rest
+    // of the booking's life — every reader orders by it and every screen labels
+    // from it. Do not derive bag numbers from array position anywhere.
+    await tx.insert(bags).values(
+      Array.from({ length: input.bagCount }, (_, index) => ({
+        bookingId: booking.id,
+        ordinal: index + 1,
+      })),
+    );
 
     // The custody log opens with the booking itself, so the chain starts at
     // creation rather than at the first physical handover.

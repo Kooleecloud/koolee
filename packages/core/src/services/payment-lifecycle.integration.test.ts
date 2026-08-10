@@ -26,7 +26,11 @@ import { FakePaymentProvider } from "../payments/fake";
 import { WebhookVerificationError } from "../payments/types";
 import { createBooking } from "./create-booking";
 import { ensureAddress } from "./customers";
-import { cancelBookingWithRefund, captureBookingPayment } from "./payment-lifecycle";
+import {
+  cancelBookingWithRefund,
+  captureBookingPayment,
+  captureDueBookings,
+} from "./payment-lifecycle";
 import { handlePaymentEvent } from "./webhooks";
 
 /**
@@ -299,6 +303,67 @@ describeIntegration("payment lifecycle (integration)", () => {
   });
 
   /* ------------------------------------------------------------------ */
+  /* Capture sweep — and the provider guard that caught a real outage     */
+  /* ------------------------------------------------------------------ */
+
+  it("the sweep captures only bookings whose bags are already in custody", async () => {
+    // Still `paid` — nobody has collected these bags yet.
+    const notCollected = await book();
+    // Bags sealed and taken: this is the one that owes us money.
+    const inCustody = await book();
+    await db
+      .update(bookings)
+      .set({ status: "verified_sealed" })
+      .where(eq(bookings.id, inCustody.booking.id));
+
+    const swept = await captureDueBookings(config);
+    expect(swept.captured).toEqual([inCustody.booking.id]);
+    expect(swept.failed).toEqual([]);
+
+    const [collectedRow] = await db
+      .select()
+      .from(payments)
+      .where(eq(payments.bookingId, inCustody.booking.id));
+    expect(collectedRow!.status).toBe("captured");
+
+    const [untouchedRow] = await db
+      .select()
+      .from(payments)
+      .where(eq(payments.bookingId, notCollected.booking.id));
+    expect(untouchedRow!.status).toBe("authorized");
+
+    // Idempotent: nothing left to capture on a second pass.
+    expect(await captureDueBookings(config)).toEqual({ captured: [], failed: [] });
+  });
+
+  it("a provider that did not write the payment can NEVER mark it captured", async () => {
+    // The outage this guards: the agent app has no Stripe key, so it wired the
+    // FAKE provider and tried to capture a row written by Stripe. Without the
+    // provider check that fake capture would have "succeeded" and marked the
+    // booking paid while no money moved — strictly worse than failing.
+    const { booking } = await book();
+    await db
+      .update(bookings)
+      .set({ status: "verified_sealed" })
+      .where(eq(bookings.id, booking.id));
+    // Relabel the row as if a different provider had authorized it.
+    await db
+      .update(payments)
+      .set({ provider: "stripe" })
+      .where(eq(payments.bookingId, booking.id));
+
+    // The sweep must not see it at all.
+    expect(await captureDueBookings(config)).toEqual({ captured: [], failed: [] });
+
+    const [row] = await db
+      .select()
+      .from(payments)
+      .where(eq(payments.bookingId, booking.id));
+    expect(row!.status).toBe("authorized");
+    expect(row!.captureRef).toBeNull();
+  });
+
+  /* ------------------------------------------------------------------ */
   /* Refund on cancellation                                              */
   /* ------------------------------------------------------------------ */
 
@@ -360,6 +425,7 @@ describeIntegration("payment lifecycle (integration)", () => {
         pickupAddressId: address.id,
         bagCount: 1,
         slotId: slot!.id,
+        displayTz: "America/New_York",
         priceCents: 4900,
       })
       .returning();

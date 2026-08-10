@@ -147,6 +147,7 @@ describeIntegration("cleanupAnonymousUsers (integration)", () => {
     await db.insert(bookings).values({
       userId: staleWithBooking,
       status: "draft",
+      displayTz: "America/New_York",
       flightNumber: "UA1189",
       airlineIata: "UA",
       departureAirport: "JFK",

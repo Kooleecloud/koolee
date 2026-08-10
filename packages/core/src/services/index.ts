@@ -23,6 +23,13 @@ export {
 } from "./bookings";
 
 export {
+  FALLBACK_DISPLAY_TZ,
+  getDisplayZones,
+  resolveDisplayTz,
+  zoneFor,
+} from "./display-tz";
+
+export {
   createAddressForSession,
   deleteAddressForSession,
   getAddressForSession,
@@ -97,10 +104,12 @@ export {
 export {
   cancelBookingWithRefund,
   captureBookingPayment,
+  captureDueBookings,
   type CancelBookingInput,
   type CancelBookingResult,
   type CaptureBookingPaymentInput,
   type CaptureBookingPaymentResult,
+  type CaptureDueResult,
 } from "./payment-lifecycle";
 
 export {

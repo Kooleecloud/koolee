@@ -15,6 +15,7 @@ import {
 } from "@koolee/ui";
 import {
   availableEvents,
+  dstTransitionNote,
   EVENT_TYPES,
   formatInstantInAirportTz,
   formatWindowInAirportTz,
@@ -25,7 +26,7 @@ import {
 } from "@koolee/core";
 
 import { TransitionControls } from "@/components/transition-controls";
-import { AIRPORT_TZ } from "@/lib/airport-tz";
+import { ViewerLocalTime } from "@/components/viewer-local-time";
 import { bookingRef } from "@/lib/booking-ref";
 import { tryGetCore } from "@/lib/core";
 import { getAdminSession } from "@/lib/session";
@@ -76,7 +77,12 @@ export default async function BookingDetailPage({
     () => null,
   );
   if (!detail) notFound();
-  const { booking, timeline, bags, payments } = detail;
+  const { booking, timeline, bags, payments, tz } = detail;
+  // Non-null only on the two DST nights, when the wall-clock label is
+  // ambiguous (two 1 AMs) or has a hole in it (no 2 AM).
+  const windowNote = booking.pickupWindowStart
+    ? dstTransitionNote(booking.pickupWindowStart, tz)
+    : null;
 
   // Workload is read for the booking's own pickup day, not today: assigning
   // a Thursday pickup on a Tuesday should show Thursday's load.
@@ -84,7 +90,7 @@ export default async function BookingDetailPage({
   try {
     agents = await listAgentWorkload(core.db, {
       on: booking.pickupWindowStart ?? booking.departureAt,
-      tz: AIRPORT_TZ,
+      tz: tz,
     });
   } catch {
     // Assignment panel degrades to its empty state.
@@ -141,16 +147,38 @@ export default async function BookingDetailPage({
                   formatWindowInAirportTz(
                     booking.pickupWindowStart,
                     booking.pickupWindowEnd,
-                    AIRPORT_TZ,
+                    tz,
                   )
                 ) : booking.pickupWindowStart ? (
-                  formatInstantInAirportTz(booking.pickupWindowStart, AIRPORT_TZ)
+                  formatInstantInAirportTz(booking.pickupWindowStart, tz)
                 ) : (
                   <span className="text-muted-foreground">not scheduled</span>
                 )}
+                {/* Secondary, and only when the operator is somewhere else.
+                    The line above is what the customer and agent are both
+                    working from and stays the authoritative one. */}
+                {booking.pickupWindowStart && (
+                  <>
+                    {windowNote && (
+                      <span className="ml-2 text-muted-foreground">({windowNote})</span>
+                    )}
+                    <ViewerLocalTime
+                      instant={booking.pickupWindowStart.toISOString()}
+                      tz={tz}
+                      className="ml-2 text-muted-foreground"
+                    />
+                  </>
+                )}
               </dd>
               <dt className="text-muted-foreground">Departs</dt>
-              <dd>{formatInstantInAirportTz(booking.departureAt, AIRPORT_TZ)}</dd>
+              <dd>
+                {formatInstantInAirportTz(booking.departureAt, tz)}
+                <ViewerLocalTime
+                  instant={booking.departureAt.toISOString()}
+                  tz={tz}
+                  className="ml-2 text-muted-foreground"
+                />
+              </dd>
               <dt className="text-muted-foreground">Bags</dt>
               <dd>{booking.bagCount}</dd>
               <dt className="text-muted-foreground">Price</dt>
@@ -158,7 +186,7 @@ export default async function BookingDetailPage({
                 ${(booking.priceCents / 100).toFixed(2)} {booking.currency.toUpperCase()}
               </dd>
               <dt className="text-muted-foreground">Created</dt>
-              <dd>{formatInstantInAirportTz(booking.createdAt, AIRPORT_TZ)}</dd>
+              <dd>{formatInstantInAirportTz(booking.createdAt, tz)}</dd>
             </dl>
           </CardContent>
         </Card>
@@ -222,7 +250,7 @@ export default async function BookingDetailPage({
               {bags.map((bag, index) => (
                 <li key={bag.id} className="rounded-lg border p-3">
                   <div className="flex items-center justify-between gap-3">
-                    <span>Bag {index + 1}</span>
+                    <span>Bag {bag.ordinal}</span>
                     <span className="font-mono text-xs">
                       {bag.sealId ? `seal ${bag.sealId}` : "not sealed"}
                       {bag.weightKg ? ` · ${bag.weightKg} kg` : ""}
@@ -327,7 +355,7 @@ export default async function BookingDetailPage({
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <CustodyTrail events={timeline} signedUrls={signedUrls} />
+            <CustodyTrail events={timeline} signedUrls={signedUrls} tz={tz} />
           </CardContent>
         </Card>
       </div>

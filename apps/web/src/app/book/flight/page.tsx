@@ -1,11 +1,16 @@
-import { format } from "date-fns";
 import { FormMessage, Input, Label, PageHeader, Select } from "@koolee/ui";
+import {
+  FALLBACK_DISPLAY_TZ,
+  formatDateTimeLocalInAirportTz,
+  resolveDisplayTz,
+} from "@koolee/core";
 
 import { submitFlight } from "@/app/book/actions";
 import { TurnstileFormField } from "@/components/auth/turnstile-gate";
 import { CoverageStepForm } from "@/components/coverage-step-form";
 import { TicketUpload } from "@/components/ticket-upload";
 import { readDraft } from "@/lib/booking-draft";
+import { tryGetCore } from "@/lib/core";
 
 export const metadata = { title: "Your flight" };
 export const dynamic = "force-dynamic";
@@ -25,6 +30,14 @@ export default async function FlightStepPage({
   // prefill is cleared in the same action. Manual entries win over prefill.
   const prefill = draft.ticketPrefill;
   const fromTicket = from === "ticket" && Boolean(prefill);
+
+  const core = tryGetCore();
+  const airportTz =
+    core && draft.departureAirport
+      ? await resolveDisplayTz(core.db, draft.departureAirport).catch(
+          () => FALLBACK_DISPLAY_TZ,
+        )
+      : FALLBACK_DISPLAY_TZ;
   const lowConfidence = fromTicket && prefill?.confidence === "low";
 
   // Extracted fields get an attention ring (sky, matching the info banner —
@@ -34,10 +47,13 @@ export default async function FlightStepPage({
       ? "border-sky-400 ring-1 ring-sky-300"
       : undefined;
 
+  // A datetime-local input round-trips whatever wall clock it is given, so
+  // this has to be the AIRPORT's — otherwise a customer who comes back to this
+  // step finds their 6 PM departure showing as 22:00 (the server renders UTC).
   const departureAtDefault = fromTicket
     ? (prefill?.departureAtLocal ?? "")
     : draft.departureAt
-      ? format(new Date(draft.departureAt), "yyyy-MM-dd'T'HH:mm")
+      ? formatDateTimeLocalInAirportTz(new Date(draft.departureAt), airportTz)
       : "";
 
   const flightNumberDefault = fromTicket

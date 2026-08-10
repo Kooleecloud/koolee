@@ -27,11 +27,13 @@ import { FakePaymentProvider } from "../payments/fake";
 import {
   arriveAtVisit,
   completeVerificationVisit,
+  getVisitContext,
   recordBagSealed,
   recordIdentityVerified,
   reportVisitException,
 } from "./agent-visit";
 import { createBooking } from "./create-booking";
+import { captureDueBookings } from "./payment-lifecycle";
 import { ensureAddress } from "./customers";
 
 /**
@@ -207,14 +209,29 @@ describeIntegration("agent verification visit (integration)", () => {
 
     context = await recordIdentityVerified(config, agentSession, { taskId: task.id });
 
-    for (const [index, bag] of context.bags.entries()) {
+    // Seal by ORDINAL, and re-read the list after each seal: the regression
+    // this guards against is the visible one — an agent sealed the bag shown
+    // as "Bag 1" and the seal reappeared under "Bag 3", because bags share a
+    // `created_at` and the old `order by created_at` was a non-deterministic
+    // tie that an UPDATE could reshuffle.
+    const ordinalsBefore = context.bags.map((b) => b.ordinal);
+    expect(ordinalsBefore).toEqual([1, 2]);
+
+    for (const bag of [...context.bags]) {
       await recordBagSealed(config, agentSession, {
         taskId: task.id,
         bagId: bag.id,
-        sealId: `SEAL-00${index + 1}`,
+        sealId: `SEAL-00${bag.ordinal}`,
         weightKg: 18.5,
         photoPath: `bags/${bag.id}/photo.jpg`,
       });
+
+      // Position AND identity must survive the write.
+      const after = await getVisitContext(db, agentSession, task.id);
+      expect(after.bags.map((b) => b.ordinal)).toEqual(ordinalsBefore);
+      expect(after.bags.map((b) => b.id)).toEqual(context.bags.map((b) => b.id));
+      // The seal landed on the bag we named, not on a neighbour.
+      expect(after.bags.find((b) => b.id === bag.id)!.sealId).toBe(`SEAL-00${bag.ordinal}`);
     }
 
     const result = await completeVerificationVisit(config, agentSession, {
@@ -222,7 +239,10 @@ describeIntegration("agent verification visit (integration)", () => {
       lat: 40.7,
       lng: -74.0,
     });
-    expect(result).toEqual({ ok: true, capture: "captured" });
+    // Completing a visit is CUSTODY ONLY now. The agent app holds no payment
+    // credentials, so charging here used to fail every pickup — money is swept
+    // separately by `captureDueBookings` from the app that owns Stripe.
+    expect(result).toEqual({ ok: true });
 
     // Booking advanced through the matrix; task closed out.
     const [bookingRow] = await db.select().from(bookings).where(eq(bookings.id, booking.id));
@@ -234,13 +254,29 @@ describeIntegration("agent verification visit (integration)", () => {
     expect(taskRow!.status).toBe("done");
     expect(taskRow!.completedAt).not.toBeNull();
 
-    // Payment captured through the seam.
+    // Explicitly NOT captured by completing the visit: the authorization is
+    // untouched and no money moved on this device.
     const [paymentRow] = await db
       .select()
       .from(payments)
       .where(eq(payments.bookingId, booking.id));
-    expect(paymentRow!.status).toBe("captured");
-    expect(provider.inspectAuth(paymentRow!.providerRef)?.state).toBe("captured");
+    expect(paymentRow!.status).toBe("authorized");
+    expect(provider.inspectAuth(paymentRow!.providerRef)?.state).toBe("authorized");
+
+    // …and the sweep, run where the provider lives, is what charges it.
+    const swept = await captureDueBookings(config);
+    expect(swept.captured).toEqual([booking.id]);
+    expect(swept.failed).toEqual([]);
+
+    const [afterSweep] = await db
+      .select()
+      .from(payments)
+      .where(eq(payments.bookingId, booking.id));
+    expect(afterSweep!.status).toBe("captured");
+    expect(provider.inspectAuth(afterSweep!.providerRef)?.state).toBe("captured");
+
+    // Idempotent: a second pass finds nothing left to do.
+    expect(await captureDueBookings(config)).toEqual({ captured: [], failed: [] });
 
     // Bags carry seals, weights, photo paths.
     const bagRows = await db.select().from(bags).where(eq(bags.bookingId, booking.id));
@@ -261,8 +297,9 @@ describeIntegration("agent verification visit (integration)", () => {
     expect(types).toContain("booking.verified_sealed");
     expect(types).toContain("booking.payment_captured");
 
+    // Every step the AGENT performed carries the real agent actor.
     const agentEvents = events.filter((e) =>
-      ["visit.arrived", "visit.identity_verified", "bag.sealed", "booking.verified_sealed", "booking.payment_captured"].includes(
+      ["visit.arrived", "visit.identity_verified", "bag.sealed", "booking.verified_sealed"].includes(
         e.eventType,
       ),
     );
@@ -271,6 +308,13 @@ describeIntegration("agent verification visit (integration)", () => {
       expect(event.actorRole, event.eventType).toBe("agent");
       expect(event.createdAt).toBeInstanceOf(Date);
     }
+
+    // The capture is deliberately NOT the agent's: it is swept by the system,
+    // so the custody trail must not attribute the charge to a person who was
+    // standing at a door and never touched a card.
+    const captureEvent = events.find((e) => e.eventType === "booking.payment_captured");
+    expect(captureEvent!.actorUserId).toBeNull();
+    expect(captureEvent!.actorRole).toBeNull();
     // GPS landed where provided; the seal photo is on the bag event.
     const sealed = events.find((e) => e.eventType === "bag.sealed");
     expect(sealed?.photoUrl).toMatch(/^bags\//);

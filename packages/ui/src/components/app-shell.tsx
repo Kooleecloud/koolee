@@ -22,15 +22,25 @@ import { cn } from "../lib/utils";
 
 export { AppHeader, type AppHeaderProps, type AppNavLink } from "./app-header";
 
+/**
+ * Each entry owns its horizontal box completely — including whether it uses
+ * `container` at all. `full` deliberately does not: `container` caps at 1280px,
+ * so a "full" width that kept it was only ever an alias of `default`, which is
+ * what it used to be. Dense operational tables genuinely want the viewport.
+ */
 const CONTENT_WIDTHS = {
   /** Post-login pages: same container width as the header chrome. */
-  default: "",
+  default: "container",
   /** Guided step flows — booking funnel, agent visit — keep a focused column. */
-  focused: "max-w-3xl",
+  focused: "container max-w-3xl",
   /** Auth forms and small utility screens. */
-  narrow: "max-w-md",
-  /** Alias of `default`, kept for existing dense-table callers. */
-  full: "",
+  narrow: "container max-w-md",
+  /**
+   * Full-bleed, for dense tables where every column matters more than the
+   * centered rhythm. Keeps the container's 1.5rem gutters so content never
+   * touches the viewport edge, but drops the 1280px cap.
+   */
+  full: "w-full px-6",
 } as const;
 
 export interface ContentColumnProps extends React.HTMLAttributes<HTMLElement> {
@@ -48,11 +58,7 @@ function ContentColumn({
 }: ContentColumnProps) {
   return (
     <Comp
-      className={cn(
-        "container flex flex-col gap-6 py-10",
-        CONTENT_WIDTHS[width],
-        className,
-      )}
+      className={cn("flex flex-col gap-6 py-10", CONTENT_WIDTHS[width], className)}
       {...props}
     />
   );
@@ -69,7 +75,7 @@ export interface AppFooterProps {
 /** Quiet in-app footer strip, aligned to the content column. */
 function AppFooter({ children, width = "default", className }: AppFooterProps) {
   return (
-    <footer className={cn("container pb-10", CONTENT_WIDTHS[width], className)}>
+    <footer className={cn("pb-10", CONTENT_WIDTHS[width], className)}>
       <div className="border-t border-border pt-6 text-xs leading-relaxed text-muted-foreground">
         {children}
       </div>

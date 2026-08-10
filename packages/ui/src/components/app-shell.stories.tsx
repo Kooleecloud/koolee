@@ -141,3 +141,24 @@ export const StatusBadges: Story = {
     </div>
   ),
 };
+
+/**
+ * The four content widths, side by side. `full` is the one worth eyeballing:
+ * it is genuinely full-bleed (no 1280px cap) because dense operational tables
+ * want the viewport. It used to be a silent alias of `default`.
+ */
+export const ContentWidths: Story = {
+  render: () => (
+    <div className="flex flex-col gap-4 py-6">
+      {(["full", "default", "focused", "narrow"] as const).map((width) => (
+        <ContentColumn key={width} as="div" width={width} className="py-0">
+          <div className="rounded-md border border-dashed border-sky-400 bg-sky-50 px-3 py-2 text-xs">
+            <code>width=&quot;{width}&quot;</code>
+            {width === "full" ? " — full-bleed, own gutters, no cap" : null}
+            {width === "default" ? " — container, capped at 1280px" : null}
+          </div>
+        </ContentColumn>
+      ))}
+    </div>
+  ),
+};

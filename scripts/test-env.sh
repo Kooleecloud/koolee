@@ -188,10 +188,11 @@ run_drizzle_migrations() {
 setup_test_database() {
   assert_local "$TEST_DB_URL"
 
-  local exists
+  local exists db_existed=0
   exists="$(psql "$LOCAL_DB_URL" -X -q -A -t -v ON_ERROR_STOP=1 \
     -c "select 1 from pg_database where datname = '$TEST_DB_NAME'")"
   if [[ "$exists" == "1" ]]; then
+    db_existed=1
     pass "database $TEST_DB_NAME already exists"
   else
     # CREATE DATABASE cannot run inside a transaction block, hence its own -c.
@@ -209,43 +210,58 @@ setup_test_database() {
     )" >/dev/null
   pass "marker table $MARKER_TABLE present"
 
-  # Structure is CLONED from the dev database rather than rebuilt by running
-  # the Drizzle migrations against an empty one. Those migrations cannot build
-  # a database on their own: they create RLS policies over `storage.objects`,
-  # insert the `bag-photos` row into `storage.buckets`, and call `auth.uid()`
-  # — all owned by Supabase's GoTrue/Storage services, which only ever
-  # provision the `postgres` database. `db:migrate` against a fresh database
-  # dies on `relation "storage.buckets" does not exist`.
+  # BOOTSTRAP ONLY, and that distinction is load-bearing.
   #
-  # `pg_dump --schema-only` copies DDL and no rows, so nothing of yours is
-  # duplicated, and it keeps working as the schema grows without this script
-  # needing to know which Supabase schemas are involved. The dev database is
-  # only ever READ here.
-  step "Clone schema from the dev database (structure only, zero rows)"
-  command -v pg_dump >/dev/null 2>&1 || die "pg_dump not found on PATH. Remedy: brew install libpq && brew link --force libpq"
-  # ON_ERROR_STOP=0: a Supabase dump replays extension and role grants that
-  # are already satisfied cluster-wide and harmlessly re-error. The table-count
-  # assertion below is what actually decides whether the clone worked.
-  pg_dump "$LOCAL_DB_URL" --schema-only --quote-all-identifiers 2>/dev/null \
-    | psql "$TEST_DB_URL" -X -q -v ON_ERROR_STOP=0 >/dev/null 2>&1 || true
+  # A brand-new test database is CLONED from the dev one rather than built by
+  # running the Drizzle migrations against an empty database. Those migrations
+  # cannot build a database on their own: they create RLS policies over
+  # `storage.objects`, insert the `bag-photos` row into `storage.buckets`, and
+  # call `auth.uid()` — all owned by Supabase's GoTrue/Storage services, which
+  # only ever provision the `postgres` database. `db:migrate` against a fresh
+  # database dies on `relation "storage.buckets" does not exist`.
+  #
+  # But a clone is ONLY correct on an empty database. Replaying
+  # `pg_dump --schema-only` into a test database that already has the tables
+  # makes every CREATE fail (ignored, by design) — so a migration that only
+  # ADDS A COLUMN never lands, while copying the dev journal on top then
+  # records it as applied. `db:migrate` sees nothing pending, the script
+  # reports success, and the suites fail later with
+  # `column "display_tz" does not exist`. The table-count assertion cannot
+  # catch that: a column is not a table.
+  #
+  # So: clone once at creation, and thereafter let Drizzle do its job. An
+  # existing test database keeps its OWN journal, which is the honest record
+  # of what it has actually had applied, and the `db:migrate` below brings it
+  # forward exactly like any other database.
+  if [[ $db_existed -eq 0 ]]; then
+    step "Clone schema from the dev database (structure only, zero rows)"
+    command -v pg_dump >/dev/null 2>&1 || die "pg_dump not found on PATH. Remedy: brew install libpq && brew link --force libpq"
+    # ON_ERROR_STOP=0: a Supabase dump replays extension and role grants that
+    # are already satisfied cluster-wide and harmlessly re-error. The
+    # table-count assertion below is what decides whether the clone worked.
+    pg_dump "$LOCAL_DB_URL" --schema-only --quote-all-identifiers 2>/dev/null \
+      | psql "$TEST_DB_URL" -X -q -v ON_ERROR_STOP=0 >/dev/null 2>&1 || true
 
-  local expected actual
-  expected="$(psql "$LOCAL_DB_URL" -X -q -A -t -v ON_ERROR_STOP=1 \
-    -c "select count(*) from pg_catalog.pg_tables where schemaname = 'public'")"
-  actual="$(psql "$TEST_DB_URL" -X -q -A -t -v ON_ERROR_STOP=1 \
-    -c "select count(*) from pg_catalog.pg_tables where schemaname = 'public' and tablename <> '$MARKER_TABLE'")"
-  if [[ "$expected" != "$actual" ]]; then
-    die "schema clone incomplete: dev has $expected public tables, $TEST_DB_NAME has $actual. Nothing else was changed; inspect with: pnpm test:env:doctor"
+    local expected actual
+    expected="$(psql "$LOCAL_DB_URL" -X -q -A -t -v ON_ERROR_STOP=1 \
+      -c "select count(*) from pg_catalog.pg_tables where schemaname = 'public'")"
+    actual="$(psql "$TEST_DB_URL" -X -q -A -t -v ON_ERROR_STOP=1 \
+      -c "select count(*) from pg_catalog.pg_tables where schemaname = 'public' and tablename <> '$MARKER_TABLE'")"
+    if [[ "$expected" != "$actual" ]]; then
+      die "schema clone incomplete: dev has $expected public tables, $TEST_DB_NAME has $actual. Nothing else was changed; inspect with: pnpm test:env:doctor"
+    fi
+    pass "cloned $actual public tables (plus auth/storage schemas)"
+
+    # The ONE table whose rows are copied: Drizzle's journal. --schema-only
+    # brings the table but not its contents, so without this Drizzle sees a
+    # database with every table already present and no migrations recorded,
+    # and re-runs 0000 straight into `type "booking_status" already exists`.
+    pg_dump "$LOCAL_DB_URL" --data-only --table 'drizzle.__drizzle_migrations' 2>/dev/null \
+      | psql "$TEST_DB_URL" -X -q -v ON_ERROR_STOP=1 >/dev/null
+    pass "migration journal copied"
+  else
+    step "Existing $TEST_DB_NAME — applying pending migrations (no re-clone)"
   fi
-  pass "cloned $actual public tables (plus auth/storage schemas)"
-
-  # The ONE table whose rows are copied: Drizzle's journal. --schema-only
-  # brings the table but not its contents, so without this Drizzle sees a
-  # database with every table already present and no migrations recorded, and
-  # re-runs 0000 straight into `type "booking_status" already exists`.
-  pg_dump "$LOCAL_DB_URL" --data-only --table 'drizzle.__drizzle_migrations' 2>/dev/null \
-    | psql "$TEST_DB_URL" -X -q -v ON_ERROR_STOP=1 >/dev/null
-  pass "migration journal copied"
 
   # Applies anything the dev database has not caught up to yet; a no-op right
   # after a clone.
@@ -444,6 +460,22 @@ cmd_verify() {
     test_tables="$(psql "$TEST_DB_URL" -X -q -A -t -v ON_ERROR_STOP=1 \
       -c "select count(*) from pg_catalog.pg_tables where schemaname = 'public' and tablename <> '$MARKER_TABLE'")"
     vcheck "$TEST_DB_NAME public table count matches Drizzle schema" "$expected_tables" "$test_tables"
+
+    # 8. COLUMNS, not just tables. A migration that only adds a column leaves
+    #    the table count identical, so the check above passes while the test
+    #    database is silently a schema behind — which is exactly how a run
+    #    once reported success and then failed with
+    #    `column "display_tz" does not exist`. Compared against the dev
+    #    database rather than a snapshot: the two must agree, whatever the
+    #    schema currently is.
+    local dev_cols test_cols
+    local col_query="select count(*) from information_schema.columns c
+      join pg_catalog.pg_tables t
+        on t.schemaname = c.table_schema and t.tablename = c.table_name
+      where c.table_schema = 'public' and c.table_name <> '$MARKER_TABLE'"
+    dev_cols="$("${psql_cmd[@]}" -c "$col_query")"
+    test_cols="$(psql "$TEST_DB_URL" -X -q -A -t -v ON_ERROR_STOP=1 -c "$col_query")"
+    vcheck "$TEST_DB_NAME public column count matches the dev database" "$dev_cols" "$test_cols"
   fi
 
   if [[ $failures -gt 0 ]]; then

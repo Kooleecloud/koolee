@@ -42,6 +42,42 @@ export const restrictedImports = {
   ],
 };
 
+/**
+ * Timezone rendering, enforced rather than documented.
+ *
+ * Koolee's rule is that every human-facing time is rendered in the BOOKING's
+ * zone — the departure airport's — so the customer who buys a window, the
+ * agent who shows up for it, and the dispatcher who plans around it all read
+ * the same string. The failure mode is silent: `toLocaleString()` and bare
+ * date-fns `format()` fall back to the SYSTEM zone, which is UTC in
+ * production, so a booking renders 4–5 hours off with no error anywhere.
+ *
+ * Everything must therefore go through the formatters in
+ * packages/core/src/slots/cutoff.ts, which take an explicit `tz`. That module
+ * (and the two client components that deliberately render viewer-local time)
+ * turn this rule off for themselves.
+ *
+ * See docs/TIME.md.
+ */
+export const restrictedTimeFormatting = [
+  {
+    selector:
+      "CallExpression > MemberExpression[property.name=/^toLocale(String|TimeString|DateString)$/]",
+    message:
+      "toLocale* renders in the SYSTEM zone (UTC in production). Use the airport-tz formatters from @koolee/core — formatInstantInAirportTz, formatWindowInAirportTz, formatHourRangeInAirportTz — which require an explicit zone. See docs/TIME.md.",
+  },
+  {
+    selector: "NewExpression[callee.object.name='Intl'][callee.property.name='DateTimeFormat']",
+    message:
+      "Constructing Intl.DateTimeFormat directly bypasses the timezone policy. Use the formatters from @koolee/core, or add an eslint-disable with a comment saying why this render is viewer-local. See docs/TIME.md.",
+  },
+  {
+    selector: "CallExpression[callee.name='format'][arguments.length=2]",
+    message:
+      "Bare date-fns format() uses the SYSTEM zone (UTC in production). Use formatInstantInAirportTz / formatWindowInAirportTz / formatHourRangeInAirportTz from @koolee/core, which take the booking's zone. For elapsed time, formatDistanceToNow needs no zone. See docs/TIME.md.",
+  },
+];
+
 /** Files that never need linting. */
 export const ignores = {
   ignores: [
@@ -73,6 +109,7 @@ export const baseConfig = [
     },
     rules: {
       "no-restricted-imports": ["error", restrictedImports],
+      "no-restricted-syntax": ["error", ...restrictedTimeFormatting],
       "@typescript-eslint/no-unused-vars": [
         "error",
         {

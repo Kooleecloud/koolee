@@ -16,6 +16,7 @@ import {
   type SQL,
 } from "drizzle-orm";
 import {
+  airports,
   bags,
   bookings,
   custodyEvents,
@@ -344,6 +345,13 @@ export interface BoardRow {
   assigneeEmail: string | null;
   taskStatus: VerificationTask["status"] | null;
   /**
+   * The booking's display zone, carried per row because the board is the one
+   * screen that shows bookings from every airport at once. A single console
+   * zone would silently mislabel every row from a non-Eastern airport the day
+   * one is added, and nothing about the code would look wrong.
+   */
+  tz: string;
+  /**
    * Simple derived flag, not a scheduling engine: paid, unassigned, and the
    * pickup window starts within the next 12 hours (or already started).
    */
@@ -485,10 +493,12 @@ export async function listBookingsBoard(
       assigneeUserId: verificationTasks.assigneeUserId,
       assigneeEmail: users.email,
       taskStatus: verificationTasks.status,
+      tz: airports.tz,
     })
     .from(bookings)
     .leftJoin(verificationTasks, eq(verificationTasks.bookingId, bookings.id))
     .leftJoin(users, eq(users.id, verificationTasks.assigneeUserId))
+    .innerJoin(airports, eq(airports.code, bookings.departureAirport))
     .where(conditions.length > 0 ? and(...conditions) : undefined)
     .orderBy(...orderFor(filter.sort))
     .limit(filter.limit ?? 200);
@@ -499,6 +509,7 @@ export async function listBookingsBoard(
     assigneeUserId: row.assigneeUserId,
     assigneeEmail: row.assigneeEmail,
     taskStatus: row.taskStatus,
+    tz: row.tz,
     atRisk:
       row.booking.status === "paid" &&
       !row.assigneeUserId &&

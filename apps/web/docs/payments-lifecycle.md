@@ -26,21 +26,56 @@ the transition matrix. A failed authorization can never reach `paid` (only
 cancel — it lands as `raise_exception`, because "the money vanished while
 bags are in transit" is an ops problem, not a cancellation.
 
-## Capture at pickup — `captureBookingPayment`
+## Capture after pickup — `captureDueBookings` (swept, not inline)
 
-Called when the agent completes verification/sealing —
-`completeVerificationVisit` (`packages/core/src/services/agent-visit.ts`)
-invokes it once every bag carries a seal and the booking has moved through
-`complete_verification`. Captures the authorized amount via the seam, sets
-`payments.status = captured` + `capture_ref`, and appends a
-`booking.payment_captured` custody event with the real staff actor id.
+**Changed 2026-08-10.** Capture used to run inline in the agent's
+"complete visit" request. It now runs from apps/web on a sweep, and the
+agent app is out of the payment path entirely.
 
-**Capture failure is ops-visible, never a log line:** the booking moves to
-the matrix's `exception` state with a custody event carrying the reason,
-and `opsAlerter.alert(severity: critical)` fires. A capture that _throws_
-(no authorized payment row at all) is caught in `completeVerificationVisit`
-and lands in the same exception + alert path, so the agent sees "ops will
-follow up" rather than a fake success.
+`captureDueBookings(config)` selects bookings already in Koolee's custody
+(`verified_sealed` … `delivered_to_bagdrop`) whose payment row is
+`authorized` **for that config's own provider**, and captures each through
+`captureBookingPayment`. Two properties fall out of that selection:
+
+- **idempotent** — a captured row stops matching, so overlapping or repeated
+  runs are harmless;
+- **provider-scoped** — a row written by a different provider is invisible
+  to the sweep rather than mis-captured.
+
+Triggered two ways, both from apps/web because that is the app holding
+Stripe credentials:
+
+| trigger                     | when                                       |
+| --------------------------- | ------------------------------------------ |
+| `POST /api/jobs/capture-due` | manual / any external scheduler; `CRON_SECRET` required |
+| Inngest `capture-due-bookings` | `cron("*/5 * * * *")`                   |
+
+The actor on the resulting `booking.payment_captured` event is **NULL** — a
+sweep is the system's act, and attributing the charge to whichever agent
+happened to be at the door would be a lie in an append-only custody log.
+
+### Why it moved
+
+The agent app deliberately holds no payment credentials (a field device's
+server should not be able to move money). With capture inline, it silently
+wired the FAKE provider, `captureBookingPayment`'s provider check then found
+no matching authorized row, and **every** pickup ended in `exception` with
+the bags already sealed and collected. The provider check was doing its job
+— without it the fake provider would have "captured" and marked the booking
+paid while no money moved, which is strictly worse.
+
+Splitting custody from money makes that class of bug structurally
+impossible: the agent app cannot capture wrongly because it cannot capture.
+
+**Trade-off accepted:** capture now lags pickup by up to the cron interval
+(5 minutes). Card authorizations last days, so nothing is at risk; the
+customer's trip page shows `authorized` slightly longer before `captured`.
+
+**Capture failure is still ops-visible, never a log line:** the booking
+moves to the matrix's `exception` state with a custody event carrying the
+reason, and `opsAlerter.alert(severity: critical)` fires. Per-booking
+failures are collected by the sweep rather than aborting the pass — one
+stuck booking must not stop the rest from being charged.
 
 ## Refund on cancellation — `cancelBookingWithRefund`
 
@@ -92,3 +127,13 @@ booking (nothing to release) and, via a direct-insert fixture, a legacy
 slot-backed booking still releasing exactly one seat; refunding a capture in
 full; matrix refusal once in transit. The 10×11 matrix itself needed no new
 transitions — its existing exhaustive tests stand unchanged.
+
+Two sweep tests added 2026-08-10:
+
+- the sweep captures a booking **in custody** and leaves a merely `paid` one
+  alone, and a second pass is a no-op (idempotence);
+- **a provider that did not write the payment can never mark it captured.**
+  This is the blind spot that let the outage ship: the tier wires
+  `FakePaymentProvider` on both sides, so a provider mismatch was previously
+  invisible to every test. The new one relabels the row's provider and
+  asserts the sweep cannot see it.

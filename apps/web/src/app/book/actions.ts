@@ -356,7 +356,13 @@ export async function confirmBooking(
       }
     }
 
-    const result = await createBooking(core, { ...input, contactPhone });
+    // Best-effort, from a hidden field the browser fills in. Metadata only:
+    // the booking is still rendered in the AIRPORT's zone for everyone. This
+    // is what lets support answer "did they think 10 AM was their time?" and
+    // what gates the "times are local to JFK" banner to non-local customers.
+    const bookedFromTz = str(form, "bookedFromTz");
+
+    const result = await createBooking(core, { ...input, contactPhone, bookedFromTz });
 
     try {
       await softDeleteBookingDraft(core.db, userRow.id);

@@ -1,7 +1,11 @@
 import Link from "next/link";
-import { format } from "date-fns";
 import { AppFooter, AppHeader, Button, ContentColumn } from "@koolee/ui";
-import { formatWindowInAirportTz } from "@koolee/core";
+import {
+  FALLBACK_DISPLAY_TZ,
+  formatInstantInAirportTz,
+  formatWindowInAirportTz,
+  resolveDisplayTz,
+} from "@koolee/core";
 
 import { BookingStepper } from "@/components/booking-stepper";
 import {
@@ -11,6 +15,7 @@ import {
 import { ContactEmailLink } from "@/components/contact-email-link";
 import { readDraft } from "@/lib/booking-draft";
 import { stepCompletion } from "@/lib/booking-steps";
+import { tryGetCore } from "@/lib/core";
 
 export default async function BookLayout({ children }: { children: React.ReactNode }) {
   // Freshness contract: every step submit writes the draft cookie from a
@@ -20,21 +25,29 @@ export default async function BookLayout({ children }: { children: React.ReactNo
   const draft = await readDraft();
   const completed = stepCompletion(draft);
 
+  // The summary must read exactly like the picker the customer just used, so
+  // it resolves the zone the same way — from the chosen airport, not a
+  // hardcoded Eastern default. A draft may not have an airport yet; the
+  // fallback only ever applies before that step is complete.
+  const core = tryGetCore();
+  const tz =
+    core && draft.departureAirport
+      ? await resolveDisplayTz(core.db, draft.departureAirport).catch(
+          () => FALLBACK_DISPLAY_TZ,
+        )
+      : FALLBACK_DISPLAY_TZ;
+
   // The chosen window lives in the draft itself — no lookup needed.
   const windowLabel =
     draft.windowStart && draft.windowEnd
-      ? formatWindowInAirportTz(
-          new Date(draft.windowStart),
-          new Date(draft.windowEnd),
-          "America/New_York",
-        )
+      ? formatWindowInAirportTz(new Date(draft.windowStart), new Date(draft.windowEnd), tz)
       : null;
 
   const summary: BookingSummaryData = {
     flight: completed[0]
       ? {
           flight: `${draft.flightNumber} from ${draft.departureAirport}`,
-          departure: format(new Date(draft.departureAt!), "EEE d MMM, h:mm a"),
+          departure: formatInstantInAirportTz(new Date(draft.departureAt!), tz),
           pax: draft.paxName ?? "",
         }
       : null,

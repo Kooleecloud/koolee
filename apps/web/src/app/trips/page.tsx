@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { format } from "date-fns";
+import { formatDistanceToNow } from "date-fns";
 import {
   BookingStatusBadge,
   Button,
@@ -14,7 +14,14 @@ import {
   PageHeader,
 } from "@koolee/ui";
 import { redirect } from "next/navigation";
-import { getBookingDraft, listBookingsForSession, type Booking } from "@koolee/core";
+import {
+  formatInstantInAirportTz,
+  getBookingDraft,
+  getDisplayZones,
+  listBookingsForSession,
+  zoneFor,
+  type Booking,
+} from "@koolee/core";
 
 import { discardDraft } from "@/app/trips/actions";
 import { ConfirmActionForm } from "@/components/confirm-action-form";
@@ -35,16 +42,20 @@ export default async function TripsPage() {
   const core = tryGetCore();
 
   let bookings: Booking[] = [];
+  // Airport code → IANA zone. A trips list can span airports, so the zone is
+  // resolved per booking rather than assumed — and one query covers the lot.
+  let zones: Record<string, string> = {};
   let unavailable = core === null;
 
   if (core) {
     try {
       // Session-scoped in core: a customer session can only ever list its own.
-      bookings = await listBookingsForSession(
-        core.db,
-        customerSessionFromAuthUser(authUser),
-        { limit: 50 },
-      );
+      [bookings, zones] = await Promise.all([
+        listBookingsForSession(core.db, customerSessionFromAuthUser(authUser), {
+          limit: 50,
+        }),
+        getDisplayZones(core.db),
+      ]);
     } catch {
       unavailable = true;
     }
@@ -98,7 +109,11 @@ export default async function TripsPage() {
                     {booking.flightNumber} · {booking.departureAirport}
                   </span>
                   <span className="text-sm text-muted-foreground">
-                    {format(booking.departureAt, "EEE d MMM, h:mm a")} ·{" "}
+                    {formatInstantInAirportTz(
+                      booking.departureAt,
+                      zoneFor(zones, booking.departureAirport),
+                    )}{" "}
+                    ·{" "}
                     {booking.bagCount} {booking.bagCount === 1 ? "bag" : "bags"}
                   </span>
                 </span>
@@ -140,7 +155,13 @@ function DraftCard({
         </CardTitle>
         <CardDescription>
           Next step: {nextLabel}
-          {updatedAt && <> · last edited {format(updatedAt, "EEE d MMM, h:mm a")}</>}.
+          {/* Relative, not a wall-clock time: this is the customer's own last
+              action, and a draft may not have an airport yet — so there is no
+              booking zone to render it in. Elapsed time needs no zone at all. */}
+          {updatedAt && (
+            <> · last edited {formatDistanceToNow(updatedAt, { addSuffix: true })}</>
+          )}
+          .
           Drafts are kept for 7 days.
         </CardDescription>
       </CardHeader>

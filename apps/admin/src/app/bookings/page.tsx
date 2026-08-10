@@ -17,13 +17,15 @@ import {
   formatDayInAirportTz,
   formatHourRangeInAirportTz,
   formatInstantInAirportTz,
+  getDisplayZones,
   listBookingsBoard,
+  zoneFor,
   type BoardRow,
   type BoardSortKey,
   type BookingStatus,
 } from "@koolee/core";
 
-import { AIRPORT_TZ } from "@/lib/airport-tz";
+import { OPS_CONSOLE_TZ } from "@/lib/airport-tz";
 import { bookingRef } from "@/lib/booking-ref";
 import { tryGetCore } from "@/lib/core";
 import { getAdminSession } from "@/lib/session";
@@ -79,7 +81,7 @@ function SortableHeader({
   const active = sortKey === activeKey;
   return (
     <th
-      className="px-4 py-2 font-medium"
+      className="px-4 py-2 font-medium whitespace-nowrap"
       aria-sort={active ? (direction === "asc" ? "ascending" : "descending") : "none"}
     >
       <Link
@@ -135,8 +137,6 @@ export default async function BookingsPage({
     : "window";
   const sortDir = params.dir === "desc" ? "desc" : "asc";
   const now = new Date();
-  // "today" must mean today AT THE AIRPORT, not on the server.
-  const airportToday = airportLocalDay(now, AIRPORT_TZ);
 
   const core = tryGetCore();
   let rows: BoardRow[] = [];
@@ -144,10 +144,17 @@ export default async function BookingsPage({
 
   if (core) {
     try {
+      // A day-bounded query needs ONE boundary (see OPS_CONSOLE_TZ). When the
+      // operator has narrowed to a single airport, that airport's own zone is
+      // the honest boundary; otherwise the console default stands in.
+      const zones = await getDisplayZones(core.db);
+      const filterTz =
+        airports.length === 1 ? zoneFor(zones, airports[0]!) : OPS_CONSOLE_TZ;
+
       rows = await listBookingsBoard(core.db, {
         ...(statuses.length > 0 ? { statuses } : {}),
         ...(airports.length > 0 ? { airports } : {}),
-        ...(today ? { day: { on: now, tz: AIRPORT_TZ } } : {}),
+        ...(today ? { day: { on: now, tz: filterTz } } : {}),
         ...(search ? { search } : {}),
         sort: { key: sortKey, direction: sortDir },
         limit: 200,
@@ -219,7 +226,7 @@ export default async function BookingsPage({
           <table className="w-full text-sm">
             <thead className="border-b bg-muted/50 text-left">
               <tr>
-                <th className="px-4 py-2 font-medium">Ref</th>
+                <th className="px-4 py-2 font-medium whitespace-nowrap">Ref</th>
                 <SortableHeader
                   label="Pickup window"
                   sortKey="window"
@@ -234,9 +241,9 @@ export default async function BookingsPage({
                   direction={sortDir}
                   href={sortHref("departure")}
                 />
-                <th className="px-4 py-2 font-medium">Flight</th>
-                <th className="px-4 py-2 font-medium">Passenger</th>
-                <th className="px-4 py-2 font-medium">Bags</th>
+                <th className="px-4 py-2 font-medium whitespace-nowrap">Flight</th>
+                <th className="px-4 py-2 font-medium whitespace-nowrap">Passenger</th>
+                <th className="px-4 py-2 font-medium whitespace-nowrap">Bags</th>
                 <SortableHeader
                   label="Agent"
                   sortKey="agent"
@@ -254,8 +261,15 @@ export default async function BookingsPage({
               </tr>
             </thead>
             <tbody className="divide-y">
-              {rows.map(({ booking, slotStart, assigneeEmail, atRisk }) => {
+              {rows.map(({ booking, slotStart, assigneeEmail, atRisk, tz }) => {
                 const windowEnd = booking.pickupWindowEnd;
+                // "Today" is evaluated in THIS booking's zone, which stays
+                // well-defined even when the board spans several — unlike a
+                // single console-wide "today", which has no meaning on a
+                // mixed-zone list.
+                const isToday =
+                  slotStart !== null &&
+                  airportLocalDay(slotStart, tz) === airportLocalDay(now, tz);
                 return (
                   <LinkedTableRow
                     key={booking.id}
@@ -275,14 +289,14 @@ export default async function BookingsPage({
                         <>
                           {windowEnd ? (
                             <>
-                              {formatDayInAirportTz(slotStart, AIRPORT_TZ)}{" "}
-                              {formatHourRangeInAirportTz(slotStart, windowEnd, AIRPORT_TZ)}
+                              {formatDayInAirportTz(slotStart, tz)}{" "}
+                              {formatHourRangeInAirportTz(slotStart, windowEnd, tz)}
                             </>
                           ) : (
                             /* Legacy slot rows carry a start with no end. */
-                            formatInstantInAirportTz(slotStart, AIRPORT_TZ)
+                            formatInstantInAirportTz(slotStart, tz)
                           )}
-                          {airportLocalDay(slotStart, AIRPORT_TZ) === airportToday && (
+                          {isToday && (
                             <Badge variant="outline" className="ml-2">
                               today
                             </Badge>
@@ -298,7 +312,7 @@ export default async function BookingsPage({
                       )}
                     </td>
                     <td className="px-4 py-2 whitespace-nowrap text-muted-foreground">
-                      {formatInstantInAirportTz(booking.departureAt, AIRPORT_TZ)}
+                      {formatInstantInAirportTz(booking.departureAt, tz)}
                     </td>
                     <td className="px-4 py-2 whitespace-nowrap">
                       <span className="font-medium">{booking.flightNumber}</span>
@@ -306,14 +320,14 @@ export default async function BookingsPage({
                         {booking.departureAirport}
                       </span>
                     </td>
-                    <td className="px-4 py-2">{booking.paxName}</td>
-                    <td className="px-4 py-2">{booking.bagCount}</td>
-                    <td className="px-4 py-2">
+                    <td className="px-4 py-2 whitespace-nowrap">{booking.paxName}</td>
+                    <td className="px-4 py-2 whitespace-nowrap">{booking.bagCount}</td>
+                    <td className="px-4 py-2 whitespace-nowrap">
                       {assigneeEmail ?? (
                         <span className="text-muted-foreground">unassigned</span>
                       )}
                     </td>
-                    <td className="px-4 py-2">
+                    <td className="px-4 py-2 whitespace-nowrap">
                       <BookingStatusBadge status={booking.status} />
                     </td>
                   </LinkedTableRow>

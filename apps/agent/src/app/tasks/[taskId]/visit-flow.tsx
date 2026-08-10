@@ -39,6 +39,8 @@ import {
 
 export interface VisitBagView {
   id: string;
+  /** The bag's number within the booking — matches the physical tag. */
+  ordinal: number;
   sealId: string | null;
   weightKg: string | null;
   photoCount: number;
@@ -109,8 +111,8 @@ export function VisitFlow({ view }: { view: VisitView }) {
       {view.arrived && <IdentityStep view={view} coords={coords} />}
       {view.arrived && view.identityVerified && (
         <>
-          {view.bags.map((bag, index) => (
-            <BagStep key={bag.id} view={view} bag={bag} index={index} coords={coords} />
+          {view.bags.map((bag) => (
+            <BagStep key={bag.id} view={view} bag={bag} coords={coords} />
           ))}
           <CompleteStep view={view} allSealed={allSealed} coords={coords} />
         </>
@@ -203,12 +205,10 @@ function IdentityStep({
 function BagStep({
   view,
   bag,
-  index,
   coords,
 }: {
   view: VisitView;
   bag: VisitBagView;
-  index: number;
   coords: { lat: number; lng: number } | null;
 }) {
   const [state, formAction, pending] = useActionState<VisitActionState, FormData>(
@@ -221,8 +221,10 @@ function BagStep({
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center justify-between gap-3 text-base">
+          {/* Bag number comes from the row, not the array position — the
+              agent has to be able to match this to the physical tag. */}
           <span>
-            3.{index + 1} · Bag {index + 1}
+            3.{bag.ordinal} · Bag {bag.ordinal}
           </span>
           <StepBadge done={Boolean(bag.sealId)} label="to seal" />
         </CardTitle>
@@ -316,8 +318,9 @@ function CompleteStep({
         <CardTitle className="text-base">4 · Complete the visit</CardTitle>
         <CardDescription>
           {sealedCount}/{view.bags.length} bags sealed. Completing records the
-          hand-off and charges the customer&apos;s card — from here the bags are in
-          Koolee&apos;s custody until the airline&apos;s bag drop.
+          hand-off — from here the bags are in Koolee&apos;s custody until the
+          airline&apos;s bag drop. Billing is handled by ops; nothing about the
+          customer&apos;s card happens on this device.
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -326,7 +329,7 @@ function CompleteStep({
           <GpsFields coords={coords} />
           {state.error && <FormMessage>{state.error}</FormMessage>}
           <Button type="submit" loading={pending} disabled={!allSealed}>
-            {allSealed ? "Complete visit and charge card" : "Seal every bag first"}
+            {allSealed ? "Complete visit" : "Seal every bag first"}
           </Button>
         </form>
       </CardContent>

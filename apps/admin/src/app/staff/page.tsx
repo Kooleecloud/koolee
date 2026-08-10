@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { format } from "date-fns";
+import { formatDistanceToNow } from "date-fns";
 import {
   Badge,
   Card,
@@ -70,7 +70,9 @@ export default async function StaffPage() {
                       {member.email ?? member.userId}
                     </span>
                     <span className="text-xs text-muted-foreground">
-                      Added {format(member.createdAt, "d MMM yyyy")}
+                      {/* Relative: a staff record belongs to no booking, so there is
+                          no airport zone to render it in. */}
+                      Added {formatDistanceToNow(member.createdAt, { addSuffix: true })}
                       {member.fullName ? ` · ${member.fullName}` : ""}
                     </span>
                   </div>

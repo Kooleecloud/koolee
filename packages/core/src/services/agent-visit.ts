@@ -1,13 +1,15 @@
-import { and, asc, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, sql } from "drizzle-orm";
 import {
   bags,
   bookings,
   custodyEvents,
+  payments,
   verificationTasks,
   type Bag,
   type Booking,
   type CustodyEvent,
   type Database,
+  type Payment,
   type VerificationTask,
 } from "@koolee/db";
 
@@ -15,7 +17,7 @@ import type { AgentSession } from "../auth/types";
 import type { CoreConfig } from "../config";
 import { ConflictError, NotFoundError } from "../errors";
 import { applyTransition } from "./bookings";
-import { captureBookingPayment } from "./payment-lifecycle";
+import { resolveDisplayTz } from "./display-tz";
 
 /**
  * The verification visit — the agent app's core flow.
@@ -26,7 +28,9 @@ import { captureBookingPayment } from "./payment-lifecycle";
  *  - the verification/pickup task split stays: this file only ever touches
  *    `verification_tasks`;
  *  - completing the visit advances the booking through the state machine
- *    (`complete_verification`) and triggers the Phase 5 payment capture;
+ *    (`complete_verification`). It does NOT touch money: this app holds no
+ *    payment credentials, and capture is swept from the web app instead
+ *    (`captureDueBookings`);
  *  - authorization is assignment: every function resolves the task by
  *    (id, assignee = session.userId) — someone else's task 404s.
  *
@@ -55,6 +59,21 @@ export interface VisitContext {
   bags: Bag[];
   /** Events for this booking, oldest first — the UI derives progress. */
   timeline: CustodyEvent[];
+  /**
+   * Latest payment status, for display ONLY — the agent needs to know the
+   * booking is paid for before handling someone's luggage, and nothing more.
+   * Reading a column requires no payment credentials, which is precisely why
+   * the agent app can show this while being unable to move money.
+   */
+  paymentStatus: Payment["status"] | null;
+  /**
+   * The booking's display zone. The agent app renders every time through this
+   * and never through the device or server zone: the agent has to show up for
+   * the window the CUSTOMER bought, and the only way to guarantee both screens
+   * agree is for both to read the booking's own zone. (Production servers run
+   * in UTC, so a bare local format here put the agent 4–5 hours out.)
+   */
+  tz: string;
 }
 
 function actorOf(session: AgentSession) {
@@ -80,16 +99,33 @@ export async function getVisitContext(
   });
   if (!booking) throw new NotFoundError("Booking", task.bookingId);
 
-  const [bagRows, timeline] = await Promise.all([
-    db.select().from(bags).where(eq(bags.bookingId, booking.id)).orderBy(asc(bags.createdAt)),
+  const [bagRows, timeline, paymentRows, tz] = await Promise.all([
+    // By ordinal, never createdAt — see the note on `bags.ordinal`. This is the
+    // list the agent seals down, so a shuffling order was visible in the UI.
+    db.select().from(bags).where(eq(bags.bookingId, booking.id)).orderBy(asc(bags.ordinal)),
     db
       .select()
       .from(custodyEvents)
       .where(eq(custodyEvents.bookingId, booking.id))
       .orderBy(asc(custodyEvents.createdAt)),
+    // Status column only — no provider call, no credentials.
+    db
+      .select({ status: payments.status })
+      .from(payments)
+      .where(eq(payments.bookingId, booking.id))
+      .orderBy(desc(payments.createdAt))
+      .limit(1),
+    resolveDisplayTz(db, booking.departureAirport),
   ]);
 
-  return { task, booking, bags: bagRows, timeline };
+  return {
+    task,
+    booking,
+    bags: bagRows,
+    timeline,
+    paymentStatus: paymentRows[0]?.status ?? null,
+    tz,
+  };
 }
 
 export interface ArriveInput {
@@ -229,16 +265,26 @@ export async function recordBagSealed(
   return getVisitContext(db, session, input.taskId);
 }
 
-export type CompleteVisitResult =
-  | { ok: true; capture: "captured" | "capture_failed" }
-  | { ok: false; error: string };
+export type CompleteVisitResult = { ok: true } | { ok: false; error: string };
 
 /**
- * Step 4 — completion: every bag sealed → booking advances through the
- * state machine (`complete_verification`, real actor) → the authorized
- * payment is CAPTURED (Phase 5). A capture failure is already ops-visible
- * inside `captureBookingPayment` (exception state + critical alert); it is
- * surfaced here so the agent sees "ops will follow up", not a fake success.
+ * Step 4 — completion: every bag sealed → the booking advances through the
+ * state machine (`complete_verification`, real actor) and the task closes.
+ *
+ * Deliberately does NOT take the money. Capture is the web app's job, swept
+ * by `captureDueBookings`, for two reasons:
+ *
+ *  - the agent app is not allowed to hold payment credentials (see its
+ *    `lib/core.ts`), so capturing from here needed a provider it cannot have —
+ *    it silently wired the FAKE one instead, and `captureBookingPayment`'s
+ *    provider check then failed EVERY pickup with "authorized payment not
+ *    found", dumping each booking into `exception` after the bags were already
+ *    sealed and collected;
+ *  - an agent standing at a door is the worst place to discover a billing
+ *    problem. Custody and money move on separate tracks; ops owns the money.
+ *
+ * The agent still SEES whether the booking is paid (read-only, straight off
+ * the payments row) — they just cannot move money.
  */
 export async function completeVerificationVisit(
   config: CoreConfig,
@@ -273,38 +319,7 @@ export async function completeVerificationVisit(
     .set({ status: "done", completedAt: new Date() })
     .where(eq(verificationTasks.id, context.task.id));
 
-  // Money follows the bags: capture the authorization now that the bags
-  // are sealed and in our custody. `captureBookingPayment` makes provider
-  // failures ops-visible itself; a THROWN error (e.g. no authorized payment
-  // row at all) must land in the same exception path, never escape
-  // half-completed.
-  let captured = false;
-  try {
-    const capture = await captureBookingPayment(config, {
-      bookingId: context.booking.id,
-      actor: actorOf(session),
-    });
-    captured = capture.ok;
-  } catch (error) {
-    const detail = error instanceof Error ? error.message : String(error);
-    await applyTransition(config, {
-      bookingId: context.booking.id,
-      event: "raise_exception",
-      actor: actorOf(session),
-      metadata: { reason: "payment_capture_failed", detail },
-    });
-    try {
-      await config.opsAlerter.alert({
-        severity: "critical",
-        title: `Payment capture failed for booking ${context.booking.id}`,
-        detail: { detail },
-      });
-    } catch (alertError) {
-      console.error("[agent-visit] ops alert failed", alertError);
-    }
-  }
-
-  return { ok: true, capture: captured ? "captured" : "capture_failed" };
+  return { ok: true };
 }
 
 export interface VisitExceptionInput {
