@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { useActionState } from "react";
+import { useRouter } from "next/navigation";
 import {
   Button,
   Card,
@@ -12,19 +12,52 @@ import {
   FormMessage,
 } from "@koolee/ui";
 
-import { extractTicket, type ActionState } from "@/app/book/actions";
-
 /**
- * Ticket PDF upload. What we read off the e-ticket only PREFILLS the flight
- * form below — the customer always reviews and confirms it there.
+ * Ticket upload → /api/ticket-uploads (server-side storage + extraction).
+ *
+ * What comes back only PREFILLS the flight review form above — the customer
+ * always reviews, edits, and confirms there before anything is persisted.
+ * On failure the message points at manual entry and nothing else changes.
  */
 export function TicketUpload() {
-  const [state, formAction, pending] = useActionState<ActionState, FormData>(
-    extractTicket,
-    {},
-  );
+  const router = useRouter();
   const inputRef = React.useRef<HTMLInputElement>(null);
-  const formRef = React.useRef<HTMLFormElement>(null);
+  const [phase, setPhase] = React.useState<"idle" | "uploading">("idle");
+  const [error, setError] = React.useState<string | null>(null);
+
+  async function onFileChosen() {
+    const file = inputRef.current?.files?.[0];
+    if (!file) return;
+    setPhase("uploading");
+    setError(null);
+
+    try {
+      const body = new FormData();
+      body.append("ticket", file);
+      const response = await fetch("/api/ticket-uploads", { method: "POST", body });
+      const payload = (await response.json().catch(() => ({}))) as {
+        ok?: boolean;
+        error?: string;
+      };
+
+      if (payload.ok) {
+        // The extraction landed in the quarantined prefill; re-render the
+        // review form with it.
+        router.push("/book/flight?from=ticket");
+        router.refresh();
+        return;
+      }
+      setError(
+        payload.error ??
+          "We couldn't read this — please enter your flight details manually.",
+      );
+    } catch {
+      setError("Upload failed — please enter your flight details manually.");
+    } finally {
+      setPhase("idle");
+      if (inputRef.current) inputRef.current.value = "";
+    }
+  }
 
   return (
     <Card>
@@ -36,29 +69,24 @@ export function TicketUpload() {
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
-        <form ref={formRef} action={formAction}>
-          <input
-            ref={inputRef}
-            type="file"
-            name="ticket"
-            accept="application/pdf,.pdf"
-            className="sr-only"
-            aria-label="Ticket PDF"
-            onChange={() => {
-              if (inputRef.current?.files?.length) formRef.current?.requestSubmit();
-            }}
-          />
-          <Button
-            type="button"
-            variant="outline"
-            loading={pending}
-            onClick={() => inputRef.current?.click()}
-          >
-            {pending ? "Reading your ticket…" : "Upload ticket PDF"}
-          </Button>
-        </form>
+        <input
+          ref={inputRef}
+          type="file"
+          accept="application/pdf,.pdf,image/jpeg,image/png"
+          className="sr-only"
+          aria-label="Ticket PDF"
+          onChange={onFileChosen}
+        />
+        <Button
+          type="button"
+          variant="outline"
+          loading={phase === "uploading"}
+          onClick={() => inputRef.current?.click()}
+        >
+          {phase === "uploading" ? "Reading your ticket…" : "Upload ticket PDF"}
+        </Button>
 
-        {state.error && <FormMessage variant="error">{state.error}</FormMessage>}
+        {error && <FormMessage variant="error">{error}</FormMessage>}
       </CardContent>
     </Card>
   );

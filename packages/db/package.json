@@ -11,6 +11,7 @@
     "db:migrate": "tsx src/migrate.ts",
     "db:studio": "drizzle-kit studio",
     "seed": "tsx src/seed.ts",
+    "seed:local": "tsx src/seed-local.ts",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf .turbo node_modules *.tsbuildinfo"

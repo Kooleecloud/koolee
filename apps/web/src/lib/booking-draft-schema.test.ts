@@ -21,8 +21,8 @@ const VALID_DRAFT = {
   state: "NY",
   zip: "10118",
   bagCount: 2,
-  slotId: "0f8fad5b-d9cb-469f-a165-70867728950e",
-  slotTier: "express_2h",
+  windowStart: "2026-09-13T14:00:00.000Z",
+  windowEnd: "2026-09-13T15:00:00.000Z",
 } as const;
 
 describe("bookingDraftSchema", () => {
@@ -30,7 +30,7 @@ describe("bookingDraftSchema", () => {
     const parsed = bookingDraftSchema.parse(VALID_DRAFT);
     expect(parsed.bagCount).toBe(2);
     expect(parsed.departureAirport).toBe("EWR");
-    expect(parsed.slotTier).toBe("express_2h");
+    expect(parsed.windowStart).toBe("2026-09-13T14:00:00.000Z");
   });
 
   it("parses an empty draft (every field optional)", () => {
@@ -42,9 +42,9 @@ describe("bookingDraftSchema", () => {
     ["bagCount above maximum", { bagCount: 11 }],
     ["non-integer bagCount", { bagCount: 1.5 }],
     ["unknown airport", { departureAirport: "BOS" }],
-    ["unknown slot tier", { slotTier: "hyperspeed_30m" }],
     ["malformed departure timestamp", { departureAt: "tomorrow at 3" }],
-    ["non-uuid slotId", { slotId: "slot-42" }],
+    ["malformed windowStart", { windowStart: "next tuesday" }],
+    ["malformed windowEnd", { windowEnd: "2026-09-13" }],
     ["non-uuid bookingId", { bookingId: "booking-42" }],
     ["single-letter airline code", { airlineIata: "U" }],
     ["overlong flight number", { flightNumber: "UA118934567" }],

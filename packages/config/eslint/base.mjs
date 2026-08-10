@@ -17,12 +17,27 @@ export const restrictedImports = {
       message:
         "Import the Stripe SDK only inside packages/core/src/payments/stripe/. Elsewhere, depend on the PaymentProvider interface from @koolee/core.",
     },
+    {
+      name: "unpdf",
+      message:
+        "Import pdf libraries only inside packages/core/src/extraction/heuristic/. Elsewhere, depend on the TicketExtractor interface from @koolee/core.",
+    },
+    {
+      name: "@anthropic-ai/sdk",
+      message:
+        "Import the Anthropic SDK only inside packages/core/src/extraction/claude/. Elsewhere, depend on the TicketExtractor interface from @koolee/core.",
+    },
   ],
   patterns: [
     {
       group: ["stripe/*"],
       message:
         "Import the Stripe SDK only inside packages/core/src/payments/stripe/. Elsewhere, depend on the PaymentProvider interface from @koolee/core.",
+    },
+    {
+      group: ["@anthropic-ai/sdk/*"],
+      message:
+        "Import the Anthropic SDK only inside packages/core/src/extraction/claude/. Elsewhere, depend on the TicketExtractor interface from @koolee/core.",
     },
   ],
 };

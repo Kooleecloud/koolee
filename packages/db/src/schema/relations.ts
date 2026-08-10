@@ -8,6 +8,8 @@ import { custodyEvents } from "./custody";
 import { addresses, agents, drivers, users } from "./identity";
 import { routes } from "./ops";
 import { slots } from "./slots";
+import { slotBlocks } from "./slot-blocks";
+import { staffMembers } from "./staff";
 import { pickupTasks, verificationTasks } from "./tasks";
 
 /**
@@ -21,6 +23,15 @@ export const usersRelations = relations(users, ({ many, one }) => ({
   bookingDraft: one(bookingDrafts),
   agent: one(agents),
   driver: one(drivers),
+  staffMember: one(staffMembers),
+}));
+
+export const staffMembersRelations = relations(staffMembers, ({ one }) => ({
+  user: one(users, { fields: [staffMembers.userId], references: [users.id] }),
+  invitedBy: one(users, {
+    fields: [staffMembers.invitedByUserId],
+    references: [users.id],
+  }),
 }));
 
 export const bookingDraftsRelations = relations(bookingDrafts, ({ one }) => ({
@@ -44,8 +55,16 @@ export const driversRelations = relations(drivers, ({ one, many }) => ({
 export const airportsRelations = relations(airports, ({ many }) => ({
   cutoffs: many(airlineCutoffs),
   slots: many(slots),
+  slotBlocks: many(slotBlocks),
   routes: many(routes),
   departures: many(bookings),
+}));
+
+export const slotBlocksRelations = relations(slotBlocks, ({ one }) => ({
+  airport: one(airports, {
+    fields: [slotBlocks.airportCode],
+    references: [airports.code],
+  }),
 }));
 
 export const airlineCutoffsRelations = relations(airlineCutoffs, ({ one }) => ({

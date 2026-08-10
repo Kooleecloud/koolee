@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { format } from "date-fns";
 import {
   Button,
@@ -15,6 +16,7 @@ import {
 import { listBookings, type Booking } from "@koolee/core";
 
 import { tryGetCore } from "@/lib/core";
+import { getAdminSession } from "@/lib/session";
 
 export const metadata = { title: "Exceptions" };
 export const dynamic = "force-dynamic";
@@ -32,6 +34,9 @@ export const dynamic = "force-dynamic";
  * the custody log rather than editing it.
  */
 export default async function ExceptionsPage() {
+  const session = await getAdminSession();
+  if (!session) redirect("/login");
+
   const core = tryGetCore();
 
   let exceptions: Booking[] = [];

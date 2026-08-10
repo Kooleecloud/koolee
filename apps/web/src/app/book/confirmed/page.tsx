@@ -86,7 +86,8 @@ export default async function ConfirmedPage({
             <Link href={`/trips/${booking}`}>Track my pickup</Link>
           </CTAButton>
         ) : null}
-        <Button asChild variant="ghost">
+        {/* h-11/px-6 matches the CTAButton beside it (Button defaults to h-9). */}
+        <Button asChild variant="ghost" className="h-11 px-6">
           <Link href="/dashboard/profile">Complete my profile</Link>
         </Button>
       </div>

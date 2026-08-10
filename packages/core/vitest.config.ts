@@ -24,6 +24,8 @@ export default defineConfig({
     globals: false,
     environment: "node",
     include: ["src/**/*.test.ts"],
+    // Heals the shared local dev data if a run truncated it — see the file.
+    globalSetup: ["./vitest.global-setup.ts"],
     // Integration tests migrate a database and share rows.
     testTimeout: 30_000,
     hookTimeout: 60_000,

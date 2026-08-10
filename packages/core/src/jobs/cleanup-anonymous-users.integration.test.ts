@@ -62,6 +62,7 @@ describeIntegration("cleanupAnonymousUsers (integration)", () => {
       DELETE FROM bags;
       DELETE FROM bookings;
       DELETE FROM booking_drafts;
+      DELETE FROM slot_blocks;
       DELETE FROM slots;
       DELETE FROM airline_cutoffs;
       DELETE FROM pricing_rules;

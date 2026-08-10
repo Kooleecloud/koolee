@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { AirportCode, CutoffScope, SlotTier } from "@koolee/core";
+import type { AirportCode, CutoffScope } from "@koolee/core";
 
 /**
  * Booking-draft schema, separated from the cookie helpers in
@@ -9,7 +9,42 @@ import type { AirportCode, CutoffScope, SlotTier } from "@koolee/core";
 
 export const AIRPORT_CODES = ["JFK", "LGA", "EWR"] as const;
 
+/**
+ * RAW ticket-extraction output, quarantined under its own key.
+ *
+ * Only the flight REVIEW FORM reads this — as editable defaults. It is never
+ * read by `confirmBooking`, `syncDraftRow`, or any other booking-write path:
+ * pressing Continue on the review form (`submitFlight`) is what promotes the
+ * user-confirmed values into the real draft keys and clears this. That is
+ * the mechanism behind the hard rule that extracted values never persist to
+ * booking fields.
+ */
+export const ticketPrefillSchema = z.object({
+  flightNumber: z.string().min(2).max(10).optional(),
+  airlineIata: z.string().min(2).max(3).optional(),
+  departureAirport: z.enum(AIRPORT_CODES).optional(),
+  /** Local wall-clock `YYYY-MM-DDTHH:mm` as extracted — not trusted. */
+  departureAtLocal: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/)
+    .optional(),
+  paxName: z.string().min(1).max(120).optional(),
+  scope: z.enum(["domestic", "international"]).optional(),
+  confidence: z.enum(["high", "low"]),
+  uploadId: z.uuid().optional(),
+});
+
+export type TicketPrefill = z.infer<typeof ticketPrefillSchema>;
+
 export const bookingDraftSchema = z.object({
+  /**
+   * Funnel-session id, minted on first cookie write. Keys guest artifacts
+   * (ticket uploads) until the user id attaches at the payment gate.
+   */
+  draftId: z.uuid().optional(),
+  /** Quarantined extraction output — review-form defaults ONLY (see above). */
+  ticketPrefill: ticketPrefillSchema.optional(),
+
   flightNumber: z.string().min(2).max(10).optional(),
   airlineIata: z.string().length(2).or(z.string().length(3)).optional(),
   departureAirport: z.enum(AIRPORT_CODES).optional(),
@@ -27,8 +62,12 @@ export const bookingDraftSchema = z.object({
   zip: z.string().min(5).max(10).optional(),
 
   bagCount: z.number().int().min(1).max(10).optional(),
-  slotId: z.uuid().optional(),
-  slotTier: z.enum(["standard_4h", "express_2h", "priority_1h"]).optional(),
+  /**
+   * The picked pickup window — a clock-aligned one-hour span, ISO-8601.
+   * Both travel together (a submit writes or clears the pair).
+   */
+  windowStart: z.iso.datetime().optional(),
+  windowEnd: z.iso.datetime().optional(),
   promoCode: z.string().max(40).optional(),
 
   bookingId: z.uuid().optional(),
@@ -36,11 +75,7 @@ export const bookingDraftSchema = z.object({
 
 export type BookingDraft = z.infer<typeof bookingDraftSchema>;
 
-export interface TypedBookingDraft extends Omit<
-  BookingDraft,
-  "departureAirport" | "scope" | "slotTier"
-> {
+export interface TypedBookingDraft extends Omit<BookingDraft, "departureAirport" | "scope"> {
   departureAirport?: AirportCode;
   scope?: CutoffScope;
-  slotTier?: SlotTier;
 }

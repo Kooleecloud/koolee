@@ -149,8 +149,12 @@ function CustodyTimeline({
                   <span className="text-xs text-muted-foreground">{item.meta}</span>
                 )
               ) : null}
+              {/* A div, not a p: `description` is a ReactNode and consumers
+                  pass block content into it (the ops trail nests a <details>
+                  raw-data disclosure), which is invalid inside a <p> and
+                  triggers a hydration error. Same box either way. */}
               {item.description ? (
-                <p className="text-sm text-muted-foreground">{item.description}</p>
+                <div className="text-sm text-muted-foreground">{item.description}</div>
               ) : null}
               {item.photoUrl ? (
                 /* Plain img: proof photos come from storage with unknown dimensions. */

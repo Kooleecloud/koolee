@@ -120,7 +120,7 @@ export default function HomePage() {
             </p>
             <div className="flex flex-wrap items-center gap-3">
               <CTAButton size="lg" asChild>
-                <Link href="/book/zip">Book a pickup</Link>
+                <Link href="/book">Book a pickup</Link>
               </CTAButton>
               <CTAButton variant="ghost" size="lg" asChild>
                 <Link href="/how-it-works">How it works</Link>
@@ -278,7 +278,7 @@ export default function HomePage() {
           </p>
           <div className="flex flex-wrap items-center justify-center gap-3">
             <CTAButton size="lg" asChild>
-              <Link href="/book/zip">Book a pickup</Link>
+              <Link href="/book">Book a pickup</Link>
             </CTAButton>
             <CTAButton variant="ghost-inverse" size="lg" asChild>
               <Link href="/how-it-works">See how it works</Link>

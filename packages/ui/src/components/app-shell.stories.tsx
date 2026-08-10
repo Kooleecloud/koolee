@@ -44,7 +44,8 @@ export const FullFrame: Story = {
             <CardTitle className="font-display text-base">Chain of custody</CardTitle>
           </CardHeader>
           <CardContent className="text-sm text-muted-foreground">
-            Content sits in one standard column; chrome spans the full container.
+            Content spans the same container as the chrome; pages arrange cards in grids
+            and cap forms at readable widths.
           </CardContent>
         </Card>
       </ContentColumn>
@@ -52,6 +53,69 @@ export const FullFrame: Story = {
         Every pickup is ID-verified, sealed with a serialized tag, and photographed at
         each hand-off.
       </AppFooter>
+    </div>
+  ),
+};
+
+/**
+ * The staff-console header: `tag` chip after the wordmark tells the ops and
+ * agent surfaces apart (they are otherwise identical chrome, especially on
+ * the login screens), and the session sign-out lives in the actions slot.
+ */
+export const TaggedFrame: Story = {
+  render: () => (
+    <div className="min-h-dvh">
+      <AppHeader
+        tag="ops"
+        links={[
+          { href: "#", label: "Overview" },
+          { href: "#", label: "Bookings" },
+          { href: "#", label: "Exceptions" },
+          { href: "#", label: "Staff" },
+        ]}
+        actions={
+          <Button variant="ghost" size="sm">
+            Sign out
+          </Button>
+        }
+      />
+      <ContentColumn>
+        <PageHeader
+          title="Koolee Ops"
+          subtitle="The tag chip is the only chrome difference between staff consoles."
+        />
+      </ContentColumn>
+    </div>
+  ),
+};
+
+/**
+ * The customer-app header config (3 links + CTA) on a small phone. Nav and
+ * actions collapse behind the hamburger below `md`; nothing overflows the
+ * 320px viewport. Regression story for the mobile header overflow bug.
+ */
+export const MobileFrame: Story = {
+  globals: { viewport: { value: "mobile1", isRotated: false } },
+  render: () => (
+    <div className="min-h-dvh">
+      <AppHeader
+        links={[
+          { href: "#", label: "Profile" },
+          { href: "#", label: "Addresses" },
+          { href: "#", label: "Trips" },
+        ]}
+        actions={
+          <Button variant="ghost" size="sm">
+            Book a pickup
+          </Button>
+        }
+      />
+      <ContentColumn>
+        <PageHeader
+          title="Your trips"
+          subtitle="Open the menu to reach Profile, Addresses, and Trips."
+        />
+      </ContentColumn>
     </div>
   ),
 };

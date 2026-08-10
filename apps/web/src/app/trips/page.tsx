@@ -2,16 +2,27 @@ import Link from "next/link";
 import { format } from "date-fns";
 import {
   BookingStatusBadge,
+  Button,
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
   CTAButton,
   DatabaseNotConfigured,
   EmptyState,
   PageHeader,
 } from "@koolee/ui";
 import { redirect } from "next/navigation";
-import { listBookings, type Booking } from "@koolee/core";
+import { getBookingDraft, listBookingsForSession, type Booking } from "@koolee/core";
 
+import { discardDraft } from "@/app/trips/actions";
+import { ConfirmActionForm } from "@/components/confirm-action-form";
 import { getAuthUser } from "@/lib/auth";
+import { bookingDraftSchema, type TypedBookingDraft } from "@/lib/booking-draft-schema";
+import { BOOKING_STEPS, draftHasProgress, nextIncompleteStep } from "@/lib/booking-steps";
 import { tryGetCore } from "@/lib/core";
+import { customerSessionFromAuthUser } from "@/lib/session";
 
 export const metadata = { title: "My Trips" };
 export const dynamic = "force-dynamic";
@@ -28,9 +39,31 @@ export default async function TripsPage() {
 
   if (core) {
     try {
-      bookings = await listBookings(core.db, { userId: authUser.id, limit: 50 });
+      // Session-scoped in core: a customer session can only ever list its own.
+      bookings = await listBookingsForSession(
+        core.db,
+        customerSessionFromAuthUser(authUser),
+        { limit: 50 },
+      );
     } catch {
       unavailable = true;
+    }
+  }
+
+  // An in-progress funnel draft (unexpired, not discarded) shows as a
+  // resumable card — abandoning mid-booking must not look like data loss.
+  let draft: TypedBookingDraft | null = null;
+  let draftUpdatedAt: Date | null = null;
+  if (core) {
+    try {
+      const row = await getBookingDraft(core.db, authUser.id);
+      const parsed = row ? bookingDraftSchema.safeParse(row.payload) : null;
+      if (parsed?.success && draftHasProgress(parsed.data)) {
+        draft = parsed.data;
+        draftUpdatedAt = row?.updatedAt ?? null;
+      }
+    } catch {
+      // Best-effort: trips render fine without the draft card.
     }
   }
 
@@ -38,19 +71,21 @@ export default async function TripsPage() {
     <>
       <PageHeader title="My Trips" />
 
+      {draft && <DraftCard draft={draft} updatedAt={draftUpdatedAt} />}
+
       {unavailable ? (
         <DatabaseNotConfigured />
-      ) : bookings.length === 0 ? (
+      ) : bookings.length === 0 && !draft ? (
         <EmptyState
           title="No trips yet"
           description="Book a pickup and your live chain-of-custody timeline will appear here."
           action={
             <CTAButton asChild>
-              <Link href="/book/zip">Book a pickup</Link>
+              <Link href="/book">Book a pickup</Link>
             </CTAButton>
           }
         />
-      ) : (
+      ) : bookings.length === 0 ? null : (
         <ul className="flex flex-col gap-3">
           {bookings.map((booking) => (
             <li key={booking.id}>
@@ -74,5 +109,56 @@ export default async function TripsPage() {
         </ul>
       )}
     </>
+  );
+}
+
+/**
+ * Resumable in-progress booking. "Resume" goes through /book, which
+ * rehydrates the funnel cookie from the server draft when needed — that is
+ * what makes a draft survive a browser switch. Drafts expire 7 days after
+ * the last edit.
+ */
+function DraftCard({
+  draft,
+  updatedAt,
+}: {
+  draft: TypedBookingDraft;
+  updatedAt: Date | null;
+}) {
+  const nextHref = nextIncompleteStep(draft);
+  const nextLabel =
+    BOOKING_STEPS.find((step) => step.href === nextHref)?.label ?? "Review & pay";
+
+  return (
+    <Card className="mb-6 border-sky-200 bg-sky-50/50">
+      <CardHeader>
+        <CardTitle className="text-base">
+          Booking in progress
+          {draft.flightNumber && draft.departureAirport && (
+            <> — {draft.flightNumber} from {draft.departureAirport}</>
+          )}
+        </CardTitle>
+        <CardDescription>
+          Next step: {nextLabel}
+          {updatedAt && <> · last edited {format(updatedAt, "EEE d MMM, h:mm a")}</>}.
+          Drafts are kept for 7 days.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="flex items-center gap-2">
+        <CTAButton asChild>
+          <Link href="/book">Resume booking</Link>
+        </CTAButton>
+        <ConfirmActionForm
+          action={discardDraft}
+          message="Discard this booking? Everything you've entered will be removed."
+        >
+          {/* h-11/px-6 matches the CTAButton beside it — the two default
+              heights differ (h-9 vs h-11) and read as a mistake side by side. */}
+          <Button type="submit" variant="outline" className="h-11 px-6">
+            Discard
+          </Button>
+        </ConfirmActionForm>
+      </CardContent>
+    </Card>
   );
 }

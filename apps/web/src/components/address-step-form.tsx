@@ -1,7 +1,7 @@
 "use client";
 
 import { useActionState } from "react";
-import { Button, FormMessage } from "@koolee/ui";
+import { Button, FormMessage, usePreservedFormValues } from "@koolee/ui";
 
 import type { ActionState } from "@/app/book/actions";
 import { OutOfAreaCapture } from "@/components/out-of-area-capture";
@@ -21,13 +21,19 @@ export function AddressStepForm({
   children: React.ReactNode;
 }) {
   const [state, formAction, pending] = useActionState<ActionState, FormData>(action, {});
+  const { formRef, captureValues } = usePreservedFormValues(state);
 
   if (state.outOfCoverageZip) {
     return <OutOfAreaCapture zip={state.outOfCoverageZip} retryHref="/book/address" />;
   }
 
   return (
-    <form action={formAction} className="flex flex-col gap-6">
+    <form
+      ref={formRef}
+      action={formAction}
+      onSubmit={captureValues}
+      className="flex flex-col gap-6"
+    >
       {children}
 
       {state.error && <FormMessage variant="error">{state.error}</FormMessage>}

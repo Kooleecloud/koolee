@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { notFound, redirect } from "next/navigation";
 import { format } from "date-fns";
 import {
   BackLink,
@@ -13,10 +14,17 @@ import {
   DatabaseNotConfigured,
   PageHeader,
 } from "@koolee/ui";
-import { getBooking, getTimeline, type Booking } from "@koolee/core";
+import {
+  getAssignedTask,
+  getVisitContext,
+  VISIT_EVENT_TYPES,
+  type TaskKind,
+} from "@koolee/core";
 
-import { VerificationChecklist } from "@/components/verification-checklist";
 import { tryGetCore } from "@/lib/core";
+import { getAgentSession } from "@/lib/session";
+
+import { VisitFlow, type VisitView } from "./visit-flow";
 
 export const dynamic = "force-dynamic";
 
@@ -25,67 +33,43 @@ export default async function TaskDetailPage({
   searchParams,
 }: {
   params: Promise<{ taskId: string }>;
-  searchParams: Promise<{ kind?: string; booking?: string }>;
+  searchParams: Promise<{ kind?: string }>;
 }) {
   const { taskId } = await params;
-  const { kind = "verification", booking: bookingId } = await searchParams;
+  const { kind: rawKind = "verification" } = await searchParams;
+  const kind: TaskKind = rawKind === "pickup" ? "pickup" : "verification";
+
+  const session = await getAgentSession();
+  if (!session) redirect("/login");
 
   const core = tryGetCore();
-  let booking: Booking | null = null;
-  let timelineCount = 0;
-
-  if (core && bookingId) {
-    booking = await getBooking(core.db, bookingId).catch(() => null);
-    if (booking) {
-      timelineCount = (await getTimeline(core.db, bookingId).catch(() => [])).length;
-    }
+  if (!core) {
+    return (
+      <ContentColumn width="focused">
+        <PageHeader title="Task" />
+        <DatabaseNotConfigured />
+      </ContentColumn>
+    );
   }
 
-  return (
-    <ContentColumn width="narrow">
-      <BackLink href="/tasks" linkComponent={Link} className="self-start">
-        Back
-      </BackLink>
+  /* --- pickup tasks keep the placeholder card (driver flow is later) --- */
+  if (kind === "pickup") {
+    const assigned = await getAssignedTask(core.db, {
+      taskId,
+      kind,
+      assigneeUserId: session.userId,
+    }).catch(() => null);
+    if (!assigned) notFound();
 
-      <PageHeader
-        title={kind === "pickup" ? "Collect and deliver" : "Verify and seal"}
-        subtitle={<span className="font-mono text-xs">{taskId}</span>}
-      />
-
-      {booking ? (
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center justify-between gap-3 text-base">
-              <span>
-                {booking.flightNumber} · {booking.departureAirport}
-              </span>
-              <BookingStatusBadge status={booking.status} />
-            </CardTitle>
-            <CardDescription>
-              Departs {format(booking.departureAt, "EEE d MMM, h:mm a")} · {timelineCount}{" "}
-              custody event{timelineCount === 1 ? "" : "s"} so far
-            </CardDescription>
-          </CardHeader>
-        </Card>
-      ) : core ? (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Booking not loaded</CardTitle>
-            <CardDescription>
-              {"Pass ?booking=<id> to load booking details for this task."}
-            </CardDescription>
-          </CardHeader>
-        </Card>
-      ) : (
-        <DatabaseNotConfigured />
-      )}
-
-      {kind === "verification" ? (
-        <VerificationChecklist
-          bagCount={booking?.bagCount ?? 1}
-          paxName={booking?.paxName ?? "—"}
+    return (
+      <ContentColumn width="focused">
+        <BackLink href="/tasks" linkComponent={Link} className="self-start">
+          Back
+        </BackLink>
+        <PageHeader
+          title="Collect and deliver"
+          subtitle={<span className="font-mono text-xs">{taskId}</span>}
         />
-      ) : (
         <Card>
           <CardHeader>
             <CardTitle className="text-base">Pickup</CardTitle>
@@ -102,11 +86,69 @@ export default async function TaskDetailPage({
             <Button disabled>Confirm collection</Button>
           </CardContent>
         </Card>
-      )}
+      </ContentColumn>
+    );
+  }
 
-      <Button asChild variant="outline">
-        <Link href="/scan">Open camera</Link>
-      </Button>
+  /* --- verification: the guided visit ---------------------------------- */
+  const context = await getVisitContext(core.db, session, taskId).catch(() => null);
+  if (!context) notFound();
+
+  const { task, booking, bags, timeline } = context;
+
+  const view: VisitView = {
+    taskId: task.id,
+    paxName: booking.paxName,
+    bookingStatus: booking.status,
+    arrived: timeline.some((e) => e.eventType === VISIT_EVENT_TYPES.arrived),
+    identityVerified: timeline.some(
+      (e) => e.eventType === VISIT_EVENT_TYPES.identityVerified,
+    ),
+    bags: bags.map((bag) => ({
+      id: bag.id,
+      sealId: bag.sealId,
+      weightKg: bag.weightKg,
+      photoCount: bag.photoUrls.length,
+    })),
+    done: task.status === "done",
+    exception: booking.status === "exception" || task.status === "failed",
+  };
+
+  return (
+    <ContentColumn width="focused">
+      <BackLink href="/tasks" linkComponent={Link} className="self-start">
+        Back
+      </BackLink>
+
+      <PageHeader
+        title="Verify and seal"
+        subtitle={
+          <>
+            {booking.flightNumber} · {booking.departureAirport} · departs{" "}
+            {format(booking.departureAt, "EEE d MMM, h:mm a")}
+          </>
+        }
+        actions={<BookingStatusBadge status={booking.status} />}
+      />
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">
+            {booking.paxName} · {bags.length} bag{bags.length === 1 ? "" : "s"}
+          </CardTitle>
+          <CardDescription>
+            Window{" "}
+            {task.scheduledStart
+              ? `${format(task.scheduledStart, "h:mm a")}–${
+                  task.scheduledEnd ? format(task.scheduledEnd, "h:mm a") : "…"
+                }`
+              : "unscheduled"}
+            {booking.contactPhone ? <> · door contact {booking.contactPhone}</> : null}
+          </CardDescription>
+        </CardHeader>
+      </Card>
+
+      <VisitFlow view={view} />
     </ContentColumn>
   );
 }

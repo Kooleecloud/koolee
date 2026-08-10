@@ -10,4 +10,12 @@ export default [
       "no-restricted-imports": "off",
     },
   },
+  {
+    // The extraction adapters: pdf libraries only in heuristic/, the
+    // Anthropic SDK only in claude/. Same boundary idea as Stripe.
+    files: ["src/extraction/heuristic/**/*.ts", "src/extraction/claude/**/*.ts"],
+    rules: {
+      "no-restricted-imports": "off",
+    },
+  },
 ];

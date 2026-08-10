@@ -170,6 +170,16 @@ additional_redirect_urls = [
   "http://127.0.0.1:3000/auth/callback",
   "http://localhost:3000",
   "http://127.0.0.1:3000",
+  # Staff apps (agent :3001, admin :3002): invite-acceptance and
+  # password-recovery links land on their /auth/callback routes.
+  "http://localhost:3001/auth/callback",
+  "http://127.0.0.1:3001/auth/callback",
+  "http://localhost:3001",
+  "http://127.0.0.1:3001",
+  "http://localhost:3002/auth/callback",
+  "http://127.0.0.1:3002/auth/callback",
+  "http://localhost:3002",
+  "http://127.0.0.1:3002",
 ]
 # How long tokens are valid for, in seconds. Defaults to 3600 (1 hour), maximum 604,800 (1 week).
 jwt_expiry = 3600
@@ -311,6 +321,11 @@ max_frequency = "1s"
 # stakes of pre-launch-security item 6: this block must NEVER reach the
 # production project.
 13322602829 = "123456"
+# Seeded customer test accounts (see packages/db/src/seed.ts): valid-format
+# numbers so the web UI's phone gate accepts them. Same never-reach-production
+# rule as above.
+13322602830 = "123456"
+13322602831 = "123456"
 
 # Configure logged in session timeouts.
 # [auth.sessions]

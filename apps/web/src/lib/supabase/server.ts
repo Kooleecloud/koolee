@@ -5,6 +5,7 @@ import { createServerClient } from "@supabase/ssr";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { optionalEnv } from "@/env";
+import { AUTH_COOKIE_NAME } from "./cookie-name";
 
 /**
  * Server-side Supabase client bound to the request's cookies. Used by server
@@ -21,6 +22,7 @@ export async function getSupabaseServerClient(): Promise<SupabaseClient | null> 
   const cookieStore = await cookies();
 
   return createServerClient(url, anonKey, {
+    cookieOptions: { name: AUTH_COOKIE_NAME },
     cookies: {
       getAll() {
         return cookieStore.getAll();

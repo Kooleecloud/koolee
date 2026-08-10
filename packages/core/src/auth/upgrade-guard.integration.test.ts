@@ -15,6 +15,11 @@ import {
   deleteAnonymousCustomer,
   ensureCustomerFromAuth,
 } from "../services/customers";
+import {
+  deleteRowsCreatedSince,
+  snapshotExistingRows,
+  type PreservedRows,
+} from "../test-utils/preserve-existing-rows";
 import { recordOtpSend } from "./otp-throttle";
 import { reconcileEmailClaims, reconcilePhoneClaims } from "./reconcile-claims";
 import { guardUpgradeOtpSend } from "./upgrade-guard";
@@ -32,24 +37,30 @@ import { guardUpgradeOtpSend } from "./upgrade-guard";
  * Supabase CLI stack and writes `.env.test` with everything below.
  *
  * Gating, deliberately in two stages:
- *  - No `TEST_DATABASE_URL` at all → skip, same as every other integration
- *    suite, so a fresh clone stays green.
- *  - `TEST_DATABASE_URL` set but `AUTH_SCHEMA_AVAILABLE` not `"true"` → FAIL,
- *    not skip. Silently skipping here would let CI report green forever
- *    without ever exercising the collision fix.
+ *  - No `GOTRUE_TEST_DATABASE_URL` at all → skip, same as every other
+ *    integration suite, so a fresh clone stays green.
+ *  - Set but `AUTH_SCHEMA_AVAILABLE` not `"true"` → FAIL, not skip. Silently
+ *    skipping here would let CI report green forever without ever exercising
+ *    the collision fix.
+ *
+ * This suite runs against the DEV database, not the disposable `koolee_test`
+ * one, because GoTrue only ever serves `postgres` and these tests read
+ * `auth.users` in the same connection they assert app tables on. Sharing that
+ * database means it must be left exactly as it was found: cleanup deletes only
+ * rows this run created (`preserve-existing-rows.ts`), never a blanket wipe.
  */
 
-const TEST_DATABASE_URL = process.env.TEST_DATABASE_URL;
+const GOTRUE_TEST_DATABASE_URL = process.env.GOTRUE_TEST_DATABASE_URL;
 const AUTH_SCHEMA_AVAILABLE = process.env.AUTH_SCHEMA_AVAILABLE === "true";
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-const describeIntegration = TEST_DATABASE_URL ? describe : describe.skip;
+const describeIntegration = GOTRUE_TEST_DATABASE_URL ? describe : describe.skip;
 
-if (!TEST_DATABASE_URL) {
+if (!GOTRUE_TEST_DATABASE_URL) {
   console.log(
-    "[integration] TEST_DATABASE_URL not set — skipping acceptance tests 15/16.\n" +
+    "[integration] GOTRUE_TEST_DATABASE_URL not set — skipping acceptance tests 15/16.\n" +
       "  pnpm test:env:up && pnpm --filter @koolee/core test:integration",
   );
 }
@@ -72,12 +83,15 @@ describeIntegration("phone/email upgrade guard — acceptance tests 15 & 16 (int
   let db: Database;
   let admin: SupabaseClient;
   let createdAuthUserIds: string[];
+  let preserved: PreservedRows;
+  /** `otp_send_log` rows already present when this test started. */
+  let otpSendLogBaseline = 0;
 
   beforeAll(async () => {
     if (!AUTH_SCHEMA_AVAILABLE) {
       throw new Error(
         'AUTH_SCHEMA_AVAILABLE must be "true" to run this suite. These tests exercise real ' +
-          "GoTrue phone_change/email_change resolution — TEST_DATABASE_URL alone (a bare " +
+          "GoTrue phone_change/email_change resolution — a database URL alone (a bare " +
           "Postgres) is not enough, and silently skipping would let this coverage rot. Run " +
           "`pnpm test:env:up` (see packages/core/docs/local-test-env.md) instead of skipping this file.",
       );
@@ -89,29 +103,28 @@ describeIntegration("phone/email upgrade guard — acceptance tests 15 & 16 (int
       );
     }
 
-    sqlClient = postgres(TEST_DATABASE_URL!, { max: 1, prepare: false });
+    sqlClient = postgres(GOTRUE_TEST_DATABASE_URL!, { max: 1, prepare: false });
     await migrate(drizzle(sqlClient), { migrationsFolder });
-    db = createDb({ url: TEST_DATABASE_URL!, max: 5 });
+    db = createDb({ url: GOTRUE_TEST_DATABASE_URL!, max: 5 });
     admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
       auth: { autoRefreshToken: false, persistSession: false },
     });
+    // Before this suite inserts anything: what is already here stays here.
+    preserved = await snapshotExistingRows(sqlClient);
   });
 
   afterAll(async () => {
-    // beforeAll may have thrown before assigning this (missing/misconfigured
-    // env) — nothing to close in that case.
+    // beforeAll may have thrown before assigning these (missing/misconfigured
+    // env) — nothing to clean or close in that case.
+    if (sqlClient && preserved) {
+      await deleteRowsCreatedSince(sqlClient, preserved);
+    }
     await sqlClient?.end();
   });
 
   beforeEach(async () => {
     createdAuthUserIds = [];
-    await sqlClient.unsafe(`
-      SET session_replication_role = replica;
-      DELETE FROM otp_send_log;
-      DELETE FROM booking_drafts;
-      DELETE FROM users;
-      SET session_replication_role = DEFAULT;
-    `);
+    await deleteRowsCreatedSince(sqlClient, preserved);
     // Best-effort: delete any GoTrue users left over at the fixed test
     // numbers/email by a previous run that crashed before its own cleanup.
     for (const { phone } of Object.values(TEST_PHONES)) {
@@ -122,6 +135,8 @@ describeIntegration("phone/email upgrade guard — acceptance tests 15 & 16 (int
     for (const row of await authUsersHoldingEmail(TEST_EMAIL)) {
       await deleteAuthUser(row.id);
     }
+    // Everything this test writes is measured against what was already here.
+    otpSendLogBaseline = await rawCountOtpSendLog();
   });
 
   afterEach(async () => {
@@ -180,7 +195,18 @@ describeIntegration("phone/email upgrade guard — acceptance tests 15 & 16 (int
     return Array.from(rows);
   }
 
+  /**
+   * Rows THIS test wrote, not rows in the table.
+   *
+   * The suite shares the dev database and no longer empties it, so whatever
+   * `otp_send_log` already held is subtracted out. Without the baseline the
+   * cap assertions read another session's throttle history as their own.
+   */
   async function countOtpSendLog(): Promise<number> {
+    return (await rawCountOtpSendLog()) - otpSendLogBaseline;
+  }
+
+  async function rawCountOtpSendLog(): Promise<number> {
     const [row] = await db.select({ count: sql<number>`count(*)::int` }).from(otpSendLog);
     return row?.count ?? 0;
   }

@@ -1,11 +1,8 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { format } from "date-fns";
 import {
   Badge,
-  Card,
-  CardDescription,
-  CardHeader,
-  CardTitle,
   ContentColumn,
   DatabaseNotConfigured,
   EmptyState,
@@ -14,7 +11,7 @@ import {
 import { listAssignedTasks, type PickupTask, type VerificationTask } from "@koolee/core";
 
 import { tryGetCore } from "@/lib/core";
-import { tryGetAgentSession } from "@/lib/session";
+import { getAgentSession } from "@/lib/session";
 
 export const metadata = { title: "My tasks" };
 export const dynamic = "force-dynamic";
@@ -23,28 +20,17 @@ type Row =
   { kind: "verification"; task: VerificationTask } | { kind: "pickup"; task: PickupTask };
 
 export default async function TasksPage() {
-  const sessionResult = await tryGetAgentSession();
-  if ("error" in sessionResult) {
-    return (
-      <ContentColumn width="narrow">
-        <PageHeader title="My tasks" />
-        <Card className="border-destructive/40">
-          <CardHeader>
-            <CardTitle className="text-base">Not signed in</CardTitle>
-            <CardDescription>{sessionResult.error}</CardDescription>
-          </CardHeader>
-        </Card>
-      </ContentColumn>
-    );
-  }
+  // The role gate: only an active `agent` staff session sees a task list —
+  // and only its OWN tasks (listAssignedTasks scopes by assignee).
+  const session = await getAgentSession();
+  if (!session) redirect("/login");
 
-  const session = sessionResult.session;
   const core = tryGetCore();
 
   let rows: Row[] = [];
   let unavailable = core === null;
 
-  if (core && session) {
+  if (core) {
     try {
       const tasks = await listAssignedTasks(core.db, session.userId);
       rows = [
@@ -61,7 +47,7 @@ export default async function TasksPage() {
   }
 
   return (
-    <ContentColumn width="narrow">
+    <ContentColumn>
       <PageHeader title="My tasks" />
       {unavailable ? (
         <DatabaseNotConfigured />
@@ -71,7 +57,7 @@ export default async function TasksPage() {
           description="Verification and pickup tasks assigned to you will appear here."
         />
       ) : (
-        <ul className="flex flex-col gap-3">
+        <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
           {rows.map(({ kind, task }) => (
             <li key={`${kind}-${task.id}`}>
               <Link

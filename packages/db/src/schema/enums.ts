@@ -46,6 +46,8 @@ export const slotTierEnum = pgEnum("slot_tier", [
 export type SlotTier = (typeof slotTierEnum.enumValues)[number];
 
 export const paymentStatusEnum = pgEnum("payment_status", [
+  /** Intent created, awaiting client confirmation in the browser. */
+  "pending",
   "authorized",
   "captured",
   "refunded",

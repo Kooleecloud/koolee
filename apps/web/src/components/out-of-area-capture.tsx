@@ -10,8 +10,7 @@ import {
   CardTitle,
   FormMessage,
   Input,
-  Label,
-} from "@koolee/ui";
+  Label, usePreservedFormValues } from "@koolee/ui";
 
 import { captureOutOfAreaEmail, type ActionState } from "@/app/book/actions";
 
@@ -24,6 +23,7 @@ export function OutOfAreaCapture({ zip, retryHref }: { zip: string; retryHref: s
     captureOutOfAreaEmail,
     {},
   );
+  const { formRef, captureValues } = usePreservedFormValues(state);
 
   if (state.ok) {
     return (
@@ -48,7 +48,7 @@ export function OutOfAreaCapture({ zip, retryHref }: { zip: string; retryHref: s
         </CardDescription>
       </CardHeader>
       <CardContent>
-        <form action={formAction} className="flex flex-col gap-4">
+        <form ref={formRef} onSubmit={captureValues} action={formAction} className="flex flex-col gap-4">
           <input type="hidden" name="zip" value={zip} />
           <div className="grid gap-2">
             <Label htmlFor="email">Email</Label>

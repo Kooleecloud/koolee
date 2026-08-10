@@ -1,22 +1,19 @@
 import { TZDate } from "@date-fns/tz";
 import { describe, expect, it } from "vitest";
-import type { AirlineCutoff, AirportCode, SlotTier } from "@koolee/db";
+import type { AirlineCutoff, AirportCode } from "@koolee/db";
 
 import { CutoffUnknownError } from "../errors";
 import {
   airportLocalDay,
+  airportLocalDayBounds,
+  airportLocalInstant,
   computeBagDropCutoffAt,
   computeLatestPickupStart,
-  DEFAULT_BUFFER_MINUTES,
-  DEFAULT_DRIVE_TIME_MINUTES,
-  evaluateSlot,
-  explainSlotSellability,
-  filterSellableSlots,
+  formatDayInAirportTz,
+  formatHourRangeInAirportTz,
   formatWindowInAirportTz,
   minutesUntilCutoff,
   resolveCutoffMinutes,
-  type SellabilityContext,
-  type SellableSlotInput,
 } from "./cutoff";
 
 const NY = "America/New_York";
@@ -31,27 +28,6 @@ function tzParts(iso: string): [number, number, number, number, number] {
   const [, y, mo, d, h, mi] = match;
   return [Number(y), Number(mo) - 1, Number(d), Number(h), Number(mi)];
 }
-
-const slot = (
-  over: Partial<SellableSlotInput> & { windowStart: Date; windowEnd: Date },
-): SellableSlotInput => ({
-  id: "s-1",
-  airportCode: "JFK",
-  tier: "standard_4h" as SlotTier,
-  capacity: 10,
-  bookedCount: 0,
-  ...over,
-});
-
-const ctx = (over: Partial<SellabilityContext> = {}): SellabilityContext => ({
-  airportCode: "JFK",
-  departureAt: ny("2025-06-10T18:00"),
-  cutoffMinutes: 45,
-  driveTimeMinutes: 60,
-  bufferMinutes: 30,
-  now: ny("2025-06-10T06:00"),
-  ...over,
-});
 
 /* ================================================================== */
 /* computeLatestPickupStart                                            */
@@ -192,59 +168,6 @@ describe("DST boundaries (America/New_York)", () => {
     // 05:00 EST is 10:00Z; minus 3h30m is 06:30Z, which is 02:30 EDT — the
     // wall clock only moved 2h30m because an hour was repeated.
     expect(result.toISOString()).toBe("2025-11-02T06:30:00.000Z");
-  });
-
-  it("keeps slot filtering correct across spring forward", () => {
-    // Departure 08:00 EDT on the jump day. Latest start = −135m = 05:45 EDT.
-    const context = ctx({
-      departureAt: ny("2025-03-09T08:00"),
-      now: ny("2025-03-08T20:00"),
-      cutoffMinutes: 45,
-      driveTimeMinutes: 60,
-      bufferMinutes: 30,
-    });
-
-    const before = slot({
-      id: "ends-0130-est",
-      windowStart: ny("2025-03-09T00:30"),
-      windowEnd: ny("2025-03-09T01:30"),
-    });
-    // 05:45 EDT == 09:45Z. A window ending 05:30 EDT (09:30Z) is safe.
-    const justSafe = slot({
-      id: "ends-0530-edt",
-      windowStart: ny("2025-03-09T04:30"),
-      windowEnd: ny("2025-03-09T05:30"),
-    });
-    const tooLate = slot({
-      id: "ends-0600-edt",
-      windowStart: ny("2025-03-09T05:00"),
-      windowEnd: ny("2025-03-09T06:00"),
-    });
-
-    const sellable = filterSellableSlots([before, justSafe, tooLate], context);
-    expect(sellable.map((s) => s.id)).toEqual(["ends-0130-est", "ends-0530-edt"]);
-  });
-
-  it("keeps slot filtering correct across fall back", () => {
-    const context = ctx({
-      departureAt: ny("2025-11-02T08:00"),
-      now: ny("2025-11-01T20:00"),
-    });
-    // 08:00 EST == 13:00Z. Latest start = 13:00Z − 135m = 10:45Z == 05:45 EST.
-    const safe = slot({
-      id: "safe",
-      windowStart: new Date("2025-11-02T04:00:00Z"),
-      windowEnd: new Date("2025-11-02T10:00:00Z"),
-    });
-    const tooLate = slot({
-      id: "too-late",
-      windowStart: new Date("2025-11-02T10:00:00Z"),
-      windowEnd: new Date("2025-11-02T11:00:00Z"),
-    });
-
-    expect(filterSellableSlots([safe, tooLate], context).map((s) => s.id)).toEqual([
-      "safe",
-    ]);
   });
 
   it("reports the airport-local day correctly either side of the transition", () => {
@@ -429,315 +352,6 @@ describe("resolveCutoffMinutes", () => {
 /* sellability                                                         */
 /* ================================================================== */
 
-describe("evaluateSlot", () => {
-  // Departure 18:00 local, cutoff 45, drive 60, buffer 30 → latest start 15:45.
-  const context = ctx();
-
-  it("sells a window that ends before the latest pickup start", () => {
-    const verdict = evaluateSlot(
-      slot({
-        windowStart: ny("2025-06-10T10:00"),
-        windowEnd: ny("2025-06-10T14:00"),
-      }),
-      context,
-    );
-    expect(verdict.sellable).toBe(true);
-    expect(verdict.reason).toBeUndefined();
-  });
-
-  it("sells a window ending exactly at the latest pickup start", () => {
-    const verdict = evaluateSlot(
-      slot({
-        windowStart: ny("2025-06-10T11:45"),
-        windowEnd: ny("2025-06-10T15:45"),
-      }),
-      context,
-    );
-    expect(verdict.sellable).toBe(true);
-  });
-
-  it("rejects a window ending one minute after the latest pickup start", () => {
-    const verdict = evaluateSlot(
-      slot({
-        windowStart: ny("2025-06-10T11:46"),
-        windowEnd: ny("2025-06-10T15:46"),
-      }),
-      context,
-    );
-    expect(verdict.sellable).toBe(false);
-    expect(verdict.reason).toBe("misses_bag_drop_cutoff");
-  });
-
-  it("judges on window END, not window start", () => {
-    // Starts comfortably early, ends far too late. Filtering on windowStart
-    // would sell this and the bags would miss the flight.
-    const verdict = evaluateSlot(
-      slot({
-        windowStart: ny("2025-06-10T13:00"),
-        windowEnd: ny("2025-06-10T17:00"),
-      }),
-      context,
-    );
-    expect(verdict.sellable).toBe(false);
-    expect(verdict.reason).toBe("misses_bag_drop_cutoff");
-  });
-
-  it("rejects slots at another airport", () => {
-    const verdict = evaluateSlot(
-      slot({
-        airportCode: "EWR",
-        windowStart: ny("2025-06-10T10:00"),
-        windowEnd: ny("2025-06-10T14:00"),
-      }),
-      context,
-    );
-    expect(verdict.sellable).toBe(false);
-    expect(verdict.reason).toBe("wrong_airport");
-  });
-
-  it("rejects a window that has already ended", () => {
-    const verdict = evaluateSlot(
-      slot({
-        windowStart: ny("2025-06-10T02:00"),
-        windowEnd: ny("2025-06-10T05:00"),
-      }),
-      ctx({ now: ny("2025-06-10T06:00") }),
-    );
-    expect(verdict.sellable).toBe(false);
-    expect(verdict.reason).toBe("window_in_the_past");
-  });
-
-  it("rejects a full slot", () => {
-    const verdict = evaluateSlot(
-      slot({
-        capacity: 4,
-        bookedCount: 4,
-        windowStart: ny("2025-06-10T10:00"),
-        windowEnd: ny("2025-06-10T14:00"),
-      }),
-      context,
-    );
-    expect(verdict.sellable).toBe(false);
-    expect(verdict.reason).toBe("at_capacity");
-  });
-
-  it("reports the cutoff miss ahead of capacity", () => {
-    const verdict = evaluateSlot(
-      slot({
-        capacity: 4,
-        bookedCount: 4,
-        windowStart: ny("2025-06-10T14:00"),
-        windowEnd: ny("2025-06-10T18:00"),
-      }),
-      context,
-    );
-    expect(verdict.reason).toBe("misses_bag_drop_cutoff");
-  });
-
-  it("enforces a minimum lead time when configured", () => {
-    const withLead = ctx({ now: ny("2025-06-10T09:30"), minimumLeadMinutes: 120 });
-
-    expect(
-      evaluateSlot(
-        slot({
-          windowStart: ny("2025-06-10T10:00"),
-          windowEnd: ny("2025-06-10T12:00"),
-        }),
-        withLead,
-      ).reason,
-    ).toBe("starts_before_lead_time");
-
-    expect(
-      evaluateSlot(
-        slot({
-          windowStart: ny("2025-06-10T11:30"),
-          windowEnd: ny("2025-06-10T13:30"),
-        }),
-        withLead,
-      ).sellable,
-    ).toBe(true);
-  });
-
-  it("applies the documented defaults when drive time and buffer are omitted", () => {
-    const bare: SellabilityContext = {
-      airportCode: "JFK",
-      departureAt: ny("2025-06-10T18:00"),
-      cutoffMinutes: 45,
-      now: ny("2025-06-10T06:00"),
-    };
-    const total = 45 + DEFAULT_DRIVE_TIME_MINUTES + DEFAULT_BUFFER_MINUTES;
-    expect(total).toBe(135);
-
-    expect(
-      evaluateSlot(
-        slot({
-          windowStart: ny("2025-06-10T11:45"),
-          windowEnd: ny("2025-06-10T15:45"),
-        }),
-        bare,
-      ).sellable,
-    ).toBe(true);
-    expect(
-      evaluateSlot(
-        slot({
-          windowStart: ny("2025-06-10T12:00"),
-          windowEnd: ny("2025-06-10T16:00"),
-        }),
-        bare,
-      ).sellable,
-    ).toBe(false);
-  });
-});
-
-describe("domestic vs international cutoffs change what is sellable", () => {
-  const windows = [
-    slot({
-      id: "w-14-15",
-      windowStart: ny("2025-06-10T14:00"),
-      windowEnd: ny("2025-06-10T15:00"),
-    }),
-    slot({
-      id: "w-15-1530",
-      windowStart: ny("2025-06-10T15:00"),
-      windowEnd: ny("2025-06-10T15:30"),
-    }),
-    slot({
-      id: "w-1530-16",
-      windowStart: ny("2025-06-10T15:30"),
-      windowEnd: ny("2025-06-10T16:00"),
-    }),
-  ];
-
-  it("domestic (45m) permits later windows than international (60m)", () => {
-    // domestic: latest start 15:45; international: latest start 15:30.
-    const domestic = filterSellableSlots(windows, ctx({ cutoffMinutes: 45 }));
-    const international = filterSellableSlots(windows, ctx({ cutoffMinutes: 60 }));
-
-    expect(domestic.map((s) => s.id)).toEqual(["w-14-15", "w-15-1530"]);
-    expect(international.map((s) => s.id)).toEqual(["w-14-15", "w-15-1530"]);
-
-    // Tighten international to 90 minutes and the 15:00 window drops out.
-    const strict = filterSellableSlots(windows, ctx({ cutoffMinutes: 90 }));
-    expect(strict.map((s) => s.id)).toEqual(["w-14-15"]);
-  });
-
-  it("never returns a superset when the cutoff grows", () => {
-    for (const extra of [0, 15, 30, 60, 120, 240]) {
-      const loose = new Set(
-        filterSellableSlots(windows, ctx({ cutoffMinutes: 45 })).map((s) => s.id),
-      );
-      const tight = filterSellableSlots(windows, ctx({ cutoffMinutes: 45 + extra })).map(
-        (s) => s.id,
-      );
-
-      for (const id of tight) expect(loose.has(id)).toBe(true);
-    }
-  });
-});
-
-describe("filterSellableSlots", () => {
-  it("returns chronological order regardless of input order", () => {
-    const late = slot({
-      id: "late",
-      windowStart: ny("2025-06-10T12:00"),
-      windowEnd: ny("2025-06-10T14:00"),
-    });
-    const early = slot({
-      id: "early",
-      windowStart: ny("2025-06-10T08:00"),
-      windowEnd: ny("2025-06-10T10:00"),
-    });
-    const middle = slot({
-      id: "middle",
-      windowStart: ny("2025-06-10T10:00"),
-      windowEnd: ny("2025-06-10T12:00"),
-    });
-
-    expect(filterSellableSlots([late, early, middle], ctx()).map((s) => s.id)).toEqual([
-      "early",
-      "middle",
-      "late",
-    ]);
-  });
-
-  it("returns an empty list rather than throwing when nothing is sellable", () => {
-    const tooLate = slot({
-      windowStart: ny("2025-06-10T17:00"),
-      windowEnd: ny("2025-06-10T18:00"),
-    });
-    expect(filterSellableSlots([tooLate], ctx())).toEqual([]);
-    expect(filterSellableSlots([], ctx())).toEqual([]);
-  });
-
-  it("never returns a slot whose window_end exceeds the latest pickup start", () => {
-    // Property check over a spread of departures, cutoffs and windows.
-    for (const departureHour of [6, 9, 12, 15, 18, 21]) {
-      for (const cutoffMinutes of [30, 45, 60, 90, 120]) {
-        const context = ctx({
-          departureAt: ny(`2025-06-10T${String(departureHour).padStart(2, "0")}:00`),
-          cutoffMinutes,
-          now: ny("2025-06-09T00:00"),
-        });
-
-        const latest = computeLatestPickupStart({
-          departureAt: context.departureAt,
-          cutoffMinutes,
-          driveTimeMinutes: 60,
-          bufferMinutes: 30,
-        });
-
-        const candidates = Array.from({ length: 24 }, (_, hour) =>
-          slot({
-            id: `h-${hour}`,
-            windowStart: ny(`2025-06-10T${String(hour).padStart(2, "0")}:00`),
-            windowEnd: ny(`2025-06-10T${String(hour).padStart(2, "0")}:59`),
-          }),
-        );
-
-        for (const sellable of filterSellableSlots(candidates, context)) {
-          expect(sellable.windowEnd.getTime()).toBeLessThanOrEqual(latest.getTime());
-        }
-      }
-    }
-  });
-});
-
-describe("explainSlotSellability", () => {
-  it("keeps rejected slots with their reasons, chronologically", () => {
-    const verdicts = explainSlotSellability(
-      [
-        slot({
-          id: "full",
-          capacity: 1,
-          bookedCount: 1,
-          windowStart: ny("2025-06-10T08:00"),
-          windowEnd: ny("2025-06-10T10:00"),
-        }),
-        slot({
-          id: "ok",
-          windowStart: ny("2025-06-10T10:00"),
-          windowEnd: ny("2025-06-10T12:00"),
-        }),
-        slot({
-          id: "late",
-          windowStart: ny("2025-06-10T16:00"),
-          windowEnd: ny("2025-06-10T18:00"),
-        }),
-      ],
-      ctx(),
-    );
-
-    expect(verdicts.map((v) => [v.slot.id, v.sellable, v.reason])).toEqual([
-      ["full", false, "at_capacity"],
-      ["ok", true, undefined],
-      ["late", false, "misses_bag_drop_cutoff"],
-    ]);
-  });
-});
-
-/* ================================================================== */
-/* cutoff instants and display                                         */
-/* ================================================================== */
 
 describe("computeBagDropCutoffAt / minutesUntilCutoff", () => {
   it("returns the instant the airline stops accepting bags", () => {
@@ -775,5 +389,88 @@ describe("formatWindowInAirportTz", () => {
       NY,
     );
     expect(text).toBe("Tue 10 Jun, 10:00 PM – Wed 11 Jun, 2:00 AM");
+  });
+
+  it("formatDayInAirportTz gives the local day heading", () => {
+    expect(formatDayInAirportTz(new Date("2025-06-11T02:00:00Z"), NY)).toBe(
+      "Tue 10 Jun", // 22:00 EDT the previous local day
+    );
+  });
+
+  it("formatHourRangeInAirportTz gives just the local hour span", () => {
+    expect(
+      formatHourRangeInAirportTz(
+        new Date("2025-06-10T14:00:00Z"),
+        new Date("2025-06-10T15:00:00Z"),
+        NY,
+      ),
+    ).toBe("10:00 AM – 11:00 AM");
+  });
+});
+
+/* ================================================================== */
+/* airportLocalInstant                                                 */
+/* ================================================================== */
+
+describe("airportLocalInstant", () => {
+  it("is the inverse of airportLocalDay at the display edge", () => {
+    const instant = airportLocalInstant("2025-06-10", 14, NY);
+    expect(instant.toISOString()).toBe("2025-06-10T18:00:00.000Z"); // 14:00 EDT
+    expect(airportLocalDay(instant, NY)).toBe("2025-06-10");
+  });
+
+  it("uses the correct offset on either side of a DST transition", () => {
+    // 9 Mar 2025: EST before the jump, EDT after.
+    expect(airportLocalInstant("2025-03-09", 1, NY).toISOString()).toBe(
+      "2025-03-09T06:00:00.000Z", // 01:00 EST
+    );
+    expect(airportLocalInstant("2025-03-09", 5, NY).toISOString()).toBe(
+      "2025-03-09T09:00:00.000Z", // 05:00 EDT
+    );
+  });
+
+  it("rejects malformed days and out-of-range hours", () => {
+    expect(() => airportLocalInstant("2025-6-10", 9, NY)).toThrow(RangeError);
+    expect(() => airportLocalInstant("2025-06-10", 24, NY)).toThrow(RangeError);
+    expect(() => airportLocalInstant("2025-06-10", -1, NY)).toThrow(RangeError);
+  });
+});
+
+/* ================================================================== */
+/* airportLocalDayBounds                                               */
+/* ================================================================== */
+
+describe("airportLocalDayBounds", () => {
+  it("brackets the airport-local day, not the server's", () => {
+    // 20:30 EDT on 10 Jun is already 11 Jun in UTC — the bounds must still be
+    // the 10th, which is the whole point of the helper.
+    const lateEvening = new Date("2025-06-11T00:30:00.000Z");
+    const { start, end } = airportLocalDayBounds(lateEvening, NY);
+
+    expect(start.toISOString()).toBe("2025-06-10T04:00:00.000Z"); // 00:00 EDT
+    expect(end.toISOString()).toBe("2025-06-11T04:00:00.000Z");
+    expect(airportLocalDay(start, NY)).toBe("2025-06-10");
+  });
+
+  it("is half-open, so midnight belongs to exactly one day", () => {
+    const day = airportLocalDayBounds(new Date("2025-06-10T16:00:00.000Z"), NY);
+    const next = airportLocalDayBounds(new Date("2025-06-11T16:00:00.000Z"), NY);
+    expect(day.end.getTime()).toBe(next.start.getTime());
+  });
+
+  it("spans 23 hours on the spring-forward day and 25 on the fall-back day", () => {
+    const hours = (d: { start: Date; end: Date }) =>
+      (d.end.getTime() - d.start.getTime()) / 3_600_000;
+
+    // 9 Mar 2025 loses an hour; 2 Nov 2025 gains one. Adding 24h would put
+    // both boundaries in the wrong place.
+    expect(hours(airportLocalDayBounds(new Date("2025-03-09T17:00:00.000Z"), NY))).toBe(23);
+    expect(hours(airportLocalDayBounds(new Date("2025-11-02T17:00:00.000Z"), NY))).toBe(25);
+  });
+
+  it("rolls over month and year ends", () => {
+    const newYearEve = airportLocalDayBounds(new Date("2025-12-31T17:00:00.000Z"), NY);
+    expect(airportLocalDay(newYearEve.start, NY)).toBe("2025-12-31");
+    expect(newYearEve.end.toISOString()).toBe("2026-01-01T05:00:00.000Z"); // 00:00 EST
   });
 });

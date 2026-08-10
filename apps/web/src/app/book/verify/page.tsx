@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 
-import { readDraft, nextIncompleteStep } from "@/lib/booking-draft";
+import { readDraft } from "@/lib/booking-draft";
+import { nextIncompleteStep, stepIsUnlocked } from "@/lib/booking-steps";
 import { getAuthUser } from "@/lib/auth";
 
 import { VerifyFlow } from "./verify-flow";
@@ -10,11 +11,11 @@ export const dynamic = "force-dynamic";
 
 /**
  * The only auth wall in the product: Screen A (phone/email entry) and
- * Screen B (OTP), rendered inside the funnel shell right before payment.
+ * Screen B (OTP), rendered inside the review & pay step right before payment.
  */
 export default async function VerifyStepPage() {
   const draft = await readDraft();
-  if (nextIncompleteStep(draft) !== "/book/price") {
+  if (!stepIsUnlocked(draft, "/book/pay")) {
     redirect(nextIncompleteStep(draft));
   }
 

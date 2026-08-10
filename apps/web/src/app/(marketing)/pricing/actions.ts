@@ -1,7 +1,7 @@
 "use server";
 
 import { z } from "zod";
-import { price, type PricingRuleInput, type SlotTier } from "@koolee/core";
+import { price, type PricingRuleInput } from "@koolee/core";
 import type { PriceEstimateResult } from "@koolee/ui";
 
 /**
@@ -18,7 +18,11 @@ const LAUNCH_RULE: PricingRuleInput = {
   baseFeeCents: 2900,
   perBagCents: 1500,
   distanceMultiplier: 45, // cents per km
-  slotTierMultiplier: { standard_4h: 1, express_2h: 1.35, priority_1h: 1.8 },
+  leadTimeMultipliers: [
+    { maxLeadMinutes: 10 * 60, multiplier: 1.4 },
+    { maxLeadMinutes: 16 * 60, multiplier: 1.2 },
+    { maxLeadMinutes: 24 * 60, multiplier: 1.1 },
+  ],
   discountRules: [{ kind: "family", minBags: 3, percent: 10 }],
 };
 
@@ -29,15 +33,27 @@ const TYPICAL_DISTANCE_KM: Record<string, number> = {
   EWR: 19,
 };
 
-const TIER_LABEL: Record<SlotTier, string> = {
-  standard_4h: "Standard window",
-  express_2h: "Express window",
-  priority_1h: "Priority window",
+/**
+ * Representative lead (minutes from window end to departure) per timing
+ * choice — the midpoint of each band of the launch lead-time curve.
+ */
+const TIMING_LEAD_MINUTES: Record<string, number> = {
+  lead_24h_plus: 27 * 60,
+  lead_16_24h: 20 * 60,
+  lead_10_16h: 13 * 60,
+  lead_6_10h: 8 * 60,
+};
+
+const TIMING_LABEL: Record<string, string> = {
+  lead_24h_plus: "Window 24+ hours before departure",
+  lead_16_24h: "Window 16–24 hours before departure",
+  lead_10_16h: "Window 10–16 hours before departure",
+  lead_6_10h: "Window 6–10 hours before departure",
 };
 
 const inputSchema = z.object({
   bagCount: z.number().int().min(1).max(8),
-  tierId: z.enum(["standard_4h", "express_2h", "priority_1h"]),
+  tierId: z.enum(["lead_24h_plus", "lead_16_24h", "lead_10_16h", "lead_6_10h"]),
   airportCode: z.enum(["JFK", "LGA", "EWR"]),
 });
 
@@ -53,7 +69,7 @@ export async function estimatePrice(input: {
     rule: LAUNCH_RULE,
     bagCount: parsed.bagCount,
     distanceKm,
-    slotTier: parsed.tierId,
+    pickupLeadMinutes: TIMING_LEAD_MINUTES[parsed.tierId] ?? 27 * 60,
   });
 
   const lines = [
@@ -68,10 +84,10 @@ export async function estimatePrice(input: {
     },
   ];
 
-  if (breakdown.tierAdjustmentCents !== 0) {
+  if (breakdown.leadTimeAdjustmentCents !== 0) {
     lines.push({
-      label: TIER_LABEL[parsed.tierId],
-      amountCents: breakdown.tierAdjustmentCents,
+      label: TIMING_LABEL[parsed.tierId] ?? "Pickup timing",
+      amountCents: breakdown.leadTimeAdjustmentCents,
     });
   }
 

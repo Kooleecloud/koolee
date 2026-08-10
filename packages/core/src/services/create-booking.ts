@@ -1,4 +1,4 @@
-import { and, eq, lt, sql } from "drizzle-orm";
+import { and, eq, gt, lt } from "drizzle-orm";
 import {
   addresses,
   airlineCutoffs,
@@ -7,7 +7,7 @@ import {
   custodyEvents,
   payments,
   pricingRules,
-  slots,
+  slotBlocks,
   type AirportCode,
   type Booking,
   type CutoffScope,
@@ -22,41 +22,48 @@ import {
   PaymentFailedError,
   PricingRuleInvalidError,
   SlotNotSellableError,
-  SlotSoldOutError,
 } from "../errors";
 import type { PaymentAuth } from "../payments/types";
 import { price, toPricingRuleInput, type PriceBreakdown } from "../pricing/engine";
-import { evaluateSlot, resolveCutoffMinutes, toSellableSlotInput } from "../slots/cutoff";
+import { resolveCutoffMinutes } from "../slots/cutoff";
+import { evaluateHourlyWindow, pickupLeadMinutesFor } from "../slots/windows";
 
 /**
  * The booking orchestrator.
  *
  * Ordering here is the whole point, so it is worth stating plainly:
  *
- *   1. Validate coverage, resolve the cutoff, confirm the slot is sellable,
- *      and compute the price — all before anything is written.
- *   2. Open ONE transaction. Inside it: claim slot capacity with a conditional
- *      UPDATE, insert the booking, its bags, and the custody event.
+ *   1. Validate coverage, resolve the cutoff, confirm the pickup window is
+ *      bookable (band, notice, blackouts), and compute the price — all
+ *      before anything is written.
+ *   2. Open ONE transaction. Inside it: insert the booking, its bags, and
+ *      the custody event.
  *   3. Authorize payment AFTER the transaction commits, then record the
  *      payment row. If authorization fails, compensate by cancelling the
- *      booking and releasing the slot.
+ *      booking.
  *
  * Why payment is outside the transaction: a Stripe call takes hundreds of
- * milliseconds, and holding a row lock on `slots` across a third-party network
- * call is how a booking rush turns into a database pile-up. The tradeoff is
- * that a crash between commit and authorization leaves a `draft` booking
- * holding capacity — recoverable, and far better than the alternative.
+ * milliseconds, and holding row locks across a third-party network call is
+ * how a booking rush turns into a database pile-up. The tradeoff is that a
+ * crash between commit and authorization leaves a `draft` booking —
+ * recoverable, and far better than the alternative.
  *
- * Overselling is prevented by `WHERE booked_count < capacity` on the capacity
- * claim: two concurrent bookings for the last seat produce one winner and one
- * `SlotSoldOutError`, with no phantom slot sold either way.
+ * There is no capacity to claim: pickup windows are virtual and accept
+ * unlimited bookings, so two concurrent customers picking the same window
+ * both simply succeed.
  */
 
 export interface CreateBookingInput {
   userId: string;
   /** Must already exist and belong to `userId`. */
   pickupAddressId: string;
-  slotId: string;
+  /**
+   * The clock-aligned one-hour pickup window the customer picked. Validated
+   * against the flight's bookable band, the booking notice, and ops
+   * blackouts — a window the picker displayed always passes.
+   */
+  pickupWindowStart: Date;
+  pickupWindowEnd: Date;
 
   flightNumber: string;
   airlineIata: string;
@@ -127,20 +134,31 @@ export async function createBooking(
     now,
   );
 
-  const slot = await db.query.slots.findFirst({ where: eq(slots.id, input.slotId) });
-  if (!slot) throw new NotFoundError("Slot", input.slotId);
+  // Blackouts that overlap the submitted window at this airport.
+  const blocks = await db
+    .select()
+    .from(slotBlocks)
+    .where(
+      and(
+        eq(slotBlocks.airportCode, input.departureAirport),
+        lt(slotBlocks.blockStart, input.pickupWindowEnd),
+        gt(slotBlocks.blockEnd, input.pickupWindowStart),
+      ),
+    );
 
-  const verdict = evaluateSlot(toSellableSlotInput(slot), {
-    airportCode: input.departureAirport,
+  const reason = evaluateHourlyWindow(input.pickupWindowStart, input.pickupWindowEnd, {
     departureAt: input.departureAt,
     cutoffMinutes,
+    now,
     driveTimeMinutes: input.driveTimeMinutes ?? defaults.driveTimeMinutes,
     bufferMinutes: defaults.bufferMinutes,
-    minimumLeadMinutes: defaults.minimumLeadMinutes,
-    now,
+    operationsReserveMinutes: defaults.operationsReserveMinutes,
+    bandMinutes: defaults.bandMinutes,
+    noticeMinutes: defaults.noticeMinutes,
+    blocks,
   });
-  if (!verdict.sellable) {
-    throw new SlotNotSellableError(input.slotId, verdict.reason ?? "unknown");
+  if (reason !== undefined) {
+    throw new SlotNotSellableError(input.pickupWindowStart.toISOString(), reason);
   }
 
   const rule = await db.query.pricingRules.findFirst({
@@ -157,30 +175,16 @@ export async function createBooking(
     rule: toPricingRuleInput(rule),
     bagCount: input.bagCount,
     distanceKm: input.distanceKm,
-    slotTier: slot.tier,
+    pickupLeadMinutes: pickupLeadMinutesFor(input.pickupWindowEnd, input.departureAt),
     discountContext: {
       promoCode: input.promoCode ?? null,
       isSenior: input.isSenior ?? false,
     },
   });
 
-  /* --- 2. One transaction: claim capacity + write the booking -------- */
+  /* --- 2. One transaction: write the booking ------------------------ */
 
   const created = await db.transaction(async (tx) => {
-    // The conditional UPDATE is the concurrency control. Postgres takes a row
-    // lock for the duration, so two racing transactions serialise here and
-    // exactly one sees a row returned.
-    const claimed = await tx
-      .update(slots)
-      .set({ bookedCount: sql`${slots.bookedCount} + 1` })
-      .where(and(eq(slots.id, input.slotId), lt(slots.bookedCount, slots.capacity)))
-      .returning({ id: slots.id, bookedCount: slots.bookedCount });
-
-    if (claimed.length === 0) {
-      // Throwing rolls the transaction back — nothing was written.
-      throw new SlotSoldOutError(input.slotId);
-    }
-
     const [booking] = await tx
       .insert(bookings)
       .values({
@@ -193,10 +197,14 @@ export async function createBooking(
         paxName: input.paxName,
         pickupAddressId: input.pickupAddressId,
         bagCount: input.bagCount,
-        slotId: input.slotId,
+        pickupWindowStart: input.pickupWindowStart,
+        pickupWindowEnd: input.pickupWindowEnd,
         contactPhone: input.contactPhone ?? null,
         priceCents: breakdown.totalCents,
         currency: defaults.currency,
+        // The receipt: which lead-time step, distance, and discounts made
+        // this price. Feeds dynamic-pricing analysis with per-window data.
+        priceBreakdown: breakdown,
       })
       .returning();
 
@@ -214,7 +222,8 @@ export async function createBooking(
       actorRole: "customer",
       eventType: "booking.created",
       metadata: {
-        slotId: input.slotId,
+        pickupWindowStart: input.pickupWindowStart.toISOString(),
+        pickupWindowEnd: input.pickupWindowEnd.toISOString(),
         priceCents: breakdown.totalCents,
         cutoffMinutes,
         bagCount: input.bagCount,
@@ -230,9 +239,9 @@ export async function createBooking(
   try {
     auth = await paymentProvider.authorize(created.id, breakdown.totalCents);
   } catch (error: unknown) {
-    await compensateFailedAuthorization(db, created.id, input.slotId);
+    await compensateFailedAuthorization(db, created.id);
     throw new PaymentFailedError(
-      `Authorization failed for booking ${created.id}; the booking was cancelled and the slot released.`,
+      `Authorization failed for booking ${created.id}; the booking was cancelled.`,
       error,
     );
   }
@@ -244,7 +253,15 @@ export async function createBooking(
         bookingId: created.id,
         provider: paymentProvider.name,
         providerRef: auth.authId,
-        status: auth.status === "authorized" ? "authorized" : "failed",
+        // requires_action / processing are honestly `pending` — the client
+        // still has to confirm (or the outcome is still settling). Only a
+        // dead authorization is `failed`.
+        status:
+          auth.status === "authorized"
+            ? "authorized"
+            : auth.status === "failed"
+              ? "failed"
+              : "pending",
         amountCents: auth.amountCents,
       })
       .onConflictDoNothing({
@@ -253,7 +270,8 @@ export async function createBooking(
 
     if (auth.status !== "authorized") {
       // requires_action: the client still has to confirm. The booking stays a
-      // draft until the webhook says the funds are held.
+      // draft until the webhook (or the return page's status re-check) says
+      // the funds are held.
       return created;
     }
 
@@ -296,13 +314,12 @@ export async function createBooking(
  * Undoes a committed booking whose payment authorization then failed.
  *
  * Compensating rather than rolling back, because the transaction is already
- * committed by this point. Both statements are guarded so a partially applied
- * compensation is safe to retry.
+ * committed by this point. Guarded so a partially applied compensation is
+ * safe to retry. (No capacity to release — windows are virtual.)
  */
 async function compensateFailedAuthorization(
   db: Database,
   bookingId: string,
-  slotId: string,
 ): Promise<void> {
   await db.transaction(async (tx) => {
     const cancelled = await tx
@@ -311,13 +328,7 @@ async function compensateFailedAuthorization(
       .where(and(eq(bookings.id, bookingId), eq(bookings.status, "draft")))
       .returning({ id: bookings.id });
 
-    // Only release capacity if this call is the one that cancelled it.
     if (cancelled.length > 0) {
-      await tx
-        .update(slots)
-        .set({ bookedCount: sql`greatest(${slots.bookedCount} - 1, 0)` })
-        .where(eq(slots.id, slotId));
-
       await tx.insert(custodyEvents).values({
         bookingId,
         eventType: "booking.cancelled",

@@ -1,16 +1,17 @@
 import { TZDate } from "@date-fns/tz";
 import { differenceInMinutes, format, subMinutes } from "date-fns";
-import type { AirlineCutoff, AirportCode, CutoffScope, Slot, SlotTier } from "@koolee/db";
+import type { AirlineCutoff, AirportCode, CutoffScope } from "@koolee/db";
 
 import { CutoffUnknownError } from "../errors";
 
 /**
- * Cutoff and slot-sellability logic.
+ * Airline-cutoff maths and window display.
  *
- * This is the highest-liability code in the repository. If it returns a slot it
- * should not have, a customer's bags miss their flight. Every function here is
- * pure, every input is an absolute instant, and the whole module is exercised
- * across DST boundaries by the accompanying test file.
+ * This is the highest-liability code in the repository: windows.ts builds the
+ * bookable band on the deadlines computed here, and a wrong deadline is how a
+ * customer's bags miss their flight. Every function here is pure, every input
+ * is an absolute instant, and the module is exercised across DST boundaries
+ * by the accompanying test file.
  *
  * TIMEZONE POLICY (consistent throughout — do not mix in another approach):
  *
@@ -130,133 +131,6 @@ export function resolveCutoffMinutes(
 }
 
 /* ------------------------------------------------------------------ */
-/* Slot filtering                                                      */
-/* ------------------------------------------------------------------ */
-
-/** The slot fields sellability depends on. */
-export interface SellableSlotInput {
-  id: string;
-  airportCode: AirportCode;
-  tier: SlotTier;
-  windowStart: Date;
-  windowEnd: Date;
-  capacity: number;
-  bookedCount: number;
-}
-
-export type SellabilityReason =
-  | "wrong_airport"
-  | "window_in_the_past"
-  | "starts_before_lead_time"
-  | "misses_bag_drop_cutoff"
-  | "at_capacity";
-
-export interface SlotVerdict {
-  slot: SellableSlotInput;
-  sellable: boolean;
-  /** Populated when `sellable` is false. */
-  reason?: SellabilityReason;
-}
-
-export interface SellabilityContext {
-  /** Departure airport for the booking. Slots elsewhere are never sellable. */
-  airportCode: AirportCode;
-  departureAt: Date;
-  cutoffMinutes: number;
-  driveTimeMinutes?: number;
-  bufferMinutes?: number;
-  /** Evaluation instant. Injected so tests are deterministic. */
-  now: Date;
-  /** Minimum notice before a window may start. Defaults to 0. */
-  minimumLeadMinutes?: number;
-}
-
-/**
- * Classifies one slot, with the reason it was rejected.
- *
- * The load-bearing condition is `windowEnd <= latestPickupStart`: the pickup
- * must be able to *begin* at any point in the window, so the whole window has
- * to sit at or before the latest safe start. Comparing `windowStart` instead
- * would sell a 4-hour window that begins safely and ends two hours after the
- * bags needed to be moving.
- */
-export function evaluateSlot(
-  slot: SellableSlotInput,
-  ctx: SellabilityContext,
-): SlotVerdict {
-  if (slot.airportCode !== ctx.airportCode) {
-    return { slot, sellable: false, reason: "wrong_airport" };
-  }
-
-  if (slot.windowEnd.getTime() <= ctx.now.getTime()) {
-    return { slot, sellable: false, reason: "window_in_the_past" };
-  }
-
-  const leadMinutes = ctx.minimumLeadMinutes ?? 0;
-  if (leadMinutes > 0 && differenceInMinutes(slot.windowStart, ctx.now) < leadMinutes) {
-    return { slot, sellable: false, reason: "starts_before_lead_time" };
-  }
-
-  // Checked before capacity on purpose: "this window cannot make your flight"
-  // is the safety-critical answer, and it stays true no matter how the slot
-  // fills up. "Sold out" would mask it.
-  const latestPickupStart = computeLatestPickupStart({
-    departureAt: ctx.departureAt,
-    cutoffMinutes: ctx.cutoffMinutes,
-    driveTimeMinutes: ctx.driveTimeMinutes ?? DEFAULT_DRIVE_TIME_MINUTES,
-    bufferMinutes: ctx.bufferMinutes ?? DEFAULT_BUFFER_MINUTES,
-  });
-
-  if (slot.windowEnd.getTime() > latestPickupStart.getTime()) {
-    return { slot, sellable: false, reason: "misses_bag_drop_cutoff" };
-  }
-
-  if (slot.bookedCount >= slot.capacity) {
-    return { slot, sellable: false, reason: "at_capacity" };
-  }
-
-  return { slot, sellable: true };
-}
-
-/**
- * The only function the booking flow should call to decide what to show.
- *
- * Returns slots in chronological order. Never returns a slot whose
- * `windowEnd` exceeds the latest safe pickup start.
- */
-export function filterSellableSlots<T extends SellableSlotInput>(
-  slots: readonly T[],
-  ctx: SellabilityContext,
-): T[] {
-  return slots
-    .filter((slot) => evaluateSlot(slot, ctx).sellable)
-    .sort((a, b) => a.windowStart.getTime() - b.windowStart.getTime());
-}
-
-/** Same filtering, but keeps the rejected slots and their reasons — for ops. */
-export function explainSlotSellability(
-  slots: readonly SellableSlotInput[],
-  ctx: SellabilityContext,
-): SlotVerdict[] {
-  return slots
-    .map((slot) => evaluateSlot(slot, ctx))
-    .sort((a, b) => a.slot.windowStart.getTime() - b.slot.windowStart.getTime());
-}
-
-/** Narrows a database row to the shape the filters need. */
-export function toSellableSlotInput(slot: Slot): SellableSlotInput {
-  return {
-    id: slot.id,
-    airportCode: slot.airportCode,
-    tier: slot.tier,
-    windowStart: slot.windowStart,
-    windowEnd: slot.windowEnd,
-    capacity: slot.capacity,
-    bookedCount: slot.bookedCount,
-  };
-}
-
-/* ------------------------------------------------------------------ */
 /* Display                                                             */
 /* ------------------------------------------------------------------ */
 
@@ -283,4 +157,79 @@ export function formatWindowInAirportTz(
 /** The airport-local calendar day an instant falls on, as `yyyy-MM-dd`. */
 export function airportLocalDay(instant: Date, tz: string): string {
   return format(new TZDate(instant, tz), "yyyy-MM-dd");
+}
+
+/** Human day heading in airport local time — "Tue 10 Jun". */
+export function formatDayInAirportTz(instant: Date, tz: string): string {
+  return format(new TZDate(instant, tz), "EEE d MMM");
+}
+
+/** Day and time of a single instant, airport-local — "Tue 10 Jun, 6:20 PM". */
+export function formatInstantInAirportTz(instant: Date, tz: string): string {
+  return format(new TZDate(instant, tz), "EEE d MMM, h:mm a");
+}
+
+/**
+ * Just the hour span, airport-local — "10:00 AM – 11:00 AM". For compact
+ * window tiles under a day heading, where repeating the date is noise.
+ */
+export function formatHourRangeInAirportTz(
+  windowStart: Date,
+  windowEnd: Date,
+  tz: string,
+): string {
+  return `${format(new TZDate(windowStart, tz), "h:mm a")} – ${format(
+    new TZDate(windowEnd, tz),
+    "h:mm a",
+  )}`;
+}
+
+/**
+ * The absolute instant of an airport-local wall-clock hour — the inverse
+ * edge of `airportLocalDay`, for ops input ("block Aug 12, 2 PM at JFK").
+ * DST-correct because TZDate owns the offset lookup.
+ */
+export function airportLocalInstant(
+  day: string,
+  hour: number,
+  tz: string,
+): Date {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(day);
+  if (!match || !Number.isInteger(hour) || hour < 0 || hour > 23) {
+    throw new RangeError(`Invalid airport-local day/hour: ${day} ${hour}`);
+  }
+  const [, year, month, dayOfMonth] = match.map(Number);
+  return new Date(
+    new TZDate(year!, month! - 1, dayOfMonth!, hour, 0, 0, tz).getTime(),
+  );
+}
+
+/**
+ * The half-open instant range covering the airport-local calendar day that
+ * `instant` falls on: `[start, end)`.
+ *
+ * Anything that buckets rows "by day" needs this rather than
+ * `setHours(0,0,0,0)`. Server-local midnight is UTC midnight in production,
+ * which slices an Eastern day at 8 or 7 PM the evening before — so a
+ * "today's pickups" query and a "today" badge computed from the airport
+ * timezone would disagree about the same row.
+ *
+ * The next day is derived by calendar arithmetic on the `yyyy-MM-dd` string,
+ * not by adding 24 hours, so the DST days that are 23 or 25 hours long still
+ * produce exactly one day.
+ */
+export function airportLocalDayBounds(
+  instant: Date,
+  tz: string,
+): { start: Date; end: Date } {
+  const day = airportLocalDay(instant, tz);
+  const [year, month, dayOfMonth] = day.split("-").map(Number);
+  const nextDay = new Date(Date.UTC(year!, month! - 1, dayOfMonth! + 1))
+    .toISOString()
+    .slice(0, 10);
+
+  return {
+    start: airportLocalInstant(day, 0, tz),
+    end: airportLocalInstant(nextDay, 0, tz),
+  };
 }

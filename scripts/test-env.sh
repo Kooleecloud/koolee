@@ -7,6 +7,12 @@
 #   ./scripts/test-env.sh reset    wipe local DB, re-apply Drizzle migrations
 #   ./scripts/test-env.sh down     stop the stack (data volumes persist)
 #   ./scripts/test-env.sh doctor   diagnose without changing anything
+#   ./scripts/test-env.sh setup-test-db  create/migrate/mark koolee_test only
+#   ./scripts/test-env.sh drop-test-db   delete the disposable koolee_test DB
+#
+# TWO DATABASES, one Postgres container: `postgres` is what the dev servers
+# and your real bookings use; `koolee_test` is disposable and is the only one
+# the integration suites are allowed to wipe. See setup_test_database below.
 #
 # SAFETY: every subcommand that touches a database refuses to run unless the
 # resolved DATABASE_URL host is 127.0.0.1 or localhost. There is no bypass
@@ -18,6 +24,20 @@ cd "$REPO_ROOT"
 
 LOCAL_DB_URL="postgresql://postgres:postgres@127.0.0.1:54322/postgres"
 LOCAL_API_URL="http://127.0.0.1:54321"
+
+# The integration suites delete rows between tests, so they get their own
+# database rather than the one the dev servers (and real bookings) live in.
+# It is a second database inside the Postgres container that is ALREADY
+# running — no extra service, no extra memory. Disposable by design: drop it
+# any time and `test-env.sh up` rebuilds it.
+#
+# `MARKER_TABLE` is what makes the separation enforceable rather than a
+# convention: packages/core/vitest.global-setup.ts refuses to run unless it
+# finds this table, so a mispointed TEST_DATABASE_URL fails closed instead of
+# emptying the dev database.
+TEST_DB_NAME="koolee_test"
+TEST_DB_URL="postgresql://postgres:postgres@127.0.0.1:54322/$TEST_DB_NAME"
+MARKER_TABLE="__koolee_test_database"
 
 ENV_TEST_FILE="$REPO_ROOT/.env.test"
 CONFIG_TOML="$REPO_ROOT/supabase/config.toml"
@@ -161,6 +181,79 @@ run_drizzle_migrations() {
     pnpm --filter @koolee/db db:migrate
 }
 
+# ------------------------------------------------------- test database ----
+# Create (if absent), migrate, and mark the disposable test database. Safe to
+# re-run: CREATE DATABASE is guarded by a catalog check and the marker table
+# uses IF NOT EXISTS. Never touches the dev database's contents.
+setup_test_database() {
+  assert_local "$TEST_DB_URL"
+
+  local exists
+  exists="$(psql "$LOCAL_DB_URL" -X -q -A -t -v ON_ERROR_STOP=1 \
+    -c "select 1 from pg_database where datname = '$TEST_DB_NAME'")"
+  if [[ "$exists" == "1" ]]; then
+    pass "database $TEST_DB_NAME already exists"
+  else
+    # CREATE DATABASE cannot run inside a transaction block, hence its own -c.
+    psql "$LOCAL_DB_URL" -X -q -v ON_ERROR_STOP=1 \
+      -c "CREATE DATABASE $TEST_DB_NAME" >/dev/null
+    pass "created database $TEST_DB_NAME"
+  fi
+
+  # The marker goes on FIRST, so a run that races the rest still fails the
+  # guard for the right reason rather than looking like the dev database.
+  psql "$TEST_DB_URL" -X -q -v ON_ERROR_STOP=1 -c "
+    CREATE TABLE IF NOT EXISTS $MARKER_TABLE (
+      note text NOT NULL DEFAULT
+        'Disposable. Integration tests delete rows here between runs. Never point a dev server at this database.'
+    )" >/dev/null
+  pass "marker table $MARKER_TABLE present"
+
+  # Structure is CLONED from the dev database rather than rebuilt by running
+  # the Drizzle migrations against an empty one. Those migrations cannot build
+  # a database on their own: they create RLS policies over `storage.objects`,
+  # insert the `bag-photos` row into `storage.buckets`, and call `auth.uid()`
+  # — all owned by Supabase's GoTrue/Storage services, which only ever
+  # provision the `postgres` database. `db:migrate` against a fresh database
+  # dies on `relation "storage.buckets" does not exist`.
+  #
+  # `pg_dump --schema-only` copies DDL and no rows, so nothing of yours is
+  # duplicated, and it keeps working as the schema grows without this script
+  # needing to know which Supabase schemas are involved. The dev database is
+  # only ever READ here.
+  step "Clone schema from the dev database (structure only, zero rows)"
+  command -v pg_dump >/dev/null 2>&1 || die "pg_dump not found on PATH. Remedy: brew install libpq && brew link --force libpq"
+  # ON_ERROR_STOP=0: a Supabase dump replays extension and role grants that
+  # are already satisfied cluster-wide and harmlessly re-error. The table-count
+  # assertion below is what actually decides whether the clone worked.
+  pg_dump "$LOCAL_DB_URL" --schema-only --quote-all-identifiers 2>/dev/null \
+    | psql "$TEST_DB_URL" -X -q -v ON_ERROR_STOP=0 >/dev/null 2>&1 || true
+
+  local expected actual
+  expected="$(psql "$LOCAL_DB_URL" -X -q -A -t -v ON_ERROR_STOP=1 \
+    -c "select count(*) from pg_catalog.pg_tables where schemaname = 'public'")"
+  actual="$(psql "$TEST_DB_URL" -X -q -A -t -v ON_ERROR_STOP=1 \
+    -c "select count(*) from pg_catalog.pg_tables where schemaname = 'public' and tablename <> '$MARKER_TABLE'")"
+  if [[ "$expected" != "$actual" ]]; then
+    die "schema clone incomplete: dev has $expected public tables, $TEST_DB_NAME has $actual. Nothing else was changed; inspect with: pnpm test:env:doctor"
+  fi
+  pass "cloned $actual public tables (plus auth/storage schemas)"
+
+  # The ONE table whose rows are copied: Drizzle's journal. --schema-only
+  # brings the table but not its contents, so without this Drizzle sees a
+  # database with every table already present and no migrations recorded, and
+  # re-runs 0000 straight into `type "booking_status" already exists`.
+  pg_dump "$LOCAL_DB_URL" --data-only --table 'drizzle.__drizzle_migrations' 2>/dev/null \
+    | psql "$TEST_DB_URL" -X -q -v ON_ERROR_STOP=1 >/dev/null
+  pass "migration journal copied"
+
+  # Applies anything the dev database has not caught up to yet; a no-op right
+  # after a clone.
+  DATABASE_URL="$TEST_DB_URL" DIRECT_DATABASE_URL="$TEST_DB_URL" \
+    pnpm --filter @koolee/db db:migrate
+  pass "migrations up to date on $TEST_DB_NAME"
+}
+
 # ------------------------------------------------------------------- up ----
 cmd_up() {
   resolve_db_url
@@ -227,7 +320,14 @@ Remedy: set [auth.sms.twilio] enabled = true with dummy credentials in supabase/
   umask 177
   cat > "$ENV_TEST_FILE" <<EOF
 # Generated by scripts/test-env.sh — never commit. Regenerate: pnpm test:env:up
-TEST_DATABASE_URL=$LOCAL_DB_URL
+#
+# TEST_DATABASE_URL is the DISPOSABLE database the integration suites wipe
+# between tests. GOTRUE_TEST_DATABASE_URL is the dev database, used only by
+# the three suites that drive the real GoTrue API and must read auth.users in
+# the same connection — those preserve pre-existing rows (see
+# packages/core/src/test-utils/preserve-existing-rows.ts). Do not swap them.
+TEST_DATABASE_URL=$TEST_DB_URL
+GOTRUE_TEST_DATABASE_URL=$LOCAL_DB_URL
 DATABASE_URL=$LOCAL_DB_URL
 AUTH_SCHEMA_AVAILABLE=true
 SUPABASE_URL=$LOCAL_API_URL
@@ -250,13 +350,17 @@ EOF
   run_drizzle_migrations
   pass "migrations applied"
 
+  step "Disposable test database ($TEST_DB_NAME)"
+  setup_test_database
+
   step "Verify"
   cmd_verify
 
   step "Summary"
   echo "  Studio:    $studio_url"
   echo "  Mailpit:   $mailpit_url"
-  echo "  Database:  $LOCAL_DB_URL"
+  echo "  Dev DB:    $LOCAL_DB_URL"
+  echo "  Test DB:   $TEST_DB_URL  (disposable — integration suites wipe this one)"
   echo "  Test phone numbers (dial as +<number>, from [auth.sms.test_otp]):"
   test_otp_entries | awk -F= '{ printf "    +%s → code %s\n", $1, $2 }'
   echo "  Run integration tests:"
@@ -269,10 +373,11 @@ cmd_verify() {
   require_stack_running
 
   local psql_cmd=(psql "$DB_URL" -X -q -A -t -v ON_ERROR_STOP=1)
-  local failures=0
+  local failures=0 checks=0
 
   vcheck() {
     local name="$1" expected="$2" actual="$3"
+    checks=$((checks + 1))
     if [[ "$expected" == "$actual" ]]; then
       pass "$name ($actual)"
     else
@@ -327,10 +432,24 @@ cmd_verify() {
     failures=$((failures + 1))
   fi
 
-  if [[ $failures -gt 0 ]]; then
-    die "verify: $failures check(s) failed"
+  # 6+7. The disposable test database exists, carries the marker the vitest
+  #      guard looks for, and has the same schema as the dev database. Without
+  #      the marker every integration suite refuses to run — by design.
+  local test_marker test_tables
+  test_marker="$(psql "$TEST_DB_URL" -X -q -A -t -v ON_ERROR_STOP=1 \
+    -c "select count(*) from pg_catalog.pg_tables where schemaname = 'public' and tablename = '$MARKER_TABLE'" 2>/dev/null || echo '<database missing>')"
+  vcheck "$TEST_DB_NAME carries the $MARKER_TABLE marker" "1" "$test_marker"
+
+  if [[ "$test_marker" == "1" ]]; then
+    test_tables="$(psql "$TEST_DB_URL" -X -q -A -t -v ON_ERROR_STOP=1 \
+      -c "select count(*) from pg_catalog.pg_tables where schemaname = 'public' and tablename <> '$MARKER_TABLE'")"
+    vcheck "$TEST_DB_NAME public table count matches Drizzle schema" "$expected_tables" "$test_tables"
   fi
-  echo "  ${GREEN}${BOLD}verify: all 5 checks passed${NC}"
+
+  if [[ $failures -gt 0 ]]; then
+    die "verify: $failures of $checks check(s) failed"
+  fi
+  echo "  ${GREEN}${BOLD}verify: all $checks checks passed${NC}"
 }
 
 # ---------------------------------------------------------------- reset ----
@@ -355,8 +474,52 @@ cmd_reset() {
   run_drizzle_migrations
   pass "migrations re-applied"
 
+  # `supabase db reset` only rebuilds the database GoTrue serves, so the test
+  # database is recreated here rather than assumed to have survived.
+  step "Rebuild disposable test database ($TEST_DB_NAME)"
+  setup_test_database
+
   step "Verify"
   cmd_verify
+}
+
+# ------------------------------------------------ set up the test database ----
+# Just the disposable database, and the two URLs .env.test needs to point at
+# it — no `supabase start`, no dev-database migrations, no key regeneration.
+# For picking up this separation on an existing checkout whose stack is already
+# healthy, without touching the database your bookings live in.
+cmd_setup_test_db() {
+  resolve_db_url
+  require_stack_running
+  [[ -f "$ENV_TEST_FILE" ]] || die ".env.test not found — run: pnpm test:env:up"
+
+  step "Disposable test database ($TEST_DB_NAME)"
+  setup_test_database
+
+  step "Point .env.test at it"
+  # Rewrite just these two keys; everything else in the file is preserved.
+  local tmp
+  tmp="$(mktemp)"
+  grep -vE '^(TEST_DATABASE_URL|GOTRUE_TEST_DATABASE_URL)=' "$ENV_TEST_FILE" > "$tmp"
+  {
+    echo "TEST_DATABASE_URL=$TEST_DB_URL"
+    echo "GOTRUE_TEST_DATABASE_URL=$LOCAL_DB_URL"
+  } >> "$tmp"
+  cat "$tmp" > "$ENV_TEST_FILE"
+  rm -f "$tmp"
+  pass "TEST_DATABASE_URL → $TEST_DB_NAME, GOTRUE_TEST_DATABASE_URL → postgres"
+}
+
+# ------------------------------------------------- drop the test database ----
+# The disposable database holds nothing anyone needs; this exists so reclaiming
+# the space is an obvious one-liner rather than remembered psql. `up` and
+# `reset` both rebuild it.
+cmd_drop_test_db() {
+  resolve_db_url
+  require_stack_running
+  psql "$LOCAL_DB_URL" -X -q -v ON_ERROR_STOP=1 \
+    -c "DROP DATABASE IF EXISTS $TEST_DB_NAME WITH (FORCE)" >/dev/null
+  pass "dropped $TEST_DB_NAME (rebuild with: pnpm test:env:up)"
 }
 
 # ----------------------------------------------------------------- down ----
@@ -458,6 +621,8 @@ main() {
     reset)   cmd_reset "$@" ;;
     down)    cmd_down "$@" ;;
     doctor)  cmd_doctor "$@" ;;
+    setup-test-db) cmd_setup_test_db "$@" ;;
+    drop-test-db)  cmd_drop_test_db "$@" ;;
     -h|--help|help) usage ;;
     *)       usage; exit 1 ;;
   esac

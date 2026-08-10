@@ -5,15 +5,11 @@ import {
   checkCoverage,
   ConflictError,
   createBooking,
-  deleteBookingDraft,
-  ensureAddress,
-  ensureCustomerFromAuth,
-  getCustomerById,
-  listSellableSlots,
+  discardBookingDraft,
+  listBookableWindows,
   OutOfCoverageError,
-  parseTicketText,
   SlotNotSellableError,
-  SlotSoldOutError,
+  softDeleteBookingDraft,
   type AirportCode,
   type CutoffScope,
 } from "@koolee/core";
@@ -21,9 +17,10 @@ import {
 import { ensureDraftSession } from "@/actions/auth";
 import { getAuthUser } from "@/lib/auth";
 import { clearDraft, readDraft, writeDraft } from "@/lib/booking-draft";
+import { nextIncompleteStep } from "@/lib/booking-steps";
+import { buildCheckoutSetup, isDraftReadyForPayment } from "@/lib/checkout";
 import { getCore, tryGetCore } from "@/lib/core";
 import { syncDraftRow } from "@/lib/draft-sync";
-import { extractPdfText, MAX_TICKET_PDF_BYTES } from "@/lib/pdf";
 import { toE164UsCa } from "@/lib/phone";
 
 /**
@@ -32,8 +29,11 @@ import { toE164UsCa } from "@/lib/phone";
  * Thin adapters: parse the form, call a `@koolee/core` service, translate the
  * typed error into something the form can render. No domain logic lives here.
  *
- * Funnel order: ZIP → flight (or ticket PDF → review) → address → bags →
- * slot → price → verify (the only auth gate) → pay.
+ * Funnel order (4 visible steps): flight (ZIP + flight details, or ticket
+ * PDF → review) → pickup (address + bags) → window → review & pay. Verify —
+ * the only auth gate — sits inside the last step. Every submit lands on
+ * `nextIncompleteStep`, so an edit from a later step returns straight to the
+ * frontier instead of re-walking the funnel.
  */
 
 export interface ActionState {
@@ -51,26 +51,34 @@ function str(form: FormData, key: string): string {
 }
 
 /* ------------------------------------------------------------------ */
-/* Step 1 — ZIP coverage                                                */
+/* Start over — discard the draft and reset the funnel                  */
 /* ------------------------------------------------------------------ */
 
-export async function submitZip(
-  _prev: ActionState,
-  form: FormData,
-): Promise<ActionState> {
-  const zip = str(form, "zip");
+/**
+ * The funnel's escape hatch (stepper bar, the no-windows dead end, and My
+ * Trips' Discard). Clears the cookie, soft-deletes the mirror row, and — if
+ * the payment step already created a draft booking — voids its authorization
+ * through core's ownership- and status-gated discard. Never blocks on the
+ * cleanup: the reset must always succeed.
+ */
+export async function startOverBooking(): Promise<void> {
+  const draft = await readDraft();
+  const authUser = await getAuthUser();
+  const core = tryGetCore();
 
-  const coverage = checkCoverage(zip);
-  if (!coverage.covered) {
-    return coverage.reason === "malformed"
-      ? { error: "That ZIP code does not look right." }
-      : {
-          error: "We do not serve that ZIP code yet.",
-          outOfCoverageZip: coverage.zip ?? zip,
-        };
+  if (core && authUser) {
+    try {
+      await discardBookingDraft(core, {
+        userId: authUser.id,
+        bookingId: draft.bookingId ?? null,
+        reason: "booking_draft_discarded",
+      });
+    } catch (error) {
+      console.error("[book] draft discard failed", error);
+    }
   }
 
-  await writeDraft({ zip: coverage.zip });
+  await clearDraft();
   redirect("/book/flight");
 }
 
@@ -95,64 +103,17 @@ export async function captureOutOfAreaEmail(
 }
 
 /* ------------------------------------------------------------------ */
-/* Step 2 — flight (manual entry, or ticket PDF → editable review)      */
+/* Step 1 — flight (ZIP + manual entry, or ticket PDF → editable review) */
 /* ------------------------------------------------------------------ */
 
-/**
- * Ticket PDF upload. Extraction ONLY prefills the flight form — the customer
- * always reviews and confirms before anything is persisted server-side.
- * Never auto-books from raw extraction.
+/*
+ * Ticket upload + extraction lives in /api/ticket-uploads (route handler:
+ * private-bucket storage, ticket_uploads row, synchronous extraction).
+ * Extracted values land ONLY in the quarantined `ticketPrefill` cookie key,
+ * which the flight review form reads as editable defaults. Confirming that
+ * form (`submitFlight` below) is what promotes user-confirmed values into
+ * the real draft keys — and clears the prefill.
  */
-export async function extractTicket(
-  _prev: ActionState,
-  form: FormData,
-): Promise<ActionState> {
-  const file = form.get("ticket");
-  if (!(file instanceof File) || file.size === 0) {
-    return { error: "Choose a PDF e-ticket to upload." };
-  }
-  if (file.size > MAX_TICKET_PDF_BYTES) {
-    return { error: "That file is too large — e-tickets are usually under 5 MB." };
-  }
-  if (file.type && file.type !== "application/pdf") {
-    return { error: "Upload a PDF — that's the format airlines email you." };
-  }
-
-  let text: string;
-  try {
-    text = await extractPdfText(await file.arrayBuffer());
-  } catch {
-    return { error: "We couldn't read that PDF. Enter your flight below instead." };
-  }
-
-  const parsed = parseTicketText(text);
-  if (!parsed.flightNumber && !parsed.departureAtLocal && !parsed.paxName) {
-    return {
-      error:
-        "We couldn't find flight details in that PDF. Enter your flight below instead.",
-    };
-  }
-
-  const departureAtIso = parsed.departureAtLocal
-    ? toIsoIfValid(parsed.departureAtLocal)
-    : undefined;
-
-  await writeDraft({
-    ...(parsed.flightNumber ? { flightNumber: parsed.flightNumber } : {}),
-    ...(parsed.airlineIata ? { airlineIata: parsed.airlineIata } : {}),
-    ...(parsed.departureAirport ? { departureAirport: parsed.departureAirport } : {}),
-    ...(departureAtIso ? { departureAt: departureAtIso } : {}),
-    ...(parsed.paxName ? { paxName: parsed.paxName } : {}),
-    ...(parsed.scope ? { scope: parsed.scope } : {}),
-  });
-
-  redirect("/book/flight?from=ticket");
-}
-
-function toIsoIfValid(local: string): string | undefined {
-  const date = new Date(local);
-  return Number.isNaN(date.getTime()) ? undefined : date.toISOString();
-}
 
 /**
  * Confirming the flight review form is the moment funnel state is first
@@ -163,7 +124,17 @@ export async function submitFlight(
   form: FormData,
 ): Promise<ActionState> {
   const draft = await readDraft();
-  if (!draft.zip) redirect("/book/zip");
+
+  const zip = str(form, "zip");
+  const coverage = checkCoverage(zip);
+  if (!coverage.covered) {
+    return coverage.reason === "malformed"
+      ? { error: "That ZIP code does not look right." }
+      : {
+          error: "We do not serve that ZIP code yet.",
+          outOfCoverageZip: coverage.zip ?? zip,
+        };
+  }
 
   const flightNumber = str(form, "flightNumber").toUpperCase().replace(/\s+/g, "");
   const departureAirport = str(form, "departureAirport") as AirportCode;
@@ -201,13 +172,29 @@ export async function submitFlight(
     /^([A-Z0-9]{2,3})/.exec(flightNumber)?.[1] ??
     "";
 
-  await writeDraft({
+  // The one real cross-step dependency: the pickup window was chosen against
+  // this flight's bookable band. If the flight changed in any way that moves
+  // the band, the selected window (and its lead-time price) is no longer
+  // trustworthy — clear it so the funnel routes back through the window step.
+  const flightChanged =
+    draft.departureAirport !== departureAirport ||
+    draft.departureAt !== departureAt.toISOString() ||
+    draft.airlineIata !== airlineIata ||
+    (draft.scope ?? "domestic") !== scope;
+
+  // The confirm step: only what the user submitted from the review form
+  // persists. The raw extraction prefill is cleared here — it never outlives
+  // this confirmation and is never read by any booking-write path.
+  const next = await writeDraft({
+    zip: coverage.zip,
     flightNumber,
     airlineIata,
     departureAirport,
     departureAt: departureAt.toISOString(),
     scope,
     paxName,
+    ticketPrefill: undefined,
+    ...(flightChanged ? { windowStart: undefined, windowEnd: undefined } : {}),
   });
 
   // First server-side persistence: anonymous session (when available) + the
@@ -220,14 +207,14 @@ export async function submitFlight(
     console.error("[book] ensureDraftSession failed", error);
   }
 
-  redirect("/book/address");
+  redirect(nextIncompleteStep(next));
 }
 
 /* ------------------------------------------------------------------ */
-/* Step 3 — address                                                     */
+/* Step 2 — pickup (address + bags)                                     */
 /* ------------------------------------------------------------------ */
 
-export async function submitAddress(
+export async function submitPickup(
   _prev: ActionState,
   form: FormData,
 ): Promise<ActionState> {
@@ -236,9 +223,13 @@ export async function submitAddress(
   const city = str(form, "city");
   const state = str(form, "state").toUpperCase();
   const zip = str(form, "zip");
+  const bagCount = Number(str(form, "bagCount"));
 
   if (!line1 || !city || !state || !zip) {
     return { error: "Fill in street, city, state, and ZIP." };
+  }
+  if (!Number.isInteger(bagCount) || bagCount < 1 || bagCount > 10) {
+    return { error: "Choose between 1 and 10 bags." };
   }
 
   const coverage = checkCoverage(zip);
@@ -251,60 +242,53 @@ export async function submitAddress(
         };
   }
 
-  await writeDraft({
+  const next = await writeDraft({
     line1,
     ...(line2 ? { line2 } : {}),
     city,
     state,
     zip: coverage.zip,
+    bagCount,
   });
   await syncDraftRow();
 
-  redirect("/book/bags");
+  redirect(nextIncompleteStep(next));
 }
 
 /* ------------------------------------------------------------------ */
-/* Step 4 — bags                                                        */
-/* ------------------------------------------------------------------ */
-
-export async function submitBags(
-  _prev: ActionState,
-  form: FormData,
-): Promise<ActionState> {
-  const bagCount = Number(str(form, "bagCount"));
-  if (!Number.isInteger(bagCount) || bagCount < 1 || bagCount > 10) {
-    return { error: "Choose between 1 and 10 bags." };
-  }
-
-  await writeDraft({ bagCount });
-  await syncDraftRow();
-  redirect("/book/slot");
-}
-
-/* ------------------------------------------------------------------ */
-/* Step 5 — slot                                                        */
+/* Step 3 — window                                                      */
 /* ------------------------------------------------------------------ */
 
 export async function submitSlot(
   _prev: ActionState,
   form: FormData,
 ): Promise<ActionState> {
-  const slotId = str(form, "slotId");
-  if (!slotId) return { error: "Choose a pickup window." };
+  const windowStartRaw = str(form, "windowStart");
+  if (!windowStartRaw) return { error: "Choose a pickup window." };
+
+  const windowStart = new Date(windowStartRaw);
+  if (Number.isNaN(windowStart.getTime())) {
+    return { error: "That window is not valid. Pick another." };
+  }
+  const windowEnd = new Date(windowStart.getTime() + 60 * 60 * 1000);
 
   const draft = await readDraft();
   const core = tryGetCore();
 
-  // Re-check sellability: the slot list may be minutes old.
+  // Re-check bookability: the picker may be minutes old, a blackout may have
+  // landed, or the notice fence may have moved past this window.
   if (core && draft.departureAirport && draft.departureAt && draft.airlineIata) {
     try {
-      const { slots } = await listSellableSlots(core, {
+      const { windows } = await listBookableWindows(core, {
         airportCode: draft.departureAirport,
         airlineIata: draft.airlineIata,
         scope: draft.scope ?? "domestic",
         departureAt: new Date(draft.departureAt),
+        bagCount: draft.bagCount ?? 1,
+        // TODO(maps): real door-to-airport distance via the Maps API.
+        distanceKm: 20,
       });
-      if (!slots.some((s) => s.id === slotId)) {
+      if (!windows.some((w) => w.windowStart.getTime() === windowStart.getTime())) {
         return { error: "That window is no longer available. Pick another." };
       }
     } catch {
@@ -312,13 +296,16 @@ export async function submitSlot(
     }
   }
 
-  await writeDraft({ slotId });
+  const next = await writeDraft({
+    windowStart: windowStart.toISOString(),
+    windowEnd: windowEnd.toISOString(),
+  });
   await syncDraftRow();
-  redirect("/book/price");
+  redirect(nextIncompleteStep(next));
 }
 
 /* ------------------------------------------------------------------ */
-/* Step 7 — pay                                                         */
+/* Step 4 — review & pay                                                */
 /* ------------------------------------------------------------------ */
 
 /**
@@ -334,20 +321,8 @@ export async function confirmBooking(
 ): Promise<ActionState> {
   const draft = await readDraft();
 
-  if (
-    !draft.flightNumber ||
-    !draft.airlineIata ||
-    !draft.departureAirport ||
-    !draft.departureAt ||
-    !draft.paxName ||
-    !draft.zip ||
-    !draft.line1 ||
-    !draft.city ||
-    !draft.state ||
-    !draft.bagCount ||
-    !draft.slotId
-  ) {
-    return { error: "Your booking is incomplete. Start again from the ZIP step." };
+  if (!isDraftReadyForPayment(draft)) {
+    return { error: "Your booking is incomplete. Start again from the flight step." };
   }
 
   // The only auth wall in the product sits in front of this action.
@@ -365,14 +340,8 @@ export async function confirmBooking(
   }
 
   try {
-    const userRow =
-      (await getCustomerById(core.db, authUser.id)) ??
-      (await ensureCustomerFromAuth(core.db, {
-        authUserId: authUser.id,
-        isAnonymous: false,
-        phone: authUser.phone,
-        email: authUser.email,
-      }));
+    // Shared with the Stripe path's preparePayment — see lib/checkout.ts.
+    const { userRow, input } = await buildCheckoutSetup(core, authUser, draft);
 
     // Email-only customers have no verified phone; the driver still needs a
     // number to reach at the door. Plain text field, no OTP.
@@ -387,33 +356,10 @@ export async function confirmBooking(
       }
     }
 
-    const address = await ensureAddress(core.db, userRow.id, {
-      line1: draft.line1,
-      ...(draft.line2 ? { line2: draft.line2 } : {}),
-      city: draft.city,
-      state: draft.state,
-      zip: draft.zip,
-    });
-
-    const result = await createBooking(core, {
-      userId: userRow.id,
-      pickupAddressId: address.id,
-      slotId: draft.slotId,
-      flightNumber: draft.flightNumber,
-      airlineIata: draft.airlineIata,
-      departureAirport: draft.departureAirport,
-      departureAt: new Date(draft.departureAt),
-      scope: draft.scope ?? "domestic",
-      paxName: draft.paxName,
-      bagCount: draft.bagCount,
-      contactPhone,
-      // TODO(maps): real door-to-airport distance via the Maps API.
-      distanceKm: 20,
-      ...(draft.promoCode ? { promoCode: draft.promoCode } : {}),
-    });
+    const result = await createBooking(core, { ...input, contactPhone });
 
     try {
-      await deleteBookingDraft(core.db, userRow.id);
+      await softDeleteBookingDraft(core.db, userRow.id);
     } catch (cleanupError) {
       console.error("[book] draft row cleanup failed", cleanupError);
     }
@@ -423,13 +369,9 @@ export async function confirmBooking(
     // `redirect` throws a control-flow signal; let it through.
     if (isRedirectError(error)) throw error;
 
-    if (error instanceof SlotSoldOutError) {
-      return { error: "That window sold out. Choose another and we'll try again." };
-    }
     if (error instanceof SlotNotSellableError) {
       return {
-        error:
-          "That window can no longer make your airline's bag-drop cutoff. Choose an earlier one.",
+        error: "That window can no longer be booked for your flight. Pick another.",
       };
     }
     if (error instanceof OutOfCoverageError) {

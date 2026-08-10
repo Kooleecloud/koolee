@@ -1,8 +1,7 @@
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
-import { addDays, addHours, startOfDay, subMinutes } from "date-fns";
-import { eq, sql } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
 import postgres from "postgres";
@@ -17,13 +16,13 @@ import {
   custodyEvents,
   payments,
   pricingRules,
-  slots,
+  slotBlocks,
   users,
   type Database,
 } from "@koolee/db";
 
-import { createCoreConfig, fixedClock, type CoreConfig } from "../config";
-import { OutOfCoverageError, SlotNotSellableError, SlotSoldOutError } from "../errors";
+import { createCoreConfig, type CoreConfig } from "../config";
+import { OutOfCoverageError, SlotNotSellableError } from "../errors";
 import { FakePaymentProvider } from "../payments/fake";
 import { errorChainMessage, pgErrorCode } from "../test-utils/db-errors";
 import { createBooking } from "./create-booking";
@@ -35,16 +34,21 @@ import { createBooking } from "./create-booking";
  * keeps `pnpm test` green on a fresh clone with no environment configured.
  *
  * To run:
- *   docker compose up -d
- *   TEST_DATABASE_URL=postgres://koolee:koolee@localhost:5433/koolee \
- *     pnpm --filter @koolee/core test:integration
+ *   pnpm test:env:up                              # writes .env.test
+ *   pnpm --filter @koolee/core test:integration
  *
- * Docker-compose Postgres was chosen over testcontainers: one fewer dependency,
- * it is the same container developers already run for `pnpm dev`, and it does
- * not need a Docker socket available to the test process.
+ * A bare `docker compose up -d` Postgres (host port 5433) works for this file
+ * too — set TEST_DATABASE_URL yourself — but it carries no GoTrue `auth`
+ * schema, so the auth-acceptance tier needs the Supabase stack. See
+ * packages/core/docs/local-test-env.md.
  *
- * The suite migrates the database it is pointed at and truncates between
+ * The suite migrates the database it is pointed at and clears rows between
  * tests. Point it at a throwaway instance, never at anything you care about.
+ *
+ * Pickup windows are virtual (no inventory, no capacity), so fixtures anchor
+ * on the REAL clock: a clock-aligned departure ~3 days out keeps every
+ * mid-band window comfortably past the 2h booking notice, and the window
+ * rules (band, notice, blackouts) are what these tests exercise.
  */
 
 const TEST_DATABASE_URL = process.env.TEST_DATABASE_URL;
@@ -53,7 +57,7 @@ const describeIntegration = TEST_DATABASE_URL ? describe : describe.skip;
 if (!TEST_DATABASE_URL) {
   console.log(
     "[integration] TEST_DATABASE_URL not set — skipping createBooking integration tests.\n" +
-      "  docker compose up -d && TEST_DATABASE_URL=postgres://koolee:koolee@localhost:5433/koolee pnpm --filter @koolee/core test:integration",
+      "  pnpm test:env:up && pnpm --filter @koolee/core test:integration",
   );
 }
 
@@ -62,23 +66,33 @@ const migrationsFolder = path.join(
   "../../../db/drizzle",
 );
 
+const HOUR = 3_600_000;
+
+/** Floors an instant to the previous epoch hour boundary. */
+function alignToHour(instant: Date): Date {
+  return new Date(Math.floor(instant.getTime() / HOUR) * HOUR);
+}
+
+/** Clock-aligned 1h window ending ~`leadHours` before departure — mid-band
+ * and notice-safe at the default of 20h. */
+function windowFor(departureAt: Date, leadHours = 20) {
+  const end = new Date(Math.floor((departureAt.getTime() - leadHours * HOUR) / HOUR) * HOUR);
+  return { pickupWindowStart: new Date(end.getTime() - HOUR), pickupWindowEnd: end };
+}
+
 describeIntegration("createBooking (integration)", () => {
   let sqlClient: ReturnType<typeof postgres>;
   let db: Database;
   let paymentProvider: FakePaymentProvider;
   let config: CoreConfig;
-  // Two configs on separate single-connection pools, so the race test's
-  // concurrent callers provably arrive over distinct database connections.
-  let configA: CoreConfig;
-  let configB: CoreConfig;
 
-  // A fixed "now" keeps slot sellability deterministic.
-  const now = new Date("2025-06-10T10:00:00Z");
-  const departureAt = new Date("2025-06-12T22:00:00Z");
+  // ~3 days out, clock-aligned, real clock. At the defaults the bookable band
+  // is windows ENDING in (departureAt − 30h, departureAt − 6h].
+  const departureAt = new Date(alignToHour(new Date()).getTime() + 72 * HOUR);
+  const validWindow = windowFor(departureAt); // ends departureAt − 20h
 
   let userId: string;
   let addressId: string;
-  let slotId: string;
 
   beforeAll(async () => {
     sqlClient = postgres(TEST_DATABASE_URL!, { max: 1, prepare: false });
@@ -86,27 +100,9 @@ describeIntegration("createBooking (integration)", () => {
 
     db = createDb({ url: TEST_DATABASE_URL!, max: 5 });
     paymentProvider = new FakePaymentProvider();
-    config = createCoreConfig({
-      db,
-      payments: paymentProvider,
-      clock: fixedClock(now),
-      defaults: { minimumLeadMinutes: 0 },
-    });
-
-    // Like `db` above, these pools are reaped by idle_timeout rather than
-    // closed explicitly — the suite has no handle to end a createDb pool.
-    configA = createCoreConfig({
-      db: createDb({ url: TEST_DATABASE_URL!, max: 1 }),
-      payments: paymentProvider,
-      clock: fixedClock(now),
-      defaults: { minimumLeadMinutes: 0 },
-    });
-    configB = createCoreConfig({
-      db: createDb({ url: TEST_DATABASE_URL!, max: 1 }),
-      payments: paymentProvider,
-      clock: fixedClock(now),
-      defaults: { minimumLeadMinutes: 0 },
-    });
+    // Stock defaults and the system clock: fixtures are built relative to the
+    // real "now", so nothing needs overriding.
+    config = createCoreConfig({ db, payments: paymentProvider });
   });
 
   afterAll(async () => {
@@ -118,7 +114,8 @@ describeIntegration("createBooking (integration)", () => {
 
     // custody_events refuses TRUNCATE (the append-only trigger), so it is
     // dropped via a cascade from bookings instead. That is exactly the
-    // behaviour the trigger is supposed to have.
+    // behaviour the trigger is supposed to have. `slots` still exists (legacy
+    // inventory, kept for pre-cutover rows) and is cleaned alongside.
     await sqlClient.unsafe(`
       SET session_replication_role = replica;
       DELETE FROM custody_events;
@@ -126,6 +123,7 @@ describeIntegration("createBooking (integration)", () => {
       DELETE FROM bags;
       DELETE FROM bookings;
       DELETE FROM slots;
+      DELETE FROM slot_blocks;
       DELETE FROM airline_cutoffs;
       DELETE FROM pricing_rules;
       DELETE FROM addresses;
@@ -148,12 +146,15 @@ describeIntegration("createBooking (integration)", () => {
       effectiveFrom: new Date("2024-01-01T00:00:00Z"),
     });
 
+    // Lead-time step curve: windows ending within 10h of departure cost ×1.4;
+    // anything further out is base price. The retired slotTierMultiplier
+    // column is left at its default — the engine no longer reads it.
     await db.insert(pricingRules).values({
       name: "test",
       baseFeeCents: 2900,
       perBagCents: 1500,
       distanceMultiplier: "45.0000",
-      slotTierMultiplier: { standard_4h: 1 },
+      leadTimeMultipliers: [{ maxLeadMinutes: 600, multiplier: 1.4 }],
       discountRules: [],
       active: true,
     });
@@ -175,27 +176,12 @@ describeIntegration("createBooking (integration)", () => {
       })
       .returning();
     addressId = address!.id;
-
-    // Window well before the latest safe pickup start
-    // (22:00Z − 45 − 60 − 30 = 19:45Z).
-    const [slot] = await db
-      .insert(slots)
-      .values({
-        airportCode: "JFK",
-        tier: "standard_4h",
-        windowStart: new Date("2025-06-12T12:00:00Z"),
-        windowEnd: new Date("2025-06-12T16:00:00Z"),
-        capacity: 2,
-        bookedCount: 0,
-      })
-      .returning();
-    slotId = slot!.id;
   });
 
   const input = (over: Partial<Parameters<typeof createBooking>[1]> = {}) => ({
     userId,
     pickupAddressId: addressId,
-    slotId,
+    ...validWindow,
     flightNumber: "dl123",
     airlineIata: "dl",
     departureAirport: "JFK" as const,
@@ -207,17 +193,39 @@ describeIntegration("createBooking (integration)", () => {
     ...over,
   });
 
+  /** Resolves to the rejection (or null on success), for reason assertions. */
+  const rejectionOf = (promise: Promise<unknown>) =>
+    promise.then(
+      () => null,
+      (e: unknown) => e,
+    );
+
   it("writes booking, bags, custody event and payment in one coherent state", async () => {
     const result = await createBooking(config, input());
 
     expect(result.booking.status).toBe("paid");
-    expect(result.booking.priceCents).toBe(6800); // 2900 + 2×1500 + 900
+    // 2900 + 2×1500 + 900; lead 20h is outside every step, so ×1.
+    expect(result.booking.priceCents).toBe(6800);
     expect(result.breakdown.totalCents).toBe(6800);
+    expect(result.breakdown.leadTimeMultiplier).toBe(1);
     expect(result.payment.status).toBe("authorized");
 
     // Flight and airline codes are normalised to upper case.
     expect(result.booking.flightNumber).toBe("DL123");
     expect(result.booking.airlineIata).toBe("DL");
+
+    // The window lives on the booking itself; there is no slot pointer.
+    expect(result.booking.slotId).toBeNull();
+    expect(result.booking.pickupWindowStart?.getTime()).toBe(
+      validWindow.pickupWindowStart.getTime(),
+    );
+    expect(result.booking.pickupWindowEnd?.getTime()).toBe(
+      validWindow.pickupWindowEnd.getTime(),
+    );
+
+    // The price snapshot is written alongside the charge and agrees with it.
+    expect(result.booking.priceBreakdown).not.toBeNull();
+    expect(result.booking.priceBreakdown!.totalCents).toBe(result.booking.priceCents);
 
     const bagRows = await db
       .select()
@@ -234,6 +242,13 @@ describeIntegration("createBooking (integration)", () => {
       "booking.payment_authorized",
     ]);
 
+    // The creation event records the window, not a slot id.
+    const createdEvent = events.find((e) => e.eventType === "booking.created");
+    const meta = createdEvent!.metadata!;
+    expect(meta["pickupWindowStart"]).toBe(validWindow.pickupWindowStart.toISOString());
+    expect(meta["pickupWindowEnd"]).toBe(validWindow.pickupWindowEnd.toISOString());
+    expect(meta).not.toHaveProperty("slotId");
+
     const paymentRows = await db
       .select()
       .from(payments)
@@ -241,130 +256,23 @@ describeIntegration("createBooking (integration)", () => {
     expect(paymentRows).toHaveLength(1);
     expect(paymentRows[0]!.status).toBe("authorized");
     expect(paymentRows[0]!.provider).toBe("fake");
-
-    const [slotRow] = await db.select().from(slots).where(eq(slots.id, slotId));
-    expect(slotRow!.bookedCount).toBe(1);
   });
 
-  /**
-   * Runs concurrent bookings that all provably race at the capacity claim.
-   *
-   * A gate transaction pins the slot row FOR UPDATE. Plain reads don't block,
-   * so every caller passes the sellability pre-check, then queues on its
-   * conditional-UPDATE claim. The gate opens only after all of them are
-   * observed waiting on the lock — losers therefore fail at the locked claim
-   * (SlotSoldOutError), never at the pre-check (SlotNotSellableError). Without
-   * the gate the loser's error depends on timing, which is exactly the
-   * flakiness this avoids.
-   */
-  async function raceAtSlotClaim(launch: () => Promise<unknown>[]) {
-    let openGate!: () => void;
-    const gateOpened = new Promise<void>((resolve) => (openGate = resolve));
-    let signalLockHeld!: () => void;
-    const lockHeld = new Promise<void>((resolve) => (signalLockHeld = resolve));
-
-    const gate = sqlClient.begin(async (tx) => {
-      await tx`SELECT id FROM slots WHERE id = ${slotId} FOR UPDATE`;
-      signalLockHeld();
-      await gateOpened;
-    });
-    await lockHeld;
-
-    const attempts = launch();
-
-    // The poll pattern is anchored (no leading %) and the polling query's own
-    // text starts with whitespace, so it never matches itself.
-    let allQueued = false;
-    const deadline = Date.now() + 10_000;
-    while (!allQueued && Date.now() < deadline) {
-      const rows = await db.execute(sql`
-        SELECT count(*)::int AS waiting
-        FROM pg_stat_activity
-        WHERE wait_event_type = 'Lock' AND query LIKE 'update "slots"%'
-      `);
-      allQueued = Number(rows[0]?.waiting) >= attempts.length;
-      if (!allQueued) await new Promise((resolve) => setTimeout(resolve, 25));
-    }
-    openGate();
-    await gate;
-
-    const results = await Promise.allSettled(attempts);
-    expect(allQueued, "every claim must reach the slot row lock before it releases").toBe(
-      true,
-    );
-    return results;
-  }
-
-  it("does not oversell a slot under concurrency", async () => {
-    // capacity 2, three attempts racing at the claim.
-    const results = await raceAtSlotClaim(() => [
-      createBooking(config, input()),
+  it("accepts two concurrent bookings of the same window — windows have no capacity", async () => {
+    const [first, second] = await Promise.all([
       createBooking(config, input()),
       createBooking(config, input()),
     ]);
 
-    const fulfilled = results.filter((r) => r.status === "fulfilled");
-    const rejected = results.filter((r) => r.status === "rejected");
+    expect(first.booking.status).toBe("paid");
+    expect(second.booking.status).toBe("paid");
+    expect(first.booking.id).not.toBe(second.booking.id);
 
-    expect(fulfilled).toHaveLength(2);
-    expect(rejected).toHaveLength(1);
-    expect((rejected[0] as PromiseRejectedResult).reason).toBeInstanceOf(
-      SlotSoldOutError,
-    );
-
-    const [slotRow] = await db.select().from(slots).where(eq(slots.id, slotId));
-    expect(slotRow!.bookedCount).toBe(2);
-    expect(slotRow!.bookedCount).toBeLessThanOrEqual(slotRow!.capacity);
-
-    const bookingRows = await db.select().from(bookings);
-    expect(bookingRows).toHaveLength(2);
+    expect(await db.select().from(bookings)).toHaveLength(2);
+    expect(await db.select().from(payments)).toHaveLength(2);
   });
 
-  it("settles a race for the last seat at the row lock: one winner, one SlotSoldOutError", async () => {
-    // Exactly one seat remaining; two real concurrent calls over two separate
-    // connections (configA/B each own a single-connection pool).
-    await db.update(slots).set({ bookedCount: 1 }).where(eq(slots.id, slotId));
-
-    const results = await raceAtSlotClaim(() => [
-      createBooking(configA, input()),
-      createBooking(configB, input()),
-    ]);
-
-    const fulfilled = results.filter((r) => r.status === "fulfilled");
-    const rejected = results.filter((r) => r.status === "rejected");
-    expect(fulfilled).toHaveLength(1);
-    expect(rejected).toHaveLength(1);
-    expect((rejected[0] as PromiseRejectedResult).reason).toBeInstanceOf(SlotSoldOutError);
-
-    const [slotRow] = await db.select().from(slots).where(eq(slots.id, slotId));
-    expect(slotRow!.bookedCount).toBe(2);
-    expect(slotRow!.bookedCount).toBeLessThanOrEqual(slotRow!.capacity);
-
-    // The loser's transaction rolled back whole — only the winner's rows exist.
-    expect(await db.select().from(bookings)).toHaveLength(1);
-    expect(await db.select().from(payments)).toHaveLength(1);
-  });
-
-  it("refuses a slot already full at request time, writing nothing", async () => {
-    await db.update(slots).set({ bookedCount: 2 }).where(eq(slots.id, slotId));
-
-    // Known-full at request time is the sellability pre-check's job —
-    // SlotSoldOutError is reserved for losing the race at the row lock
-    // (covered by the concurrency tests above).
-    const error = await createBooking(config, input()).then(
-      () => null,
-      (e: unknown) => e,
-    );
-    expect(error).toBeInstanceOf(SlotNotSellableError);
-    expect((error as SlotNotSellableError).reason).toBe("at_capacity");
-
-    expect(await db.select().from(bookings)).toHaveLength(0);
-    expect(await db.select().from(bags)).toHaveLength(0);
-    expect(await db.select().from(custodyEvents)).toHaveLength(0);
-    expect(await db.select().from(payments)).toHaveLength(0);
-  });
-
-  it("compensates when payment authorization fails — no phantom slot held", async () => {
+  it("compensates when payment authorization fails — booking cancelled, custody trail appended", async () => {
     paymentProvider.failAuthorize = true;
 
     await expect(createBooking(config, input())).rejects.toThrow(/Authorization failed/);
@@ -372,9 +280,6 @@ describeIntegration("createBooking (integration)", () => {
     const bookingRows = await db.select().from(bookings);
     expect(bookingRows).toHaveLength(1);
     expect(bookingRows[0]!.status).toBe("cancelled");
-
-    const [slotRow] = await db.select().from(slots).where(eq(slots.id, slotId));
-    expect(slotRow!.bookedCount).toBe(0);
 
     expect(await db.select().from(payments)).toHaveLength(0);
 
@@ -385,27 +290,101 @@ describeIntegration("createBooking (integration)", () => {
     ]);
   });
 
-  it("refuses a slot that cannot make the bag-drop cutoff", async () => {
-    // Window ends 21:00Z; latest safe start is 19:45Z.
-    const [lateSlot] = await db
-      .insert(slots)
-      .values({
-        airportCode: "JFK",
-        tier: "standard_4h",
-        windowStart: new Date("2025-06-12T17:00:00Z"),
-        windowEnd: new Date("2025-06-12T21:00:00Z"),
-        capacity: 5,
-        bookedCount: 0,
-      })
-      .returning();
+  it("refuses a window overlapping an ops blackout", async () => {
+    await db.insert(slotBlocks).values({
+      airportCode: "JFK",
+      blockStart: new Date(validWindow.pickupWindowStart.getTime() + 30 * 60 * 1000),
+      blockEnd: new Date(validWindow.pickupWindowEnd.getTime() + HOUR),
+      reason: "no drivers",
+    });
 
-    await expect(createBooking(config, input({ slotId: lateSlot!.id }))).rejects.toThrow(
-      SlotNotSellableError,
-    );
+    const error = await rejectionOf(createBooking(config, input()));
+    expect(error).toBeInstanceOf(SlotNotSellableError);
+    expect((error as SlotNotSellableError).reason).toBe("blocked");
 
     expect(await db.select().from(bookings)).toHaveLength(0);
-    const [slotRow] = await db.select().from(slots).where(eq(slots.id, lateSlot!.id));
-    expect(slotRow!.bookedCount).toBe(0);
+    expect(await db.select().from(custodyEvents)).toHaveLength(0);
+  });
+
+  it("refuses a hand-crafted window the enumerator would never produce", async () => {
+    // Starts at :30 — not on an epoch hour boundary.
+    const start = new Date(validWindow.pickupWindowStart.getTime() + 30 * 60 * 1000);
+    const end = new Date(start.getTime() + HOUR);
+
+    const error = await rejectionOf(
+      createBooking(config, input({ pickupWindowStart: start, pickupWindowEnd: end })),
+    );
+    expect(error).toBeInstanceOf(SlotNotSellableError);
+    expect((error as SlotNotSellableError).reason).toBe("not_a_window");
+
+    expect(await db.select().from(bookings)).toHaveLength(0);
+  });
+
+  it("refuses a window that cannot make the bag-drop cutoff", async () => {
+    // Ends departureAt − 5h, inside the 6h operations reserve.
+    const error = await rejectionOf(
+      createBooking(config, input(windowFor(departureAt, 5))),
+    );
+    expect(error).toBeInstanceOf(SlotNotSellableError);
+    expect((error as SlotNotSellableError).reason).toBe("misses_bag_drop_cutoff");
+
+    expect(await db.select().from(bookings)).toHaveLength(0);
+  });
+
+  it("refuses a window before the bookable band opens", async () => {
+    // Ends departureAt − 31h, before the band floor at departureAt − 30h.
+    const error = await rejectionOf(
+      createBooking(config, input(windowFor(departureAt, 31))),
+    );
+    expect(error).toBeInstanceOf(SlotNotSellableError);
+    expect((error as SlotNotSellableError).reason).toBe("too_early_for_flight");
+
+    expect(await db.select().from(bookings)).toHaveLength(0);
+  });
+
+  it("refuses a window starting sooner than the booking notice", async () => {
+    // Same-day flight: the very next clock hour is a real band window
+    // (12h − 30h < end ≤ 12h − 6h holds) but starts within the 2h notice.
+    const alignedNow = alignToHour(new Date());
+    const soonDeparture = new Date(alignedNow.getTime() + 12 * HOUR);
+    const start = new Date(alignedNow.getTime() + HOUR);
+    const end = new Date(start.getTime() + HOUR);
+
+    const error = await rejectionOf(
+      createBooking(
+        config,
+        input({
+          departureAt: soonDeparture,
+          pickupWindowStart: start,
+          pickupWindowEnd: end,
+        }),
+      ),
+    );
+    expect(error).toBeInstanceOf(SlotNotSellableError);
+    expect((error as SlotNotSellableError).reason).toBe("starts_before_notice");
+
+    expect(await db.select().from(bookings)).toHaveLength(0);
+  });
+
+  it("prices by lead time: a window closer to departure costs more", async () => {
+    // Lead 8h = 480min hits the ≤600min step (×1.4); lead 25h misses every
+    // step and stays at base price.
+    const close = await createBooking(config, input(windowFor(departureAt, 8)));
+    const far = await createBooking(config, input(windowFor(departureAt, 25)));
+
+    expect(far.booking.priceCents).toBe(6800);
+    expect(far.breakdown.leadTimeMultiplier).toBe(1);
+    expect(far.breakdown.leadTimeAdjustmentCents).toBe(0);
+
+    expect(close.booking.priceCents).toBe(9520); // round(6800 × 1.4)
+    expect(close.breakdown.leadTimeMultiplier).toBe(1.4);
+    expect(close.breakdown.leadTimeAdjustmentCents).toBe(2720);
+
+    expect(close.booking.priceCents).toBeGreaterThan(far.booking.priceCents);
+
+    // Each row's snapshot carries its own step — per-window pricing data.
+    expect(close.booking.priceBreakdown!.leadTimeMultiplier).toBe(1.4);
+    expect(far.booking.priceBreakdown!.leadTimeMultiplier).toBe(1);
   });
 
   it("refuses an address outside the coverage area", async () => {
@@ -452,13 +431,19 @@ describeIntegration("createBooking (integration)", () => {
       effectiveFrom: new Date("2024-01-01T00:00:00Z"),
     });
 
-    // Domestic (45m) sells; international (300m) pushes the latest start to
-    // 22:00Z − 300 − 60 − 30 = 15:30Z, before this window's 16:00Z end.
-    await expect(
-      createBooking(config, input({ scope: "international" })),
-    ).rejects.toThrow(SlotNotSellableError);
+    // A window ending exactly at the reserve edge (departure − 6h). Domestic
+    // (45m cutoff) leaves the reserve as the binding limit, so it sells;
+    // international pushes the deadline to
+    // departure − 300 − 60 − 30 = departure − 6.5h, which this window misses.
+    const edgeWindow = windowFor(departureAt, 6);
 
-    await expect(createBooking(config, input())).resolves.toBeDefined();
+    const error = await rejectionOf(
+      createBooking(config, input({ ...edgeWindow, scope: "international" })),
+    );
+    expect(error).toBeInstanceOf(SlotNotSellableError);
+    expect((error as SlotNotSellableError).reason).toBe("misses_bag_drop_cutoff");
+
+    await expect(createBooking(config, input(edgeWindow))).resolves.toBeDefined();
   });
 });
 
@@ -480,9 +465,11 @@ describeIntegration("custody_events append-only trigger", () => {
     await sqlClient.unsafe(`
       SET session_replication_role = replica;
       DELETE FROM custody_events;
+      DELETE FROM payments;
       DELETE FROM bags;
       DELETE FROM bookings;
       DELETE FROM slots;
+      DELETE FROM slot_blocks;
       DELETE FROM addresses;
       DELETE FROM users;
       DELETE FROM airports;
@@ -504,18 +491,9 @@ describeIntegration("custody_events append-only trigger", () => {
       })
       .returning();
 
-    const day = startOfDay(addDays(new Date(), 1));
-    const [slot] = await db
-      .insert(slots)
-      .values({
-        airportCode: "JFK",
-        tier: "standard_4h",
-        windowStart: addHours(day, 8),
-        windowEnd: addHours(day, 12),
-        capacity: 1,
-      })
-      .returning();
-
+    // A plain windowed booking — windows are virtual, no slot row involved.
+    const departureAt = new Date(alignToHour(new Date()).getTime() + 72 * HOUR);
+    const { pickupWindowStart, pickupWindowEnd } = windowFor(departureAt);
     const [booking] = await db
       .insert(bookings)
       .values({
@@ -523,11 +501,12 @@ describeIntegration("custody_events append-only trigger", () => {
         flightNumber: "DL1",
         airlineIata: "DL",
         departureAirport: "JFK",
-        departureAt: addHours(day, 20),
+        departureAt,
         paxName: "Test",
         pickupAddressId: address!.id,
         bagCount: 1,
-        slotId: slot!.id,
+        pickupWindowStart,
+        pickupWindowEnd,
         priceCents: 1000,
       })
       .returning();
@@ -583,6 +562,3 @@ describeIntegration("custody_events append-only trigger", () => {
     expect(rows.find((r) => r.id === event!.id)?.eventType).toBe("booking.created");
   });
 });
-
-// Referenced so the imports stay honest if the suite is skipped.
-void subMinutes;

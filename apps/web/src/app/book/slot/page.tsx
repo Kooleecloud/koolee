@@ -1,6 +1,5 @@
 import Link from "next/link";
 import {
-  Badge,
   Button,
   Card,
   CardContent,
@@ -11,51 +10,76 @@ import {
   PageHeader,
 } from "@koolee/ui";
 import {
+  airportLocalDay,
   CutoffUnknownError,
-  formatWindowInAirportTz,
-  listSellableSlots,
-  type Slot,
+  formatDayInAirportTz,
+  formatHourRangeInAirportTz,
+  listBookableWindows,
+  type PricedWindow,
 } from "@koolee/core";
 
-import { submitSlot } from "@/app/book/actions";
+import { redirect } from "next/navigation";
+
+import { startOverBooking, submitSlot } from "@/app/book/actions";
+import { ConfirmActionForm } from "@/components/confirm-action-form";
 import { StepForm } from "@/components/step-form";
 import { readDraft } from "@/lib/booking-draft";
+import { nextIncompleteStep, stepIsUnlocked } from "@/lib/booking-steps";
 import { tryGetCore } from "@/lib/core";
 
 export const metadata = { title: "Pickup window" };
 export const dynamic = "force-dynamic";
 
-const TIER_LABEL: Record<string, string> = {
-  standard_4h: "Standard · 4-hour window",
-  express_2h: "Express · 2-hour window",
-  priority_1h: "Priority · 1-hour window",
-};
+const dollars = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 
+/**
+ * Step 3 — the pickup-window picker.
+ *
+ * Windows are virtual: every flight gets the same clock-aligned one-hour
+ * windows ending between 30 and 6 hours before departure. There is no
+ * capacity — what varies per window is the PRICE, quoted through the real
+ * pricing engine (windows closer to departure cost more), and the price
+ * shown here is exactly what the pay step charges.
+ *
+ * Deliberately simple: one sentence of "why these hours", then a two-column
+ * grid of bookable windows. Unbookable windows are not rendered at all — a
+ * greyed-out graveyard only invites questions the customer cannot act on.
+ */
 export default async function SlotStepPage() {
   const draft = await readDraft();
 
-  if (!draft.departureAirport || !draft.departureAt || !draft.airlineIata) {
-    return <Incomplete />;
+  // Locked until flight + pickup are complete; also covers the fields the
+  // window query needs (airport, airline, departure time, bags).
+  if (
+    !stepIsUnlocked(draft, "/book/slot") ||
+    !draft.departureAirport ||
+    !draft.departureAt ||
+    !draft.airlineIata ||
+    !draft.bagCount
+  ) {
+    redirect(nextIncompleteStep(draft));
   }
 
   const core = tryGetCore();
   if (!core) return <NoDatabase />;
 
-  let slots: Slot[] = [];
+  let windows: PricedWindow[] = [];
   let tz = "America/New_York";
-  let cutoffMinutes: number | null = null;
   let loadError: string | null = null;
 
   try {
-    const result = await listSellableSlots(core, {
+    const result = await listBookableWindows(core, {
       airportCode: draft.departureAirport,
       airlineIata: draft.airlineIata,
       scope: draft.scope ?? "domestic",
       departureAt: new Date(draft.departureAt),
+      bagCount: draft.bagCount,
+      // TODO(maps): real door-to-airport distance via the Maps API.
+      distanceKm: 20,
+      promoCode: draft.promoCode ?? null,
     });
-    slots = result.slots;
+    windows = result.windows;
     tz = result.tz;
-    cutoffMinutes = result.cutoffMinutes;
   } catch (error: unknown) {
     // Refusing to sell without a cutoff on record is a customer-facing
     // outcome; anything else is infrastructure and its message (raw SQL,
@@ -65,9 +89,17 @@ export default async function SlotStepPage() {
         `We don't have a confirmed bag-drop cutoff for ${draft.airlineIata} at ` +
         `${draft.departureAirport} yet, so we can't sell a pickup for this flight.`;
     } else {
-      console.error("[book/slot] failed to load sellable windows", error);
+      console.error("[book/slot] failed to load pickup windows", error);
       loadError = "We couldn't load pickup windows just now. Refresh to try again.";
     }
+  }
+
+  // Group by airport-local day so the windows read as a calendar, not a
+  // wall. Insertion order is chronological because the windows are.
+  const byDay = new Map<string, PricedWindow[]>();
+  for (const window of windows) {
+    const day = airportLocalDay(window.windowStart, tz);
+    byDay.set(day, [...(byDay.get(day) ?? []), window]);
   }
 
   return (
@@ -76,86 +108,106 @@ export default async function SlotStepPage() {
         title="Pickup window"
         subtitle={
           <>
-            Only windows that can still get your bags to {draft.airlineIata}&apos;s bag
-            drop at {draft.departureAirport} before the cutoff are shown.
-            {cutoffMinutes !== null && (
-              <> That cutoff is {cutoffMinutes} minutes before departure.</>
-            )}
+            We pick up between 30 and 6 hours before your flight — the last 6 hours
+            are for getting your bags to {draft.departureAirport}. Earlier windows
+            cost less.
           </>
         }
       />
 
-      {loadError && <FormMessage variant="error">{loadError}</FormMessage>}
+      {loadError && (
+        <>
+          <FormMessage variant="error">{loadError}</FormMessage>
+          <DeadEndActions />
+        </>
+      )}
 
-      {!loadError && slots.length === 0 ? (
-        <NoSlots />
-      ) : (
+      {!loadError && windows.length === 0 ? (
+        <NoWindows />
+      ) : !loadError ? (
         <StepForm action={submitSlot} submitLabel="Continue">
-          <fieldset className="flex flex-col gap-3">
+          <fieldset className="flex flex-col gap-5">
             <legend className="sr-only">Available pickup windows</legend>
-            {slots.map((slot) => (
-              <label
-                key={slot.id}
-                className="flex cursor-pointer items-start gap-3 rounded-lg border p-4 transition-colors hover:bg-accent/10 has-checked:border-primary has-checked:bg-primary/5"
-              >
-                <input
-                  type="radio"
-                  name="slotId"
-                  value={slot.id}
-                  defaultChecked={draft.slotId === slot.id}
-                  className="mt-1"
-                  required
-                />
-                <span className="flex flex-1 flex-col gap-1">
-                  <span className="font-medium">
-                    {formatWindowInAirportTz(slot.windowStart, slot.windowEnd, tz)}
-                  </span>
-                  <span className="text-sm text-muted-foreground">
-                    {TIER_LABEL[slot.tier] ?? slot.tier}
-                  </span>
-                </span>
-                <Badge variant="secondary">{slot.capacity - slot.bookedCount} left</Badge>
-              </label>
+            {[...byDay.entries()].map(([day, dayWindows]) => (
+              <div key={day} className="flex flex-col gap-3">
+                <h3 className="text-sm font-medium text-muted-foreground">
+                  {formatDayInAirportTz(dayWindows[0]!.windowStart, tz)}
+                </h3>
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                  {dayWindows.map((window) => (
+                    <label
+                      key={window.windowStart.toISOString()}
+                      className="flex cursor-pointer flex-col items-center gap-0.5 rounded-lg border p-3 text-center transition-colors hover:bg-accent/10 has-checked:border-primary has-checked:bg-primary/5 has-focus-visible:ring-2 has-focus-visible:ring-ring"
+                    >
+                      <input
+                        type="radio"
+                        name="windowStart"
+                        value={window.windowStart.toISOString()}
+                        defaultChecked={
+                          draft.windowStart === window.windowStart.toISOString()
+                        }
+                        className="sr-only"
+                        required
+                      />
+                      <span className="text-sm font-medium">
+                        {formatHourRangeInAirportTz(
+                          window.windowStart,
+                          window.windowEnd,
+                          tz,
+                        )}
+                      </span>
+                      <span className="font-display font-semibold text-navy-800">
+                        {dollars(window.totalCents)}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              </div>
             ))}
           </fieldset>
         </StepForm>
-      )}
+      ) : null}
     </div>
   );
 }
 
-function NoSlots() {
+/** The escape hatches every dead end shares. */
+function DeadEndActions() {
+  return (
+    <div className="flex items-center gap-2">
+      <Button asChild variant="outline">
+        <Link href="/book/flight">Change flight</Link>
+      </Button>
+      <ConfirmActionForm
+        action={startOverBooking}
+        message="Start over? This clears your booking so far."
+      >
+        <Button type="submit" variant="ghost">
+          Start over
+        </Button>
+      </ConfirmActionForm>
+    </div>
+  );
+}
+
+/**
+ * Nothing bookable — the flight is too close (inside ~8 hours nothing clears
+ * both the 6-hour reserve and the 2-hour booking notice), or ops has blocked
+ * what little remained.
+ */
+function NoWindows() {
   return (
     <Card>
       <CardHeader>
         <CardTitle className="text-base">No windows can make that flight</CardTitle>
         <CardDescription>
-          Every remaining pickup window would finish after your airline stops accepting
-          checked bags. We will not sell one that cannot make it.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="flex gap-2">
-        <Button asChild variant="outline">
-          <Link href="/book/flight">Change flight</Link>
-        </Button>
-      </CardContent>
-    </Card>
-  );
-}
-
-function Incomplete() {
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-base">Tell us about your flight first</CardTitle>
-        <CardDescription>
-          We need the flight and airport before we can show pickup windows.
+          Pickups need to finish 6 hours before departure and start at least 2 hours
+          from now — for this flight, no window fits both. We will not sell a pickup
+          that cannot make it.
         </CardDescription>
       </CardHeader>
       <CardContent>
-        <Button asChild>
-          <Link href="/book/flight">Back to flight details</Link>
-        </Button>
+        <DeadEndActions />
       </CardContent>
     </Card>
   );

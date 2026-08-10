@@ -1,21 +1,23 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 
+import { AUTH_COOKIE_NAME } from "@/lib/supabase/cookie-name";
+
 /**
  * Session refresh + auth gate.
  *
  * Protected (verified accounts only — an anonymous funnel session does not
- * count): /trips/* and /dashboard/*. The payment step (/book/pay) bounces
- * unverified visitors into the funnel's verification step instead of /login —
- * the flow asks for verification right before money changes hands, nowhere
- * else.
+ * count): /trips/* and /dashboard/*. The review & pay page (/book/pay) is
+ * deliberately NOT bounced here: anonymous visitors must see the review and
+ * price before the flow asks them to verify. The payment itself stays hard-
+ * gated in the server actions (`confirmBooking`, `preparePayment`) and the
+ * page renders a verify CTA instead of the payment UI for anonymous sessions.
  *
  * When Supabase is not configured the gate is open (scaffold convention: the
  * app must be fully navigable with zero credentials).
  */
 
 const VERIFIED_ONLY = [/^\/trips(\/|$)/, /^\/dashboard(\/|$)/];
-const PAY_GATE = /^\/book\/pay(\/|$)/;
 
 export async function proxy(request: NextRequest) {
   let response = NextResponse.next({ request });
@@ -25,6 +27,7 @@ export async function proxy(request: NextRequest) {
   if (!url || !anonKey) return response;
 
   const supabase = createServerClient(url, anonKey, {
+    cookieOptions: { name: AUTH_COOKIE_NAME },
     cookies: {
       getAll() {
         return request.cookies.getAll();
@@ -54,13 +57,6 @@ export async function proxy(request: NextRequest) {
     loginUrl.search = "";
     loginUrl.searchParams.set("returnTo", `${pathname}${search}`);
     return NextResponse.redirect(loginUrl);
-  }
-
-  if (!verified && PAY_GATE.test(pathname)) {
-    const verifyUrl = request.nextUrl.clone();
-    verifyUrl.pathname = "/book/verify";
-    verifyUrl.search = "";
-    return NextResponse.redirect(verifyUrl);
   }
 
   return response;

@@ -3,7 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
-import { CTAButton, FormMessage, Input, Label } from "@koolee/ui";
+import { CTAButton, FormMessage, Input, Label, usePreservedFormValues } from "@koolee/ui";
 import { CircleCheck } from "lucide-react";
 
 import { joinWaitlist, type WaitlistState } from "./actions";
@@ -12,6 +12,7 @@ const INITIAL: WaitlistState = { status: "idle" };
 
 export function WaitlistForm() {
   const [state, formAction, pending] = React.useActionState(joinWaitlist, INITIAL);
+  const { formRef, captureValues } = usePreservedFormValues(state, state.status === "error");
   const reduceMotion = useReducedMotion();
 
   const fade = {
@@ -56,12 +57,14 @@ export function WaitlistForm() {
               pickup right now.
             </p>
             <CTAButton asChild className="mt-2">
-              <Link href="/book/zip">Book a pickup</Link>
+              <Link href="/book">Book a pickup</Link>
             </CTAButton>
           </motion.div>
         ) : (
           <motion.form
             key="form"
+            ref={formRef}
+            onSubmit={captureValues}
             {...fade}
             transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
             action={formAction}

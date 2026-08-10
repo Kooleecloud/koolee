@@ -7,9 +7,9 @@ identified during that work and initially deferred.
 **Status (2026-08-09):** items **1, 2, 3, 4, and 7 are implemented** on
 `feat/auth-close-out-parts-def` — each section below carries a `Resolved`
 line saying where. Their analyses are kept because they explain WHY the code
-is shaped the way it is. Items **5 and 6 remain open**: they are launch-day
-dashboard/config verifications, not code, tracked as #24/#25 in
-[PROJECT-STATUS.md](../../../PROJECT-STATUS.md).
+is shaped the way it is. Items **5, 6, and 8 remain open**: they are
+launch-day dashboard/config/deploy verifications, not code, tracked as
+#24/#25/#43 in [PROJECT-STATUS.md](../../../PROJECT-STATUS.md).
 
 ## 1. Per-user throttle window is soft under concurrency (SMS-pumping vector)
 
@@ -41,8 +41,12 @@ then destination) so this can't deadlock against a concurrent request that
 locks the same pair in the opposite order:
 
 ```ts
-await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${input.userId}::text, 0))`);
-await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${destinationHash}, 0))`);
+await tx.execute(
+  sql`select pg_advisory_xact_lock(hashtextextended(${input.userId}::text, 0))`,
+);
+await tx.execute(
+  sql`select pg_advisory_xact_lock(hashtextextended(${destinationHash}, 0))`,
+);
 ```
 
 `reconcile-claims.ts` locks only on the destination hash and would be
@@ -73,7 +77,7 @@ const reconciled = await reconcilePhoneClaims(core.db, ..., {...}); // tx #2: re
 ```
 
 Between those two transactions the advisory lock on the destination hash is
-fully released, and `reconcileClaims` deletes *every* anonymous row that
+fully released, and `reconcileClaims` deletes _every_ anonymous row that
 currently holds the destination — there's no ordering by recency, so either
 side of a race can be the one deleted. Two concurrent anonymous sessions (A
 and B) claiming the same new number can interleave across that gap:
@@ -86,7 +90,7 @@ and B) claiming the same new number can interleave across that gap:
    `phone_change`.
 5. B's reconcile now runs. It sees A's row (anonymous, `phone_change = P`)
    and deletes A — draft, `public.users` row, and auth user — exactly as
-   designed for an *abandoned* claimant. But A's claimant isn't abandoned:
+   designed for an _abandoned_ claimant. But A's claimant isn't abandoned:
    A's SMS is already in flight, possibly already delivered.
 6. B calls `updateUser({ phone: P })` and eventually verifies successfully.
    A, holding a code for a phone number attached to a now-deleted account,
@@ -105,7 +109,7 @@ genuinely overlap in time — the current tests don't exercise that overlap.
 or have `reconcileClaims` re-verify no new colliding claim appeared between
 its own lock acquisition and the delete. The two functions already share a
 lock key (the destination hash) specifically so they serialize against each
-other — they just don't currently serialize against *themselves* end-to-end
+other — they just don't currently serialize against _themselves_ end-to-end
 because they're not one transaction.
 
 ## 3. `assertProductionSecurityConfig()`
@@ -195,7 +199,7 @@ without a real Twilio spend, and
 is exactly what acceptance tests 15/16
 (`packages/core/src/auth/upgrade-guard.integration.test.ts`) depend on. It is
 also, by construction, **a permanent auth bypass**: anyone who knows one of
-these three numbers and its fixed code can complete phone verification with
+these five numbers and its fixed code can complete phone verification with
 no SMS ever sent. `test_otp` is project-level config, not environment-level —
 if the same Supabase project is ever used for both local/CI and production,
 this ships as a live bypass.
@@ -206,6 +210,15 @@ it), or explicitly strip `[auth.sms.test_otp]` from whatever config reaches
 the production project. Do not treat "we didn't set it in the dashboard" as
 sufficient — verify it, because `supabase db push` / dashboard config drift
 is exactly the kind of thing that silently reintroduces it.
+
+The valid-format `13322602829` deserves special attention: unlike the
+fictional 555 numbers, it passes the app's libphonenumber form validation, so
+it is a **stronger** bypass — it can be typed into the production UI like any
+real number. It also exists in **two places**: the `[auth.sms.test_otp]`
+block in `supabase/config.toml` and the hosted project's dashboard-entered
+test phone (they mirror each other). The launch check must cover both:
+production must be a separate Supabase project, and both the config-file
+block and any dashboard-entered test phone must be verified absent from it.
 
 ## 7. Narrow acceptance grep 11 to `TWILIO_|from ['"]twilio`
 
@@ -229,3 +242,31 @@ grep -riE "TWILIO_|from ['\"]twilio" apps/ packages/ --include='*.ts' --include=
 ```
 
 — so the check stops flagging the comment it should be encouraging.
+
+## 8. Apply migration `0012_yummy_micromacro` to the hosted project
+
+Virtual pickup windows shipped with migration `0012`: it adds
+`bookings.pickup_window_start` / `pickup_window_end` / `price_breakdown`,
+`pricing_rules.lead_time_multipliers`, the `slot_blocks` table, and a
+backfill copying each legacy `slots` row's window onto its booking. It has
+been applied to the **LOCAL stack only**. Until it reaches the hosted
+project the funnel is broken from the window step onward —
+`listBookableWindows` reads `slot_blocks` and `lead_time_multipliers`, and
+`createBooking` inserts the window columns.
+
+Not a code item: nothing in the repo can detect the hosted schema, so this
+has to be run and verified by hand before deploy.
+
+**Two traps, both about which database the command actually hits:**
+
+- `packages/db/.env` points `DATABASE_URL` / `DIRECT_DATABASE_URL` at the
+  **hosted** project, so a bare `pnpm db:migrate` targets hosted and a bare
+  `pnpm seed` writes to hosted — the opposite of the usual expectation. Use
+  `pnpm seed:local` (it pins both URLs to 127.0.0.1:54322 before anything
+  reads the environment) or an explicit `DATABASE_URL` for anything meant
+  to stay local.
+- Migrating alone is not enough. `lead_time_multipliers` defaults to `'[]'`,
+  which prices **every** window at ×1 — no error, just silently flat
+  pricing. `pnpm seed` backfills the launch curve (≤10 h ×1.4, ≤16 h ×1.2,
+  ≤24 h ×1.1) onto an existing pre-cutover rule row; confirm the hosted
+  `pricing_rules` row carries it afterwards.

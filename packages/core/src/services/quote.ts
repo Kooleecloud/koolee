@@ -1,21 +1,25 @@
 import { eq } from "drizzle-orm";
-import { pricingRules, slots, type Slot } from "@koolee/db";
+import { pricingRules } from "@koolee/db";
 
 import type { CoreConfig } from "../config";
-import { NotFoundError, PricingRuleInvalidError } from "../errors";
+import { PricingRuleInvalidError } from "../errors";
 import { price, toPricingRuleInput, type PriceBreakdown } from "../pricing/engine";
+import { pickupLeadMinutesFor } from "../slots/windows";
 
 /**
- * Read-only price quote for the funnel's price screen.
+ * Read-only price quote for the funnel.
  *
  * Same rule + engine as `createBooking`, none of the writes. The quote is
  * informational — the authoritative price is computed again inside
- * `createBooking` at the payment step, so a rule change between the two
- * screens can never sell at a stale price.
+ * `createBooking` at the payment step. Both derive the lead-time input from
+ * (window, flight) alone, so the two can only disagree if the pricing RULE
+ * changed in between — a rule change between screens can never sell at a
+ * stale price.
  */
 
 export interface QuoteBookingPriceInput {
-  slotId: string;
+  pickupWindowEnd: Date;
+  departureAt: Date;
   bagCount: number;
   /** Door-to-bag-drop distance. Maps is stubbed, so callers estimate. */
   distanceKm: number;
@@ -25,7 +29,6 @@ export interface QuoteBookingPriceInput {
 
 export interface QuoteBookingPriceResult {
   breakdown: PriceBreakdown;
-  slot: Slot;
 }
 
 export async function quoteBookingPrice(
@@ -33,9 +36,6 @@ export async function quoteBookingPrice(
   input: QuoteBookingPriceInput,
 ): Promise<QuoteBookingPriceResult> {
   const { db } = config;
-
-  const slot = await db.query.slots.findFirst({ where: eq(slots.id, input.slotId) });
-  if (!slot) throw new NotFoundError("Slot", input.slotId);
 
   const rule = await db.query.pricingRules.findFirst({
     where: eq(pricingRules.active, true),
@@ -51,12 +51,12 @@ export async function quoteBookingPrice(
     rule: toPricingRuleInput(rule),
     bagCount: input.bagCount,
     distanceKm: input.distanceKm,
-    slotTier: slot.tier,
+    pickupLeadMinutes: pickupLeadMinutesFor(input.pickupWindowEnd, input.departureAt),
     discountContext: {
       promoCode: input.promoCode ?? null,
       isSenior: input.isSenior ?? false,
     },
   });
 
-  return { breakdown, slot };
+  return { breakdown };
 }

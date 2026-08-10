@@ -130,7 +130,7 @@ export default function AboutPage() {
             Travel light. We&apos;ve got the heavy part.
           </h2>
           <CTAButton size="lg" asChild>
-            <Link href="/book/zip">Book a pickup</Link>
+            <Link href="/book">Book a pickup</Link>
           </CTAButton>
         </Reveal>
       </Section>

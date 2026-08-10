@@ -1,19 +1,22 @@
 import { redirect } from "next/navigation";
-import { PageHeader } from "@koolee/ui";
-import { getCustomerById, listBookings } from "@koolee/core";
+import { format } from "date-fns";
+import { Badge, Card, CardContent, CardHeader, CardTitle, PageHeader } from "@koolee/ui";
+import { getCustomerById, listBookingsForSession } from "@koolee/core";
 
 import { getAuthUser } from "@/lib/auth";
 import { tryGetCore } from "@/lib/core";
+import { customerSessionFromAuthUser } from "@/lib/session";
 
+import { ConfirmEmailForm } from "./confirm-email-form";
 import { ProfileForm } from "./profile-form";
 
 export const metadata = { title: "Your profile" };
 export const dynamic = "force-dynamic";
 
 /**
- * Optional profile completion. Name prefills from the passenger name on the
- * latest booking (extracted from the ticket), address from the latest pickup
- * address. Nothing in v1 requires any of it.
+ * Account profile: editable display name; verified phone/email shown
+ * read-only — changing those re-runs verification through the funnel's
+ * guarded OTP path, never a second mechanism (see actions.ts).
  */
 export default async function ProfilePage() {
   const authUser = await getAuthUser();
@@ -26,48 +29,78 @@ export default async function ProfilePage() {
     ? await getCustomerById(core.db, authUser.id).catch(() => null)
     : null;
 
+  // Name prefills from the latest booking's passenger name — a nicety.
   let paxName = "";
-  let address = { line1: "", line2: "", city: "", state: "", zip: "" };
-  if (core) {
+  if (core && !userRow?.fullName) {
     try {
-      const [latest] = await listBookings(core.db, { userId: authUser.id, limit: 1 });
-      if (latest) {
-        paxName = latest.paxName;
-        const pickup = await core.db.query.addresses.findFirst({
-          where: (t, { eq }) => eq(t.id, latest.pickupAddressId),
-        });
-        if (pickup) {
-          address = {
-            line1: pickup.line1,
-            line2: pickup.line2 ?? "",
-            city: pickup.city,
-            state: pickup.state,
-            zip: pickup.zip,
-          };
-        }
-      }
+      const [latest] = await listBookingsForSession(
+        core.db,
+        customerSessionFromAuthUser(authUser),
+        { limit: 1 },
+      );
+      if (latest) paxName = latest.paxName;
     } catch {
-      // Prefill is a nicety — an empty form is fine.
+      // Empty form is fine.
     }
   }
 
+  const phone = userRow?.phone ?? authUser.phone;
   const email = userRow?.email ?? authUser.email ?? "";
+  const emailVerified = Boolean(userRow?.emailVerifiedAt);
 
   return (
-    <>
+    <div className="flex flex-col gap-6">
       <PageHeader
         title="Your profile"
-        subtitle="Entirely optional — it just makes your next booking faster."
+        subtitle="Your verified contact details and how your name appears."
       />
 
-      <ProfileForm
-        defaults={{
-          fullName: userRow?.fullName ?? paxName,
-          email,
-          emailLocked: Boolean(email),
-          ...address,
-        }}
-      />
-    </>
+      <div className="grid items-start gap-6 lg:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Verified contact</CardTitle>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-3 text-sm">
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-muted-foreground">Phone</span>
+              <span className="flex items-center gap-2">
+                {phone ?? <span className="text-muted-foreground">none</span>}
+                {phone && userRow?.phoneVerifiedAt ? (
+                  <Badge variant="success">
+                    verified {format(userRow.phoneVerifiedAt, "d MMM yyyy")}
+                  </Badge>
+                ) : null}
+              </span>
+            </div>
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-muted-foreground">Email</span>
+              <span className="flex items-center gap-2">
+                {email || <span className="text-muted-foreground">none</span>}
+                {email ? (
+                  emailVerified ? (
+                    <Badge variant="success">verified</Badge>
+                  ) : (
+                    <Badge variant="warning">confirmation pending</Badge>
+                  )
+                ) : null}
+              </span>
+            </div>
+            {email && !emailVerified ? <ConfirmEmailForm email={email} /> : null}
+            <p className="text-xs text-muted-foreground">
+              Changing your phone or email means re-verifying it, the same way you did
+              when booking. That flow lives in the booking verification step for now.
+            </p>
+          </CardContent>
+        </Card>
+
+        <ProfileForm
+          defaults={{
+            fullName: userRow?.fullName ?? paxName,
+            email: emailVerified ? "" : email,
+            emailLocked: Boolean(email),
+          }}
+        />
+      </div>
+    </div>
   );
 }

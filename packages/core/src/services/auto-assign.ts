@@ -1,0 +1,358 @@
+import { and, asc, count, eq, gt, inArray, lt } from "drizzle-orm";
+import {
+  addresses,
+  agentZones,
+  airports,
+  bookings,
+  pickupTasks,
+  staffMembers,
+  users,
+  verificationTasks,
+  type Database,
+} from "@koolee/db";
+
+import type { TransitionActor } from "../booking/state-machine";
+import type { AdminSession } from "../auth/types";
+import type { CoreConfig } from "../config";
+import { isInCoverage, normalizeZip } from "../coverage/nyc-zips";
+import { airportLocalDayBounds } from "../slots/cutoff";
+import { assignAgentToBooking } from "./dispatch";
+import { getActiveStaffRole } from "./staff";
+
+/**
+ * Naive auto-assignment (v1).
+ *
+ * Deliberately not a scheduling engine. It answers one question — "who should
+ * take this, if anyone obviously should?" — with two inputs: does the agent
+ * cover the pickup ZIP, and how busy are they already. Everything it decides
+ * is overridable in the console, and everything it declines to decide falls
+ * through to a human rather than guessing.
+ *
+ * The rules it will NOT bend:
+ *  - it never reassigns. An agent already on the booking is a decision
+ *    someone (or some earlier run) made; silently moving work between people
+ *    mid-shift is how bags get dropped;
+ *  - it never invents coverage. No agent for the ZIP means unassigned, which
+ *    the board already surfaces as at-risk;
+ *  - it writes through `assignAgentToBooking`, so the two-tasks-one-assignee
+ *    rule, the state-machine move, and the custody event stay in one place.
+ */
+
+export type AutoAssignSkipReason =
+  /** Wrong status, or an agent is already on it. */
+  | "not_assignable"
+  /** Nobody covers the pickup ZIP. */
+  | "no_coverage"
+  /** A candidate was picked but the write refused it. */
+  | "assignment_failed";
+
+export type AutoAssignResult =
+  | { ok: true; agentUserId: string; candidatesConsidered: number }
+  | { ok: false; reason: AutoAssignSkipReason; detail: string };
+
+export interface AutoAssignInput {
+  bookingId: string;
+  /**
+   * Stamped on the custody event. Omit for the automatic path (fires on
+   * `paid`) — a system-generated assignment records no human actor, which is
+   * exactly what the custody schema models with a null actor.
+   */
+  actor?: AdminSession | TransitionActor;
+}
+
+const SYSTEM_ACTOR: TransitionActor = { userId: null, role: null };
+
+/** Every airport Koolee serves is Eastern; the lookup is the real source. */
+const FALLBACK_TZ = "America/New_York";
+
+/** Task statuses that still cost the agent time. Mirrors `listAgentWorkload`. */
+const OPEN_TASK_STATUSES = ["pending", "assigned", "in_progress"] as const;
+
+interface Candidate {
+  agentUserId: string;
+  /** Open tasks whose window OVERLAPS this booking's — a hard conflict. */
+  overlapping: number;
+  /** Open tasks anywhere in the day — the softer load signal. */
+  sameDay: number;
+}
+
+/**
+ * Open tasks per agent, split into "clashes with this window" and "is on the
+ * same day at all", for the candidates given.
+ *
+ * Both task kinds count: one agent covers the verification visit and the
+ * pickup run in v1, so they are two claims on the same person's time.
+ */
+async function loadFor(
+  db: Database,
+  agentUserIds: string[],
+  window: { start: Date; end: Date },
+  day: { start: Date; end: Date },
+): Promise<Map<string, { overlapping: number; sameDay: number }>> {
+  const tally = new Map<string, { overlapping: number; sameDay: number }>();
+  if (agentUserIds.length === 0) return tally;
+
+  const countBy = (
+    table: typeof verificationTasks | typeof pickupTasks,
+    from: Date,
+    to: Date,
+    // Half-open overlap: a task ending exactly when this one starts is not a
+    // clash, and neither is one starting exactly when this one ends.
+    overlap: boolean,
+  ) =>
+    db
+      .select({ userId: table.assigneeUserId, count: count() })
+      .from(table)
+      .where(
+        and(
+          inArray(table.assigneeUserId, agentUserIds),
+          inArray(table.status, [...OPEN_TASK_STATUSES]),
+          overlap
+            ? and(lt(table.scheduledStart, to), gt(table.scheduledEnd, from))
+            : and(lt(table.scheduledStart, to), gt(table.scheduledStart, from)),
+        ),
+      )
+      .groupBy(table.assigneeUserId);
+
+  const [vOverlap, pOverlap, vDay, pDay] = await Promise.all([
+    countBy(verificationTasks, window.start, window.end, true),
+    countBy(pickupTasks, window.start, window.end, true),
+    countBy(verificationTasks, day.start, day.end, false),
+    countBy(pickupTasks, day.start, day.end, false),
+  ]);
+
+  const bump = (
+    rows: { userId: string | null; count: number }[],
+    key: "overlapping" | "sameDay",
+  ) => {
+    for (const row of rows) {
+      if (!row.userId) continue;
+      const entry = tally.get(row.userId) ?? { overlapping: 0, sameDay: 0 };
+      entry[key] += Number(row.count);
+      tally.set(row.userId, entry);
+    }
+  };
+
+  bump(vOverlap, "overlapping");
+  bump(pOverlap, "overlapping");
+  bump(vDay, "sameDay");
+  bump(pDay, "sameDay");
+
+  return tally;
+}
+
+/**
+ * Picks an agent for a paid booking and assigns them, or explains why it
+ * didn't. Safe to call more than once for the same booking: the second call
+ * returns `not_assignable` rather than moving anyone.
+ */
+export async function autoAssignBooking(
+  config: CoreConfig,
+  input: AutoAssignInput,
+): Promise<AutoAssignResult> {
+  const { db } = config;
+
+  const booking = await db.query.bookings.findFirst({
+    where: eq(bookings.id, input.bookingId),
+  });
+  if (!booking) {
+    return { ok: false, reason: "not_assignable", detail: "Booking not found." };
+  }
+  if (booking.status !== "paid") {
+    return {
+      ok: false,
+      reason: "not_assignable",
+      detail: `Booking is ${booking.status} — auto-assign only acts on paid bookings.`,
+    };
+  }
+
+  const existing = await db.query.verificationTasks.findFirst({
+    where: eq(verificationTasks.bookingId, booking.id),
+  });
+  if (existing?.assigneeUserId) {
+    return {
+      ok: false,
+      reason: "not_assignable",
+      detail: "Already assigned — auto-assign never reassigns.",
+    };
+  }
+
+  const pickup = await db.query.addresses.findFirst({
+    where: eq(addresses.id, booking.pickupAddressId),
+    columns: { zip: true },
+  });
+  if (!pickup) {
+    return { ok: false, reason: "no_coverage", detail: "Pickup address not found." };
+  }
+
+  // Covering agents must ALSO be active staff with the agent role — a zone row
+  // for someone who has left is stale data, not a licence to assign them.
+  const covering = await db
+    .select({ agentUserId: agentZones.agentUserId })
+    .from(agentZones)
+    .innerJoin(staffMembers, eq(staffMembers.userId, agentZones.agentUserId))
+    .where(
+      and(
+        eq(agentZones.zip, pickup.zip),
+        eq(staffMembers.role, "agent"),
+        eq(staffMembers.active, true),
+      ),
+    )
+    .orderBy(asc(agentZones.agentUserId));
+
+  const agentUserIds = [...new Set(covering.map((row) => row.agentUserId))];
+  if (agentUserIds.length === 0) {
+    return {
+      ok: false,
+      reason: "no_coverage",
+      detail: `No active agent covers ZIP ${pickup.zip}.`,
+    };
+  }
+
+  // A booking with no window (legacy slot rows) has no "that time window" to
+  // balance against, so load is measured over the day the pickup falls on —
+  // and that day is the airport's, never the server's.
+  const windowStart = booking.pickupWindowStart ?? booking.departureAt;
+  const windowEnd = booking.pickupWindowEnd ?? windowStart;
+  const airport = await db.query.airports.findFirst({
+    where: eq(airports.code, booking.departureAirport),
+    columns: { tz: true },
+  });
+  const day = airportLocalDayBounds(windowStart, airport?.tz ?? FALLBACK_TZ);
+
+  const load = await loadFor(
+    db,
+    agentUserIds,
+    { start: windowStart, end: windowEnd },
+    day,
+  );
+
+  const candidates: Candidate[] = agentUserIds.map((agentUserId) => ({
+    agentUserId,
+    overlapping: load.get(agentUserId)?.overlapping ?? 0,
+    sameDay: load.get(agentUserId)?.sameDay ?? 0,
+  }));
+
+  // Fewest clashes first, then lightest day, then a stable id tiebreak so the
+  // same inputs always name the same agent — a retry must not shuffle people.
+  candidates.sort(
+    (a, b) =>
+      a.overlapping - b.overlapping ||
+      a.sameDay - b.sameDay ||
+      a.agentUserId.localeCompare(b.agentUserId),
+  );
+
+  const winner = candidates[0]!;
+  const assigned = await assignAgentToBooking(config, input.actor ?? SYSTEM_ACTOR, {
+    bookingId: booking.id,
+    agentUserId: winner.agentUserId,
+  });
+
+  if (!assigned.ok) {
+    return { ok: false, reason: "assignment_failed", detail: assigned.error };
+  }
+
+  return {
+    ok: true,
+    agentUserId: winner.agentUserId,
+    candidatesConsidered: candidates.length,
+  };
+}
+
+/* ------------------------------------------------------------------ */
+/* Zone administration                                                  */
+/* ------------------------------------------------------------------ */
+
+export interface AgentZoneCoverage {
+  agentUserId: string;
+  email: string | null;
+  fullName: string | null;
+  zips: string[];
+}
+
+/** Who covers what, for the admin zones screen. */
+export async function listAgentZones(db: Database): Promise<AgentZoneCoverage[]> {
+  const rows = await db
+    .select({
+      agentUserId: agentZones.agentUserId,
+      zip: agentZones.zip,
+      email: users.email,
+      fullName: users.fullName,
+    })
+    .from(agentZones)
+    .innerJoin(users, eq(users.id, agentZones.agentUserId))
+    .orderBy(asc(users.email), asc(agentZones.zip));
+
+  const byAgent = new Map<string, AgentZoneCoverage>();
+  for (const row of rows) {
+    const entry = byAgent.get(row.agentUserId) ?? {
+      agentUserId: row.agentUserId,
+      email: row.email,
+      fullName: row.fullName,
+      zips: [],
+    };
+    entry.zips.push(row.zip);
+    byAgent.set(row.agentUserId, entry);
+  }
+  return [...byAgent.values()];
+}
+
+export type ZoneMutationResult =
+  | { ok: true; zips: string[] }
+  | { ok: false; error: string };
+
+/**
+ * Gives an agent one or more ZIPs.
+ *
+ * Every ZIP is checked against the service boundary first: a zone outside
+ * coverage could never receive a booking, so accepting it would only create a
+ * row that looks like capacity and is not. Re-adding a ZIP the agent already
+ * has is a no-op, not an error — the unique index makes that safe to repeat.
+ */
+export async function addAgentZones(
+  config: CoreConfig,
+  input: { agentUserId: string; zips: string[] },
+): Promise<ZoneMutationResult> {
+  const { db } = config;
+
+  const normalized: string[] = [];
+  for (const raw of input.zips) {
+    const zip = normalizeZip(raw);
+    if (!zip) return { ok: false, error: `"${raw}" is not a valid ZIP.` };
+    if (!isInCoverage(zip)) {
+      return { ok: false, error: `ZIP ${zip} is outside Koolee's service area.` };
+    }
+    normalized.push(zip);
+  }
+  if (normalized.length === 0) return { ok: false, error: "No ZIPs given." };
+
+  const role = await getActiveStaffRole(db, input.agentUserId);
+  if (role !== "agent") {
+    return { ok: false, error: "That user is not an active agent." };
+  }
+
+  await db
+    .insert(agentZones)
+    .values(normalized.map((zip) => ({ agentUserId: input.agentUserId, zip })))
+    .onConflictDoNothing();
+
+  return { ok: true, zips: [...new Set(normalized)] };
+}
+
+/** Takes a ZIP off an agent. Auto-assign stops considering them for it. */
+export async function removeAgentZone(
+  config: CoreConfig,
+  input: { agentUserId: string; zip: string },
+): Promise<boolean> {
+  const zip = normalizeZip(input.zip);
+  if (!zip) return false;
+
+  const deleted = await config.db
+    .delete(agentZones)
+    .where(
+      and(eq(agentZones.agentUserId, input.agentUserId), eq(agentZones.zip, zip)),
+    )
+    .returning({ id: agentZones.id });
+
+  return deleted.length > 0;
+}
