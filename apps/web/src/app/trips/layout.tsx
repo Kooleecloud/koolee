@@ -10,9 +10,14 @@ export default function TripsLayout({ children }: { children: React.ReactNode })
     <div className="min-h-dvh">
       <AppHeader
         linkComponent={Link}
+        links={[
+          { href: "/dashboard/profile", label: "Profile" },
+          { href: "/dashboard/addresses", label: "Addresses" },
+          { href: "/trips", label: "Trips" },
+        ]}
         actions={
           <CTAButton size="sm" asChild>
-            <Link href="/book/zip">Book a pickup</Link>
+            <Link href="/book">Book a pickup</Link>
           </CTAButton>
         }
       />

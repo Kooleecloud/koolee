@@ -17,7 +17,13 @@ export interface PaymentAuth {
   authId: string;
   amountCents: number;
   currency: string;
-  status: "requires_action" | "authorized" | "failed";
+  /**
+   * `requires_action`: the client must (still) confirm in the browser.
+   * `processing`: confirmation happened, the outcome is not yet known —
+   * distinct from `requires_action` because the client must NOT re-confirm.
+   * `failed`: cancelled or expired; the authorization is dead.
+   */
+  status: "requires_action" | "processing" | "authorized" | "failed";
   /**
    * Returned only when the client must complete the payment in the browser.
    * For Stripe this is the PaymentIntent client secret.
@@ -64,6 +70,21 @@ export interface PaymentProvider {
 
   /** Reserve funds without taking them. */
   authorize(bookingId: string, amountCents: number): Promise<PaymentAuth>;
+
+  /**
+   * Current state of an authorization, re-read from the provider. The
+   * return page's status re-check and the pay step's intent reuse both go
+   * through here — a client-side success signal is never trusted alone.
+   */
+  getAuth(authId: string): Promise<PaymentAuth>;
+
+  /**
+   * Change the amount on a not-yet-confirmed authorization (the funnel
+   * price drifted between visits to the pay step). Stripe supports this
+   * natively (`paymentIntents.update`); a provider that cannot must throw
+   * so the caller falls back to cancel + recreate.
+   */
+  updateAuthAmount(authId: string, amountCents: number): Promise<PaymentAuth>;
 
   /** Take the reserved funds, in full or in part, at pickup. */
   capture(authId: string, amountCents?: number): Promise<PaymentCapture>;

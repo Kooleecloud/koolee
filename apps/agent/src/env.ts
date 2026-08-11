@@ -25,7 +25,6 @@ const schema = z.object({
 
   NEXT_PUBLIC_SUPABASE_URL: optionalUrl,
   NEXT_PUBLIC_SUPABASE_ANON_KEY: optionalString,
-  SUPABASE_SERVICE_ROLE_KEY: optionalString,
 
   GOOGLE_MAPS_API_KEY: optionalString,
   SENTRY_DSN: optionalString,
@@ -44,7 +43,6 @@ const raw = {
 
   NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL,
   NEXT_PUBLIC_SUPABASE_ANON_KEY: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
-  SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY,
 
   GOOGLE_MAPS_API_KEY: process.env.GOOGLE_MAPS_API_KEY,
   SENTRY_DSN: process.env.SENTRY_DSN,
@@ -67,8 +65,6 @@ const HINTS: Partial<Record<EnvKey, string>> = {
     "Supabase → Project Settings → Database → Connection pooling (Transaction mode, port 6543).",
   DIRECT_DATABASE_URL:
     "Supabase → Project Settings → Database → Direct connection (port 5432).",
-  SUPABASE_SERVICE_ROLE_KEY:
-    "Supabase → Project Settings → API → service_role key. Needed for Storage uploads.",
   GOOGLE_MAPS_API_KEY: "Google Cloud Console → Maps Platform. Stubbed in this scaffold.",
 };
 
@@ -88,6 +84,45 @@ export function optionalEnv(key: EnvKey): string | undefined {
 export const isDev = env.NODE_ENV === "development";
 export const isProd = env.NODE_ENV === "production";
 
+/**
+ * Fail-loud production gate (same `isProd` convention as apps/web).
+ *
+ * Staff sign-in IS this app: with the Supabase URL or anon key missing, every
+ * page silently degrades to an unusable login screen instead of an error
+ * anyone can act on. In production that silence is a misconfiguration, so the
+ * boot refuses instead.
+ */
+export function assertProductionBootConfig(): void {
+  const missing: string[] = [];
+  if (!optionalEnv("NEXT_PUBLIC_SUPABASE_URL")) {
+    missing.push("NEXT_PUBLIC_SUPABASE_URL (staff sign-in silently unavailable without it)");
+  }
+  if (!optionalEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY")) {
+    missing.push("NEXT_PUBLIC_SUPABASE_ANON_KEY (staff sign-in silently unavailable without it)");
+  }
+  if (missing.length > 0) {
+    throw new Error(
+      "Refusing to run the agent app in production with auth config missing:\n" +
+        missing.map((m) => `  - ${m}`).join("\n") +
+        "\nSee apps/agent/.env.example.",
+    );
+  }
+}
+
+/*
+ * `next build` itself runs with NODE_ENV=production and must stay green on a
+ * credential-less fresh clone (the repo-wide contract), so the build phase is
+ * exempt; the gate fires when a production SERVER actually boots. The
+ * `typeof window` guard keeps client bundles from throwing over server env.
+ */
+if (
+  typeof window === "undefined" &&
+  isProd &&
+  process.env.NEXT_PHASE !== "phase-production-build"
+) {
+  assertProductionBootConfig();
+}
+
 export interface ServiceStatus {
   service: string;
   configured: boolean;
@@ -106,14 +141,13 @@ export function describeEnvStatus(): ServiceStatus[] {
       keys: ["DATABASE_URL", "DIRECT_DATABASE_URL"],
     },
     {
-      service: "Supabase Storage (bag photos)",
-      configured: has("NEXT_PUBLIC_SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"),
-      fallback: "Photo capture stays local; nothing is uploaded.",
-      keys: [
-        "NEXT_PUBLIC_SUPABASE_URL",
-        "NEXT_PUBLIC_SUPABASE_ANON_KEY",
-        "SUPABASE_SERVICE_ROLE_KEY",
-      ],
+      // Least privilege: this app holds NO service-role key (a shared,
+      // frequently-lost device must not carry it). Auth + any Storage access
+      // go through the anon key + the signed-in agent's own session.
+      service: "Supabase (staff auth, Storage)",
+      configured: has("NEXT_PUBLIC_SUPABASE_URL", "NEXT_PUBLIC_SUPABASE_ANON_KEY"),
+      fallback: "Sign-in is unavailable; photo capture stays local.",
+      keys: ["NEXT_PUBLIC_SUPABASE_URL", "NEXT_PUBLIC_SUPABASE_ANON_KEY"],
     },
     {
       service: "Google Maps",

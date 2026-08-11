@@ -44,42 +44,42 @@ One phase = one atomic commit on this branch. Commits are run by Tarun
 
 ### Environment
 
-| Item | Declared | Actual at baseline |
-|---|---|---|
-| Node | `.nvmrc` 22, `engines >=22` | **v24.15.0** (machine default; satisfies engines — noted as deviation, aligned in Phase 8) |
-| pnpm | `packageManager pnpm@11.18.0` | 11.18.0 |
-| turbo tasks | — | `build`, `dev`, `lint`, `typecheck`, `test`, `clean`, `db:generate`, `db:migrate` (names match the plan; no adaptation needed) |
+| Item        | Declared                      | Actual at baseline                                                                                                             |
+| ----------- | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| Node        | `.nvmrc` 22, `engines >=22`   | **v24.15.0** (machine default; satisfies engines — noted as deviation, aligned in Phase 8)                                     |
+| pnpm        | `packageManager pnpm@11.18.0` | 11.18.0                                                                                                                        |
+| turbo tasks | —                             | `build`, `dev`, `lint`, `typecheck`, `test`, `clean`, `db:generate`, `db:migrate` (names match the plan; no adaptation needed) |
 
 ### Before table (installed versions from lockfile)
 
-| Package | Where | Declared range | Installed | Target |
-|---|---|---|---|---|
-| tailwindcss | 3 apps + ui | ^3.4.17 | 3.4.19 | 4.x |
-| tailwind-merge | ui | ^2.6.0 | 2.6.1 | 3.x |
-| tailwindcss-animate | ui | ^1.0.7 | 1.0.7 | replace with tw-animate-css |
-| autoprefixer | 3 apps | ^10.4.20 | 10.5.4 | remove (v4 handles prefixing) |
-| stripe | core | ^17.5.0 | 17.7.0 | 22.x |
-| @stripe/stripe-js | web | ^5.5.0 | 5.10.0 | 9.x |
-| @stripe/react-stripe-js | web | ^3.1.1 | 3.10.0 | 6.x |
-| inngest | core, web | ^3.29.3 | 3.54.2 | 4.x |
-| next | 3 apps | ^15.1.6 | 15.5.22 | 16.x |
-| @next/eslint-plugin-next | config | ^15.1.6 | 15.5.22 | 16.x |
-| zod | core + 3 apps | ^3.24.1 | 3.25.76 | 4.x |
-| eslint | everywhere | ^9.18.0 | 9.39.5 | 10.x |
-| @eslint/js | config | ^9.18.0 | 9.39.5 | 10.x |
-| globals | config | ^15.14.0 | 15.15.0 | 17.x |
-| eslint-plugin-react-hooks | config | ^5.1.0 | 5.2.0 | 7.x |
-| drizzle-orm | core, db | ^0.38.4 | 0.38.4 | 0.45.x |
-| drizzle-kit | db | ^0.30.2 | 0.30.6 | 0.31.x |
-| lucide-react | 3 apps + ui | ^0.474.0 | 0.474.0 | 1.x |
-| sonner | ui | ^1.7.2 | 1.7.4 | 2.x |
-| dotenv | db | ^16.4.7 | 16.6.1 | 17.x |
-| vitest | core | ^2.1.8 | 2.1.9 | 4.x |
-| turbo | root | ^2.3.3 | 2.10.7 | 2.10.8 (also tighten range) |
-| @types/node | everywhere | ^22.10.7 | 22.20.1 | ^24 (Phase 8) |
+| Package                   | Where         | Declared range | Installed | Target                        |
+| ------------------------- | ------------- | -------------- | --------- | ----------------------------- |
+| tailwindcss               | 3 apps + ui   | ^3.4.17        | 3.4.19    | 4.x                           |
+| tailwind-merge            | ui            | ^2.6.0         | 2.6.1     | 3.x                           |
+| tailwindcss-animate       | ui            | ^1.0.7         | 1.0.7     | replace with tw-animate-css   |
+| autoprefixer              | 3 apps        | ^10.4.20       | 10.5.4    | remove (v4 handles prefixing) |
+| stripe                    | core          | ^17.5.0        | 17.7.0    | 22.x                          |
+| @stripe/stripe-js         | web           | ^5.5.0         | 5.10.0    | 9.x                           |
+| @stripe/react-stripe-js   | web           | ^3.1.1         | 3.10.0    | 6.x                           |
+| inngest                   | core, web     | ^3.29.3        | 3.54.2    | 4.x                           |
+| next                      | 3 apps        | ^15.1.6        | 15.5.22   | 16.x                          |
+| @next/eslint-plugin-next  | config        | ^15.1.6        | 15.5.22   | 16.x                          |
+| zod                       | core + 3 apps | ^3.24.1        | 3.25.76   | 4.x                           |
+| eslint                    | everywhere    | ^9.18.0        | 9.39.5    | 10.x                          |
+| @eslint/js                | config        | ^9.18.0        | 9.39.5    | 10.x                          |
+| globals                   | config        | ^15.14.0       | 15.15.0   | 17.x                          |
+| eslint-plugin-react-hooks | config        | ^5.1.0         | 5.2.0     | 7.x                           |
+| drizzle-orm               | core, db      | ^0.38.4        | 0.38.4    | 0.45.x                        |
+| drizzle-kit               | db            | ^0.30.2        | 0.30.6    | 0.31.x                        |
+| lucide-react              | 3 apps + ui   | ^0.474.0       | 0.474.0   | 1.x                           |
+| sonner                    | ui            | ^1.7.2         | 1.7.4     | 2.x                           |
+| dotenv                    | db            | ^16.4.7        | 16.6.1    | 17.x                          |
+| vitest                    | core          | ^2.1.8         | 2.1.9     | 4.x                           |
+| turbo                     | root          | ^2.3.3         | 2.10.7    | 2.10.8 (also tighten range)   |
+| @types/node               | everywhere    | ^22.10.7       | 22.20.1   | ^24 (Phase 8)                 |
 
-Out of scope (unchanged by design): react/react-dom 19, @supabase/*, gsap,
-motion, @radix-ui/*, date-fns, typescript 5.x (5.9 line), postgres driver,
+Out of scope (unchanged by design): react/react-dom 19, @supabase/_, gsap,
+motion, @radix-ui/_, date-fns, typescript 5.x (5.9 line), postgres driver,
 prettier, typescript-eslint, Postgres docker image.
 
 ### Baseline gate — GREEN (2026-08-01, Node v24.15.0)
@@ -116,6 +116,7 @@ Versions: tailwindcss 3.4.19 → ^4.3.3 (apps; removed from packages/ui),
 tailwind-merge 2.6.1 → ^3.6.0, tailwindcss-animate 1.0.7 → tw-animate-css ^1.4.0.
 
 Structural changes:
+
 - `packages/ui/tailwind-preset.js` + `theme-tokens.js` + `tailwind-preset.d.ts`
   **deleted**, replaced by CSS-first `packages/ui/styles/theme.css` (`@theme`
   brand scales, `@theme inline` semantic hsl-var tokens/radius/fonts,
@@ -226,6 +227,7 @@ Already compliant (no changes needed): async `params`/`searchParams`
 parallel routes / `next/legacy/image` / `next/image` usage at all.
 
 Changes made:
+
 - **Removed the `eslint` block from all three `next.config.mjs`** — the option
   was removed in 16 (`next build` no longer lints; our lint is a turbo task).
 - **Dropped `--turbopack` from dev scripts** — Turbopack is the default for
@@ -419,28 +421,28 @@ Toaster mounted in the web layout HTML.
 
 ### After table (in-scope packages)
 
-| Package | Before | After |
-|---|---|---|
-| tailwindcss | 3.4.19 | 4.3.3 (+ @tailwindcss/postcss) |
-| tailwind-merge | 2.6.1 | 3.6.0 |
-| tailwindcss-animate | 1.0.7 | → tw-animate-css 1.4.0 |
-| stripe | 17.7.0 | 22.4.0 (API pin 2026-07-29.dahlia) |
-| @stripe/stripe-js | 5.10.0 | 9.12.1 |
-| @stripe/react-stripe-js | 3.10.0 | 6.8.0 |
-| inngest | 3.54.2 | 4.14.0 |
-| next | 15.5.22 | 16.2.12 |
-| @next/eslint-plugin-next | 15.5.22 | 16.2.12 |
-| zod | 3.25.76 | 4.4.3 |
-| eslint | 9.39.5 | 10.8.0 |
-| @eslint/js | 9.39.5 | 10.0.1 |
-| globals | 15.15.0 | 17.8.0 |
-| eslint-plugin-react-hooks | 5.2.0 | 7.1.1 |
-| eslint-plugin-react | 7.37.5 | removed (unused, blocked eslint 10) |
-| drizzle-orm | 0.38.4 | 0.45.2 |
-| drizzle-kit | 0.30.6 | 0.31.10 |
-| lucide-react | 0.474.0 | 1.28.0 |
-| sonner | 1.7.4 | 2.x |
-| dotenv | 16.6.1 | 17.4.2 |
-| vitest | 2.1.9 | 4.x (core + web) |
-| turbo | 2.10.7 (range ^2.3.3) | 2.10.8 (range ^2.10.8) |
-| Node / @types/node | 22 / 22.20.1 | 24 / 24.13.3 |
+| Package                   | Before                | After                               |
+| ------------------------- | --------------------- | ----------------------------------- |
+| tailwindcss               | 3.4.19                | 4.3.3 (+ @tailwindcss/postcss)      |
+| tailwind-merge            | 2.6.1                 | 3.6.0                               |
+| tailwindcss-animate       | 1.0.7                 | → tw-animate-css 1.4.0              |
+| stripe                    | 17.7.0                | 22.4.0 (API pin 2026-07-29.dahlia)  |
+| @stripe/stripe-js         | 5.10.0                | 9.12.1                              |
+| @stripe/react-stripe-js   | 3.10.0                | 6.8.0                               |
+| inngest                   | 3.54.2                | 4.14.0                              |
+| next                      | 15.5.22               | 16.2.12                             |
+| @next/eslint-plugin-next  | 15.5.22               | 16.2.12                             |
+| zod                       | 3.25.76               | 4.4.3                               |
+| eslint                    | 9.39.5                | 10.8.0                              |
+| @eslint/js                | 9.39.5                | 10.0.1                              |
+| globals                   | 15.15.0               | 17.8.0                              |
+| eslint-plugin-react-hooks | 5.2.0                 | 7.1.1                               |
+| eslint-plugin-react       | 7.37.5                | removed (unused, blocked eslint 10) |
+| drizzle-orm               | 0.38.4                | 0.45.2                              |
+| drizzle-kit               | 0.30.6                | 0.31.10                             |
+| lucide-react              | 0.474.0               | 1.28.0                              |
+| sonner                    | 1.7.4                 | 2.x                                 |
+| dotenv                    | 16.6.1                | 17.4.2                              |
+| vitest                    | 2.1.9                 | 4.x (core + web)                    |
+| turbo                     | 2.10.7 (range ^2.3.3) | 2.10.8 (range ^2.10.8)              |
+| Node / @types/node        | 22 / 22.20.1          | 24 / 24.13.3                        |

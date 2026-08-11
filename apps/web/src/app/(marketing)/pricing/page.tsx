@@ -17,9 +17,10 @@ export const metadata: Metadata = {
 };
 
 const TIERS = [
-  { id: "standard_4h", label: "Standard · 4-hour window", description: "Included" },
-  { id: "express_2h", label: "Express · 2-hour window", description: "+35%" },
-  { id: "priority_1h", label: "Priority · 1-hour window", description: "+80%" },
+  { id: "lead_24h_plus", label: "24+ hours before departure", description: "Included" },
+  { id: "lead_16_24h", label: "16–24 hours before", description: "+10%" },
+  { id: "lead_10_16h", label: "10–16 hours before", description: "+20%" },
+  { id: "lead_6_10h", label: "6–10 hours before", description: "+40%" },
 ];
 
 const AIRPORTS = [
@@ -43,7 +44,7 @@ const PRICE_PARTS = [
   },
   {
     title: "Your window, your call",
-    body: "A relaxed 4-hour pickup window is included. Tighter 2-hour and 1-hour windows cost more because they hold a driver just for you.",
+    body: "Every pickup is a one-hour window you choose, offered from 30 down to 6 hours before departure. Earlier windows are included; the closer your window sits to your flight, the more it costs.",
   },
 ];
 
@@ -110,7 +111,7 @@ export default function PricingPage() {
             Ready when you are.
           </h2>
           <CTAButton size="lg" asChild>
-            <Link href="/book/zip">Book a pickup</Link>
+            <Link href="/book">Book a pickup</Link>
           </CTAButton>
         </Reveal>
       </Section>

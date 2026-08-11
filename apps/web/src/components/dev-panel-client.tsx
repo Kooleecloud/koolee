@@ -142,6 +142,9 @@ export function DevPanelClient({ envSection }: { envSection: React.ReactNode }) 
                       <>
                         <Row
                           label="Signed in at"
+                          // Dev panel: the developer's own session clock, not a
+                          // booking time — the browser's zone is what's wanted.
+                          // eslint-disable-next-line no-restricted-syntax
                           value={new Date(signedInAtMs).toLocaleTimeString()}
                         />
                         <Row label="Active for" value={formatDuration(now - signedInAtMs)} />

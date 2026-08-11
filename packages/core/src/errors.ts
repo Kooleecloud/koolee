@@ -31,26 +31,14 @@ export abstract class CoreError extends Error {
 
 export class SlotNotSellableError extends CoreError {
   readonly code = "SLOT_NOT_SELLABLE" as const;
+  /** Identifies the rejected pickup window (its start, ISO-8601). */
   readonly slotId: string;
   readonly reason: string;
 
   constructor(slotId: string, reason: string) {
-    super(`Slot ${slotId} is not sellable: ${reason}`);
+    super(`Pickup window ${slotId} is not bookable: ${reason}`);
     this.slotId = slotId;
     this.reason = reason;
-  }
-}
-
-export class SlotSoldOutError extends CoreError {
-  readonly code = "SLOT_SOLD_OUT" as const;
-  readonly slotId: string;
-
-  constructor(slotId: string) {
-    super(
-      `Slot ${slotId} sold out while the booking was being created. ` +
-        `No booking was written and no payment was authorized.`,
-    );
-    this.slotId = slotId;
   }
 }
 
@@ -118,13 +106,17 @@ export class NotFoundError extends CoreError {
   }
 }
 
-/** A unique identifier (phone, email) already belongs to another account. */
+/**
+ * A conflicting resource state: a unique identifier (phone, email) already
+ * belonging to another account, or a record (address) that other rows
+ * depend on.
+ */
 export class ConflictError extends CoreError {
   readonly code = "CONFLICT" as const;
-  /** Which identifier collided. */
-  readonly field: "phone" | "email";
+  /** What collided. */
+  readonly field: "phone" | "email" | "address" | "seal";
 
-  constructor(field: "phone" | "email", message?: string) {
+  constructor(field: "phone" | "email" | "address" | "seal", message?: string) {
     super(message ?? `That ${field} already belongs to another account.`);
     this.field = field;
   }

@@ -47,7 +47,7 @@ export function AuthNavActions() {
           My bookings
         </Link>
         <CTAButton asChild>
-          <Link href="/book/zip">Book a pickup</Link>
+          <Link href="/book">Book a pickup</Link>
         </CTAButton>
       </>
     );

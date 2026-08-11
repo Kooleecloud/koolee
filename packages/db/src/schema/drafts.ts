@@ -1,7 +1,7 @@
 import { jsonb, pgTable, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 
-import { createdAt, primaryId, updatedAt } from "./columns";
+import { createdAt, primaryId, timestamptz, updatedAt } from "./columns";
 import { users } from "./identity";
 
 /**
@@ -29,6 +29,20 @@ export const bookingDrafts = pgTable(
       .$type<Record<string, unknown>>()
       .notNull()
       .default(sql`'{}'::jsonb`),
+    /**
+     * Inactivity expiry, refreshed on every upsert (7 days for verified
+     * accounts, 24 hours for anonymous funnel sessions). Reads treat an
+     * expired draft as absent; the cleanup job soft-deletes it later.
+     */
+    expiresAt: timestamptz("expires_at")
+      .notNull()
+      .default(sql`now() + interval '7 days'`),
+    /**
+     * Soft delete — product flows (discard, completion, expiry) never
+     * hard-delete a draft. Only user GC removes rows, via the FK cascade.
+     * A new upsert for the same user revives the row.
+     */
+    deletedAt: timestamptz("deleted_at"),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },

@@ -110,6 +110,103 @@ describe("FakePaymentProvider", () => {
   });
 });
 
+describe("FakePaymentProvider client-confirmation parity (Stripe-like mode)", () => {
+  let provider: FakePaymentProvider;
+
+  beforeEach(() => {
+    provider = new FakePaymentProvider({ requiresClientConfirmation: true });
+  });
+
+  it("authorize returns requires_action + a client secret instead of holding funds", async () => {
+    const auth = await provider.authorize("booking-1", 6800);
+
+    expect(auth.status).toBe("requires_action");
+    expect(auth.clientSecret).toBe(`${auth.authId}_secret_fake`);
+    expect(provider.inspectAuth(auth.authId)?.state).toBe("pending_confirmation");
+  });
+
+  it("getAuth reports the current state, keeping the client secret while confirmable", async () => {
+    const auth = await provider.authorize("booking-1", 6800);
+
+    const before = await provider.getAuth(auth.authId);
+    expect(before.status).toBe("requires_action");
+    expect(before.clientSecret).toBeDefined();
+    expect(before.amountCents).toBe(6800);
+
+    provider.simulateClientConfirmation(auth.authId, "success");
+    const after = await provider.getAuth(auth.authId);
+    expect(after.status).toBe("authorized");
+    expect(after.clientSecret).toBeUndefined();
+  });
+
+  it("simulateClientConfirmation drives success / processing / failure like the browser would", async () => {
+    const a = await provider.authorize("b1", 100);
+    expect(provider.simulateClientConfirmation(a.authId, "success").status).toBe(
+      "authorized",
+    );
+
+    const b = await provider.authorize("b2", 100);
+    expect(provider.simulateClientConfirmation(b.authId, "processing").status).toBe(
+      "processing",
+    );
+    // A processing confirmation can still settle.
+    expect(provider.simulateClientConfirmation(b.authId, "success").status).toBe(
+      "authorized",
+    );
+
+    // A decline bounces back to confirmable — the SAME intent stays reusable.
+    const c = await provider.authorize("b3", 100);
+    expect(provider.simulateClientConfirmation(c.authId, "failure").status).toBe(
+      "requires_action",
+    );
+    expect(provider.simulateClientConfirmation(c.authId, "success").status).toBe(
+      "authorized",
+    );
+  });
+
+  it("refuses to capture before the client confirmed", async () => {
+    const auth = await provider.authorize("booking-1", 6800);
+    await expect(provider.capture(auth.authId)).rejects.toThrow(/not authorized yet/);
+
+    provider.simulateClientConfirmation(auth.authId, "success");
+    const capture = await provider.capture(auth.authId);
+    expect(capture.status).toBe("captured");
+  });
+
+  it("updateAuthAmount changes a not-yet-confirmed amount and refuses afterwards", async () => {
+    const auth = await provider.authorize("booking-1", 6800);
+
+    const updated = await provider.updateAuthAmount(auth.authId, 7300);
+    expect(updated.amountCents).toBe(7300);
+    expect(updated.status).toBe("requires_action");
+    expect(updated.clientSecret).toBeDefined();
+
+    provider.simulateClientConfirmation(auth.authId, "success");
+    await expect(provider.updateAuthAmount(auth.authId, 100)).rejects.toThrow(
+      /cannot change the amount/,
+    );
+    // The confirmed hold kept the updated amount.
+    expect((await provider.getAuth(auth.authId)).amountCents).toBe(7300);
+  });
+
+  it("cancelAuth voids a pending confirmation; getAuth then reports failed", async () => {
+    const auth = await provider.authorize("booking-1", 6800);
+    await provider.cancelAuth(auth.authId);
+
+    expect((await provider.getAuth(auth.authId)).status).toBe("failed");
+    expect(provider.simulateClientConfirmation.bind(provider, auth.authId, "success")).toThrow(
+      /nothing to confirm/,
+    );
+  });
+
+  it("default mode still authorizes instantly — dev funnel behavior unchanged", async () => {
+    const instant = new FakePaymentProvider();
+    const auth = await instant.authorize("booking-1", 6800);
+    expect(auth.status).toBe("authorized");
+    expect((await instant.getAuth(auth.authId)).status).toBe("authorized");
+  });
+});
+
 describe("FakePaymentProvider.verifyWebhook", () => {
   const provider = new FakePaymentProvider();
 

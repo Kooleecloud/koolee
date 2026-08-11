@@ -1,8 +1,8 @@
 import Link from "next/link";
-import { notFound } from "next/navigation";
-import { format } from "date-fns";
+import { notFound, redirect } from "next/navigation";
 import {
   BackLink,
+  Badge,
   BookingStatusBadge,
   Card,
   CardContent,
@@ -13,20 +13,55 @@ import {
   DatabaseNotConfigured,
   PageHeader,
 } from "@koolee/ui";
-import { availableEvents, EVENT_TYPES, getBooking, getTimeline } from "@koolee/core";
+import {
+  availableEvents,
+  dstTransitionNote,
+  EVENT_TYPES,
+  formatInstantInAirportTz,
+  formatWindowInAirportTz,
+  getBookingAssignment,
+  getBookingDetailForSession,
+  listAgentWorkload,
+  type AgentWorkload,
+} from "@koolee/core";
 
 import { TransitionControls } from "@/components/transition-controls";
+import { ViewerLocalTime } from "@/components/viewer-local-time";
+import { bookingRef } from "@/lib/booking-ref";
 import { tryGetCore } from "@/lib/core";
+import { getAdminSession } from "@/lib/session";
+import { getSupabaseAdminClient } from "@/lib/supabase/admin";
+
+import { CustodyTrail } from "./custody-trail";
+import { AssignAgentForm, AutoAssignButton, ResolveExceptionForm } from "./dispatch-forms";
 
 export const dynamic = "force-dynamic";
 
 const ALL_EVENTS = Object.keys(EVENT_TYPES);
+const SIGNED_URL_TTL_SECONDS = 300;
+
+/** Best-effort signed URLs for private bag photos (5-minute TTL). */
+async function signPhotoUrls(paths: string[]): Promise<Map<string, string>> {
+  const admin = getSupabaseAdminClient();
+  const map = new Map<string, string>();
+  if (!admin || paths.length === 0) return map;
+  const { data } = await admin.storage
+    .from("bag-photos")
+    .createSignedUrls(paths, SIGNED_URL_TTL_SECONDS);
+  for (const entry of data ?? []) {
+    if (entry.signedUrl && entry.path) map.set(entry.path, entry.signedUrl);
+  }
+  return map;
+}
 
 export default async function BookingDetailPage({
   params,
 }: {
   params: Promise<{ bookingId: string }>;
 }) {
+  const session = await getAdminSession();
+  if (!session) redirect("/login");
+
   const { bookingId } = await params;
   const core = tryGetCore();
 
@@ -38,17 +73,53 @@ export default async function BookingDetailPage({
     );
   }
 
-  const booking = await getBooking(core.db, bookingId).catch(() => null);
-  if (!booking) notFound();
+  const detail = await getBookingDetailForSession(core.db, session, bookingId).catch(
+    () => null,
+  );
+  if (!detail) notFound();
+  const { booking, timeline, bags, payments, tz } = detail;
+  // Non-null only on the two DST nights, when the wall-clock label is
+  // ambiguous (two 1 AMs) or has a hole in it (no 2 AM).
+  const windowNote = booking.pickupWindowStart
+    ? dstTransitionNote(booking.pickupWindowStart, tz)
+    : null;
 
-  const timeline = await getTimeline(core.db, bookingId).catch(() => []);
+  // Workload is read for the booking's own pickup day, not today: assigning
+  // a Thursday pickup on a Tuesday should show Thursday's load.
+  let agents: AgentWorkload[] = [];
+  try {
+    agents = await listAgentWorkload(core.db, {
+      on: booking.pickupWindowStart ?? booking.departureAt,
+      tz: tz,
+    });
+  } catch {
+    // Assignment panel degrades to its empty state.
+  }
+  const assignment = await getBookingAssignment(core.db, booking.id).catch(() => ({
+    assigneeUserId: null,
+    assigneeEmail: null,
+    taskStatus: null,
+  }));
+
+  const photoPaths = [
+    ...bags.flatMap((bag) => bag.photoUrls),
+    ...timeline.map((event) => event.photoUrl).filter((p): p is string => Boolean(p)),
+  ];
+  const signedUrls = await signPhotoUrls([...new Set(photoPaths)]);
+
   const legal = availableEvents(booking.status);
 
   return (
     <ContentColumn>
       <PageHeader
         title={`${booking.flightNumber} · ${booking.departureAirport}`}
-        subtitle={<span className="font-mono text-xs">{booking.id}</span>}
+        subtitle={
+          <span className="font-mono text-xs">
+            {/* Short ref first — it is what the board lists and what ops read
+                out loud; the full id stays for copy-paste. */}
+            <strong>{bookingRef(booking.id)}</strong> · {booking.id}
+          </span>
+        }
         actions={
           <>
             <BookingStatusBadge status={booking.status} />
@@ -59,81 +130,235 @@ export default async function BookingDetailPage({
         }
       />
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Details</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <dl className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-2 text-sm">
-            <dt className="text-muted-foreground">Passenger</dt>
-            <dd>{booking.paxName}</dd>
-            <dt className="text-muted-foreground">Departs</dt>
-            <dd>{format(booking.departureAt, "EEE d MMM yyyy, HH:mm")}</dd>
-            <dt className="text-muted-foreground">Bags</dt>
-            <dd>{booking.bagCount}</dd>
-            <dt className="text-muted-foreground">Price</dt>
-            <dd>
-              ${(booking.priceCents / 100).toFixed(2)} {booking.currency.toUpperCase()}
-            </dd>
-            <dt className="text-muted-foreground">Created</dt>
-            <dd>{format(booking.createdAt, "d MMM yyyy, HH:mm")}</dd>
-          </dl>
-        </CardContent>
-      </Card>
+      <div className="grid gap-6 lg:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Details</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {/* Every instant here is airport-local, matching the board — the
+                same booking must never read as two different times. */}
+            <dl className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-2 text-sm">
+              <dt className="text-muted-foreground">Passenger</dt>
+              <dd>{booking.paxName}</dd>
+              <dt className="text-muted-foreground">Pickup window</dt>
+              <dd>
+                {booking.pickupWindowStart && booking.pickupWindowEnd ? (
+                  formatWindowInAirportTz(
+                    booking.pickupWindowStart,
+                    booking.pickupWindowEnd,
+                    tz,
+                  )
+                ) : booking.pickupWindowStart ? (
+                  formatInstantInAirportTz(booking.pickupWindowStart, tz)
+                ) : (
+                  <span className="text-muted-foreground">not scheduled</span>
+                )}
+                {/* Secondary, and only when the operator is somewhere else.
+                    The line above is what the customer and agent are both
+                    working from and stays the authoritative one. */}
+                {booking.pickupWindowStart && (
+                  <>
+                    {windowNote && (
+                      <span className="ml-2 text-muted-foreground">({windowNote})</span>
+                    )}
+                    <ViewerLocalTime
+                      instant={booking.pickupWindowStart.toISOString()}
+                      tz={tz}
+                      className="ml-2 text-muted-foreground"
+                    />
+                  </>
+                )}
+              </dd>
+              <dt className="text-muted-foreground">Departs</dt>
+              <dd>
+                {formatInstantInAirportTz(booking.departureAt, tz)}
+                <ViewerLocalTime
+                  instant={booking.departureAt.toISOString()}
+                  tz={tz}
+                  className="ml-2 text-muted-foreground"
+                />
+              </dd>
+              <dt className="text-muted-foreground">Bags</dt>
+              <dd>{booking.bagCount}</dd>
+              <dt className="text-muted-foreground">Price</dt>
+              <dd>
+                ${(booking.priceCents / 100).toFixed(2)} {booking.currency.toUpperCase()}
+              </dd>
+              <dt className="text-muted-foreground">Created</dt>
+              <dd>{formatInstantInAirportTz(booking.createdAt, tz)}</dd>
+            </dl>
+          </CardContent>
+        </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Manual state override</CardTitle>
-          <CardDescription>
-            Legal moves from <strong>{booking.status}</strong>:{" "}
-            {legal.length > 0 ? legal.join(", ") : "none — this status is terminal"}.
-            Every override is written to the custody log.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <TransitionControls
-            bookingId={booking.id}
-            events={ALL_EVENTS}
-            legalEvents={legal}
-          />
-        </CardContent>
-      </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Assignment</CardTitle>
+            <CardDescription>
+              One agent covers the verification visit and the pickup run in v1.
+              Reassignment is allowed until the visit completes.
+              {assignment.assigneeEmail
+                ? ` Currently: ${assignment.assigneeEmail} (${assignment.taskStatus ?? "assigned"}).`
+                : " Currently unassigned."}
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-4">
+            <AssignAgentForm
+              bookingId={booking.id}
+              agents={agents.map((agent) => {
+                const name = agent.fullName
+                  ? `${agent.fullName} (${agent.email ?? agent.userId})`
+                  : (agent.email ?? agent.userId);
+                // Load is on the label, not a second column: the operator is
+                // choosing inside this list and cannot see anything else.
+                return {
+                  userId: agent.userId,
+                  label: `${name} — ${agent.openTasks} open`,
+                };
+              })}
+              currentAssignee={assignment.assigneeUserId}
+            />
+            {!assignment.assigneeUserId && booking.status === "paid" && (
+              <AutoAssignButton bookingId={booking.id} />
+            )}
+          </CardContent>
+        </Card>
+      </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Custody log</CardTitle>
-          <CardDescription>
-            Append-only. {timeline.length} event
-            {timeline.length === 1 ? "" : "s"}.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          {timeline.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No events yet.</p>
-          ) : (
-            <ol className="flex flex-col divide-y text-sm">
-              {timeline.map((event) => (
-                <li key={event.id} className="flex flex-col gap-1 py-2.5">
-                  <div className="flex flex-wrap items-baseline justify-between gap-2">
-                    <span className="font-mono text-xs">{event.eventType}</span>
-                    <time
-                      dateTime={event.createdAt.toISOString()}
-                      className="text-xs text-muted-foreground"
-                    >
-                      {format(event.createdAt, "d MMM HH:mm:ss")}
-                    </time>
+      {booking.status === "exception" && (
+        <Card className="border-destructive/50">
+          <CardHeader>
+            <CardTitle className="text-base">Resolve this exception</CardTitle>
+            <CardDescription>
+              Resolutions run through the state machine and append a compensating custody
+              event with your reason — history is never edited.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <ResolveExceptionForm bookingId={booking.id} />
+          </CardContent>
+        </Card>
+      )}
+
+      <div className="grid gap-6 lg:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Bags & seals</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ul className="flex flex-col gap-3 text-sm">
+              {bags.map((bag, index) => (
+                <li key={bag.id} className="rounded-lg border p-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <span>Bag {bag.ordinal}</span>
+                    <span className="font-mono text-xs">
+                      {bag.sealId ? `seal ${bag.sealId}` : "not sealed"}
+                      {bag.weightKg ? ` · ${bag.weightKg} kg` : ""}
+                    </span>
                   </div>
-                  {event.metadata && (
-                    <pre className="overflow-x-auto rounded-sm bg-muted/50 p-2 text-[11px]">
-                      {JSON.stringify(event.metadata, null, 2)}
-                    </pre>
+                  {bag.photoUrls.length > 0 && (
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {bag.photoUrls.map((path) =>
+                        signedUrls.has(path) ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img
+                            key={path}
+                            src={signedUrls.get(path)}
+                            alt={`Bag ${index + 1} evidence photo`}
+                            className="h-20 w-20 rounded-md border object-cover"
+                          />
+                        ) : (
+                          <span key={path} className="text-xs text-muted-foreground">
+                            photo (signing unavailable)
+                          </span>
+                        ),
+                      )}
+                    </div>
                   )}
                 </li>
               ))}
-            </ol>
-          )}
-        </CardContent>
-      </Card>
+            </ul>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Payments</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {payments.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No payment recorded.</p>
+            ) : (
+              <ul className="flex flex-col gap-2 text-sm">
+                {payments.map((payment) => (
+                  <li
+                    key={payment.id}
+                    className="flex items-center justify-between gap-3 rounded-lg border px-3 py-2"
+                  >
+                    <span>
+                      ${(payment.amountCents / 100).toFixed(2)}{" "}
+                      <span className="text-xs uppercase text-muted-foreground">
+                        {payment.provider}
+                      </span>
+                    </span>
+                    <span className="flex items-center gap-2 text-xs">
+                      <Badge
+                        variant={
+                          payment.status === "captured" || payment.status === "authorized"
+                            ? "success"
+                            : payment.status === "refunded"
+                              ? "secondary"
+                              : "warning"
+                        }
+                      >
+                        {payment.status}
+                      </Badge>
+                      <span className="font-mono text-muted-foreground">
+                        {payment.providerRef}
+                      </span>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="grid items-start gap-6 lg:grid-cols-[2fr_3fr]">
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Manual state override</CardTitle>
+            <CardDescription>
+              Legal moves from <strong>{booking.status}</strong>:{" "}
+              {legal.length > 0 ? legal.join(", ") : "none — this status is terminal"}.
+              Every override is written to the custody log.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <TransitionControls
+              bookingId={booking.id}
+              events={ALL_EVENTS}
+              legalEvents={legal}
+            />
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Custody trail</CardTitle>
+            <CardDescription>
+              Append-only. {timeline.length} event{timeline.length === 1 ? "" : "s"} —
+              actor, timestamp, and evidence for every hand-off. Each line is a
+              summary of the stored row; expand <strong>Raw data</strong> for the
+              record itself.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <CustodyTrail events={timeline} signedUrls={signedUrls} tz={tz} />
+          </CardContent>
+        </Card>
+      </div>
     </ContentColumn>
   );
 }

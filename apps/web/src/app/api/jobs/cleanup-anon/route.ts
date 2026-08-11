@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { expireBookingDrafts } from "@koolee/core";
 import { cleanupAnonymousUsers } from "@koolee/core/jobs";
 
 import { optionalEnv } from "@/env";
@@ -39,5 +40,11 @@ export async function POST(request: Request) {
   }
 
   const result = await cleanupAnonymousUsers(core.db, { deleteAuthUser });
-  return NextResponse.json(result);
+
+  // Drafts past their inactivity expiry: soft-delete + unwind any draft
+  // booking still holding a slot seat or a confirmable payment intent.
+  // Needs the full core config (payment provider), unlike the user GC.
+  const drafts = await expireBookingDrafts(core);
+
+  return NextResponse.json({ ...result, ...drafts });
 }

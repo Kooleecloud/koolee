@@ -112,6 +112,13 @@ export { ConfirmDialog, type ConfirmDialogProps } from "./components/confirm-dia
 /* Feedback — every async action must show one of these */
 export { Spinner, type SpinnerProps } from "./components/spinner";
 export { FormMessage, type FormMessageProps } from "./components/form-message";
+export { usePreservedFormValues } from "./lib/use-preserved-form";
+export {
+  PasswordResetForm,
+  SetPasswordForm,
+  StaffLoginForm,
+  type StaffAuthState,
+} from "./components/staff-auth-forms";
 export {
   EmptyState,
   DatabaseNotConfigured,
@@ -127,6 +134,28 @@ export {
   type EnvStatusCardProps,
 } from "./components/env-status-card";
 export { Select } from "./components/select";
+export {
+  Checkbox,
+  CheckboxField,
+  type CheckboxFieldProps,
+} from "./components/checkbox";
+export {
+  MultiSelect,
+  type MultiSelectProps,
+  type MultiSelectOption,
+} from "./components/multi-select";
+
+/* Data tables */
+export {
+  LinkedTableRow,
+  type LinkedTableRowProps,
+} from "./components/linked-table-row";
+/* Separate module on purpose — see the note in row-link.tsx. */
+export { RowLink, type RowLinkProps } from "./components/row-link";
+export {
+  RawDataDisclosure,
+  type RawDataDisclosureProps,
+} from "./components/raw-data-disclosure";
 
 /* Motion */
 export { Reveal, type RevealProps } from "./components/reveal";

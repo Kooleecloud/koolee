@@ -11,6 +11,8 @@ import {
   type OpsAlerter,
 } from "./notifications/notifier";
 import type { PaymentProvider } from "./payments/types";
+import { HeuristicTicketExtractor } from "./extraction/heuristic";
+import type { TicketExtractor } from "./extraction/types";
 
 /**
  * Everything the domain layer needs, injected by the app.
@@ -26,8 +28,26 @@ export interface CoreDefaults {
   bufferMinutes: number;
   /** Fallback when a real drive-time estimate is unavailable. */
   driveTimeMinutes: number;
-  /** Minimum notice before a pickup window may start. */
-  minimumLeadMinutes: number;
+  /**
+   * Booking notice: a pickup window may not START sooner than this after
+   * the moment the customer is booking — a driver has to be dispatched.
+   * Only ever bites for same-day bookers grabbing the next hour or two.
+   */
+  noticeMinutes: number;
+  /**
+   * Fixed operations reserve before departure: no pickup window may end
+   * inside the final N minutes before the flight — that time belongs to
+   * sealing, driving, and the bag-drop handoff. Applied as the stricter of
+   * this and the airline-cutoff formula.
+   */
+  operationsReserveMinutes: number;
+  /**
+   * Length of the shopping band. Windows END inside
+   * (departure − reserve − band, departure − reserve] — at the defaults a
+   * 24-hour band of exactly 24 one-hour windows ending where the
+   * operations reserve begins.
+   */
+  bandMinutes: number;
   /** ISO 4217, lowercase. */
   currency: string;
 }
@@ -35,7 +55,9 @@ export interface CoreDefaults {
 export const DEFAULTS: CoreDefaults = {
   bufferMinutes: 30,
   driveTimeMinutes: 60,
-  minimumLeadMinutes: 90,
+  noticeMinutes: 2 * 60,
+  operationsReserveMinutes: 6 * 60,
+  bandMinutes: 24 * 60,
   currency: "usd",
 };
 
@@ -53,6 +75,8 @@ export function fixedClock(instant: Date): Clock {
 export interface CoreConfig {
   db: Database;
   payments: PaymentProvider;
+  /** Ticket-PDF extraction seam. Defaults to the free heuristic extractor. */
+  ticketExtractor: TicketExtractor;
   notifier: Notifier;
   /** Custody-event customer notifications. Noop until the notifications work item. */
   dispatcher: NotificationDispatcher;
@@ -64,6 +88,7 @@ export interface CoreConfig {
 export interface CoreConfigInput {
   db: Database;
   payments: PaymentProvider;
+  ticketExtractor?: TicketExtractor;
   notifier?: Notifier;
   dispatcher?: NotificationDispatcher;
   opsAlerter?: OpsAlerter;
@@ -76,6 +101,7 @@ export function createCoreConfig(input: CoreConfigInput): CoreConfig {
   return {
     db: input.db,
     payments: input.payments,
+    ticketExtractor: input.ticketExtractor ?? new HeuristicTicketExtractor(),
     notifier: input.notifier ?? new ConsoleNotifier(),
     dispatcher: input.dispatcher ?? new NoopDispatcher(),
     opsAlerter: input.opsAlerter ?? new ConsoleOpsAlerter(),

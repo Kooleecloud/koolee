@@ -3,6 +3,7 @@ import "server-only";
 import { verifySupabaseCustomerSession, type CustomerSession } from "@koolee/core";
 
 import { optionalEnv } from "@/env";
+import type { AuthUser } from "@/lib/auth";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
 
 /**
@@ -31,4 +32,20 @@ export async function getCustomerSession(): Promise<CustomerSession | null> {
   } catch {
     return null;
   }
+}
+
+/**
+ * Builds the core `CustomerSession` from an already-verified `AuthUser`
+ * (`getAuthUser` validates the token server-side). For pages that gate on
+ * `getAuthUser` anyway, this avoids a second auth round trip before calling
+ * a session-scoped core service such as `listBookingsForSession`.
+ */
+export function customerSessionFromAuthUser(user: AuthUser): CustomerSession {
+  return {
+    kind: "customer",
+    role: "customer",
+    userId: user.id,
+    phone: user.phone ?? "",
+    email: user.email,
+  };
 }

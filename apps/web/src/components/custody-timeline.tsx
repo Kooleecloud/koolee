@@ -1,6 +1,5 @@
-import { format } from "date-fns";
 import { Badge, CustodyTimeline as CustodyTimelineView } from "@koolee/ui";
-import type { CustodyEvent } from "@koolee/core";
+import { formatInstantInAirportTz, type CustodyEvent } from "@koolee/core";
 
 /**
  * Chain-of-custody timeline for /trips — maps `custody_events` rows onto the
@@ -46,7 +45,19 @@ function labelFor(eventType: string): string {
   return LABELS[eventType] ?? eventType;
 }
 
-export function CustodyTimeline({ events }: { events: CustodyEvent[] }) {
+/**
+ * `tz` is required, not defaulted: these timestamps sit next to the pickup
+ * window on the same page, and a custody trail rendered in a different zone
+ * would make the hand-offs look like they happened at the wrong time relative
+ * to the visit the customer is reading about.
+ */
+export function CustodyTimeline({
+  events,
+  tz,
+}: {
+  events: CustodyEvent[];
+  tz: string;
+}) {
   return (
     <CustodyTimelineView
       items={events.map((event, i) => ({
@@ -57,7 +68,7 @@ export function CustodyTimeline({ events }: { events: CustodyEvent[] }) {
             {event.actorRole}
           </Badge>
         ) : undefined,
-        meta: format(event.createdAt, "EEE d MMM, h:mm a"),
+        meta: formatInstantInAirportTz(event.createdAt, tz),
         metaDateTime: event.createdAt.toISOString(),
         photoUrl: event.photoUrl ?? undefined,
         photoAlt: `Evidence for ${labelFor(event.eventType)}`,

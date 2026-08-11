@@ -3,7 +3,7 @@ export * from "./config";
 export * from "./runtime";
 
 export * from "./booking";
-export * from "./flights";
+export * from "./extraction";
 export * from "./slots";
 export * from "./pricing";
 export * from "./payments";
@@ -37,8 +37,12 @@ export type {
   Route,
   RouteStatus,
   Slot,
+  SlotBlock,
   SlotTier,
+  StaffMember,
   TaskStatus,
+  TicketExtractionStatus,
+  TicketUpload,
   User,
   UserRole,
   VerificationTask,

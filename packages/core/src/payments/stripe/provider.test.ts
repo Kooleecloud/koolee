@@ -1,6 +1,7 @@
 import Stripe from "stripe";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
+import { PaymentFailedError } from "../../errors";
 import { WebhookVerificationError } from "../types";
 import { StripeProvider, normalizeEvent } from "./provider";
 
@@ -89,6 +90,82 @@ describe("StripeProvider.verifyWebhook", () => {
 
     expect(() => provider.verifyWebhook("{}", "t=1,v1=abc")).toThrow(
       WebhookVerificationError,
+    );
+  });
+});
+
+describe("StripeProvider.getAuth / updateAuthAmount", () => {
+  function providerWithClient(client: unknown): StripeProvider {
+    return new StripeProvider({
+      secretKey: "sk_test_dummy",
+      client: client as Stripe,
+    });
+  }
+
+  it("getAuth retrieves the intent, mapping status and keeping the client secret", async () => {
+    const retrieve = vi.fn().mockResolvedValue({
+      id: "pi_1",
+      amount: 6800,
+      currency: "usd",
+      status: "requires_payment_method",
+      client_secret: "pi_1_secret_x",
+    });
+    const provider = providerWithClient({ paymentIntents: { retrieve } });
+
+    const auth = await provider.getAuth("pi_1");
+
+    expect(retrieve).toHaveBeenCalledWith("pi_1");
+    expect(auth).toMatchObject({
+      authId: "pi_1",
+      amountCents: 6800,
+      status: "requires_action",
+      clientSecret: "pi_1_secret_x",
+    });
+  });
+
+  it.each([
+    ["requires_capture", "authorized"],
+    ["processing", "processing"],
+    ["canceled", "failed"],
+    ["requires_action", "requires_action"],
+  ] as const)("getAuth maps Stripe status %s to %s", async (stripeStatus, seamStatus) => {
+    const retrieve = vi.fn().mockResolvedValue({
+      id: "pi_1",
+      amount: 100,
+      currency: "usd",
+      status: stripeStatus,
+      client_secret: "pi_1_secret_x",
+    });
+    const provider = providerWithClient({ paymentIntents: { retrieve } });
+
+    expect((await provider.getAuth("pi_1")).status).toBe(seamStatus);
+  });
+
+  it("updateAuthAmount updates the intent amount through the SDK", async () => {
+    const update = vi.fn().mockResolvedValue({
+      id: "pi_1",
+      amount: 7300,
+      currency: "usd",
+      status: "requires_payment_method",
+      client_secret: "pi_1_secret_x",
+    });
+    const provider = providerWithClient({ paymentIntents: { update } });
+
+    const auth = await provider.updateAuthAmount("pi_1", 7300);
+
+    expect(update).toHaveBeenCalledWith("pi_1", { amount: 7300 });
+    expect(auth.amountCents).toBe(7300);
+    expect(auth.clientSecret).toBe("pi_1_secret_x");
+  });
+
+  it("wraps SDK failures in PaymentFailedError", async () => {
+    const retrieve = vi.fn().mockRejectedValue(new Error("No such payment_intent"));
+    const update = vi.fn().mockRejectedValue(new Error("amount cannot be updated"));
+    const provider = providerWithClient({ paymentIntents: { retrieve, update } });
+
+    await expect(provider.getAuth("pi_missing")).rejects.toThrow(PaymentFailedError);
+    await expect(provider.updateAuthAmount("pi_1", 1)).rejects.toThrow(
+      PaymentFailedError,
     );
   });
 });

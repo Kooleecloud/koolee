@@ -1,7 +1,6 @@
 import * as React from "react";
 
 import { cn } from "../lib/utils";
-import { KooleeLogo } from "./koolee-logo";
 
 /*
  * The standardized in-app frame, shared by every post-login surface in web,
@@ -10,89 +9,38 @@ import { KooleeLogo } from "./koolee-logo";
  * Frame decisions (do not re-derive per app):
  *  - Header chrome spans the full `container` (1280px) on every surface, same
  *    metrics as MarketingNav (`h-16`), so the logo never jumps between pages.
- *  - Content sits in ONE standard column per surface type: `default`
- *    (max-w-3xl) for customer/admin pages, `narrow` (max-w-md) for auth forms
- *    and the phone-first agent app, `full` for dense admin tables.
+ *    Below `md` the header collapses nav + actions behind a hamburger — see
+ *    app-header.tsx (server half, keeps `linkComponent={Link}` RSC-safe) and
+ *    app-header-chrome.tsx (client half: hamburger state + panel).
+ *  - Content spans the SAME container as the header (`default`) so pages use
+ *    the full frame width; inside it, pages arrange cards/lists in grids and
+ *    cap form fields at readable widths. `focused` (max-w-3xl) is for guided
+ *    step flows (booking funnel, agent visit); `narrow` (max-w-md) for auth
+ *    forms and small utility screens.
  *  - Vertical rhythm is fixed: `py-10` page padding, `gap-6` between blocks.
  */
 
-export interface AppNavLink {
-  href: string;
-  label: string;
-}
+export { AppHeader, type AppHeaderProps, type AppNavLink } from "./app-header";
 
-export interface AppHeaderProps {
-  /** Primary nav links, rendered next to the logo (e.g. admin sections). */
-  links?: AppNavLink[];
-  /** Right-side slot — session controls, back links, CTAs. */
-  actions?: React.ReactNode;
-  /** Link element for client-side navigation (pass Next.js `Link`). */
-  linkComponent?: React.ElementType;
-  homeHref?: string;
-  /** Sticky by default, matching MarketingNav. */
-  sticky?: boolean;
-  className?: string;
-}
-
-/** One header for all in-app surfaces: logo home-link + nav + actions slot. */
-function AppHeader({
-  links,
-  actions,
-  linkComponent: LinkComponent = "a",
-  homeHref = "/",
-  sticky = true,
-  className,
-}: AppHeaderProps) {
-  return (
-    <header
-      className={cn(
-        "border-b border-border bg-white",
-        sticky && "sticky top-0 z-40",
-        className,
-      )}
-    >
-      <div className="container flex h-16 items-center justify-between gap-4">
-        <div className="flex min-w-0 items-center gap-4">
-          <LinkComponent
-            href={homeHref}
-            className="rounded-md focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-          >
-            <KooleeLogo />
-          </LinkComponent>
-          {links && links.length > 0 ? (
-            <nav aria-label="Main">
-              <ul className="flex items-center gap-1">
-                {links.map((link) => (
-                  <li key={link.href}>
-                    <LinkComponent
-                      href={link.href}
-                      className={cn(
-                        "rounded-md px-3 py-2 text-sm font-medium text-navy-700",
-                        "transition-colors hover:bg-navy-50 hover:text-navy-900",
-                        "focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring",
-                      )}
-                    >
-                      {link.label}
-                    </LinkComponent>
-                  </li>
-                ))}
-              </ul>
-            </nav>
-          ) : null}
-        </div>
-        {actions ? <div className="flex shrink-0 items-center gap-3">{actions}</div> : null}
-      </div>
-    </header>
-  );
-}
-
+/**
+ * Each entry owns its horizontal box completely — including whether it uses
+ * `container` at all. `full` deliberately does not: `container` caps at 1280px,
+ * so a "full" width that kept it was only ever an alias of `default`, which is
+ * what it used to be. Dense operational tables genuinely want the viewport.
+ */
 const CONTENT_WIDTHS = {
-  /** Customer post-login and admin detail pages. */
-  default: "max-w-3xl",
-  /** Auth forms and the phone-first agent app. */
-  narrow: "max-w-md",
-  /** Dense admin tables. */
-  full: "",
+  /** Post-login pages: same container width as the header chrome. */
+  default: "container",
+  /** Guided step flows — booking funnel, agent visit — keep a focused column. */
+  focused: "container max-w-3xl",
+  /** Auth forms and small utility screens. */
+  narrow: "container max-w-md",
+  /**
+   * Full-bleed, for dense tables where every column matters more than the
+   * centered rhythm. Keeps the container's 1.5rem gutters so content never
+   * touches the viewport edge, but drops the 1280px cap.
+   */
+  full: "w-full px-6",
 } as const;
 
 export interface ContentColumnProps extends React.HTMLAttributes<HTMLElement> {
@@ -110,11 +58,7 @@ function ContentColumn({
 }: ContentColumnProps) {
   return (
     <Comp
-      className={cn(
-        "container flex flex-col gap-6 py-10",
-        CONTENT_WIDTHS[width],
-        className,
-      )}
+      className={cn("flex flex-col gap-6 py-10", CONTENT_WIDTHS[width], className)}
       {...props}
     />
   );
@@ -131,7 +75,7 @@ export interface AppFooterProps {
 /** Quiet in-app footer strip, aligned to the content column. */
 function AppFooter({ children, width = "default", className }: AppFooterProps) {
   return (
-    <footer className={cn("container pb-10", CONTENT_WIDTHS[width], className)}>
+    <footer className={cn("pb-10", CONTENT_WIDTHS[width], className)}>
       <div className="border-t border-border pt-6 text-xs leading-relaxed text-muted-foreground">
         {children}
       </div>
@@ -139,4 +83,4 @@ function AppFooter({ children, width = "default", className }: AppFooterProps) {
   );
 }
 
-export { AppHeader, ContentColumn, AppFooter };
+export { ContentColumn, AppFooter };

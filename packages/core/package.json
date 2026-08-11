@@ -8,6 +8,7 @@
     "./slots": "./src/slots/index.ts",
     "./pricing": "./src/pricing/index.ts",
     "./payments": "./src/payments/index.ts",
+    "./extraction": "./src/extraction/index.ts",
     "./auth": "./src/auth/index.ts",
     "./services": "./src/services/index.ts",
     "./jobs": "./src/jobs/index.ts",
@@ -16,18 +17,20 @@
   "scripts": {
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run",
+    "test": "vitest run --exclude '**/*.integration.test.ts'",
     "test:watch": "vitest",
-    "test:integration": "vitest run integration.test",
+    "test:integration": "vitest run integration.test; rc=$?; pnpm --filter @koolee/db seed:local; exit $rc",
     "clean": "rm -rf .turbo node_modules coverage *.tsbuildinfo"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.116.0",
     "@date-fns/tz": "^1.2.0",
     "@koolee/db": "workspace:*",
     "date-fns": "^4.1.0",
     "drizzle-orm": "^0.45.2",
     "inngest": "^4.14.0",
     "stripe": "^22.4.0",
+    "unpdf": "^1.8.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {

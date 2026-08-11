@@ -1,5 +1,12 @@
-import { and, eq } from "drizzle-orm";
-import { addresses, users, type Address, type Database, type User } from "@koolee/db";
+import { and, eq, notExists } from "drizzle-orm";
+import {
+  addresses,
+  bookings,
+  users,
+  type Address,
+  type Database,
+  type User,
+} from "@koolee/db";
 
 import { ConflictError, NotFoundError } from "../errors";
 import { assertInCoverage } from "../coverage/nyc-zips";
@@ -7,117 +14,14 @@ import { assertInCoverage } from "../coverage/nyc-zips";
 /**
  * Customer and address services.
  *
- * TODO(auth): the booking flow calls `ensureCustomerWithAddress` because
- * customer sign-in is not wired into it yet. Once the Supabase phone-OTP
- * session is threaded through (see `packages/core/src/auth`), the flow should
- * resolve `userId` from the session and only ever *add* an address to an
- * already-authenticated user. Creating a user as a side effect of booking is a
- * scaffold convenience, not the intended model.
+ * Every customer row is keyed by the Supabase auth uid (`users.id =
+ * auth.uid()`): the funnel materialises it via `ensureCustomerFromAuth` (the
+ * anonymous session IS a valid customer at draft time), and the verified
+ * identity is attached in place by `attachVerifiedPhone`/`attachEmail` — the
+ * uid never changes on upgrade. The scaffold-era path that created customers
+ * as a side effect of booking (`upsertCustomerByPhone` and friends) is gone;
+ * booking creation resolves `userId` from the session, nothing else.
  */
-
-export interface UpsertCustomerInput {
-  /** E.164. The natural key for a customer. */
-  phone: string;
-  fullName?: string | null;
-  email?: string | null;
-}
-
-export async function upsertCustomerByPhone(
-  db: Database,
-  input: UpsertCustomerInput,
-): Promise<User> {
-  const [row] = await db
-    .insert(users)
-    .values({
-      phone: input.phone,
-      fullName: input.fullName ?? null,
-      email: input.email ?? null,
-      role: "customer",
-    })
-    .onConflictDoUpdate({
-      target: users.phone,
-      set: {
-        fullName: input.fullName ?? null,
-        email: input.email ?? null,
-      },
-    })
-    .returning();
-
-  if (!row) throw new Error("Upsert of customer returned no row");
-  return row;
-}
-
-export interface UpsertCustomerFromAuthInput {
-  /** Supabase auth user id (`auth.uid()`). Used as `users.id` on first sign-in. */
-  authUserId: string;
-  /** E.164. Must match the phone the OTP was verified against. */
-  phone: string;
-  fullName?: string | null;
-  email?: string | null;
-}
-
-/**
- * Upserts the customer row after a verified phone-OTP sign-in, keyed by the
- * Supabase auth user id.
- *
- * Inserting with `id = auth.uid()` is what makes the RLS policies in
- * packages/db work — they compare `auth.uid()` to `bookings.user_id`. Two
- * conflict cases are handled:
- *
- *  - Same phone, pre-auth scaffold row (random id): the phone unique index
- *    wins and the legacy row is kept, id unchanged. Server-side reads still
- *    authorize via `canActOnBooking`, so this only forfeits client-side RLS
- *    for that legacy user.
- *  - Same auth id, changed phone (number migrated in Supabase): the primary
- *    key wins; we fall back to updating the row by id.
- */
-export async function upsertCustomerFromAuth(
-  db: Database,
-  input: UpsertCustomerFromAuthInput,
-): Promise<User> {
-  try {
-    const [row] = await db
-      .insert(users)
-      .values({
-        id: input.authUserId,
-        phone: input.phone,
-        fullName: input.fullName ?? null,
-        email: input.email ?? null,
-        role: "customer",
-      })
-      .onConflictDoUpdate({
-        target: users.phone,
-        set: {
-          phone: input.phone,
-          ...(input.fullName !== undefined ? { fullName: input.fullName } : {}),
-          ...(input.email !== undefined ? { email: input.email } : {}),
-        },
-      })
-      .returning();
-
-    if (!row) throw new Error("Upsert of authenticated customer returned no row");
-    return row;
-  } catch (error) {
-    if (!isUniqueViolation(error)) throw error;
-    // Primary-key conflict: the auth user exists under a different phone.
-    const [row] = await db
-      .update(users)
-      .set({
-        phone: input.phone,
-        ...(input.fullName !== undefined ? { fullName: input.fullName } : {}),
-        ...(input.email !== undefined ? { email: input.email } : {}),
-      })
-      .where(eq(users.id, input.authUserId))
-      .returning();
-
-    if (!row) {
-      throw new Error("Update of authenticated customer returned no row", {
-        cause: error,
-      });
-    }
-    return row;
-  }
-}
 
 /**
  * Postgres unique_violation (23505).
@@ -155,8 +59,8 @@ export interface EnsureCustomerFromAuthInput {
  * touches `last_seen_at`. Called the first time funnel state is persisted
  * (anonymous session) and on every sign-in.
  *
- * Unlike `upsertCustomerFromAuth` this never requires a phone — an anonymous
- * funnel user has none until the payment gate.
+ * Never requires a phone — an anonymous funnel user has none until the
+ * payment gate.
  */
 export async function ensureCustomerFromAuth(
   db: Database,
@@ -315,6 +219,12 @@ export async function completeProfile(
  * Deletes an orphaned anonymous `public.users` row after its draft has been
  * re-parented onto an existing account (phone-conflict flow). Refuses to touch
  * non-anonymous rows; returns false when nothing was deleted.
+ *
+ * Also refuses a row that owns any `bookings` — an anonymous user cannot
+ * reach the payment step, so such a row is an invariant violation to
+ * investigate, not silently destroy. (The `bookings.user_id` ON DELETE
+ * RESTRICT would reject it anyway; checking first keeps the phone-conflict
+ * flow's cleanup a clean no-op instead of a thrown-and-swallowed error.)
  */
 export async function deleteAnonymousCustomer(
   db: Database,
@@ -322,7 +232,15 @@ export async function deleteAnonymousCustomer(
 ): Promise<boolean> {
   const deleted = await db
     .delete(users)
-    .where(and(eq(users.id, authUserId), eq(users.isAnonymous, true)))
+    .where(
+      and(
+        eq(users.id, authUserId),
+        eq(users.isAnonymous, true),
+        notExists(
+          db.select({ one: bookings.id }).from(bookings).where(eq(bookings.userId, users.id)),
+        ),
+      ),
+    )
     .returning({ id: users.id });
   return deleted.length > 0;
 }
@@ -386,23 +304,3 @@ export async function ensureAddress(
   return created;
 }
 
-export interface EnsureCustomerWithAddressInput extends AddressInput {
-  phone: string;
-  fullName?: string | null;
-  email?: string | null;
-}
-
-/** Convenience for the booking flow: customer + address in one call. */
-export async function ensureCustomerWithAddress(
-  db: Database,
-  input: EnsureCustomerWithAddressInput,
-): Promise<{ user: User; address: Address }> {
-  const user = await upsertCustomerByPhone(db, {
-    phone: input.phone,
-    fullName: input.fullName ?? null,
-    email: input.email ?? null,
-  });
-
-  const address = await ensureAddress(db, user.id, input);
-  return { user, address };
-}

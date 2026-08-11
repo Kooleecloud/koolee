@@ -152,7 +152,7 @@ export default function AirportsPage() {
             Flying out of JFK, LGA, or EWR?
           </h2>
           <CTAButton size="lg" asChild>
-            <Link href="/book/zip">Book a pickup</Link>
+            <Link href="/book">Book a pickup</Link>
           </CTAButton>
         </Reveal>
       </Section>

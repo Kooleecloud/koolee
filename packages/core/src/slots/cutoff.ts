@@ -1,16 +1,17 @@
 import { TZDate } from "@date-fns/tz";
 import { differenceInMinutes, format, subMinutes } from "date-fns";
-import type { AirlineCutoff, AirportCode, CutoffScope, Slot, SlotTier } from "@koolee/db";
+import type { AirlineCutoff, AirportCode, CutoffScope } from "@koolee/db";
 
 import { CutoffUnknownError } from "../errors";
 
 /**
- * Cutoff and slot-sellability logic.
+ * Airline-cutoff maths and window display.
  *
- * This is the highest-liability code in the repository. If it returns a slot it
- * should not have, a customer's bags miss their flight. Every function here is
- * pure, every input is an absolute instant, and the whole module is exercised
- * across DST boundaries by the accompanying test file.
+ * This is the highest-liability code in the repository: windows.ts builds the
+ * bookable band on the deadlines computed here, and a wrong deadline is how a
+ * customer's bags miss their flight. Every function here is pure, every input
+ * is an absolute instant, and the module is exercised across DST boundaries
+ * by the accompanying test file.
  *
  * TIMEZONE POLICY (consistent throughout — do not mix in another approach):
  *
@@ -130,135 +131,88 @@ export function resolveCutoffMinutes(
 }
 
 /* ------------------------------------------------------------------ */
-/* Slot filtering                                                      */
-/* ------------------------------------------------------------------ */
-
-/** The slot fields sellability depends on. */
-export interface SellableSlotInput {
-  id: string;
-  airportCode: AirportCode;
-  tier: SlotTier;
-  windowStart: Date;
-  windowEnd: Date;
-  capacity: number;
-  bookedCount: number;
-}
-
-export type SellabilityReason =
-  | "wrong_airport"
-  | "window_in_the_past"
-  | "starts_before_lead_time"
-  | "misses_bag_drop_cutoff"
-  | "at_capacity";
-
-export interface SlotVerdict {
-  slot: SellableSlotInput;
-  sellable: boolean;
-  /** Populated when `sellable` is false. */
-  reason?: SellabilityReason;
-}
-
-export interface SellabilityContext {
-  /** Departure airport for the booking. Slots elsewhere are never sellable. */
-  airportCode: AirportCode;
-  departureAt: Date;
-  cutoffMinutes: number;
-  driveTimeMinutes?: number;
-  bufferMinutes?: number;
-  /** Evaluation instant. Injected so tests are deterministic. */
-  now: Date;
-  /** Minimum notice before a window may start. Defaults to 0. */
-  minimumLeadMinutes?: number;
-}
-
-/**
- * Classifies one slot, with the reason it was rejected.
- *
- * The load-bearing condition is `windowEnd <= latestPickupStart`: the pickup
- * must be able to *begin* at any point in the window, so the whole window has
- * to sit at or before the latest safe start. Comparing `windowStart` instead
- * would sell a 4-hour window that begins safely and ends two hours after the
- * bags needed to be moving.
- */
-export function evaluateSlot(
-  slot: SellableSlotInput,
-  ctx: SellabilityContext,
-): SlotVerdict {
-  if (slot.airportCode !== ctx.airportCode) {
-    return { slot, sellable: false, reason: "wrong_airport" };
-  }
-
-  if (slot.windowEnd.getTime() <= ctx.now.getTime()) {
-    return { slot, sellable: false, reason: "window_in_the_past" };
-  }
-
-  const leadMinutes = ctx.minimumLeadMinutes ?? 0;
-  if (leadMinutes > 0 && differenceInMinutes(slot.windowStart, ctx.now) < leadMinutes) {
-    return { slot, sellable: false, reason: "starts_before_lead_time" };
-  }
-
-  // Checked before capacity on purpose: "this window cannot make your flight"
-  // is the safety-critical answer, and it stays true no matter how the slot
-  // fills up. "Sold out" would mask it.
-  const latestPickupStart = computeLatestPickupStart({
-    departureAt: ctx.departureAt,
-    cutoffMinutes: ctx.cutoffMinutes,
-    driveTimeMinutes: ctx.driveTimeMinutes ?? DEFAULT_DRIVE_TIME_MINUTES,
-    bufferMinutes: ctx.bufferMinutes ?? DEFAULT_BUFFER_MINUTES,
-  });
-
-  if (slot.windowEnd.getTime() > latestPickupStart.getTime()) {
-    return { slot, sellable: false, reason: "misses_bag_drop_cutoff" };
-  }
-
-  if (slot.bookedCount >= slot.capacity) {
-    return { slot, sellable: false, reason: "at_capacity" };
-  }
-
-  return { slot, sellable: true };
-}
-
-/**
- * The only function the booking flow should call to decide what to show.
- *
- * Returns slots in chronological order. Never returns a slot whose
- * `windowEnd` exceeds the latest safe pickup start.
- */
-export function filterSellableSlots<T extends SellableSlotInput>(
-  slots: readonly T[],
-  ctx: SellabilityContext,
-): T[] {
-  return slots
-    .filter((slot) => evaluateSlot(slot, ctx).sellable)
-    .sort((a, b) => a.windowStart.getTime() - b.windowStart.getTime());
-}
-
-/** Same filtering, but keeps the rejected slots and their reasons — for ops. */
-export function explainSlotSellability(
-  slots: readonly SellableSlotInput[],
-  ctx: SellabilityContext,
-): SlotVerdict[] {
-  return slots
-    .map((slot) => evaluateSlot(slot, ctx))
-    .sort((a, b) => a.slot.windowStart.getTime() - b.slot.windowStart.getTime());
-}
-
-/** Narrows a database row to the shape the filters need. */
-export function toSellableSlotInput(slot: Slot): SellableSlotInput {
-  return {
-    id: slot.id,
-    airportCode: slot.airportCode,
-    tier: slot.tier,
-    windowStart: slot.windowStart,
-    windowEnd: slot.windowEnd,
-    capacity: slot.capacity,
-    bookedCount: slot.bookedCount,
-  };
-}
-
-/* ------------------------------------------------------------------ */
 /* Display                                                             */
 /* ------------------------------------------------------------------ */
+
+/**
+ * ZONE LABELLING (why every formatter below ends in an abbreviation).
+ *
+ * A booking is read by three people in three places: the customer who buys
+ * the window, the agent who shows up for it, and the dispatcher who plans
+ * around it. They all read the SAME string, rendered in the booking's zone —
+ * never the viewer's. That guarantee is worthless if the string doesn't say
+ * which zone it is: "10:00 AM" is read as local by a customer booking from
+ * London, and they will be out when the driver arrives.
+ *
+ * The abbreviation comes from `Intl`, not date-fns. date-fns' `zzz` token on a
+ * TZDate emits the OFFSET ("GMT-5"), not the name ("EST") — verified, and
+ * "GMT-5" is worse than nothing for a customer. `Intl` is therefore allowed in
+ * this module and banned everywhere else (see the lint rule in eslint.config).
+ */
+
+/** Milliseconds in an hour — DST detection compares adjacent wall-clock hours. */
+const HOUR_MS = 60 * 60 * 1000;
+
+/**
+ * The zone's short name at a given instant — "EST" in January, "EDT" in July.
+ *
+ * Instant-dependent by necessity: the same zone has two names a year, and
+ * which one applies is exactly what disambiguates the repeated hour below.
+ */
+export function zoneAbbrev(instant: Date, tz: string): string {
+  const part = new Intl.DateTimeFormat("en-US", {
+    timeZone: tz,
+    timeZoneName: "short",
+  })
+    .formatToParts(instant)
+    .find((p) => p.type === "timeZoneName");
+  // Intl always emits the part for a valid zone; the fallback keeps a label
+  // bug from becoming a thrown exception on a booking page.
+  return part?.value ?? "";
+}
+
+/** `yyyy-MM-dd HH` in the given zone — the identity of one wall-clock hour. */
+function wallHourKey(instant: Date, tz: string): string {
+  return format(new TZDate(instant, tz), "yyyy-MM-dd HH");
+}
+
+/**
+ * Plain-language warning for the two nights a year a wall-clock label lies.
+ *
+ * Koolee sells windows 24/7/365, so both DST edge cases are inventory we
+ * actually take money for:
+ *
+ *   - fall back: two distinct one-hour windows both render "1:00 AM – 2:00 AM".
+ *     `EDT`/`EST` technically separates them, but no customer reads it that
+ *     way, so we say it in words.
+ *   - spring forward: the 2 AM hour does not exist, so the picker shows a jump
+ *     from 1 AM to 3 AM. Nothing is missing — but an unexplained gap reads as
+ *     a bug, and support pays for it.
+ *
+ * Detection is by observation, not offset arithmetic: if the next hour carries
+ * the same wall-clock label, this is the first of the pair; if the previous
+ * hour does, this is the second. That works in any zone, including the
+ * half-hour and 45-minute ones, with no table of transition dates to
+ * maintain.
+ *
+ * Returns null on all the ordinary days, which is 363 of them.
+ */
+export function dstTransitionNote(windowStart: Date, tz: string): string | null {
+  const here = wallHourKey(windowStart, tz);
+  const prev = wallHourKey(new Date(windowStart.getTime() - HOUR_MS), tz);
+  const next = wallHourKey(new Date(windowStart.getTime() + HOUR_MS), tz);
+
+  if (here === next) return "first of two — clocks go back during this hour";
+  if (here === prev) return "second of two — clocks have already gone back";
+
+  // Wall clock skipped an hour between the previous window and this one: the
+  // hour in between was never lived through.
+  const hourOf = (key: string) => Number(key.slice(-2));
+  const skipped = (hourOf(here) - hourOf(prev) + 24) % 24;
+  if (skipped === 2) return "clocks go forward — there is no earlier hour tonight";
+
+  return null;
+}
 
 /**
  * Formats a window in the airport's local time.
@@ -274,13 +228,109 @@ export function formatWindowInAirportTz(
   const start = new TZDate(windowStart, tz);
   const end = new TZDate(windowEnd, tz);
 
+  // The END's abbreviation, not the start's: a window that straddles the
+  // transition is handed over after the clocks change, and the handover time
+  // is the one the agent and customer have to agree on.
+  const zone = zoneAbbrev(windowEnd, tz);
   const sameDay = format(start, "yyyy-MM-dd") === format(end, "yyyy-MM-dd");
   return sameDay
-    ? `${format(start, "EEE d MMM, h:mm a")} – ${format(end, "h:mm a")}`
-    : `${format(start, "EEE d MMM, h:mm a")} – ${format(end, "EEE d MMM, h:mm a")}`;
+    ? `${format(start, "EEE d MMM, h:mm a")} – ${format(end, "h:mm a")} ${zone}`
+    : `${format(start, "EEE d MMM, h:mm a")} – ${format(end, "EEE d MMM, h:mm a")} ${zone}`;
 }
 
 /** The airport-local calendar day an instant falls on, as `yyyy-MM-dd`. */
 export function airportLocalDay(instant: Date, tz: string): string {
   return format(new TZDate(instant, tz), "yyyy-MM-dd");
+}
+
+/** Human day heading in airport local time — "Tue 10 Jun". */
+export function formatDayInAirportTz(instant: Date, tz: string): string {
+  return format(new TZDate(instant, tz), "EEE d MMM");
+}
+
+/**
+ * Day and time of a single instant, airport-local — "Tue 10 Jun, 6:20 PM EDT".
+ */
+export function formatInstantInAirportTz(instant: Date, tz: string): string {
+  return `${format(new TZDate(instant, tz), "EEE d MMM, h:mm a")} ${zoneAbbrev(instant, tz)}`;
+}
+
+/**
+ * Just the hour span, airport-local — "10:00 AM – 11:00 AM EDT". For compact
+ * window tiles under a day heading, where repeating the date is noise.
+ *
+ * The zone still is not noise: these tiles are what a customer picks from and
+ * what an agent reads at the door.
+ */
+export function formatHourRangeInAirportTz(
+  windowStart: Date,
+  windowEnd: Date,
+  tz: string,
+): string {
+  return `${format(new TZDate(windowStart, tz), "h:mm a")} – ${format(
+    new TZDate(windowEnd, tz),
+    "h:mm a",
+  )} ${zoneAbbrev(windowEnd, tz)}`;
+}
+
+/**
+ * `yyyy-MM-ddTHH:mm` in the airport's zone — the value format an
+ * `<input type="datetime-local">` expects.
+ *
+ * A datetime-local input has no zone of its own: it round-trips whatever wall
+ * clock you hand it. Feeding it a system-zone render means a customer reopens
+ * the flight step and finds their 6 PM departure showing as 22:00.
+ */
+export function formatDateTimeLocalInAirportTz(instant: Date, tz: string): string {
+  return format(new TZDate(instant, tz), "yyyy-MM-dd'T'HH:mm");
+}
+
+/**
+ * The absolute instant of an airport-local wall-clock hour — the inverse
+ * edge of `airportLocalDay`, for ops input ("block Aug 12, 2 PM at JFK").
+ * DST-correct because TZDate owns the offset lookup.
+ */
+export function airportLocalInstant(
+  day: string,
+  hour: number,
+  tz: string,
+): Date {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(day);
+  if (!match || !Number.isInteger(hour) || hour < 0 || hour > 23) {
+    throw new RangeError(`Invalid airport-local day/hour: ${day} ${hour}`);
+  }
+  const [, year, month, dayOfMonth] = match.map(Number);
+  return new Date(
+    new TZDate(year!, month! - 1, dayOfMonth!, hour, 0, 0, tz).getTime(),
+  );
+}
+
+/**
+ * The half-open instant range covering the airport-local calendar day that
+ * `instant` falls on: `[start, end)`.
+ *
+ * Anything that buckets rows "by day" needs this rather than
+ * `setHours(0,0,0,0)`. Server-local midnight is UTC midnight in production,
+ * which slices an Eastern day at 8 or 7 PM the evening before — so a
+ * "today's pickups" query and a "today" badge computed from the airport
+ * timezone would disagree about the same row.
+ *
+ * The next day is derived by calendar arithmetic on the `yyyy-MM-dd` string,
+ * not by adding 24 hours, so the DST days that are 23 or 25 hours long still
+ * produce exactly one day.
+ */
+export function airportLocalDayBounds(
+  instant: Date,
+  tz: string,
+): { start: Date; end: Date } {
+  const day = airportLocalDay(instant, tz);
+  const [year, month, dayOfMonth] = day.split("-").map(Number);
+  const nextDay = new Date(Date.UTC(year!, month! - 1, dayOfMonth! + 1))
+    .toISOString()
+    .slice(0, 10);
+
+  return {
+    start: airportLocalInstant(day, 0, tz),
+    end: airportLocalInstant(nextDay, 0, tz),
+  };
 }

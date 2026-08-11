@@ -1,12 +1,16 @@
-import { redirect } from "next/navigation";
-import { format } from "date-fns";
 import { FormMessage, Input, Label, PageHeader, Select } from "@koolee/ui";
+import {
+  FALLBACK_DISPLAY_TZ,
+  formatDateTimeLocalInAirportTz,
+  resolveDisplayTz,
+} from "@koolee/core";
 
 import { submitFlight } from "@/app/book/actions";
 import { TurnstileFormField } from "@/components/auth/turnstile-gate";
-import { StepForm } from "@/components/step-form";
+import { CoverageStepForm } from "@/components/coverage-step-form";
 import { TicketUpload } from "@/components/ticket-upload";
 import { readDraft } from "@/lib/booking-draft";
+import { tryGetCore } from "@/lib/core";
 
 export const metadata = { title: "Your flight" };
 export const dynamic = "force-dynamic";
@@ -17,14 +21,51 @@ export default async function FlightStepPage({
   searchParams: Promise<{ from?: string }>;
 }) {
   const draft = await readDraft();
-  if (!draft.zip) redirect("/book/zip");
 
   const { from } = await searchParams;
-  const fromTicket = from === "ticket";
 
-  const departureAtDefault = draft.departureAt
-    ? format(new Date(draft.departureAt), "yyyy-MM-dd'T'HH:mm")
-    : "";
+  // The REVIEW FORM contract: raw extraction output lives only in the
+  // quarantined `ticketPrefill` key and is used here as editable defaults.
+  // Confirming this form (submitFlight) is what persists values — and the
+  // prefill is cleared in the same action. Manual entries win over prefill.
+  const prefill = draft.ticketPrefill;
+  const fromTicket = from === "ticket" && Boolean(prefill);
+
+  const core = tryGetCore();
+  const airportTz =
+    core && draft.departureAirport
+      ? await resolveDisplayTz(core.db, draft.departureAirport).catch(
+          () => FALLBACK_DISPLAY_TZ,
+        )
+      : FALLBACK_DISPLAY_TZ;
+  const lowConfidence = fromTicket && prefill?.confidence === "low";
+
+  // Extracted fields get an attention ring (sky, matching the info banner —
+  // Tag Orange stays reserved for CTAs per the brand system).
+  const flagged = (value: unknown) =>
+    fromTicket && value !== undefined
+      ? "border-sky-400 ring-1 ring-sky-300"
+      : undefined;
+
+  // A datetime-local input round-trips whatever wall clock it is given, so
+  // this has to be the AIRPORT's — otherwise a customer who comes back to this
+  // step finds their 6 PM departure showing as 22:00 (the server renders UTC).
+  const departureAtDefault = fromTicket
+    ? (prefill?.departureAtLocal ?? "")
+    : draft.departureAt
+      ? formatDateTimeLocalInAirportTz(new Date(draft.departureAt), airportTz)
+      : "";
+
+  const flightNumberDefault = fromTicket
+    ? (prefill?.flightNumber ?? "")
+    : (draft.flightNumber ?? "");
+  const airportDefault = fromTicket
+    ? (prefill?.departureAirport ?? draft.departureAirport ?? "JFK")
+    : (draft.departureAirport ?? "JFK");
+  const scopeDefault = fromTicket
+    ? (prefill?.scope ?? draft.scope ?? "domestic")
+    : (draft.scope ?? "domestic");
+  const paxNameDefault = fromTicket ? (prefill?.paxName ?? "") : (draft.paxName ?? "");
 
   return (
     <div className="flex flex-col gap-6">
@@ -33,25 +74,49 @@ export default async function FlightStepPage({
         subtitle={
           fromTicket
             ? "Here's what we read from your ticket — check every field before continuing."
-            : "We use your airline's bag-drop cutoff to work out which pickup windows can still get your bags there in time."
+            : "Tell us where your bags are and which flight they're catching — your airline's bag-drop cutoff decides which pickup windows we can offer."
         }
       />
 
-      {fromTicket && (
+      {fromTicket && !lowConfidence && (
         <FormMessage variant="info">
-          We filled this in from your e-ticket. Nothing is booked until you review and
-          continue.
+          We filled this in from your e-ticket. The highlighted fields came from the
+          upload — nothing is saved until you review and continue.
+        </FormMessage>
+      )}
+      {lowConfidence && (
+        <FormMessage variant="error">
+          We weren&apos;t confident reading your ticket — please check every highlighted
+          field carefully (or just type your flight in fresh).
         </FormMessage>
       )}
 
-      <StepForm action={submitFlight} submitLabel="Continue">
+      <CoverageStepForm action={submitFlight} retryHref="/book/flight">
+        <div className="grid gap-2">
+          <Label htmlFor="zip">Pickup ZIP code</Label>
+          <Input
+            id="zip"
+            name="zip"
+            inputMode="numeric"
+            placeholder="10001"
+            defaultValue={draft.zip ?? ""}
+            autoComplete="postal-code"
+            maxLength={10}
+            required
+          />
+          <p className="text-xs text-muted-foreground">
+            We currently cover Manhattan, parts of Brooklyn and Queens, and Jersey City.
+          </p>
+        </div>
+
         <div className="grid gap-2">
           <Label htmlFor="flightNumber">Flight number</Label>
           <Input
             id="flightNumber"
             name="flightNumber"
             placeholder="DL123"
-            defaultValue={draft.flightNumber ?? ""}
+            defaultValue={flightNumberDefault}
+            className={flagged(prefill?.flightNumber)}
             autoComplete="off"
             required
           />
@@ -62,7 +127,8 @@ export default async function FlightStepPage({
           <Select
             id="departureAirport"
             name="departureAirport"
-            defaultValue={draft.departureAirport ?? "JFK"}
+            defaultValue={airportDefault}
+            className={flagged(prefill?.departureAirport)}
             required
           >
             <option value="JFK">JFK — John F. Kennedy</option>
@@ -78,13 +144,19 @@ export default async function FlightStepPage({
             name="departureAt"
             type="datetime-local"
             defaultValue={departureAtDefault}
+            className={flagged(prefill?.departureAtLocal)}
             required
           />
         </div>
 
         <div className="grid gap-2">
           <Label htmlFor="scope">Destination</Label>
-          <Select id="scope" name="scope" defaultValue={draft.scope ?? "domestic"}>
+          <Select
+            id="scope"
+            name="scope"
+            defaultValue={scopeDefault}
+            className={flagged(prefill?.scope)}
+          >
             <option value="domestic">Domestic</option>
             <option value="international">International</option>
           </Select>
@@ -99,7 +171,8 @@ export default async function FlightStepPage({
             id="paxName"
             name="paxName"
             placeholder="Jordan Alvarez"
-            defaultValue={draft.paxName ?? ""}
+            defaultValue={paxNameDefault}
+            className={flagged(prefill?.paxName)}
             autoComplete="name"
             required
           />
@@ -112,7 +185,7 @@ export default async function FlightStepPage({
             needs a captchaToken once CAPTCHA protection is on. Invisible;
             never blocks paint. */}
         <TurnstileFormField />
-      </StepForm>
+      </CoverageStepForm>
 
       <TicketUpload />
     </div>

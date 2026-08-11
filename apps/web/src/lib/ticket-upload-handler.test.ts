@@ -1,0 +1,142 @@
+import { describe, expect, it } from "vitest";
+import { FakeTicketExtractor, MAX_TICKET_UPLOAD_BYTES } from "@koolee/core";
+
+import {
+  handleTicketUpload,
+  UPLOAD_COPY,
+  type TicketUploadDeps,
+} from "./ticket-upload-handler";
+
+/**
+ * The upload pipeline with fakes: limits, mime allowlist, private-bucket
+ * storage path, `ticket_uploads` row creation, and the quarantine contract —
+ * the pipeline returns a review-form prefill and touches nothing else.
+ */
+
+const DRAFT_ID = "11111111-1111-4111-8111-111111111111";
+
+function makeDeps() {
+  const calls = {
+    ensureBucket: 0,
+    uploads: [] as Array<{ path: string; contentType: string; bytes: number }>,
+    rows: [] as Array<Record<string, unknown>>,
+    statuses: [] as Array<{ id: string; status: string }>,
+  };
+  const extractor = new FakeTicketExtractor();
+  const deps: TicketUploadDeps = {
+    draftId: DRAFT_ID,
+    extractor,
+    storage: {
+      async ensureBucket() {
+        calls.ensureBucket += 1;
+      },
+      async upload(path, data, contentType) {
+        calls.uploads.push({ path, contentType, bytes: data.byteLength });
+      },
+    },
+    async createUploadRow(input) {
+      calls.rows.push({ ...input });
+      return { id: "22222222-2222-4222-8222-222222222222" };
+    },
+    async setUploadStatus(input) {
+      calls.statuses.push(input);
+    },
+  };
+  return { deps, calls, extractor };
+}
+
+const pdfFile = (bytes = 1024) => ({
+  data: new Uint8Array(bytes).fill(1),
+  mimeType: "application/pdf",
+  fileName: "ticket.pdf",
+});
+
+describe("handleTicketUpload", () => {
+  it("rejects a missing file", async () => {
+    const { deps, calls } = makeDeps();
+    const outcome = await handleTicketUpload(deps, null);
+    expect(outcome).toEqual({ ok: false, status: 400, error: UPLOAD_COPY.missing });
+    expect(calls.uploads).toHaveLength(0);
+    expect(calls.rows).toHaveLength(0);
+  });
+
+  it("enforces the size limit before any storage write", async () => {
+    const { deps, calls } = makeDeps();
+    const outcome = await handleTicketUpload(deps, pdfFile(MAX_TICKET_UPLOAD_BYTES + 1));
+    expect(outcome).toEqual({ ok: false, status: 413, error: UPLOAD_COPY.tooLarge });
+    expect(calls.uploads).toHaveLength(0);
+    expect(calls.rows).toHaveLength(0);
+  });
+
+  it("enforces the mime allowlist", async () => {
+    const { deps, calls } = makeDeps();
+    const outcome = await handleTicketUpload(deps, {
+      data: new Uint8Array(10).fill(1),
+      mimeType: "application/zip",
+    });
+    expect(outcome).toEqual({ ok: false, status: 415, error: UPLOAD_COPY.badType });
+    expect(calls.uploads).toHaveLength(0);
+  });
+
+  it("stores in the private bucket under the draft's path and records the row", async () => {
+    const { deps, calls } = makeDeps();
+    const outcome = await handleTicketUpload(deps, pdfFile());
+
+    expect(outcome.ok).toBe(true);
+    // Bucket is ensured (private — asserted by the storage impl contract)
+    // before the object is written under tickets/<draftId>/.
+    expect(calls.ensureBucket).toBe(1);
+    expect(calls.uploads).toHaveLength(1);
+    expect(calls.uploads[0]!.path).toMatch(
+      new RegExp(`^tickets/${DRAFT_ID}/[0-9a-f-]{36}\\.pdf$`),
+    );
+    expect(calls.uploads[0]!.contentType).toBe("application/pdf");
+
+    // The ticket_uploads row carries the bookkeeping, checksum included.
+    expect(calls.rows).toHaveLength(1);
+    expect(calls.rows[0]).toMatchObject({
+      draftId: DRAFT_ID,
+      mimeType: "application/pdf",
+      sizeBytes: 1024,
+    });
+    expect(String(calls.rows[0]!.checksum)).toMatch(/^[0-9a-f]{64}$/);
+    expect(calls.statuses).toEqual([
+      { id: "22222222-2222-4222-8222-222222222222", status: "extracted" },
+    ]);
+  });
+
+  it("returns a review-form prefill — and nothing that could write a booking", async () => {
+    const { deps } = makeDeps();
+    const outcome = await handleTicketUpload(deps, pdfFile());
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    // Prefill mirrors the fake fixture and carries the confidence flag; the
+    // caller is only ever handed data to show the user, never a persisted fact.
+    expect(outcome.prefill).toMatchObject({
+      flightNumber: "UA1189",
+      departureAirport: "JFK",
+      confidence: "high",
+      uploadId: outcome.uploadId,
+    });
+  });
+
+  it("maps an unreadable extraction to the manual-entry fallback and marks the row", async () => {
+    const { deps, calls, extractor } = makeDeps();
+    extractor.failWith = "no text layer";
+    const outcome = await handleTicketUpload(deps, pdfFile());
+    expect(outcome).toEqual({ ok: false, status: 200, error: UPLOAD_COPY.unreadable });
+    expect(calls.statuses).toEqual([
+      { id: "22222222-2222-4222-8222-222222222222", status: "unreadable" },
+    ]);
+  });
+
+  it("degrades cleanly when storage fails — no row is written", async () => {
+    const { deps, calls } = makeDeps();
+    deps.storage.upload = async () => {
+      throw new Error("bucket unavailable");
+    };
+    const outcome = await handleTicketUpload(deps, pdfFile());
+    expect(outcome).toEqual({ ok: false, status: 502, error: UPLOAD_COPY.storageFailed });
+    expect(calls.rows).toHaveLength(0);
+  });
+});

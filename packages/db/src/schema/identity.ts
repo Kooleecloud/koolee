@@ -49,6 +49,8 @@ export const addresses = pgTable(
     userId: uuid("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
+    /** Customer-facing name for a saved address ("Home", "Office"). */
+    label: text("label"),
     line1: text("line1").notNull(),
     line2: text("line2"),
     city: text("city").notNull(),

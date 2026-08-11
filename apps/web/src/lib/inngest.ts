@@ -1,6 +1,7 @@
 import "server-only";
 
 import { cron } from "inngest";
+import { captureDueBookings } from "@koolee/core";
 import {
   cleanupAnonymousUsers,
   createInngestClient,
@@ -50,7 +51,38 @@ const cleanupAnonymousUsersCron = inngest.createFunction(
   },
 );
 
+/**
+ * Capture the money once the bags are in our custody. Lives here for the same
+ * reason the route does: apps/web is the app with Stripe credentials. The
+ * agent app completes the visit and deliberately never touches payments, so
+ * without this nothing would ever charge the customer.
+ *
+ * Every 5 minutes rather than on a transition, because nothing server-side
+ * observes the agent's completion. Card authorizations are valid for days, so
+ * a few minutes' lag costs nothing; the sweep is idempotent, so overlapping
+ * runs are harmless. Also invokable by hand via /api/jobs/capture-due.
+ */
+const captureDueCron = inngest.createFunction(
+  {
+    id: "capture-due-bookings",
+    name: "Capture authorizations for bags already in custody",
+    triggers: [cron("*/5 * * * *")],
+  },
+  async ({ step, logger }) => {
+    return step.run("capture-due", async () => {
+      const result = await captureDueBookings(getCore());
+      if (result.captured.length > 0 || result.failed.length > 0) {
+        logger.info(
+          `captured ${result.captured.length}, failed ${result.failed.length}`,
+        );
+      }
+      return result;
+    });
+  },
+);
+
 export const functions = [
   ...createKooleeFunctions(inngest, () => getCore()),
   cleanupAnonymousUsersCron,
+  captureDueCron,
 ];

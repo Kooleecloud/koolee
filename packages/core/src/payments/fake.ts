@@ -20,7 +20,14 @@ import {
  * no cryptography.
  */
 
-type AuthState = "authorized" | "captured" | "cancelled";
+type AuthState =
+  /** Awaiting client confirmation — Stripe's `requires_payment_method` family. */
+  | "pending_confirmation"
+  /** Confirmed, outcome not yet known — Stripe's `processing`. */
+  | "processing"
+  | "authorized"
+  | "captured"
+  | "cancelled";
 
 interface FakeAuthRecord {
   authId: string;
@@ -43,6 +50,13 @@ export interface FakePaymentProviderOptions {
   idFactory?: (prefix: string) => string;
   /** Force `authorize` to fail — for exercising rollback paths. */
   failAuthorize?: boolean;
+  /**
+   * Stripe parity mode: `authorize` returns `requires_action` + a client
+   * secret instead of authorizing instantly, and the test drives the
+   * browser's part with `simulateClientConfirmation`. Default OFF, so the
+   * credential-less dev funnel keeps its one-click instant authorization.
+   */
+  requiresClientConfirmation?: boolean;
 }
 
 export class FakePaymentProvider implements PaymentProvider {
@@ -55,10 +69,12 @@ export class FakePaymentProvider implements PaymentProvider {
 
   #counter = 0;
   failAuthorize: boolean;
+  requiresClientConfirmation: boolean;
 
   constructor(options: FakePaymentProviderOptions = {}) {
     this.#currency = options.currency ?? "usd";
     this.failAuthorize = options.failAuthorize ?? false;
+    this.requiresClientConfirmation = options.requiresClientConfirmation ?? false;
     this.#idFactory =
       options.idFactory ??
       ((prefix) => {
@@ -82,11 +98,14 @@ export class FakePaymentProvider implements PaymentProvider {
     }
 
     const authId = this.#idFactory("auth");
+    const state: AuthState = this.requiresClientConfirmation
+      ? "pending_confirmation"
+      : "authorized";
     this.#auths.set(authId, {
       authId,
       bookingId,
       amountCents,
-      state: "authorized",
+      state,
       capturedCents: 0,
     });
 
@@ -94,9 +113,49 @@ export class FakePaymentProvider implements PaymentProvider {
       authId,
       amountCents,
       currency: this.#currency,
-      status: "authorized",
+      status: state === "authorized" ? "authorized" : "requires_action",
       clientSecret: `${authId}_secret_fake`,
     });
+  }
+
+  /** Current provider-side state, like `paymentIntents.retrieve`. */
+  getAuth(authId: string): Promise<PaymentAuth> {
+    const auth = this.#auths.get(authId);
+    if (!auth) {
+      return Promise.reject(
+        new PaymentFailedError(`FakePaymentProvider: unknown authId ${authId}`),
+      );
+    }
+    return Promise.resolve(this.#toPaymentAuth(auth));
+  }
+
+  /**
+   * Amount change on a not-yet-confirmed authorization — legal in exactly
+   * the states Stripe allows `paymentIntents.update({ amount })` in.
+   */
+  updateAuthAmount(authId: string, amountCents: number): Promise<PaymentAuth> {
+    const auth = this.#auths.get(authId);
+    if (!auth) {
+      return Promise.reject(
+        new PaymentFailedError(`FakePaymentProvider: unknown authId ${authId}`),
+      );
+    }
+    if (auth.state !== "pending_confirmation") {
+      return Promise.reject(
+        new PaymentFailedError(
+          `FakePaymentProvider: cannot change the amount of ${authId} in state ${auth.state}`,
+        ),
+      );
+    }
+    if (!Number.isInteger(amountCents) || amountCents < 0) {
+      return Promise.reject(
+        new PaymentFailedError(
+          `FakePaymentProvider: amountCents must be a non-negative integer, got ${amountCents}`,
+        ),
+      );
+    }
+    auth.amountCents = amountCents;
+    return Promise.resolve(this.#toPaymentAuth(auth));
   }
 
   capture(authId: string, amountCents?: number): Promise<PaymentCapture> {
@@ -117,6 +176,13 @@ export class FakePaymentProvider implements PaymentProvider {
       return Promise.reject(
         new PaymentFailedError(
           `FakePaymentProvider: ${authId} has already been captured`,
+        ),
+      );
+    }
+    if (auth.state === "pending_confirmation" || auth.state === "processing") {
+      return Promise.reject(
+        new PaymentFailedError(
+          `FakePaymentProvider: ${authId} is not authorized yet (${auth.state}) and cannot be captured`,
         ),
       );
     }
@@ -232,7 +298,86 @@ export class FakePaymentProvider implements PaymentProvider {
     };
   }
 
+  #toPaymentAuth(auth: FakeAuthRecord): PaymentAuth {
+    const status: PaymentAuth["status"] =
+      auth.state === "pending_confirmation"
+        ? "requires_action"
+        : auth.state === "processing"
+          ? "processing"
+          : auth.state === "cancelled"
+            ? "failed"
+            : "authorized"; // authorized and captured both hold/held the funds
+    return {
+      authId: auth.authId,
+      amountCents: auth.amountCents,
+      currency: this.#currency,
+      status,
+      ...(auth.state === "pending_confirmation"
+        ? { clientSecret: `${auth.authId}_secret_fake` }
+        : {}),
+    };
+  }
+
   /* --- test helpers ------------------------------------------------- */
+
+  /**
+   * The browser's part of the flow, driven from a test: what
+   * `stripe.confirmPayment` + the card network decide.
+   *
+   *  - "success": funds held → authorized (the webhook/re-check may now
+   *    advance the booking);
+   *  - "processing": confirmation submitted, outcome pending;
+   *  - "failure": declined — back to awaiting confirmation, exactly like
+   *    Stripe returning the intent to `requires_payment_method` (the same
+   *    intent stays reusable for a retry).
+   */
+  simulateClientConfirmation(
+    authId: string,
+    outcome: "success" | "processing" | "failure",
+  ): PaymentAuth {
+    const auth = this.#auths.get(authId);
+    if (!auth) {
+      throw new PaymentFailedError(`FakePaymentProvider: unknown authId ${authId}`);
+    }
+    if (auth.state !== "pending_confirmation" && auth.state !== "processing") {
+      throw new PaymentFailedError(
+        `FakePaymentProvider: ${authId} is ${auth.state}; there is nothing to confirm`,
+      );
+    }
+    auth.state =
+      outcome === "success"
+        ? "authorized"
+        : outcome === "processing"
+          ? "processing"
+          : "pending_confirmation";
+    return this.#toPaymentAuth(auth);
+  }
+
+  /**
+   * Webhook-event simulation, mirroring what Stripe + `stripe listen` give
+   * you in real dev: builds the exact `{payload, signature}` pair the
+   * webhook route accepts, so integration tests exercise the full
+   * verify → normalise → handle path without Stripe.
+   *
+   *   const { payload, signature } = provider.simulateWebhook({
+   *     type: "payment.captured", providerRef: auth.authId,
+   *   });
+   *   const event = provider.verifyWebhook(payload, signature);
+   *   await handlePaymentEvent(core, event);
+   */
+  simulateWebhook(
+    event: Pick<PaymentEvent, "type" | "providerRef"> &
+      Partial<Pick<PaymentEvent, "id" | "amountCents" | "bookingId">>,
+  ): { payload: string; signature: string } {
+    const full: PaymentEvent = {
+      id: event.id ?? this.#idFactory("evt"),
+      type: event.type,
+      providerRef: event.providerRef,
+      ...(event.amountCents === undefined ? {} : { amountCents: event.amountCents }),
+      ...(event.bookingId === undefined ? {} : { bookingId: event.bookingId }),
+    };
+    return { payload: JSON.stringify(full), signature: "fake-signature" };
+  }
 
   /** Current state of an authorization, for assertions. */
   inspectAuth(authId: string): Readonly<FakeAuthRecord> | undefined {

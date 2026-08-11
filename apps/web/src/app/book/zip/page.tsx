@@ -1,22 +1,9 @@
-import { PageHeader } from "@koolee/ui";
+import { redirect } from "next/navigation";
 
-import { ZipStepForm } from "@/components/zip-step-form";
-import { readDraft } from "@/lib/booking-draft";
-
-export const metadata = { title: "Where are your bags?" };
-export const dynamic = "force-dynamic";
-
-export default async function ZipStepPage() {
-  const draft = await readDraft();
-
-  return (
-    <div className="flex flex-col gap-6">
-      <PageHeader
-        title="Where are your bags?"
-        subtitle={<>Enter your pickup ZIP and we&apos;ll confirm we can collect there.</>}
-      />
-
-      <ZipStepForm defaultZip={draft.zip ?? ""} />
-    </div>
-  );
+/**
+ * Retired step: ZIP moved onto the flight step when the funnel merged from
+ * seven pages to four. Old links and bookmarks resume via /book.
+ */
+export default function RetiredZipStepPage() {
+  redirect("/book");
 }
