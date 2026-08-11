@@ -167,32 +167,62 @@ function CheckoutForm({
     setSubmitting(true);
     setMessage(null);
 
-    if (needsContactPhone) {
-      const saved = await saveCheckoutContactPhone(bookingId, contactPhone);
-      if (!saved.ok) {
-        setMessage(saved.error);
-        setSubmitting(false);
-        return;
+    // Every exit path below must either re-enable the button or be a redirect.
+    // Note there is deliberately NO `finally { setSubmitting(false) }`: the
+    // success path leaves this component mounted while the browser navigates to
+    // /book/return, and re-enabling the button there would reopen a
+    // double-submit window on a payment that already went through.
+    try {
+      if (needsContactPhone) {
+        const saved = await saveCheckoutContactPhone(bookingId, contactPhone);
+        if (!saved.ok) {
+          setMessage(saved.error);
+          setSubmitting(false);
+          return;
+        }
       }
-    }
 
-    // Always redirects to /book/return on success (3DS challenges included);
-    // the server-side re-check there is what advances the booking.
-    const { error } = await stripe.confirmPayment({
-      elements,
-      confirmParams: {
-        return_url: `${window.location.origin}/book/return?booking=${bookingId}`,
-      },
-    });
+      // Always redirects to /book/return on success (3DS challenges included);
+      // the server-side re-check there is what advances the booking.
+      const { error } = await stripe.confirmPayment({
+        elements,
+        confirmParams: {
+          return_url: `${window.location.origin}/book/return?booking=${bookingId}`,
+        },
+      });
 
-    // Only reached when confirmation failed before any redirect. Copy never
-    // overclaims: a declined/incomplete attempt has taken no money.
-    if (error) {
+      // Only reached when confirmation failed before any redirect. Copy never
+      // overclaims: a declined/incomplete attempt has taken no money.
+      if (error) {
+        setMessage(
+          (error.type === "card_error" || error.type === "validation_error") &&
+            error.message
+            ? error.message
+            : "We couldn't process that card. You have not been charged — try again or use a different card.",
+        );
+        setSubmitting(false);
+      }
+    } catch (error) {
+      // A THROW, not a returned `error`: a dropped connection, a Stripe.js
+      // failure, or the server action rejecting. Without this the button stayed
+      // disabled forever with no message — the customer's only way out of the
+      // payment step was to reload and hope.
+      //
+      // Logged as well as shown: the customer-facing copy is deliberately vague
+      // about what happened, so swallowing the cause entirely would leave a
+      // failed payment with no diagnostic trail at all.
+      console.error("[checkout] payment confirmation threw", error);
+
+      // Copy stays honest about the one thing we genuinely do not know here:
+      // whether the confirmation reached Stripe. It does not claim "you have
+      // not been charged" (we cannot tell), and it does not promise automatic
+      // recovery — reconciliation runs on /book/return, which this attempt
+      // never reached. What IS safe to say is that a retry cannot double-charge:
+      // `ensureBookingPaymentIntent` keeps exactly one intent per draft.
       setMessage(
-        (error.type === "card_error" || error.type === "validation_error") &&
-          error.message
-          ? error.message
-          : "We couldn't process that card. You have not been charged — try again or use a different card.",
+        "We couldn't complete that payment — the connection may have dropped. " +
+          "Try again; this booking has a single payment attached, so retrying " +
+          "cannot charge you twice.",
       );
       setSubmitting(false);
     }

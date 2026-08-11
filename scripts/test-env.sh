@@ -424,11 +424,27 @@ cmd_verify() {
   vcheck "otp_send_log columns are exactly id,user_id,destination_hash,created_at (no destination)" \
     "created_at,destination_hash,id,user_id" "$otp_cols"
 
-  # 3. applied migration rows == .sql files in packages/db/drizzle.
-  local sql_files mig_rows
-  sql_files="$(find "$DRIZZLE_DIR" -maxdepth 1 -name '*.sql' | wc -l | tr -d ' ')"
-  mig_rows="$("${psql_cmd[@]}" -c "select count(*) from drizzle.__drizzle_migrations" 2>/dev/null || echo '<table missing>')"
-  vcheck "drizzle.__drizzle_migrations rows == migration files" "$sql_files" "$mig_rows"
+  # 3. every migration in the checkout is applied here — delegated to db:status,
+  #    which compares CONTENT HASHES.
+  #
+  #    This used to compare `count(*)` against the number of .sql files. That
+  #    passed only by luck: it is wrong the moment a database carries an orphan
+  #    row (the hosted project has one — a regenerated migration whose file is
+  #    gone), because one orphan plus one genuinely missing migration nets to
+  #    "equal". It also could never say WHICH migration was missing. db:status
+  #    now answers both properly and additionally catches a pending migration
+  #    stranded at or below the watermark, so there is no reason to keep a
+  #    second, weaker implementation of the same check here.
+  local mig_status
+  if DIRECT_DATABASE_URL="$LOCAL_DB_URL" DATABASE_URL="$LOCAL_DB_URL" \
+       pnpm --filter @koolee/db db:status >/tmp/koolee-db-status.txt 2>&1; then
+    mig_status="in sync"
+  else
+    mig_status="$(grep -E '^\s+(→|✗)' /tmp/koolee-db-status.txt | tr -d ' \n' | head -c 120)"
+    mig_status="${mig_status:-drift or unreadable (see /tmp/koolee-db-status.txt)}"
+  fi
+  vcheck "every migration in the checkout is applied (hash-matched via db:status)" \
+    "in sync" "$mig_status"
 
   # 4. GoTrue-present check: auth.users with the columns tests 15/16 exercise.
   local auth_cols
