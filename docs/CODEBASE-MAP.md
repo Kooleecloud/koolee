@@ -35,19 +35,19 @@ enforced across marketing, UI, SMS and email ([README §Copy rules](../README.md
 
 **The nouns**, and the table each one lives in:
 
-| Noun          | Table                                | What it is                                                                                                                                                                                               |
-| ------------- | ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Booking       | `bookings`                           | One customer, one flight, one pickup window. The spine everything hangs off.                                                                                                                             |
-| Draft         | `booking_drafts`                     | A booking-in-progress before auth/payment. Survives page reloads and anonymous → real-user upgrade.                                                                                                      |
+| Noun          | Table                                | What it is                                                                                                                                                                                                                              |
+| ------------- | ------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Booking       | `bookings`                           | One customer, one flight, one pickup window. The spine everything hangs off.                                                                                                                                                            |
+| Draft         | `booking_drafts`                     | A booking-in-progress before auth/payment. Survives page reloads and anonymous → real-user upgrade.                                                                                                                                     |
 | Bag           | `bags`                               | One physical bag. Weight, photos, a `seal_id`, and an `ordinal` (`1..bag_count`) — the number a human reads off the tag. Order and label by `ordinal`, never by array position: a booking's bags share `created_at` to the millisecond. |
-| Seal          | `bags.seal_id`                       | Opaque tamper-evident ID. Deliberately technology-agnostic (RFID vs printed QR is still undecided — no migration either way).                                                                            |
-| Custody event | `custody_events`                     | Append-only chain of custody: who held which bag, where, when, with photo evidence.                                                                                                                      |
-| Pickup window | _(none — computed)_                  | The hour the agent comes. **Not a row.** Every flight gets the same 24 clock-aligned one-hour windows, enumerated on demand; the booking stores the one it bought in `bookings.pickup_window_start/end`. |
-| Blackout      | `slot_blocks`                        | Ops hiding a span of windows at an airport (weather, no drivers). The only lever over what customers can book.                                                                                           |
-| Cutoff        | `airline_cutoffs`                    | Per airline × airport × domestic/international — the latest a bag can be dropped. One of the two deadlines that bound the window band.                                                                   |
-| Task          | `verification_tasks`, `pickup_tasks` | The unit of work an agent or driver sees.                                                                                                                                                                |
-| Payment       | `payments`, `payment_webhook_events` | Intent → authorize → capture. Webhook events table is the replay guard.                                                                                                                                  |
-| Staff member  | `staff_members`                      | Invite-only agent/admin accounts.                                                                                                                                                                        |
+| Seal          | `bags.seal_id`                       | Opaque tamper-evident ID. Deliberately technology-agnostic (RFID vs printed QR is still undecided — no migration either way).                                                                                                           |
+| Custody event | `custody_events`                     | Append-only chain of custody: who held which bag, where, when, with photo evidence.                                                                                                                                                     |
+| Pickup window | _(none — computed)_                  | The hour the agent comes. **Not a row.** Every flight gets the same 24 clock-aligned one-hour windows, enumerated on demand; the booking stores the one it bought in `bookings.pickup_window_start/end`.                                |
+| Blackout      | `slot_blocks`                        | Ops hiding a span of windows at an airport (weather, no drivers). The only lever over what customers can book.                                                                                                                          |
+| Cutoff        | `airline_cutoffs`                    | Per airline × airport × domestic/international — the latest a bag can be dropped. One of the two deadlines that bound the window band.                                                                                                  |
+| Task          | `verification_tasks`, `pickup_tasks` | The unit of work an agent or driver sees.                                                                                                                                                                                               |
+| Payment       | `payments`, `payment_webhook_events` | Intent → authorize → capture. Webhook events table is the replay guard.                                                                                                                                                                 |
+| Staff member  | `staff_members`                      | Invite-only agent/admin accounts.                                                                                                                                                                                                       |
 
 **The lifecycle.** Ten booking statuses, and the legal moves between them are
 defined in exactly one place — [state-machine.ts](../packages/core/src/booking/state-machine.ts).
@@ -328,13 +328,13 @@ A service is where ownership is enforced. Session-scoped reads are
 [jobs/functions.ts](../packages/core/src/jobs/functions.ts) plus two defined in
 [apps/web/src/lib/inngest.ts](../apps/web/src/lib/inngest.ts):
 
-| function                   | trigger                | live?                                    |
-| -------------------------- | ---------------------- | ---------------------------------------- |
-| `capture-due-bookings`     | `cron("*/5 * * * *")`  | yes — charges cards once bags are in custody |
-| `cutoff-risk-monitor`      | `cron("*/5 * * * *")`  | yes                                      |
-| `cleanup-anonymous-users`  | daily 04:00 ET         | yes                                      |
-| `booking-pickup-reminder`  | event `booking/confirmed`        | **never fires** — nothing sends events   |
-| `agent-no-show-check`      | event `booking/agent_no_show_check` | **never fires**                     |
+| function                  | trigger                             | live?                                        |
+| ------------------------- | ----------------------------------- | -------------------------------------------- |
+| `capture-due-bookings`    | `cron("*/5 * * * *")`               | yes — charges cards once bags are in custody |
+| `cutoff-risk-monitor`     | `cron("*/5 * * * *")`               | yes                                          |
+| `cleanup-anonymous-users` | daily 04:00 ET                      | yes                                          |
+| `booking-pickup-reminder` | event `booking/confirmed`           | **never fires** — nothing sends events       |
+| `agent-no-show-check`     | event `booking/agent_no_show_check` | **never fires**                              |
 
 Inngest rather than a plain cron service because two of them use
 `step.sleepUntil` — a durable per-booking delay (sleep until 2h before pickup,
@@ -631,6 +631,26 @@ real concurrent locks; and `createBooking` end to end, including the
 on 127.0.0.1 and writes `.env.test`. It has a hard local-host assertion with
 no bypass — seeding known passwords into a hosted project would be a standing
 backdoor.
+
+**Day-to-day, use [local.sh](../scripts/local.sh) rather than calling
+`test-env.sh` directly.** It is an orchestrator over the same script — it adds
+the three things that used to be manual steps around it: starting Docker
+Desktop and waiting for the daemon, seeding, and one status board covering
+both infra and the app ports.
+
+| Command             | Does                                                              |
+| ------------------- | ----------------------------------------------------------------- |
+| `pnpm local`        | Docker → Supabase → migrate → test DB → 8 verify checks → seed    |
+| `pnpm local:dev`    | The above, then `pnpm dev`                                        |
+| `pnpm local:status` | Read-only: what is running right now, including :3000/:3001/:3002 |
+| `pnpm local:down`   | Stop the stack (data volumes persist)                             |
+| `pnpm local:reset`  | Wipe + re-migrate the local DB, then force a reseed               |
+
+Every step is idempotent, so `pnpm local` is also the right command when you
+are not sure what is already up: a running stack is detected and skipped, and
+the seed is skipped when `airports` and `staff_members` are both non-empty.
+An exported `DATABASE_URL` pointing anywhere non-local aborts the run before
+anything executes.
 
 **One sharp edge.** `.env.test` points `TEST_DATABASE_URL` at the same local
 Postgres the dev servers use, so an integration run truncates shared tables

@@ -32,18 +32,27 @@ cp packages/db/.env.example packages/db/.env
 # or `pnpm seed` targets production — use `pnpm seed:local`, or override the URL
 # inline. `migrate.ts` prints its target host; read that line before confirming.
 
-pnpm test:env:up               # local Supabase stack (Postgres + GoTrue) on 127.0.0.1
-                               # …also creates/migrates the disposable koolee_test DB
-
-# Migrate the LOCAL database. Pin the URL: bare `pnpm db:migrate` reads
-# packages/db/.env and would target the hosted project (see note above).
-DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres \
-DIRECT_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres \
-  pnpm db:migrate
-
-pnpm seed:local                # reference data + dev staff/customer accounts
+pnpm local                     # the whole local environment, one command
 pnpm dev                       # all three apps
 ```
+
+`pnpm local` starts Docker Desktop if it is not running, brings up the Supabase
+stack (Postgres + GoTrue) on 127.0.0.1, migrates the local database, builds the
+disposable `koolee_test` DB, runs eight verify assertions, seeds, and prints a
+status board with every URL and the test OTP numbers. It pins the database URL
+to localhost itself, so it sidesteps the `packages/db/.env` hazard in the note
+above — and it aborts if you have a non-local `DATABASE_URL` exported.
+
+Every step is idempotent, so it is also the right command when you are not sure
+what is already running:
+
+| Command             | Does                                                              |
+| ------------------- | ----------------------------------------------------------------- |
+| `pnpm local`        | Everything above, then stops so you can start the apps yourself   |
+| `pnpm local:dev`    | The above, then `pnpm dev`                                        |
+| `pnpm local:status` | Read-only: what is running right now, including :3000/:3001/:3002 |
+| `pnpm local:down`   | Stop the stack (data volumes persist)                             |
+| `pnpm local:reset`  | Wipe + re-migrate the local DB, then force a reseed               |
 
 In a second terminal, for background jobs:
 
@@ -241,30 +250,30 @@ clone still builds; the gates fire when a production server boots.)
 
 This table says what each variable unlocks and what happens without it.
 
-| Variable                             | Where to get it                                                                      | Required when                                                                        | Without it                                                                                                                                               |
-| ------------------------------------ | ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `NEXT_PUBLIC_APP_URL`                | This app's own origin — `3000` / `3001` / `3002` locally                             | Absolute links and Stripe return URLs                                                | Relative links only                                                                                                                                      |
-| `DATABASE_URL`                       | Supabase → Settings → Database → Connection pooling, **transaction mode**, port 6543 | Any page or action that reads or writes data                                         | Pages render an empty state; mutations return a configuration error                                                                                      |
-| `DIRECT_DATABASE_URL`                | Supabase → Settings → Database → Direct connection, port 5432                        | `pnpm db:migrate`, `pnpm db:studio`                                                  | Migrations fail with a named error. `pnpm db:generate` still works — it is offline                                                                       |
-| `NEXT_PUBLIC_SUPABASE_URL`           | Supabase → Settings → API → Project URL                                              | Browser Realtime / Storage                                                           | No live timeline updates; no photo upload                                                                                                                |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY`      | Supabase → Settings → API → anon public                                              | Browser Realtime / Storage                                                           | As above                                                                                                                                                 |
-| `SUPABASE_SERVICE_ROLE_KEY`          | Supabase → Settings → API → service_role                                             | Server-side Storage writes; deleting orphaned auth users during claim reconciliation | Bag photos are not uploaded; orphan deletion degrades to a logged no-op (production refuses to boot — see below)                                         |
-| `NEXT_PUBLIC_TURNSTILE_SITE_KEY`     | Cloudflare → Turnstile → site key. The SECRET key lives in the Supabase dashboard    | Mounting the CAPTCHA widget on auth sends                                            | No widget; auth calls carry no captchaToken — leave Supabase CAPTCHA off (production refuses to boot — see below)                                        |
-| `OTP_LOG_HMAC_KEY`                   | `openssl rand -hex 32` (min 32 chars)                                                | Whenever `DATABASE_URL` is set — enforced at boot                                    | With a database configured, boot fails with a named error                                                                                                |
-| `AUTH_SCHEMA_AVAILABLE`              | Set `"false"` ONLY for a bare local Postgres with no GoTrue `auth` schema            | Skipping claim reconciliation against local docker                                   | Unset counts as available; a genuinely missing schema fails the send loudly                                                                              |
-| `CRON_SECRET`                        | Any random string                                                                    | Manual `/api/jobs/*` triggers                                                        | Those routes refuse to run                                                                                                                               |
-| `STRIPE_SECRET_KEY`                  | Stripe → Developers → API keys                                                       | Real card authorization and capture                                                  | Booking uses `FakePaymentProvider`; no money moves                                                                                                       |
-| `STRIPE_WEBHOOK_SECRET`              | Stripe → Developers → Webhooks, or `stripe listen`                                   | Verifying `/api/webhooks/stripe`                                                     | The route rejects every webhook rather than trusting it; the return page's server-side status re-check still advances paid bookings                      |
-| `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` | Stripe → Developers → API keys                                                       | Mounting the Stripe Payment Element                                                  | With no secret key either: the dev payment path. With a secret key set: the pay step refuses loudly (misconfiguration — the browser could never confirm) |
-| `NEXT_PUBLIC_AGENT_APP_URL`          | The agent app's own origin — `http://localhost:3001` locally                         | Admin console building agent invite links                                            | Invite links default to `http://localhost:3001` (production boot refuses — see above)                                                                    |
+| Variable                             | Where to get it                                                                      | Required when                                                                                                                                                                    | Without it                                                                                                                                               |
+| ------------------------------------ | ------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `NEXT_PUBLIC_APP_URL`                | This app's own origin — `3000` / `3001` / `3002` locally                             | Absolute links and Stripe return URLs                                                                                                                                            | Relative links only                                                                                                                                      |
+| `DATABASE_URL`                       | Supabase → Settings → Database → Connection pooling, **transaction mode**, port 6543 | Any page or action that reads or writes data                                                                                                                                     | Pages render an empty state; mutations return a configuration error                                                                                      |
+| `DIRECT_DATABASE_URL`                | Supabase → Settings → Database → Direct connection, port 5432                        | `pnpm db:migrate`, `pnpm db:studio`                                                                                                                                              | Migrations fail with a named error. `pnpm db:generate` still works — it is offline                                                                       |
+| `NEXT_PUBLIC_SUPABASE_URL`           | Supabase → Settings → API → Project URL                                              | Browser Realtime / Storage                                                                                                                                                       | No live timeline updates; no photo upload                                                                                                                |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY`      | Supabase → Settings → API → anon public                                              | Browser Realtime / Storage                                                                                                                                                       | As above                                                                                                                                                 |
+| `SUPABASE_SERVICE_ROLE_KEY`          | Supabase → Settings → API → service_role                                             | Server-side Storage writes; deleting orphaned auth users during claim reconciliation                                                                                             | Bag photos are not uploaded; orphan deletion degrades to a logged no-op (production refuses to boot — see below)                                         |
+| `NEXT_PUBLIC_TURNSTILE_SITE_KEY`     | Cloudflare → Turnstile → site key. The SECRET key lives in the Supabase dashboard    | Mounting the CAPTCHA widget on auth sends                                                                                                                                        | No widget; auth calls carry no captchaToken — leave Supabase CAPTCHA off (production refuses to boot — see below)                                        |
+| `OTP_LOG_HMAC_KEY`                   | `openssl rand -hex 32` (min 32 chars)                                                | Whenever `DATABASE_URL` is set — enforced at boot                                                                                                                                | With a database configured, boot fails with a named error                                                                                                |
+| `AUTH_SCHEMA_AVAILABLE`              | Set `"false"` ONLY for a bare local Postgres with no GoTrue `auth` schema            | Skipping claim reconciliation against local docker                                                                                                                               | Unset counts as available; a genuinely missing schema fails the send loudly                                                                              |
+| `CRON_SECRET`                        | Any random string                                                                    | Manual `/api/jobs/*` triggers                                                                                                                                                    | Those routes refuse to run                                                                                                                               |
+| `STRIPE_SECRET_KEY`                  | Stripe → Developers → API keys                                                       | Real card authorization and capture                                                                                                                                              | Booking uses `FakePaymentProvider`; no money moves                                                                                                       |
+| `STRIPE_WEBHOOK_SECRET`              | Stripe → Developers → Webhooks, or `stripe listen`                                   | Verifying `/api/webhooks/stripe`                                                                                                                                                 | The route rejects every webhook rather than trusting it; the return page's server-side status re-check still advances paid bookings                      |
+| `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` | Stripe → Developers → API keys                                                       | Mounting the Stripe Payment Element                                                                                                                                              | With no secret key either: the dev payment path. With a secret key set: the pay step refuses loudly (misconfiguration — the browser could never confirm) |
+| `NEXT_PUBLIC_AGENT_APP_URL`          | The agent app's own origin — `http://localhost:3001` locally                         | Admin console building agent invite links                                                                                                                                        | Invite links default to `http://localhost:3001` (production boot refuses — see above)                                                                    |
 | `INNGEST_EVENT_KEY`                  | Inngest Cloud → Events → Event keys                                                  | Sending events to Inngest Cloud. One key covers every event name — names are declared in code, not registered in the dashboard. Unused today: nothing calls `inngest.send()` yet | Works against `pnpm dev:inngest`                                                                                                                         |
-| `INNGEST_SIGNING_KEY`                | Inngest Cloud → Deploy → Signing key                                                 | Serving functions to Inngest Cloud — the direction the crons use, so this is the one that matters for the capture sweep | Works against `pnpm dev:inngest`                                                                                                                         |
-| `RESEND_API_KEY`                     | Resend → API Keys                                                                    | Real email                                                                           | `ConsoleNotifier` logs instead                                                                                                                           |
-| `AEROAPI_KEY`                        | FlightAware AeroAPI                                                                  | Flight lookup                                                                        | Stubbed — flight details are typed in                                                                                                                    |
-| `GOOGLE_MAPS_API_KEY`                | Google Cloud → Maps Platform                                                         | Real drive-time and address autocomplete                                             | Fixed drive-time estimate is used                                                                                                                        |
-| `ANTHROPIC_API_KEY`                  | console.anthropic.com                                                                | Claude-powered ticket-PDF extraction                                                 | The free in-process heuristic extractor runs instead — extraction still works                                                                            |
-| `SENTRY_DSN`                         | Sentry → Project Settings → Client Keys                                              | Error and ops alerting                                                               | Alerts go to console                                                                                                                                     |
-| `TEST_DATABASE_URL`                  | Your throwaway Postgres                                                              | Running integration tests                                                            | They skip, and `pnpm test` stays green                                                                                                                   |
+| `INNGEST_SIGNING_KEY`                | Inngest Cloud → Deploy → Signing key                                                 | Serving functions to Inngest Cloud — the direction the crons use, so this is the one that matters for the capture sweep                                                          | Works against `pnpm dev:inngest`                                                                                                                         |
+| `RESEND_API_KEY`                     | Resend → API Keys                                                                    | Real email                                                                                                                                                                       | `ConsoleNotifier` logs instead                                                                                                                           |
+| `AEROAPI_KEY`                        | FlightAware AeroAPI                                                                  | Flight lookup                                                                                                                                                                    | Stubbed — flight details are typed in                                                                                                                    |
+| `GOOGLE_MAPS_API_KEY`                | Google Cloud → Maps Platform                                                         | Real drive-time and address autocomplete                                                                                                                                         | Fixed drive-time estimate is used                                                                                                                        |
+| `ANTHROPIC_API_KEY`                  | console.anthropic.com                                                                | Claude-powered ticket-PDF extraction                                                                                                                                             | The free in-process heuristic extractor runs instead — extraction still works                                                                            |
+| `SENTRY_DSN`                         | Sentry → Project Settings → Client Keys                                              | Error and ops alerting                                                                                                                                                           | Alerts go to console                                                                                                                                     |
+| `TEST_DATABASE_URL`                  | Your throwaway Postgres                                                              | Running integration tests                                                                                                                                                        | They skip, and `pnpm test` stays green                                                                                                                   |
 
 ### Runtime env, per app
 
@@ -358,10 +367,10 @@ auth-acceptance tier needs the Supabase stack.
 
 **Two databases, one Postgres container** (since 2026-08-10):
 
-| database      | who uses it                                           | safe to wipe?                  |
-| ------------- | ----------------------------------------------------- | ------------------------------ |
-| `postgres`    | the dev servers, GoTrue/Storage, bookings you make     | **no**                         |
-| `koolee_test` | nine of the twelve integration suites                  | yes — that is its whole purpose |
+| database      | who uses it                                        | safe to wipe?                   |
+| ------------- | -------------------------------------------------- | ------------------------------- |
+| `postgres`    | the dev servers, GoTrue/Storage, bookings you make | **no**                          |
+| `koolee_test` | nine of the twelve integration suites              | yes — that is its whole purpose |
 
 `koolee_test` is a second database inside the container that is already
 running — no extra service. Nine suites point there and can wipe freely.
@@ -374,7 +383,7 @@ fails closed instead of emptying your data. Seeing
 means the guard worked — run `pnpm test:db:setup`.
 
 Three suites cannot be isolated: `upgrade-guard`, `staff-auth` and
-`booking-ownership` drive the real GoTrue API *and* read `auth.users` in the
+`booking-ownership` drive the real GoTrue API _and_ read `auth.users` in the
 same connection, and GoTrue only serves `postgres`. The first two preserve
 pre-existing rows; `booking-ownership` wipes and is therefore **skipped
 unless `ALLOW_DEV_DB_WIPE=1`**.
@@ -420,19 +429,21 @@ What is covered:
 
 ## Commands
 
-| Command            | What it does                                 |
-| ------------------ | -------------------------------------------- |
-| `pnpm dev`         | All three apps (3000 / 3001 / 3002)          |
-| `pnpm build`       | Production build of all three                |
-| `pnpm lint`        | ESLint across the workspace                  |
-| `pnpm typecheck`   | `tsc --noEmit` across the workspace          |
-| `pnpm test`        | Unit tests                                   |
-| `pnpm format`      | Prettier write                               |
-| `pnpm db:generate` | Diff the schema, write a migration (offline) |
-| `pnpm db:migrate`  | Apply migrations (direct connection)         |
-| `pnpm db:studio`   | drizzle-kit studio                           |
-| `pnpm seed`        | Idempotent reference data                    |
-| `pnpm dev:inngest` | Local Inngest dev server                     |
+| Command             | What it does                                 |
+| ------------------- | -------------------------------------------- |
+| `pnpm local`        | Stand up the whole local environment         |
+| `pnpm local:status` | What is running right now                    |
+| `pnpm dev`          | All three apps (3000 / 3001 / 3002)          |
+| `pnpm build`        | Production build of all three                |
+| `pnpm lint`         | ESLint across the workspace                  |
+| `pnpm typecheck`    | `tsc --noEmit` across the workspace          |
+| `pnpm test`         | Unit tests                                   |
+| `pnpm format`       | Prettier write                               |
+| `pnpm db:generate`  | Diff the schema, write a migration (offline) |
+| `pnpm db:migrate`   | Apply migrations (direct connection)         |
+| `pnpm db:studio`    | drizzle-kit studio                           |
+| `pnpm seed`         | Idempotent reference data                    |
+| `pnpm dev:inngest`  | Local Inngest dev server                     |
 
 ---
 
