@@ -4,6 +4,7 @@ import {
   BackLink,
   Badge,
   BookingStatusBadge,
+  ImageLightbox,
   Card,
   CardContent,
   CardDescription,
@@ -247,7 +248,7 @@ export default async function BookingDetailPage({
           </CardHeader>
           <CardContent>
             <ul className="flex flex-col gap-3 text-sm">
-              {bags.map((bag, index) => (
+              {bags.map((bag) => (
                 <li key={bag.id} className="rounded-lg border p-3">
                   <div className="flex items-center justify-between gap-3">
                     <span>Bag {bag.ordinal}</span>
@@ -260,12 +261,17 @@ export default async function BookingDetailPage({
                     <div className="mt-2 flex flex-wrap gap-2">
                       {bag.photoUrls.map((path) =>
                         signedUrls.has(path) ? (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img
+                          <ImageLightbox
                             key={path}
-                            src={signedUrls.get(path)}
-                            alt={`Bag ${index + 1} evidence photo`}
-                            className="h-20 w-20 rounded-md border object-cover"
+                            src={signedUrls.get(path)!}
+                            alt={`Bag ${bag.ordinal} evidence photo`}
+                            title={`Bag ${bag.ordinal}`}
+                            description={
+                              bag.sealId
+                                ? `seal ${bag.sealId}${bag.weightKg ? ` · ${bag.weightKg} kg` : ""}`
+                                : undefined
+                            }
+                            className="h-20 w-20"
                           />
                         ) : (
                           <span key={path} className="text-xs text-muted-foreground">

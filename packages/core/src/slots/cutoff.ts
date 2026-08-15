@@ -256,6 +256,18 @@ export function formatInstantInAirportTz(instant: Date, tz: string): string {
 }
 
 /**
+ * Just the clock time, airport-local — "6:20 PM EDT".
+ *
+ * For stacked table cells that put the time on the first line and the date
+ * underneath: an operator scanning a board reads the hour first and only needs
+ * the day to disambiguate. The zone stays on the time, never on the date line,
+ * because the zone qualifies the clock.
+ */
+export function formatTimeInAirportTz(instant: Date, tz: string): string {
+  return `${format(new TZDate(instant, tz), "h:mm a")} ${zoneAbbrev(instant, tz)}`;
+}
+
+/**
  * Just the hour span, airport-local — "10:00 AM – 11:00 AM EDT". For compact
  * window tiles under a day heading, where repeating the date is noise.
  *

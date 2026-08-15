@@ -43,9 +43,7 @@ export default async function FlightStepPage({
   // Extracted fields get an attention ring (sky, matching the info banner —
   // Tag Orange stays reserved for CTAs per the brand system).
   const flagged = (value: unknown) =>
-    fromTicket && value !== undefined
-      ? "border-sky-400 ring-1 ring-sky-300"
-      : undefined;
+    fromTicket && value !== undefined ? "border-sky-400 ring-1 ring-sky-300" : undefined;
 
   // A datetime-local input round-trips whatever wall clock it is given, so
   // this has to be the AIRPORT's — otherwise a customer who comes back to this
@@ -92,93 +90,103 @@ export default async function FlightStepPage({
       )}
 
       <CoverageStepForm action={submitFlight} retryHref="/book/flight">
-        <div className="grid gap-2">
-          <Label htmlFor="zip">Pickup ZIP code</Label>
-          <Input
-            id="zip"
-            name="zip"
-            inputMode="numeric"
-            placeholder="10001"
-            defaultValue={draft.zip ?? ""}
-            autoComplete="postal-code"
-            maxLength={10}
-            required
-          />
-          <p className="text-xs text-muted-foreground">
-            We currently cover Manhattan, parts of Brooklyn and Queens, and Jersey City.
-          </p>
+        {/* Paired rows: these six fields are short and related two at a time
+            (where the bags are + which flight, which airport + when, domestic
+            or not + whose name). One field per row turned a 30-second form
+            into a page of scrolling. Collapses to one column on phones. */}
+        <div className="grid items-start gap-4 sm:grid-cols-2">
+          <div className="grid gap-2">
+            <Label htmlFor="zip">Pickup ZIP code</Label>
+            <Input
+              id="zip"
+              name="zip"
+              inputMode="numeric"
+              placeholder="10001"
+              defaultValue={draft.zip ?? ""}
+              autoComplete="postal-code"
+              maxLength={10}
+              required
+            />
+            <p className="text-xs text-muted-foreground">
+              We currently cover Manhattan, parts of Brooklyn and Queens, and Jersey City.
+            </p>
+          </div>
+
+          <div className="grid gap-2">
+            <Label htmlFor="flightNumber">Flight number</Label>
+            <Input
+              id="flightNumber"
+              name="flightNumber"
+              placeholder="DL123"
+              defaultValue={flightNumberDefault}
+              className={flagged(prefill?.flightNumber)}
+              autoComplete="off"
+              required
+            />
+          </div>
         </div>
 
-        <div className="grid gap-2">
-          <Label htmlFor="flightNumber">Flight number</Label>
-          <Input
-            id="flightNumber"
-            name="flightNumber"
-            placeholder="DL123"
-            defaultValue={flightNumberDefault}
-            className={flagged(prefill?.flightNumber)}
-            autoComplete="off"
-            required
-          />
+        <div className="grid items-start gap-4 sm:grid-cols-2">
+          <div className="grid gap-2">
+            <Label htmlFor="departureAirport">Departing from</Label>
+            <Select
+              id="departureAirport"
+              name="departureAirport"
+              defaultValue={airportDefault}
+              className={flagged(prefill?.departureAirport)}
+              required
+            >
+              <option value="JFK">JFK — John F. Kennedy</option>
+              <option value="LGA">LGA — LaGuardia</option>
+              <option value="EWR">EWR — Newark Liberty</option>
+            </Select>
+          </div>
+
+          <div className="grid gap-2">
+            <Label htmlFor="departureAt">Departure date and time</Label>
+            <Input
+              id="departureAt"
+              name="departureAt"
+              type="datetime-local"
+              defaultValue={departureAtDefault}
+              className={flagged(prefill?.departureAtLocal)}
+              required
+            />
+          </div>
         </div>
 
-        <div className="grid gap-2">
-          <Label htmlFor="departureAirport">Departing from</Label>
-          <Select
-            id="departureAirport"
-            name="departureAirport"
-            defaultValue={airportDefault}
-            className={flagged(prefill?.departureAirport)}
-            required
-          >
-            <option value="JFK">JFK — John F. Kennedy</option>
-            <option value="LGA">LGA — LaGuardia</option>
-            <option value="EWR">EWR — Newark Liberty</option>
-          </Select>
-        </div>
+        <div className="grid items-start gap-4 sm:grid-cols-2">
+          <div className="grid gap-2">
+            <Label htmlFor="scope">Destination</Label>
+            <Select
+              id="scope"
+              name="scope"
+              defaultValue={scopeDefault}
+              className={flagged(prefill?.scope)}
+            >
+              <option value="domestic">Domestic</option>
+              <option value="international">International</option>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              International flights usually have an earlier bag-drop cutoff.
+            </p>
+          </div>
 
-        <div className="grid gap-2">
-          <Label htmlFor="departureAt">Departure date and time</Label>
-          <Input
-            id="departureAt"
-            name="departureAt"
-            type="datetime-local"
-            defaultValue={departureAtDefault}
-            className={flagged(prefill?.departureAtLocal)}
-            required
-          />
-        </div>
-
-        <div className="grid gap-2">
-          <Label htmlFor="scope">Destination</Label>
-          <Select
-            id="scope"
-            name="scope"
-            defaultValue={scopeDefault}
-            className={flagged(prefill?.scope)}
-          >
-            <option value="domestic">Domestic</option>
-            <option value="international">International</option>
-          </Select>
-          <p className="text-xs text-muted-foreground">
-            International flights usually have an earlier bag-drop cutoff.
-          </p>
-        </div>
-
-        <div className="grid gap-2">
-          <Label htmlFor="paxName">Name on the ticket</Label>
-          <Input
-            id="paxName"
-            name="paxName"
-            placeholder="Jordan Alvarez"
-            defaultValue={paxNameDefault}
-            className={flagged(prefill?.paxName)}
-            autoComplete="name"
-            required
-          />
-          <p className="text-xs text-muted-foreground">
-            Our agent checks this against your photo ID at pickup.
-          </p>
+          <div className="grid gap-2">
+            <Label htmlFor="paxName">Name on the ticket</Label>
+            <Input
+              id="paxName"
+              name="paxName"
+              placeholder="Jordan Alvarez"
+              defaultValue={paxNameDefault}
+              className={flagged(prefill?.paxName)}
+              autoComplete="name"
+              required
+            />
+            <p className="text-xs text-muted-foreground">
+              Our agent checks this against your photo ID at pickup.
+            </p>
+          </div>
         </div>
 
         {/* Confirming this form creates the anonymous Supabase session, which

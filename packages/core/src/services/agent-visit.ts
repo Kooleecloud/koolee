@@ -203,9 +203,16 @@ export interface SealBagInput {
   bagId: string;
   /** Serialized seal id — opaque string by design (RFID vs QR undecided). */
   sealId: string;
-  weightKg?: number | null;
+  /**
+   * All three of seal id, weight and photo are REQUIRED to seal a bag. They
+   * are the custody record: what was sealed, how heavy it was, and what it
+   * looked like at the door. A bag sealed without them is undefendable in a
+   * dispute, so there is no "skip" — an agent who cannot weigh or photograph
+   * flags an exception (`reportVisitException`) instead of sealing.
+   */
+  weightKg: number;
   /** Storage path in the private bag-photos bucket (NOT a public URL). */
-  photoPath?: string | null;
+  photoPath: string;
   lat?: number | null;
   lng?: number | null;
 }
@@ -232,16 +239,41 @@ export async function recordBagSealed(
   }
   const sealId = input.sealId.trim();
   if (!sealId) throw new ConflictError("seal", "Enter the seal id.");
+  if (!(input.weightKg > 0)) {
+    throw new ConflictError("seal", "Weigh the bag before sealing it.");
+  }
+  if (!input.photoPath) {
+    throw new ConflictError("seal", "Photograph the bag before sealing it.");
+  }
+
+  // A tamper-evident seal is single-use, so a seal id is unique across the
+  // whole operation — not merely within this booking. A repeat means either a
+  // typo or a reused seal, and both are custody incidents. The real guarantee
+  // is the partial unique index on `bags.seal_id` (migration 0017); this read
+  // exists so the agent gets a sentence they can act on instead of a driver
+  // error. It races (two agents, same id, same instant) and that is fine —
+  // the index is what actually holds, and the insert below surfaces it.
+  const clash = await db
+    .select({ id: bags.id, bookingId: bags.bookingId })
+    .from(bags)
+    .where(eq(bags.sealId, sealId))
+    .limit(1);
+  if (clash.length > 0) {
+    throw new ConflictError(
+      "seal",
+      clash[0]!.bookingId === context.booking.id
+        ? `Seal ${sealId} is already on another bag in this booking — each bag needs its own seal.`
+        : `Seal ${sealId} is already recorded against another booking. Check the number on the seal.`,
+    );
+  }
 
   await db.transaction(async (tx) => {
     await tx
       .update(bags)
       .set({
         sealId,
-        ...(input.weightKg != null ? { weightKg: String(input.weightKg) } : {}),
-        ...(input.photoPath
-          ? { photoUrls: sql`array_append(${bags.photoUrls}, ${input.photoPath})` }
-          : {}),
+        weightKg: String(input.weightKg),
+        photoUrls: sql`array_append(${bags.photoUrls}, ${input.photoPath})`,
       })
       .where(eq(bags.id, bag.id));
 
@@ -253,11 +285,11 @@ export async function recordBagSealed(
       eventType: VISIT_EVENT_TYPES.bagSealed,
       lat: input.lat ?? null,
       lng: input.lng ?? null,
-      photoUrl: input.photoPath ?? null,
+      photoUrl: input.photoPath,
       metadata: {
         taskId: context.task.id,
         sealId,
-        ...(input.weightKg != null ? { weightKg: input.weightKg } : {}),
+        weightKg: input.weightKg,
       },
     });
   });

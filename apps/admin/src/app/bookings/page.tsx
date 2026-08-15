@@ -16,7 +16,7 @@ import {
   BOARD_SORT_KEYS,
   formatDayInAirportTz,
   formatHourRangeInAirportTz,
-  formatInstantInAirportTz,
+  formatTimeInAirportTz,
   getDisplayZones,
   listBookingsBoard,
   zoneFor,
@@ -94,6 +94,39 @@ function SortableHeader({
         </span>
       </Link>
     </th>
+  );
+}
+
+/**
+ * A board time cell: clock time on the first line, date on the second.
+ *
+ * Both lines matter and they are not equally urgent. An operator scanning the
+ * board reads hours — "who is at 10 AM" — and needs the date only to place the
+ * row on a calendar, so the time leads and the date sits under it in muted
+ * text. Stacking also keeps three time columns readable side by side, which a
+ * single "Tue 18 Aug, 10:00 AM EDT" line per column does not.
+ *
+ * The zone rides on the time line (see `formatTimeInAirportTz`) because it
+ * qualifies the clock, not the day. Every value here is airport-local.
+ */
+function TimeCell({
+  time,
+  date,
+  children,
+}: {
+  time: string;
+  date: string;
+  /** Badges — "today", "at risk" — pinned beside the time. */
+  children?: React.ReactNode;
+}) {
+  return (
+    <div className="flex flex-col leading-tight">
+      <span className="flex items-center gap-2 whitespace-nowrap">
+        {time}
+        {children}
+      </span>
+      <span className="text-xs whitespace-nowrap text-muted-foreground">{date}</span>
+    </div>
   );
 }
 
@@ -228,6 +261,13 @@ export default async function BookingsPage({
               <tr>
                 <th className="px-4 py-2 font-medium whitespace-nowrap">Ref</th>
                 <SortableHeader
+                  label="Booked"
+                  sortKey="booked"
+                  activeKey={sortKey}
+                  direction={sortDir}
+                  href={sortHref("booked")}
+                />
+                <SortableHeader
                   label="Pickup window"
                   sortKey="window"
                   activeKey={sortKey}
@@ -261,7 +301,7 @@ export default async function BookingsPage({
               </tr>
             </thead>
             <tbody className="divide-y">
-              {rows.map(({ booking, slotStart, assigneeEmail, atRisk, tz }) => {
+              {rows.map(({ booking, slotStart, assigneeEmail, assigneeName, atRisk, tz }) => {
                 const windowEnd = booking.pickupWindowEnd;
                 // "Today" is evaluated in THIS booking's zone, which stays
                 // well-defined even when the board spans several — unlike a
@@ -284,35 +324,41 @@ export default async function BookingsPage({
                         {bookingRef(booking.id)}
                       </RowLink>
                     </td>
-                    <td className="px-4 py-2 whitespace-nowrap">
+                    {/* When the booking came in — not when it happens. An
+                        operator triaging a board needs to tell a booking made
+                        an hour ago from one made last week. */}
+                    <td className="px-4 py-2">
+                      <TimeCell
+                        time={formatTimeInAirportTz(booking.createdAt, tz)}
+                        date={formatDayInAirportTz(booking.createdAt, tz)}
+                      />
+                    </td>
+                    <td className="px-4 py-2">
                       {slotStart ? (
-                        <>
-                          {windowEnd ? (
-                            <>
-                              {formatDayInAirportTz(slotStart, tz)}{" "}
-                              {formatHourRangeInAirportTz(slotStart, windowEnd, tz)}
-                            </>
-                          ) : (
-                            /* Legacy slot rows carry a start with no end. */
-                            formatInstantInAirportTz(slotStart, tz)
-                          )}
-                          {isToday && (
-                            <Badge variant="outline" className="ml-2">
-                              today
-                            </Badge>
-                          )}
-                        </>
+                        <TimeCell
+                          time={
+                            windowEnd
+                              ? formatHourRangeInAirportTz(slotStart, windowEnd, tz)
+                              : /* Legacy slot rows carry a start with no end. */
+                                formatTimeInAirportTz(slotStart, tz)
+                          }
+                          date={formatDayInAirportTz(slotStart, tz)}
+                        >
+                          {isToday && <Badge variant="outline">today</Badge>}
+                          {atRisk && <Badge variant="warning">at risk</Badge>}
+                        </TimeCell>
                       ) : (
-                        <span className="text-muted-foreground">—</span>
-                      )}
-                      {atRisk && (
-                        <Badge variant="warning" className="ml-2">
-                          at risk
-                        </Badge>
+                        <span className="flex items-center gap-2 text-muted-foreground">
+                          —
+                          {atRisk && <Badge variant="warning">at risk</Badge>}
+                        </span>
                       )}
                     </td>
-                    <td className="px-4 py-2 whitespace-nowrap text-muted-foreground">
-                      {formatInstantInAirportTz(booking.departureAt, tz)}
+                    <td className="px-4 py-2">
+                      <TimeCell
+                        time={formatTimeInAirportTz(booking.departureAt, tz)}
+                        date={formatDayInAirportTz(booking.departureAt, tz)}
+                      />
                     </td>
                     <td className="px-4 py-2 whitespace-nowrap">
                       <span className="font-medium">{booking.flightNumber}</span>
@@ -322,8 +368,23 @@ export default async function BookingsPage({
                     </td>
                     <td className="px-4 py-2 whitespace-nowrap">{booking.paxName}</td>
                     <td className="px-4 py-2 whitespace-nowrap">{booking.bagCount}</td>
-                    <td className="px-4 py-2 whitespace-nowrap">
-                      {assigneeEmail ?? (
+                    {/* Name first: ops talk about "Leo", not about
+                        agent@koolee.local. The email stays because it is the
+                        unambiguous identifier when two agents share a first
+                        name, and it is what the assignment panel lists. */}
+                    <td className="px-4 py-2">
+                      {assigneeEmail ? (
+                        <div className="flex flex-col leading-tight">
+                          <span className="whitespace-nowrap">
+                            {assigneeName ?? assigneeEmail}
+                          </span>
+                          {assigneeName && (
+                            <span className="text-xs whitespace-nowrap text-muted-foreground">
+                              {assigneeEmail}
+                            </span>
+                          )}
+                        </div>
+                      ) : (
                         <span className="text-muted-foreground">unassigned</span>
                       )}
                     </td>

@@ -34,7 +34,9 @@ export interface VisitActionState {
   ok?: boolean;
 }
 
-const BAG_PHOTO_MAX_BYTES = 8 * 1024 * 1024;
+// Must stay at or below the Server Action bodySizeLimit in next.config.mjs —
+// a larger value here is unreachable: the request 413s before we run.
+const BAG_PHOTO_MAX_BYTES = 4 * 1024 * 1024;
 const BAG_PHOTO_TYPES = ["image/jpeg", "image/png", "image/webp"];
 
 async function context(taskId: string) {
@@ -92,11 +94,19 @@ export async function verifyIdentityAction(
   }
 }
 
+/**
+ * Seal id, weight and photo are all REQUIRED — they are the custody record for
+ * the bag. An agent who cannot weigh or photograph flags an exception rather
+ * than sealing (see `reportExceptionAction`); there is no partial seal.
+ */
 const sealSchema = z.object({
   taskId: z.uuid(),
   bagId: z.uuid(),
   sealId: z.string().min(1, "Enter the seal id.").max(120),
-  weightKg: z.number().positive().max(99).optional(),
+  weightKg: z
+    .number({ error: "Enter the bag's weight in kg." })
+    .positive("Weight must be greater than 0.")
+    .max(99, "Weight must be under 99 kg."),
 });
 
 export async function sealBagAction(
@@ -108,7 +118,9 @@ export async function sealBagAction(
     taskId: String(form.get("taskId") ?? ""),
     bagId: String(form.get("bagId") ?? ""),
     sealId: String(form.get("sealId") ?? "").trim(),
-    ...(weightRaw ? { weightKg: Number(weightRaw) } : {}),
+    // Undefined rather than NaN when blank, so zod reports "enter the weight"
+    // instead of a type error the agent can do nothing with.
+    weightKg: weightRaw ? Number(weightRaw) : undefined,
   });
   if (!parsed.success) {
     return { error: parsed.error.issues[0]?.message ?? "Check the bag details." };
@@ -117,37 +129,40 @@ export async function sealBagAction(
   try {
     const { session, core } = await context(parsed.data.taskId);
 
-    // Optional photo — uploaded first so the custody event can carry it.
-    let photoPath: string | null = null;
+    // Required photo — uploaded first so the custody event can carry it. A
+    // failed upload aborts the seal: a bag must never be recorded as sealed
+    // with its photo silently missing.
     const photo = form.get("photo");
-    if (photo instanceof File && photo.size > 0) {
-      if (photo.size > BAG_PHOTO_MAX_BYTES) {
-        return { error: "That photo is too large — keep it under 8 MB." };
-      }
-      if (!BAG_PHOTO_TYPES.includes(photo.type)) {
-        return { error: "Photos must be JPEG, PNG, or WebP." };
-      }
-      const supabase = await getSupabaseServerClient();
-      if (!supabase) return { error: "Storage isn't configured." };
+    if (!(photo instanceof File) || photo.size === 0) {
+      return { error: "Take a photo of the bag before sealing it." };
+    }
+    if (photo.size > BAG_PHOTO_MAX_BYTES) {
+      return { error: "That photo is too large — keep it under 4 MB." };
+    }
+    if (!BAG_PHOTO_TYPES.includes(photo.type)) {
+      return { error: "Photos must be JPEG, PNG, or WebP." };
+    }
+    const supabase = await getSupabaseServerClient();
+    if (!supabase) return { error: "Storage isn't configured." };
 
-      const extension = photo.type === "image/png" ? "png" : photo.type === "image/webp" ? "webp" : "jpg";
-      photoPath = `bags/${parsed.data.bagId}/${crypto.randomUUID()}.${extension}`;
-      const { error } = await supabase.storage
-        .from("bag-photos")
-        .upload(photoPath, new Uint8Array(await photo.arrayBuffer()), {
-          contentType: photo.type,
-        });
-      if (error) {
-        console.error("[visit] photo upload failed", error.message);
-        return { error: "Photo upload failed. Check your connection and try again." };
-      }
+    const extension =
+      photo.type === "image/png" ? "png" : photo.type === "image/webp" ? "webp" : "jpg";
+    const photoPath = `bags/${parsed.data.bagId}/${crypto.randomUUID()}.${extension}`;
+    const { error: uploadError } = await supabase.storage
+      .from("bag-photos")
+      .upload(photoPath, new Uint8Array(await photo.arrayBuffer()), {
+        contentType: photo.type,
+      });
+    if (uploadError) {
+      console.error("[visit] photo upload failed", uploadError.message);
+      return { error: "Photo upload failed. Check your connection and try again." };
     }
 
     await recordBagSealed(core, session, {
       taskId: parsed.data.taskId,
       bagId: parsed.data.bagId,
       sealId: parsed.data.sealId,
-      weightKg: parsed.data.weightKg ?? null,
+      weightKg: parsed.data.weightKg,
       photoPath,
       ...gps(form),
     });

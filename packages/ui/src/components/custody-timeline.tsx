@@ -1,6 +1,7 @@
 import * as React from "react";
 
 import { cn } from "../lib/utils";
+import { ImageLightbox } from "./image-lightbox";
 
 /**
  * Chain-of-custody timeline — the visual signature of Koolee's trust story.
@@ -157,12 +158,16 @@ function CustodyTimeline({
                 <div className="text-sm text-muted-foreground">{item.description}</div>
               ) : null}
               {item.photoUrl ? (
-                /* Plain img: proof photos come from storage with unknown dimensions. */
-                <img
+                /* Click to enlarge. These are captured at ~1200px and shown
+                   here at 192px, so the detail that makes a proof photo proof
+                   — the seal number, a scuff, a broken zip — exists in the
+                   file and is unreadable at this size. Same component ops and
+                   the customer use, so both see the same evidence. */
+                <ImageLightbox
                   src={item.photoUrl}
                   alt={item.photoAlt ?? "Hand-off proof photo"}
-                  loading="lazy"
-                  className="mt-1 max-w-48 rounded-md border"
+                  title={typeof item.title === "string" ? item.title : undefined}
+                  className="mt-1 h-48 w-48"
                 />
               ) : null}
             </div>

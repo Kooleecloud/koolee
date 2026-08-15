@@ -98,10 +98,12 @@ export function BookingStepper({ completed }: { completed: boolean[] }) {
         {completed.some(Boolean) && (
           <ConfirmActionForm
             action={startOverBooking}
-            message="Start over? This clears your booking so far."
+            title="Start over?"
+            description="This clears your booking so far — flight, pickup address, and window are all discarded."
+            confirmLabel="Start over"
           >
             <button
-              type="submit"
+              type="button"
               className="whitespace-nowrap text-xs text-muted-foreground underline underline-offset-4 hover:text-foreground"
             >
               Start over

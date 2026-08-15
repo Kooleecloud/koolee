@@ -171,11 +171,13 @@ function DraftCard({
         </CTAButton>
         <ConfirmActionForm
           action={discardDraft}
-          message="Discard this booking? Everything you've entered will be removed."
+          title="Discard this booking?"
+          description="Everything you've entered will be removed. This cannot be undone."
+          confirmLabel="Discard"
         >
           {/* h-11/px-6 matches the CTAButton beside it — the two default
               heights differ (h-9 vs h-11) and read as a mistake side by side. */}
-          <Button type="submit" variant="outline" className="h-11 px-6">
+          <Button type="button" variant="outline" className="h-11 px-6">
             Discard
           </Button>
         </ConfirmActionForm>

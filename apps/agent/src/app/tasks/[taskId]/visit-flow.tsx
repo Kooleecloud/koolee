@@ -11,11 +11,14 @@ import {
   CardHeader,
   CardTitle,
   FormMessage,
+  ImageLightbox,
   Input,
   Label,
   Select,
   usePreservedFormValues,
 } from "@koolee/ui";
+
+import { downscalePhoto } from "@/lib/photo";
 
 import {
   arriveAction,
@@ -78,6 +81,81 @@ function GpsFields({ coords }: { coords: { lat: number; lng: number } | null }) 
       <input type="hidden" name="lat" value={coords.lat} />
       <input type="hidden" name="lng" value={coords.lng} />
     </>
+  );
+}
+
+/**
+ * The bag photo field: capture, then SEE what was captured.
+ *
+ * The preview is not decoration. The agent is holding a phone at a doorway and
+ * the camera returns to a form that previously showed only "1 file selected" —
+ * there was no way to notice a black frame, a thumb over the lens, or a shot of
+ * the wrong bag until ops opened it days later. The photo is required, so it
+ * has to be checkable at the moment it is taken.
+ */
+function BagPhotoField({ bagId }: { bagId: string }) {
+  const [preview, setPreview] = React.useState<string | null>(null);
+  const inputRef = React.useRef<HTMLInputElement>(null);
+
+  // Object URLs are leaked memory until revoked — one per retake.
+  React.useEffect(() => {
+    if (!preview) return;
+    return () => URL.revokeObjectURL(preview);
+  }, [preview]);
+
+  // React 19 resets the form after every action, and a file input is the one
+  // field `usePreservedFormValues` cannot restore. Without this, a failed seal
+  // (duplicate id, upload error) would leave a thumbnail on screen with no file
+  // actually attached — the agent would resubmit believing they had a photo.
+  React.useEffect(() => {
+    const form = inputRef.current?.form;
+    if (!form) return;
+    const clear = () => setPreview(null);
+    form.addEventListener("reset", clear);
+    return () => form.removeEventListener("reset", clear);
+  }, []);
+
+  return (
+    <div className="grid gap-2">
+      <Label htmlFor={`photo-${bagId}`}>Bag photo</Label>
+      <Input
+        ref={inputRef}
+        id={`photo-${bagId}`}
+        name="photo"
+        type="file"
+        accept="image/jpeg,image/png,image/webp"
+        capture="environment"
+        required
+        className={preview ? "sr-only" : undefined}
+        onChange={(event) => {
+          const file = event.target.files?.[0];
+          setPreview(file ? URL.createObjectURL(file) : null);
+        }}
+      />
+      {preview && (
+        <div className="flex items-center gap-3">
+          {/* Tap to enlarge before committing the seal. A 96px square is
+              enough to see that *a* photo was taken and not enough to see
+              that it is out of focus, framed on the floor, or of the wrong
+              bag — which is exactly what the agent is checking for. */}
+          <ImageLightbox
+            src={preview}
+            alt="The bag you just photographed"
+            title="Bag photo"
+            description="Check the bag and its seal are both readable before recording."
+            className="h-24 w-24"
+          />
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => inputRef.current?.click()}
+          >
+            Retake
+          </Button>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -216,6 +294,24 @@ function BagStep({
     {},
   );
   const { formRef, captureValues } = usePreservedFormValues(state);
+  // Shrink the camera capture before it becomes a Server Action body — an
+  // untouched phone photo blows the 1 MB limit and 413s before the action runs.
+  const [shrinking, setShrinking] = React.useState(false);
+  const submit = React.useCallback(
+    async (form: FormData) => {
+      const photo = form.get("photo");
+      if (photo instanceof File && photo.size > 0) {
+        setShrinking(true);
+        try {
+          form.set("photo", await downscalePhoto(photo));
+        } finally {
+          setShrinking(false);
+        }
+      }
+      formAction(form);
+    },
+    [formAction],
+  );
 
   return (
     <Card>
@@ -242,7 +338,7 @@ function BagStep({
         <CardContent>
           <form
             ref={formRef}
-            action={formAction}
+            action={submit}
             onSubmit={captureValues}
             className="flex flex-col gap-3"
           >
@@ -250,16 +346,7 @@ function BagStep({
             <input type="hidden" name="bagId" value={bag.id} />
             <GpsFields coords={coords} />
 
-            <div className="grid gap-2">
-              <Label htmlFor={`photo-${bag.id}`}>Bag photo</Label>
-              <Input
-                id={`photo-${bag.id}`}
-                name="photo"
-                type="file"
-                accept="image/jpeg,image/png,image/webp"
-                capture="environment"
-              />
-            </div>
+            <BagPhotoField bagId={bag.id} />
             <div className="grid grid-cols-2 gap-3">
               <div className="grid gap-2">
                 <Label htmlFor={`seal-${bag.id}`}>Seal id</Label>
@@ -270,6 +357,9 @@ function BagStep({
                   autoComplete="off"
                   required
                 />
+                <p className="text-muted-foreground text-xs">
+                  Unique to this bag — never reuse a number.
+                </p>
                 {/* TODO(agent-flow): QR/RFID scan via the camera — manual
                     entry ships first; the seal id stays an opaque string. */}
               </div>
@@ -281,13 +371,14 @@ function BagStep({
                   type="number"
                   inputMode="decimal"
                   step="0.1"
-                  min="0"
+                  min="0.1"
                   max="99"
+                  required
                 />
               </div>
             </div>
             {state.error && <FormMessage>{state.error}</FormMessage>}
-            <Button type="submit" loading={pending}>
+            <Button type="submit" loading={pending || shrinking}>
               Record seal
             </Button>
           </form>
@@ -317,7 +408,10 @@ function CompleteStep({
       <CardHeader>
         <CardTitle className="text-base">4 · Complete the visit</CardTitle>
         <CardDescription>
-          {sealedCount}/{view.bags.length} bags sealed. Completing records the
+          {/* Braces around the space: JSX drops whitespace at a line break,
+              which rendered this as "0/2bags sealed". */}
+          {sealedCount}/{view.bags.length}{" "}
+          bags sealed. Completing records the
           hand-off — from here the bags are in Koolee&apos;s custody until the
           airline&apos;s bag drop. Billing is handled by ops; nothing about the
           customer&apos;s card happens on this device.

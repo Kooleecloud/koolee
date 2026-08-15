@@ -1,8 +1,10 @@
 "use client";
 
 import { useActionState, useState } from "react";
+import { Check } from "lucide-react";
 import {
   Button,
+  cn,
   Card,
   CardContent,
   CardDescription,
@@ -63,6 +65,9 @@ export function PickupStepForm({
     zip: defaults.zip,
   });
   const [bagCount, setBagCount] = useState(String(defaults.bagCount));
+  // Which saved address is currently filling the form. Purely a display
+  // concern — the submitted values are the inputs, not this id.
+  const [selectedAddressId, setSelectedAddressId] = useState<string | null>(null);
 
   if (state.outOfCoverageZip) {
     return <OutOfAreaCapture zip={state.outOfCoverageZip} retryHref="/book/pickup" />;
@@ -81,33 +86,51 @@ export function PickupStepForm({
             <CardTitle className="text-base">Your saved addresses</CardTitle>
             <CardDescription>One tap fills the form below.</CardDescription>
           </CardHeader>
-          <CardContent className="flex flex-col gap-2">
-            {savedAddresses.map((saved) => (
-              <Button
-                key={saved.id}
-                type="button"
-                variant="outline"
-                className="w-full justify-start text-left"
-                onClick={() =>
-                  setAddress({
-                    line1: saved.line1,
-                    line2: saved.line2 ?? "",
-                    city: saved.city,
-                    state: saved.state,
-                    zip: saved.zip,
-                  })
-                }
-              >
-                <span className="flex flex-col items-start">
-                  <span className="font-medium">{saved.label || saved.line1}</span>
-                  <span className="text-xs text-muted-foreground">
-                    {saved.line1}
-                    {saved.line2 ? `, ${saved.line2}` : ""}, {saved.city} {saved.state}{" "}
-                    {saved.zip}
+          <CardContent className="grid gap-2 sm:grid-cols-2">
+            {savedAddresses.map((saved) => {
+              const street = saved.line2 ? `${saved.line1}, ${saved.line2}` : saved.line1;
+              // A label is optional, and when it is missing the street doubles
+              // as the heading — so the full line must not repeat it back
+              // underneath. Unlabelled addresses showed "22 W 34th St" twice.
+              const heading = saved.label || street;
+              const detail =
+                saved.label ? `${street}, ${saved.city} ${saved.state} ${saved.zip}`
+                : `${saved.city} ${saved.state} ${saved.zip}`;
+              return (
+                <button
+                  key={saved.id}
+                  type="button"
+                  aria-pressed={selectedAddressId === saved.id}
+                  onClick={() => {
+                    setSelectedAddressId(saved.id);
+                    setAddress({
+                      line1: saved.line1,
+                      line2: saved.line2 ?? "",
+                      city: saved.city,
+                      state: saved.state,
+                      zip: saved.zip,
+                    });
+                  }}
+                  className={cn(
+                    "flex flex-col items-start gap-1 rounded-lg border p-3 text-left transition-colors",
+                    "hover:bg-accent/10 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden",
+                    selectedAddressId === saved.id
+                      ? "border-primary bg-primary/5"
+                      : "border-border",
+                  )}
+                >
+                  <span className="flex w-full items-center justify-between gap-2">
+                    <span className="truncate font-medium">{heading}</span>
+                    {/* Confirms which one filled the form — tapping a second
+                        address silently overwrote the first with no feedback. */}
+                    {selectedAddressId === saved.id && (
+                      <Check aria-hidden className="size-4 shrink-0 text-primary" />
+                    )}
                   </span>
-                </span>
-              </Button>
-            ))}
+                  <span className="text-xs text-muted-foreground">{detail}</span>
+                </button>
+              );
+            })}
           </CardContent>
         </Card>
       )}

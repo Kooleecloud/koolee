@@ -343,6 +343,11 @@ export interface BoardRow {
   slotStart: Date | null;
   assigneeUserId: string | null;
   assigneeEmail: string | null;
+  /**
+   * The agent's display name. Null for staff who never set one — the board
+   * falls back to the email, which is always present for staff.
+   */
+  assigneeName: string | null;
   taskStatus: VerificationTask["status"] | null;
   /**
    * The booking's display zone, carried per row because the board is the one
@@ -386,7 +391,13 @@ export interface BoardFilter {
   limit?: number;
 }
 
-export const BOARD_SORT_KEYS = ["window", "departure", "status", "agent"] as const;
+export const BOARD_SORT_KEYS = [
+  "window",
+  "booked",
+  "departure",
+  "status",
+  "agent",
+] as const;
 export type BoardSortKey = (typeof BOARD_SORT_KEYS)[number];
 export interface BoardSort {
   key: BoardSortKey;
@@ -449,6 +460,10 @@ function orderFor(sort: BoardSort | undefined): SQL[] {
   const nulls = sort?.direction === "desc" ? sql`desc nulls last` : sql`asc nulls last`;
 
   switch (sort?.key) {
+    case "booked":
+      // When the booking came in. `created_at` is never null, so no nulls
+      // clause — an ordinary column sort.
+      return [direction(bookings.createdAt), asc(bookings.id)];
     case "departure":
       return [direction(bookings.departureAt), asc(bookings.id)];
     case "status":
@@ -492,6 +507,7 @@ export async function listBookingsBoard(
       slotStart: bookings.pickupWindowStart,
       assigneeUserId: verificationTasks.assigneeUserId,
       assigneeEmail: users.email,
+      assigneeName: users.fullName,
       taskStatus: verificationTasks.status,
       tz: airports.tz,
     })
@@ -508,6 +524,7 @@ export async function listBookingsBoard(
     slotStart: row.slotStart,
     assigneeUserId: row.assigneeUserId,
     assigneeEmail: row.assigneeEmail,
+    assigneeName: row.assigneeName,
     taskStatus: row.taskStatus,
     tz: row.tz,
     atRisk:

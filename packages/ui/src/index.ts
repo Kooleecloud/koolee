@@ -108,6 +108,7 @@ export {
   type BookingStatusBadgeProps,
 } from "./components/booking-status-badge";
 export { ConfirmDialog, type ConfirmDialogProps } from "./components/confirm-dialog";
+export { ImageLightbox, type ImageLightboxProps } from "./components/image-lightbox";
 
 /* Feedback — every async action must show one of these */
 export { Spinner, type SpinnerProps } from "./components/spinner";

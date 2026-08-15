@@ -335,6 +335,8 @@ describeIntegration("agent verification visit (integration)", () => {
       taskId: task.id,
       bagId: context.bags[0]!.id,
       sealId: "SEAL-ONLY-ONE",
+      weightKg: 12,
+      photoPath: `bags/${context.bags[0]!.id}/photo.jpg`,
     });
 
     const result = await completeVerificationVisit(config, agentSession, {
@@ -343,6 +345,124 @@ describeIntegration("agent verification visit (integration)", () => {
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.error).toMatch(/not sealed/);
+  });
+
+  /**
+   * Seal id, weight and photo are the custody record for a bag. All three are
+   * required, and a seal id identifies exactly one bag anywhere — the failure
+   * that motivated these: three bags in one booking accepted the SAME printed
+   * seal number, which makes the record undefendable in a dispute.
+   */
+  describe("a bag cannot be half-sealed", () => {
+    async function readyBooking(bagCount = 2) {
+      const { task } = await assignedBooking(bagCount);
+      const context = await arriveAtVisit(config, agentSession, { taskId: task.id });
+      await recordIdentityVerified(config, agentSession, { taskId: task.id });
+      return { task, bags: context.bags };
+    }
+
+    it("rejects a seal id already used on another bag in the same booking", async () => {
+      const { task, bags: bagRows } = await readyBooking(2);
+      const seal = { taskId: task.id, sealId: "KL-001", weightKg: 14 };
+      await recordBagSealed(config, agentSession, {
+        ...seal,
+        bagId: bagRows[0]!.id,
+        photoPath: `bags/${bagRows[0]!.id}/photo.jpg`,
+      });
+
+      await expect(
+        recordBagSealed(config, agentSession, {
+          ...seal,
+          bagId: bagRows[1]!.id,
+          photoPath: `bags/${bagRows[1]!.id}/photo.jpg`,
+        }),
+      ).rejects.toThrow(/already on another bag in this booking/);
+
+      // The second bag stayed unsealed — a rejected seal writes nothing.
+      const after = await getVisitContext(db, agentSession, task.id);
+      expect(after.bags.find((b) => b.id === bagRows[1]!.id)!.sealId).toBeNull();
+    });
+
+    it("rejects a seal id already recorded against a different booking", async () => {
+      const first = await readyBooking(1);
+      await recordBagSealed(config, agentSession, {
+        taskId: first.task.id,
+        bagId: first.bags[0]!.id,
+        sealId: "KL-777",
+        weightKg: 9,
+        photoPath: `bags/${first.bags[0]!.id}/photo.jpg`,
+      });
+
+      const second = await readyBooking(1);
+      await expect(
+        recordBagSealed(config, agentSession, {
+          taskId: second.task.id,
+          bagId: second.bags[0]!.id,
+          sealId: "KL-777",
+          weightKg: 9,
+          photoPath: `bags/${second.bags[0]!.id}/photo.jpg`,
+        }),
+      ).rejects.toThrow(/another booking/);
+    });
+
+    it("the unique index holds even if the pre-check is bypassed", async () => {
+      const { bags: bagRows } = await readyBooking(2);
+      await db.update(bags).set({ sealId: "KL-DIRECT" }).where(eq(bags.id, bagRows[0]!.id));
+      await expect(
+        db.update(bags).set({ sealId: "KL-DIRECT" }).where(eq(bags.id, bagRows[1]!.id)),
+      ).rejects.toThrow();
+    });
+
+    it("refuses a seal without a weight, and without a photo", async () => {
+      const { task, bags: bagRows } = await readyBooking(1);
+      const bagId = bagRows[0]!.id;
+
+      await expect(
+        recordBagSealed(config, agentSession, {
+          taskId: task.id,
+          bagId,
+          sealId: "KL-100",
+          weightKg: 0,
+          photoPath: `bags/${bagId}/photo.jpg`,
+        }),
+      ).rejects.toThrow(/Weigh the bag/);
+
+      await expect(
+        recordBagSealed(config, agentSession, {
+          taskId: task.id,
+          bagId,
+          sealId: "KL-100",
+          weightKg: 14,
+          photoPath: "",
+        }),
+      ).rejects.toThrow(/Photograph the bag/);
+
+      const after = await getVisitContext(db, agentSession, task.id);
+      expect(after.bags[0]!.sealId).toBeNull();
+      expect(after.bags[0]!.photoUrls).toEqual([]);
+    });
+
+    it("a successful seal records the weight and the photo path", async () => {
+      const { task, bags: bagRows } = await readyBooking(1);
+      const bagId = bagRows[0]!.id;
+      await recordBagSealed(config, agentSession, {
+        taskId: task.id,
+        bagId,
+        sealId: "KL-200",
+        weightKg: 21.4,
+        photoPath: `bags/${bagId}/photo.jpg`,
+      });
+
+      const after = await getVisitContext(db, agentSession, task.id);
+      const sealed = after.bags[0]!;
+      expect(sealed.sealId).toBe("KL-200");
+      expect(Number(sealed.weightKg)).toBe(21.4);
+      expect(sealed.photoUrls).toEqual([`bags/${bagId}/photo.jpg`]);
+
+      const event = after.timeline.find((e) => e.eventType === "bag.sealed")!;
+      expect(event.photoUrl).toBe(`bags/${bagId}/photo.jpg`);
+      expect(event.metadata).toMatchObject({ sealId: "KL-200", weightKg: 21.4 });
+    });
   });
 
   it("exception path: booking → exception with the reason; task failed; actor recorded", async () => {

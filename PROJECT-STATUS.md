@@ -102,6 +102,28 @@ package-specific in `packages/<pkg>/docs/`. Nothing new accumulates at the root.
   once at creation with `UNIQUE (booking_id, ordinal)`. Positional labels were
   arbitrary — a booking's bags share `created_at` to the millisecond, so a
   sealed bag visibly moved between "Bag 1" and "Bag 3" across renders.
+- **A sealed bag is seal + weight + photo, or it is not sealed (2026-08-15):**
+  found in agent testing — three bags in one booking accepted the SAME printed
+  seal id, and both weight and photo were optional. `bags.seal_id` is now
+  globally unique (partial unique index, migration `0017`, plus a friendlier
+  pre-check in `recordBagSealed`); a seal is single-use stock, so the scope is
+  the whole table, not one booking. All three fields are required at the form,
+  the server action, and core. There is no override for a broken scale — the
+  agent flags an exception instead. The photo field now shows a preview: the
+  agent is at a doorway and previously could not tell a black frame from a good
+  shot until ops opened it days later. Also fixed alongside: phone captures
+  (3–8 MB) blew the 1 MB Server Action body limit and 413'd before the action
+  ran — they are downscaled in the browser now (`apps/agent/src/lib/photo.ts`).
+
+- **Every confirmation is ours, and every evidence photo enlarges (2026-08-15):**
+  the booking funnel was still calling `window.confirm` for "Start over" and
+  "Discard" — an unstyled OS popup, worded differently per platform. All three
+  surfaces now go through the same `ConfirmDialog` admin already used. Bag
+  photos are captured at ~1200px and were displayed at 78–190px with no way to
+  enlarge them, which defeats their purpose in a damage claim; a shared
+  `ImageLightbox` now backs the agent preview, the ops bags card, and the
+  custody trail (customer trip page included).
+
 ### 3.1 Migration state — verified, not assumed (2026-08-10)
 
 Earlier revisions of this file claimed hosted "still owes 0012/0013/0014" and

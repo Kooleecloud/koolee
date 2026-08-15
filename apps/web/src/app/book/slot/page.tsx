@@ -180,9 +180,11 @@ function DeadEndActions() {
       </Button>
       <ConfirmActionForm
         action={startOverBooking}
-        message="Start over? This clears your booking so far."
+        title="Start over?"
+        description="This clears your booking so far — flight, pickup address, and window are all discarded."
+        confirmLabel="Start over"
       >
-        <Button type="submit" variant="ghost">
+        <Button type="button" variant="ghost">
           Start over
         </Button>
       </ConfirmActionForm>

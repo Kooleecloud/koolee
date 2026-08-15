@@ -11,6 +11,7 @@ export {
   formatDayInAirportTz,
   formatHourRangeInAirportTz,
   formatInstantInAirportTz,
+  formatTimeInAirportTz,
   formatWindowInAirportTz,
   minutesUntilCutoff,
   resolveCutoffMinutes,
