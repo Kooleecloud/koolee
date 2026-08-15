@@ -43,14 +43,14 @@ it exists to protect.
 Use the formatters in `packages/core/src/slots/cutoff.ts`. They all take an
 explicit `tz` — there is no default, on purpose.
 
-| Function | Output |
-| --- | --- |
-| `formatWindowInAirportTz(start, end, tz)` | `Tue 10 Jun, 10:00 AM – 11:00 AM EDT` |
-| `formatHourRangeInAirportTz(start, end, tz)` | `10:00 AM – 11:00 AM EDT` |
-| `formatInstantInAirportTz(instant, tz)` | `Tue 10 Jun, 6:20 PM EDT` |
-| `formatDayInAirportTz(instant, tz)` | `Tue 10 Jun` (a day has no zone) |
+| Function                                      | Output                                                   |
+| --------------------------------------------- | -------------------------------------------------------- |
+| `formatWindowInAirportTz(start, end, tz)`     | `Tue 10 Jun, 10:00 AM – 11:00 AM EDT`                    |
+| `formatHourRangeInAirportTz(start, end, tz)`  | `10:00 AM – 11:00 AM EDT`                                |
+| `formatInstantInAirportTz(instant, tz)`       | `Tue 10 Jun, 6:20 PM EDT`                                |
+| `formatDayInAirportTz(instant, tz)`           | `Tue 10 Jun` (a day has no zone)                         |
 | `formatDateTimeLocalInAirportTz(instant, tz)` | `2026-06-10T18:20` (for `<input type="datetime-local">`) |
-| `dstTransitionNote(start, tz)` | a warning string on two nights a year, else `null` |
+| `dstTransitionNote(start, tz)`                | a warning string on two nights a year, else `null`       |
 
 Where the zone comes from:
 
@@ -75,11 +75,11 @@ have no airport and therefore no zone. Render them **relative**
   `setHours(0, 0, 0, 0)`: server-local midnight is **UTC** midnight in
   production, which slices an Eastern day at 8 PM the evening before.
 - `airportLocalInstant(day, hour, tz)` for ops input ("block Aug 12, 2 PM at
-  JFK") — resolved against the zone of *that airport*.
+  JFK") — resolved against the zone of _that airport_.
 - **Sort by absolute instant, never by rendered local time.** On a mixed-zone
   list a 9 AM Pacific pickup would otherwise sort above a 10 AM Eastern one that
   happens three hours earlier.
-- A day-bounded *query* needs one boundary, so it takes one zone. When the ops
+- A day-bounded _query_ needs one boundary, so it takes one zone. When the ops
   board is filtered to a single airport it uses that airport's; otherwise
   `OPS_CONSOLE_TZ` stands in. Display is still per row.
 
@@ -89,8 +89,8 @@ Koolee runs 24/7/365, so both edges are inventory customers pay for.
 
 - **Fall back** — two distinct one-hour windows both render `1:00 AM – 2:00 AM`.
   `EDT` vs `EST` separates them technically, but no customer reads it that way,
-  so `dstTransitionNote` says it in words: *"first of two — clocks go back during
-  this hour"*.
+  so `dstTransitionNote` says it in words: _"first of two — clocks go back during
+  this hour"_.
 - **Spring forward** — the 2 AM hour does not exist, so the picker jumps 1 AM →
   3 AM. Nothing is missing, but an unexplained gap reads as a bug.
 
@@ -106,10 +106,10 @@ the hand-over is the moment the agent and customer must agree on.
 
 ## The two zone columns on `bookings`
 
-| Column | Meaning | May it drive display? |
-| --- | --- | --- |
-| `display_tz` | The departure airport's zone, snapshotted at creation. | **Yes — it is the only thing that may.** |
-| `booked_from_tz` | The customer's own zone when they booked, best-effort. | **Never.** |
+| Column           | Meaning                                                | May it drive display?                    |
+| ---------------- | ------------------------------------------------------ | ---------------------------------------- |
+| `display_tz`     | The departure airport's zone, snapshotted at creation. | **Yes — it is the only thing that may.** |
+| `booked_from_tz` | The customer's own zone when they booked, best-effort. | **Never.**                               |
 
 `display_tz` is denormalized from `airports.tz` on purpose and never updated. It
 makes a booking row **self-describing**: any app, in any language, can read the

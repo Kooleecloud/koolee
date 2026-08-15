@@ -23,13 +23,23 @@ EWR). Turborepo monorepo: three Next.js apps (`web` customer, `agent` PWA,
 
 ## 2. Where the docs live
 
-One living doc at the root — this file. Everything else sits next to the code
-it describes:
+Two living docs at the root — [README.md](README.md) (entry point) and this
+tracker. **Everything repo-wide lives in [docs/](docs/); everything else sits
+next to the code it describes.** Full index: [docs/README.md](docs/README.md).
 
 | Doc                                                                          | Scope                                                                                    |
 | ---------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
-| [README.md](README.md)                                                       | Repo-wide: architecture, env, testing, commands                                          |
+| [README.md](README.md)                                                       | Entry point: quickstart, architecture sketch, the non-obvious rules                      |
 | [PROJECT-STATUS.md](PROJECT-STATUS.md)                                       | This tracker — the map                                                                   |
+| [docs/README.md](docs/README.md)                                             | Documentation index                                                                      |
+| [docs/learning/](docs/learning/)                                             | **Nine-chapter learning track.** Numbered sections, written to be re-entered             |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)                                 | System shape, the two boundaries, folder tour, request flow, deployment                  |
+| [docs/features/](docs/features/)                                             | End-to-end walkthroughs: funnel, auth, payments, agent visit, ops console, jobs          |
+| [docs/ENVIRONMENT.md](docs/ENVIRONMENT.md)                                   | Every env var, the fail-closed boot gates, secret ownership                              |
+| [docs/MIGRATIONS.md](docs/MIGRATIONS.md)                                     | Schema change, drift detection, stranded migrations, the RLS stance                      |
+| [docs/SCRIPTS.md](docs/SCRIPTS.md)                                           | Every command, the local stack, testing tiers, ports                                     |
+| [docs/CODEBASE-MAP.md](docs/CODEBASE-MAP.md)                                 | The dense 13-chapter narrative reference                                                 |
+| [docs/TIME.md](docs/TIME.md)                                                 | Instants, timezones, DST                                                                 |
 | [MIGRATION-NOTES.md](MIGRATION-NOTES.md)                                     | Historical record of the 10-phase dependency migration                                   |
 | [apps/web/docs/setup-auth.md](apps/web/docs/setup-auth.md)                   | Customer auth wiring: provider ownership, CAPTCHA, OTP safety                            |
 | [apps/web/docs/pre-launch-security.md](apps/web/docs/pre-launch-security.md) | Auth-funnel hardening items + launch checklist                                           |
@@ -38,8 +48,8 @@ it describes:
 | [packages/db/README.md](packages/db/README.md)                               | Two-connection rule, RLS stance                                                          |
 | [brand/BRAND.md](brand/BRAND.md)                                             | Tag-K brand system                                                                       |
 
-New app-specific docs go in `apps/<app>/docs/`; package-specific docs in
-`packages/<pkg>/docs/`. Nothing new accumulates at the root.
+New repo-wide docs go in `docs/`; app-specific in `apps/<app>/docs/`;
+package-specific in `packages/<pkg>/docs/`. Nothing new accumulates at the root.
 
 ---
 

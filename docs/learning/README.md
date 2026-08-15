@@ -34,18 +34,18 @@
 
 ## Chapters
 
-| #   | Chapter                                                     | Status | Verified at |
-| --- | ----------------------------------------------------------- | ------ | ----------- |
-| 1   | [The product & its nouns](01-product-and-nouns.md)          | ✅     | `b17a7de`   |
-| 2   | Repo map & boundaries                                       | ⬜     | —           |
-| 3   | Data model & migrations                                     | ⬜     | —           |
-| 4   | Domain core — state machine, cutoffs, windows, pricing      | ⬜     | —           |
-| 5   | Auth — customer OTP & staff invite-only                     | ⬜     | —           |
-| 6   | Customer funnel & drafts                                    | ⬜     | —           |
-| 7   | Payments end-to-end                                         | ⬜     | —           |
-| 8   | Agent PWA & admin ops console                               | ⬜     | —           |
-| 9   | UI & brand, testing matrix, deployment                      | ⬜     | —           |
-| —   | Glossary (written last, once the nouns have accumulated)     | ⬜     | —           |
+| #   | Chapter                                                  | Status | Verified at |
+| --- | -------------------------------------------------------- | ------ | ----------- |
+| 1   | [The product & its nouns](01-product-and-nouns.md)       | ✅     | `5973047`   |
+| 2   | Repo map & boundaries                                    | ⬜     | —           |
+| 3   | Data model & migrations                                  | ⬜     | —           |
+| 4   | Domain core — state machine, cutoffs, windows, pricing   | ⬜     | —           |
+| 5   | Auth — customer OTP & staff invite-only                  | ⬜     | —           |
+| 6   | Customer funnel & drafts                                 | ⬜     | —           |
+| 7   | Payments end-to-end                                      | ⬜     | —           |
+| 8   | Agent PWA & admin ops console                            | ⬜     | —           |
+| 9   | UI & brand, testing matrix, deployment                   | ⬜     | —           |
+| —   | Glossary (written last, once the nouns have accumulated) | ⬜     | —           |
 
 ## Section index
 
@@ -53,13 +53,13 @@ Jump straight to a numbered section.
 
 **Chapter 1 — [The product & its nouns](01-product-and-nouns.md)**
 
-| §   | Section                                                                       |
-| --- | ----------------------------------------------------------------------------- |
-| 1.1 | [The claim, and why it is a hard boundary](01-product-and-nouns.md#11--the-claim-and-why-it-is-a-hard-boundary) |
-| 1.2 | [The nouns and the tables they live in](01-product-and-nouns.md#12--the-nouns-and-the-tables-they-live-in) |
-| 1.3 | [Windows are not inventory](01-product-and-nouns.md#13--windows-are-not-inventory) |
-| 1.4 | [Why `bags.ordinal` exists](01-product-and-nouns.md#14--why-bagsordinal-exists) |
+| §   | Section                                                                                                            |
+| --- | ------------------------------------------------------------------------------------------------------------------ |
+| 1.1 | [The claim, and why it is a hard boundary](01-product-and-nouns.md#11--the-claim-and-why-it-is-a-hard-boundary)    |
+| 1.2 | [The nouns and the tables they live in](01-product-and-nouns.md#12--the-nouns-and-the-tables-they-live-in)         |
+| 1.3 | [Windows are not inventory](01-product-and-nouns.md#13--windows-are-not-inventory)                                 |
+| 1.4 | [Why `bags.ordinal` exists](01-product-and-nouns.md#14--why-bagsordinal-exists)                                    |
 | 1.5 | [The lifecycle: ten statuses, one authority](01-product-and-nouns.md#15--the-lifecycle-ten-statuses-one-authority) |
-| 1.6 | [Three rules of the state machine](01-product-and-nouns.md#16--three-rules-of-the-state-machine) |
-| 1.7 | [Three apps = three phases](01-product-and-nouns.md#17--three-apps--three-phases-of-the-lifecycle) |
-| 1.8 | [`paid` means authorized, not collected](01-product-and-nouns.md#18--paid-means-authorized-not-collected) |
+| 1.6 | [Three rules of the state machine](01-product-and-nouns.md#16--three-rules-of-the-state-machine)                   |
+| 1.7 | [Three apps = three phases](01-product-and-nouns.md#17--three-apps--three-phases-of-the-lifecycle)                 |
+| 1.8 | [`paid` means authorized, not collected](01-product-and-nouns.md#18--paid-means-authorized-not-collected)          |

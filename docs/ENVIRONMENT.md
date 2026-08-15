@@ -1,12 +1,12 @@
 # Environment & Credentials
 
 > **Canonical reference for every environment variable in this repo.** Baseline:
-> `origin/dev` @ `b17a7de`. Related: [MIGRATIONS.md](MIGRATIONS.md) ·
+> `dev` @ `5973047`. Related: [MIGRATIONS.md](MIGRATIONS.md) ·
 > [SCRIPTS.md](SCRIPTS.md) · [CODEBASE-MAP.md](CODEBASE-MAP.md)
 >
-> **No secret values live in this file**, by design. It documents *what* each
-> var is, *which app needs it*, *where to obtain it*, and *what silently breaks
-> without it*.
+> **No secret values live in this file**, by design. It documents _what_ each
+> var is, _which app needs it_, _where to obtain it_, and _what silently breaks
+> without it_.
 
 ---
 
@@ -21,8 +21,8 @@ lint && pnpm typecheck && pnpm test` must all pass on a fresh clone with **zero
 credentials**.
 
 **1.2 — A var becomes required only when a code path that needs it runs.**
-`requireEnv(key)` throws a `MissingEnvError` naming the variable *and where to
-get it* ([web/src/env.ts:181](../apps/web/src/env.ts#L181)). `optionalEnv(key)`
+`requireEnv(key)` throws a `MissingEnvError` naming the variable _and where to
+get it_ ([web/src/env.ts:181](../apps/web/src/env.ts#L181)). `optionalEnv(key)`
 is the non-throwing read.
 
 **1.3 — Missing credentials degrade to a documented fallback, not an error.**
@@ -31,8 +31,8 @@ configured, and exactly what happens without it — surfaced in a dev-only
 `<EnvStatus />` panel and a one-shot console warning.
 
 ⚠️ **The consequence to internalise:** in this codebase a missing secret does
-not look like a failure. It looks like a *working app with a protection turned
-off*. That is why the production boot gates in §4 exist.
+not look like a failure. It looks like a _working app with a protection turned
+off_. That is why the production boot gates in §4 exist.
 
 ---
 
@@ -40,14 +40,14 @@ off*. That is why the production boot gates in §4 exist.
 
 **Next.js does not read the root `.env.local`.** Each app reads only its own.
 
-| File | Read by | Tracked? | Purpose |
-| --- | --- | --- | --- |
-| `.env.example` (root) | nobody | ✅ | Canonical reference of where every key comes from |
-| `apps/web/.env.local` | `apps/web` | ❌ | Live values for the customer app |
-| `apps/agent/.env.local` | `apps/agent` | ❌ | Live values for the agent PWA |
-| `apps/admin/.env.local` | `apps/admin` | ❌ | Live values for the ops console |
-| `packages/db/.env` | `drizzle-kit`, `migrate.ts`, `status.ts`, `seed.ts` | ❌ | **Points at the HOSTED project** — see §6 |
-| `.env.test` (root) | integration suites | ❌ | **Generated** by `test-env.sh up`. Do not hand-edit |
+| File                    | Read by                                             | Tracked? | Purpose                                             |
+| ----------------------- | --------------------------------------------------- | -------- | --------------------------------------------------- |
+| `.env.example` (root)   | nobody                                              | ✅       | Canonical reference of where every key comes from   |
+| `apps/web/.env.local`   | `apps/web`                                          | ❌       | Live values for the customer app                    |
+| `apps/agent/.env.local` | `apps/agent`                                        | ❌       | Live values for the agent PWA                       |
+| `apps/admin/.env.local` | `apps/admin`                                        | ❌       | Live values for the ops console                     |
+| `packages/db/.env`      | `drizzle-kit`, `migrate.ts`, `status.ts`, `seed.ts` | ❌       | **Points at the HOSTED project** — see §6           |
+| `.env.test` (root)      | integration suites                                  | ❌       | **Generated** by `test-env.sh up`. Do not hand-edit |
 
 Each app also has its own `apps/<app>/.env.example` — **those are the accurate
 ones**. Copy them:
@@ -70,30 +70,30 @@ over the root template until it is refreshed.
 
 Legend: ● required for the feature to work · ○ optional/degrades · — not read.
 
-| Variable | web | agent | admin | Where to get it |
-| --- | :-: | :-: | :-: | --- |
-| `NEXT_PUBLIC_APP_URL` | ○ | ○ | ○ | Own origin. Dev: `:3000` / `:3001` / `:3002` |
-| `NEXT_PUBLIC_AGENT_APP_URL` | — | — | ● | Agent app's origin. Invite links land there |
-| `DATABASE_URL` | ● | ● | ● | Supabase → Settings → Database → **Connection pooling, Transaction mode, port 6543** |
-| `DIRECT_DATABASE_URL` | ○ | ○ | ○ | Same page → **Direct connection, port 5432**. Migrations only |
-| `NEXT_PUBLIC_SUPABASE_URL` | ● | ● | ● | Supabase → Settings → API → Project URL |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | ● | ● | ● | Supabase → Settings → API → anon public key |
-| `SUPABASE_SERVICE_ROLE_KEY` | ● | **—** | ● | Supabase → Settings → API → service_role. **Never in agent** (§5) |
-| `AUTH_SCHEMA_AVAILABLE` | ○ | — | — | `"false"` only for bare local Postgres with no GoTrue |
-| `NEXT_PUBLIC_TURNSTILE_SITE_KEY` | ● | — | — | Cloudflare → Turnstile → Site key (invisible mode) |
-| `OTP_LOG_HMAC_KEY` | ● | — | — | `openssl rand -hex 32`. **Min 32 chars** |
-| `CRON_SECRET` | ● | — | — | Any random string. Protects `/api/jobs/*` |
-| `STRIPE_SECRET_KEY` | ● | — | ○ | Stripe → Developers → API keys (admin needs it for refunds) |
-| `STRIPE_WEBHOOK_SECRET` | ● | — | — | Stripe → Webhooks, or `stripe listen` locally |
-| `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` | ● | — | — | Stripe → Developers → API keys |
-| `INNGEST_EVENT_KEY` | ○ | — | — | Inngest Cloud → Events. Not needed for `pnpm dev:inngest` |
-| `INNGEST_SIGNING_KEY` | ○ | — | — | Inngest Cloud → Deploy → Signing key |
-| `RESEND_API_KEY` | ○ | — | — | Resend dashboard |
-| `AEROAPI_KEY` | ○ | — | — | FlightAware AeroAPI. **Stubbed** |
-| `GOOGLE_MAPS_API_KEY` | ○ | ○ | — | Google Cloud → Maps Platform. **Stubbed** |
-| `ANTHROPIC_API_KEY` | ○ | — | — | Ticket-PDF extraction. Out of scope in scaffold |
-| `SENTRY_DSN` | ○ | ○ | ○ | Sentry project settings |
-| `TEST_DATABASE_URL` | — | — | — | Integration tests only. See [SCRIPTS.md](SCRIPTS.md) |
+| Variable                             | web | agent | admin | Where to get it                                                                      |
+| ------------------------------------ | :-: | :---: | :---: | ------------------------------------------------------------------------------------ |
+| `NEXT_PUBLIC_APP_URL`                |  ○  |   ○   |   ○   | Own origin. Dev: `:3000` / `:3001` / `:3002`                                         |
+| `NEXT_PUBLIC_AGENT_APP_URL`          |  —  |   —   |   ●   | Agent app's origin. Invite links land there                                          |
+| `DATABASE_URL`                       |  ●  |   ●   |   ●   | Supabase → Settings → Database → **Connection pooling, Transaction mode, port 6543** |
+| `DIRECT_DATABASE_URL`                |  ○  |   ○   |   ○   | Same page → **Direct connection, port 5432**. Migrations only                        |
+| `NEXT_PUBLIC_SUPABASE_URL`           |  ●  |   ●   |   ●   | Supabase → Settings → API → Project URL                                              |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY`      |  ●  |   ●   |   ●   | Supabase → Settings → API → anon public key                                          |
+| `SUPABASE_SERVICE_ROLE_KEY`          |  ●  | **—** |   ●   | Supabase → Settings → API → service_role. **Never in agent** (§5)                    |
+| `AUTH_SCHEMA_AVAILABLE`              |  ○  |   —   |   —   | `"false"` only for bare local Postgres with no GoTrue                                |
+| `NEXT_PUBLIC_TURNSTILE_SITE_KEY`     |  ●  |   —   |   —   | Cloudflare → Turnstile → Site key (invisible mode)                                   |
+| `OTP_LOG_HMAC_KEY`                   |  ●  |   —   |   —   | `openssl rand -hex 32`. **Min 32 chars**                                             |
+| `CRON_SECRET`                        |  ●  |   —   |   —   | Any random string. Protects `/api/jobs/*`                                            |
+| `STRIPE_SECRET_KEY`                  |  ●  |   —   |   ○   | Stripe → Developers → API keys (admin needs it for refunds)                          |
+| `STRIPE_WEBHOOK_SECRET`              |  ●  |   —   |   —   | Stripe → Webhooks, or `stripe listen` locally                                        |
+| `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` |  ●  |   —   |   —   | Stripe → Developers → API keys                                                       |
+| `INNGEST_EVENT_KEY`                  |  ○  |   —   |   —   | Inngest Cloud → Events. Not needed for `pnpm dev:inngest`                            |
+| `INNGEST_SIGNING_KEY`                |  ○  |   —   |   —   | Inngest Cloud → Deploy → Signing key                                                 |
+| `RESEND_API_KEY`                     |  ○  |   —   |   —   | Resend dashboard                                                                     |
+| `AEROAPI_KEY`                        |  ○  |   —   |   —   | FlightAware AeroAPI. **Stubbed**                                                     |
+| `GOOGLE_MAPS_API_KEY`                |  ○  |   ○   |   —   | Google Cloud → Maps Platform. **Stubbed**                                            |
+| `ANTHROPIC_API_KEY`                  |  ○  |   —   |   —   | Ticket-PDF extraction. Out of scope in scaffold                                      |
+| `SENTRY_DSN`                         |  ○  |   ○   |   ○   | Sentry project settings                                                              |
+| `TEST_DATABASE_URL`                  |  —  |   —   |   —   | Integration tests only. See [SCRIPTS.md](SCRIPTS.md)                                 |
 
 Source of truth: [apps/web/src/env.ts](../apps/web/src/env.ts) ·
 [apps/agent/src/env.ts](../apps/agent/src/env.ts) ·
@@ -104,7 +104,7 @@ Source of truth: [apps/web/src/env.ts](../apps/web/src/env.ts) ·
 ## 4. Fail-closed boot gates
 
 Rule 1.1 says nothing throws. **These are the exceptions** — and each one exists
-because a missing var silently disables a *security control*.
+because a missing var silently disables a _security control_.
 
 ### 4.1 — `OTP_LOG_HMAC_KEY`, validated at import
 
@@ -119,17 +119,17 @@ fresh clone with no `DATABASE_URL` still boots green.
 Runs when `isProd && NEXT_PUBLIC_SUPABASE_URL` is set
 ([web/src/env.ts:241](../apps/web/src/env.ts#L241)). Refuses to boot if any of:
 
-| Missing | Silently disables |
-| --- | --- |
-| `NEXT_PUBLIC_TURNSTILE_SITE_KEY` | No widget mounts → `requireCaptchaToken` never demands a token → **CAPTCHA off across the whole funnel** |
-| `SUPABASE_SERVICE_ROLE_KEY` | `deleteAuthUser` becomes a logged no-op → orphaned GoTrue users survive → reinstates the `phone_change` collision bug |
-| `DATABASE_URL` | `guardUpgradeSend` degrades to allow-all → **no OTP throttle, no reconciliation**, while Supabase still sends real SMS |
-| `AUTH_SCHEMA_AVAILABLE="false"` | Reconciliation explicitly skipped — a dev-only posture |
+| Missing                          | Silently disables                                                                                                      |
+| -------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `NEXT_PUBLIC_TURNSTILE_SITE_KEY` | No widget mounts → `requireCaptchaToken` never demands a token → **CAPTCHA off across the whole funnel**               |
+| `SUPABASE_SERVICE_ROLE_KEY`      | `deleteAuthUser` becomes a logged no-op → orphaned GoTrue users survive → reinstates the `phone_change` collision bug  |
+| `DATABASE_URL`                   | `guardUpgradeSend` degrades to allow-all → **no OTP throttle, no reconciliation**, while Supabase still sends real SMS |
+| `AUTH_SCHEMA_AVAILABLE="false"`  | Reconciliation explicitly skipped — a dev-only posture                                                                 |
 
 ### 4.3 — `assertProductionBootConfig()` — agent & admin
 
 Agent ([agent/src/env.ts](../apps/agent/src/env.ts)): refuses without Supabase
-URL + anon key — staff sign-in *is* that app, and without them every page
+URL + anon key — staff sign-in _is_ that app, and without them every page
 degrades to an unusable login screen.
 
 Admin ([admin/src/env.ts](../apps/admin/src/env.ts)): also requires
@@ -155,7 +155,7 @@ bug to work around.** Do not add a bypass flag.
 They live in the Supabase dashboard and never in any `.env`. The app calls
 Supabase; Supabase calls Twilio.
 
-**5.2 — The Turnstile *secret* key.** Only the **site** key is app env. The
+**5.2 — The Turnstile _secret_ key.** Only the **site** key is app env. The
 secret lives in Supabase dashboard → Auth → Attack Protection. Supabase verifies
 the `captchaToken` the app forwards, so **this app never calls `siteverify`**.
 
@@ -163,7 +163,7 @@ the `captchaToken` the app forwards, so **this app never calls `siteverify`**.
 this is a design decision, not an oversight: the agent app runs on a shared,
 frequently-lost field device. It authenticates as the signed-in agent via the
 anon key, and bag-photo uploads are authorized by **Storage RLS** — which is the
-only authorization mechanism available there precisely *because* there is no
+only authorization mechanism available there precisely _because_ there is no
 service key ([agent/src/env.ts describeEnvStatus](../apps/agent/src/env.ts)).
 
 ---
@@ -180,7 +180,7 @@ the **hosted project**, not your local stack.
 
 **The guard:** shell env always wins. `migrate.ts`, `status.ts`, and
 `drizzle.config.ts` each capture `process.env.DIRECT_DATABASE_URL` /
-`DATABASE_URL` *before* calling dotenv, so an inline override beats every dotenv
+`DATABASE_URL` _before_ calling dotenv, so an inline override beats every dotenv
 file ([migrate.ts:15-21](../packages/db/src/migrate.ts#L15-L21)).
 
 ```bash
@@ -223,13 +223,13 @@ hosted credentials — see [SCRIPTS.md](SCRIPTS.md) §2.
 
 ## 8. Diagnosing env problems
 
-| Symptom | Cause | Fix |
-| --- | --- | --- |
-| App boots, feature silently absent | Var missing, degraded to fallback | Check the dev `<EnvStatus />` panel or the startup console warning |
-| `MissingEnvError: Missing required environment variable X` | A code path needed X | The error message names the dashboard page. Set it |
-| Production boot refuses with a list | §4 gate fired | Set the listed vars. **Do not bypass** |
-| `prepared statement "s1" does not exist` | Pooled URL used for migrations | Use `DIRECT_DATABASE_URL` (port 5432) |
-| Migration hit the wrong database | §6 — dotenv resolved to hosted | Read the `Target host:` line; pin the URL inline |
-| Hostname did not resolve (`ENOTFOUND`) | Supabase direct connection is IPv6-only | Use the **session pooler** on port 5432: `aws-0-<region>.pooler.supabase.com` |
-| Var set but not visible in browser | Not prefixed `NEXT_PUBLIC_` | Only `NEXT_PUBLIC_*` is inlined into client bundles |
-| Root `.env.local` edited, nothing changed | Next reads only `apps/<app>/.env.local` | Edit the per-app file |
+| Symptom                                                    | Cause                                   | Fix                                                                           |
+| ---------------------------------------------------------- | --------------------------------------- | ----------------------------------------------------------------------------- |
+| App boots, feature silently absent                         | Var missing, degraded to fallback       | Check the dev `<EnvStatus />` panel or the startup console warning            |
+| `MissingEnvError: Missing required environment variable X` | A code path needed X                    | The error message names the dashboard page. Set it                            |
+| Production boot refuses with a list                        | §4 gate fired                           | Set the listed vars. **Do not bypass**                                        |
+| `prepared statement "s1" does not exist`                   | Pooled URL used for migrations          | Use `DIRECT_DATABASE_URL` (port 5432)                                         |
+| Migration hit the wrong database                           | §6 — dotenv resolved to hosted          | Read the `Target host:` line; pin the URL inline                              |
+| Hostname did not resolve (`ENOTFOUND`)                     | Supabase direct connection is IPv6-only | Use the **session pooler** on port 5432: `aws-0-<region>.pooler.supabase.com` |
+| Var set but not visible in browser                         | Not prefixed `NEXT_PUBLIC_`             | Only `NEXT_PUBLIC_*` is inlined into client bundles                           |
+| Root `.env.local` edited, nothing changed                  | Next reads only `apps/<app>/.env.local` | Edit the per-app file                                                         |

@@ -1,6 +1,6 @@
 # Chapter 1 — The product & its nouns
 
-> **Verified against `origin/dev` @ `b17a7de`.** ← [Learning track index](README.md)
+> **Verified against `dev` @ `5973047`.** ← [Learning track index](README.md)
 > · Next: Chapter 2 — Repo map & boundaries
 >
 > **What this chapter buys you.** The vocabulary. Every later chapter names
@@ -27,29 +27,29 @@ product UI, transactional SMS and email alike:
 - **No fabricated statistics.** No "10,000+ customers", no invented ratings, no
   made-up on-time percentages. If a number is not measured, it does not ship.
 
-🧭 **Decision hook.** Treat this as a *product constraint*, not a style
+🧭 **Decision hook.** Treat this as a _product constraint_, not a style
 preference. It is the reason nothing in the codebase models a boarding pass, a
 seat, or a TSA interaction. Any feature that would require Koolee to represent
-what happens *after* the bag drop counter is out of scope by construction — and
+what happens _after_ the bag drop counter is out of scope by construction — and
 you would be adding the first such model, not extending an existing one.
 
 ---
 
 ## 1.2 — The nouns and the tables they live in
 
-| Noun              | Lives in                             | What it is                                                                                   |
-| ----------------- | ------------------------------------ | -------------------------------------------------------------------------------------------- |
-| **Booking**       | `bookings`                           | One customer, one flight, one pickup window. The spine everything hangs off.                  |
-| **Draft**         | `booking_drafts`                     | A booking-in-progress before auth/payment. Survives reload and anonymous → real-user upgrade. |
-| **Bag**           | `bags`                               | One physical bag: weight, photos, a `seal_id`, and an `ordinal`. See [1.4](#14--why-bagsordinal-exists). |
+| Noun              | Lives in                             | What it is                                                                                                                         |
+| ----------------- | ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------- |
+| **Booking**       | `bookings`                           | One customer, one flight, one pickup window. The spine everything hangs off.                                                       |
+| **Draft**         | `booking_drafts`                     | A booking-in-progress before auth/payment. Survives reload and anonymous → real-user upgrade.                                      |
+| **Bag**           | `bags`                               | One physical bag: weight, photos, a `seal_id`, and an `ordinal`. See [1.4](#14--why-bagsordinal-exists).                           |
 | **Seal**          | `bags.seal_id`                       | Opaque tamper-evident ID. Deliberately technology-agnostic — RFID vs printed QR is still undecided, and neither needs a migration. |
-| **Custody event** | `custody_events`                     | Append-only chain of custody: who held which bag, where, when, with photo evidence.            |
-| **Pickup window** | _(none — computed)_                  | The hour the agent comes. **Not a row.** See [1.3](#13--windows-are-not-inventory).             |
-| **Blackout**      | `slot_blocks`                        | Ops hiding a span of windows at an airport (weather, no drivers).                              |
-| **Cutoff**        | `airline_cutoffs`                    | Per airline × airport × domestic/international — the latest a bag can be dropped.               |
-| **Task**          | `verification_tasks`, `pickup_tasks` | The unit of work an agent or driver sees.                                                      |
-| **Payment**       | `payments`, `payment_webhook_events` | Intent → authorize → capture. The second table is the webhook replay guard.                    |
-| **Staff member**  | `staff_members`                      | Invite-only agent/admin accounts.                                                              |
+| **Custody event** | `custody_events`                     | Append-only chain of custody: who held which bag, where, when, with photo evidence.                                                |
+| **Pickup window** | _(none — computed)_                  | The hour the agent comes. **Not a row.** See [1.3](#13--windows-are-not-inventory).                                                |
+| **Blackout**      | `slot_blocks`                        | Ops hiding a span of windows at an airport (weather, no drivers).                                                                  |
+| **Cutoff**        | `airline_cutoffs`                    | Per airline × airport × domestic/international — the latest a bag can be dropped.                                                  |
+| **Task**          | `verification_tasks`, `pickup_tasks` | The unit of work an agent or driver sees.                                                                                          |
+| **Payment**       | `payments`, `payment_webhook_events` | Intent → authorize → capture. The second table is the webhook replay guard.                                                        |
+| **Staff member**  | `staff_members`                      | Invite-only agent/admin accounts.                                                                                                  |
 
 Schema lives one-file-per-cluster in
 [packages/db/src/schema/](../../packages/db/src/schema/); the status/role/tier
@@ -72,7 +72,7 @@ longer sells stock.
 🧭 **Decision hook.** Two consequences worth holding onto:
 
 1. **"We are full" is not expressible.** There is no row to decrement, so
-   there is no natural place to express supply. The *only* lever ops has over
+   there is no natural place to express supply. The _only_ lever ops has over
    what customers can book is a **blackout** (`slot_blocks`) — covered in
    Chapter 8. If you ever need real capacity limits, that is a new concept,
    not a config change.
@@ -100,7 +100,7 @@ reads off a tag and says out loud.
 
 Ten booking statuses are declared in Postgres
 ([enums.ts](../../packages/db/src/schema/enums.ts)), but Postgres guarantees
-only that a value is *in the set*. The **legal moves between them live in
+only that a value is _in the set_. The **legal moves between them live in
 exactly one file**:
 [packages/core/src/booking/state-machine.ts](../../packages/core/src/booking/state-machine.ts).
 
@@ -132,24 +132,24 @@ Worth memorising, because they shape a lot of downstream code:
 2. **`exception` can still cancel**
    ([state-machine.ts:87](../../packages/core/src/booking/state-machine.ts#L87)).
    This is the escape hatch rule 1 creates: the path out of a
-   bags-already-collected mess runs *through* `exception`, with a human and a
+   bags-already-collected mess runs _through_ `exception`, with a human and a
    recorded reason, not around it.
 3. **`completed` and `cancelled` are terminal.** There is no reopen. A reopen is
    a new booking.
 
 ⚠️ **Sharp edge.** Rules 1 and 3 together mean there is no "undo" anywhere in
-this system. Every correction is a *forward* move: a new transition plus an
+this system. Every correction is a _forward_ move: a new transition plus an
 appended compensating custody event. Nothing edits history — see Chapter 3.
 
 ---
 
 ## 1.7 — Three apps = three phases of the lifecycle
 
-| App          | Owns                                                          |
-| ------------ | ------------------------------------------------------------- |
-| `apps/web`   | Customer: `draft` → `paid`                                     |
-| `apps/agent` | Field: `agent_assigned` → `verified_sealed` → `in_transit`     |
-| `apps/admin` | Ops: assignment, exceptions, force-complete                    |
+| App          | Owns                                                       |
+| ------------ | ---------------------------------------------------------- |
+| `apps/web`   | Customer: `draft` → `paid`                                 |
+| `apps/agent` | Field: `agent_assigned` → `verified_sealed` → `in_transit` |
+| `apps/admin` | Ops: assignment, exceptions, force-complete                |
 
 🧭 **Decision hook.** When deciding where a feature goes, ask **which lifecycle
 phase it belongs to** before asking which app has a convenient page. The apps
@@ -171,7 +171,7 @@ never be triggered anonymously).
 
 **Why a sweep and not "capture when the agent taps done":** the sweep lives in
 `apps/web` because that is the app that holds Stripe credentials. The agent app
-deliberately holds **none** — so it *cannot* take the money at the moment it
+deliberately holds **none** — so it _cannot_ take the money at the moment it
 completes a visit, and that is the point, not a limitation
 ([agent-visit.ts:275](../../packages/core/src/services/agent-visit.ts#L275)).
 
@@ -179,7 +179,7 @@ Cancellation before pickup voids the authorization or refunds.
 
 🧭 **Decision hook.** This is why `paid` in the state machine means "we have an
 authorization", not "we have the money". Any revenue reporting that reads
-`status = 'paid'` is counting *promises*, not cash. Cash is in `payments`.
+`status = 'paid'` is counting _promises_, not cash. Cash is in `payments`.
 
 ---
 

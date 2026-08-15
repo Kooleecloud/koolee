@@ -83,21 +83,21 @@ per-environment, so staging gets its own pair.
 
 ## Documentation
 
-This file is the operator's manual: how to run it, what every variable does,
-and the rules that are not obvious from the code. Everything else lives next
-to what it describes.
+This file is the entry point: how to run it, and the rules that are not
+obvious from the code. **Everything else lives in [docs/](docs/).**
 
-| Read this                                                                    | When you want                                                                                                                                                      |
-| ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| [docs/CODEBASE-MAP.md](docs/CODEBASE-MAP.md)                                 | To understand the system. Thirteen chapters: nouns, boundaries, data model, the domain rules, the seams, each app, testing, deploy. **Start here if you are new.** |
-| [PROJECT-STATUS.md](PROJECT-STATUS.md)                                       | What shipped, what is in flight, what is next — with a spec stub per feature                                                                                       |
-| [packages/db/README.md](packages/db/README.md)                               | Schema invariants, the two-connection rule, the RLS stance                                                                                                         |
-| [packages/core/docs/local-test-env.md](packages/core/docs/local-test-env.md) | To run the integration and auth-acceptance tiers                                                                                                                   |
-| [apps/web/docs/](apps/web/docs/)                                             | Auth wiring, payments lifecycle, ticket extraction, the pre-launch checklist                                                                                       |
-| [apps/admin/docs/](apps/admin/docs/)                                         | Ops console workflows and staff auth                                                                                                                               |
-| [apps/agent/docs/](apps/agent/docs/)                                         | The verification visit, step by step                                                                                                                               |
-| [brand/BRAND.md](brand/BRAND.md)                                             | Colour, type, and copy rules before touching UI                                                                                                                    |
-| [MIGRATION-NOTES.md](MIGRATION-NOTES.md)                                     | Historical record of the 10-phase dependency migration                                                                                                             |
+| Read this                                    | When you want                                                                                                          |
+| -------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| **[docs/learning/](docs/learning/)**         | **To learn the codebase.** Nine numbered chapters, bottom-up, written to be re-entered. **Start here if you are new.** |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | The system shape, the boundaries, where a change belongs                                                               |
+| [docs/features/](docs/features/)             | How a capability works end to end — funnel, auth, payments, agent visit, ops, jobs                                     |
+| [docs/ENVIRONMENT.md](docs/ENVIRONMENT.md)   | Every env var, the boot gates, secret ownership                                                                        |
+| [docs/MIGRATIONS.md](docs/MIGRATIONS.md)     | Schema change, drift detection, the RLS stance                                                                         |
+| [docs/SCRIPTS.md](docs/SCRIPTS.md)           | Every command and when to reach for it                                                                                 |
+| [docs/CODEBASE-MAP.md](docs/CODEBASE-MAP.md) | The dense 13-chapter narrative reference                                                                               |
+| [PROJECT-STATUS.md](PROJECT-STATUS.md)       | What shipped, what is in flight, what is next                                                                          |
+
+Full index, including app- and package-level docs: **[docs/README.md](docs/README.md)**.
 
 New app docs go in `apps/<app>/docs/`, package docs in `packages/<pkg>/docs/`.
 Nothing new accumulates at the repo root.
@@ -230,226 +230,76 @@ sell** rather than guessing. A guessed cutoff is how bags miss flights.
 
 ## Environment
 
-Every variable is optional at boot, with server-side exceptions per app:
+**Canonical reference: [docs/ENVIRONMENT.md](docs/ENVIRONMENT.md)** — every
+variable, which app reads it, where to obtain it, what silently breaks without
+it, and the full boot-gate rules.
 
-- **web** (`apps/web/src/env.ts`): `OTP_LOG_HMAC_KEY` becomes required the
-  moment `DATABASE_URL` is set, and a **production** boot with Supabase
-  configured refuses to start unless the Turnstile site key, service-role
-  key, and `DATABASE_URL` are all present and `AUTH_SCHEMA_AVAILABLE` is not
-  `"false"` (`assertProductionSecurityConfig` — each of those, absent,
-  silently disables a security control).
-- **agent** (`apps/agent/src/env.ts`): a **production** boot refuses to start
-  without `NEXT_PUBLIC_SUPABASE_URL` + `NEXT_PUBLIC_SUPABASE_ANON_KEY` —
-  staff sign-in is the app; missing keys would degrade it silently.
-- **admin** (`apps/admin/src/env.ts`): a **production** boot refuses to start
-  without the Supabase URL + anon key, `SUPABASE_SERVICE_ROLE_KEY`, and
-  `NEXT_PUBLIC_AGENT_APP_URL`.
+The three things worth knowing here:
 
-(`next build` is exempt from all three gates, so a credential-less fresh
-clone still builds; the gates fire when a production server boots.)
-
-This table says what each variable unlocks and what happens without it.
-
-| Variable                             | Where to get it                                                                      | Required when                                                                                                                                                                    | Without it                                                                                                                                               |
-| ------------------------------------ | ------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `NEXT_PUBLIC_APP_URL`                | This app's own origin — `3000` / `3001` / `3002` locally                             | Absolute links and Stripe return URLs                                                                                                                                            | Relative links only                                                                                                                                      |
-| `DATABASE_URL`                       | Supabase → Settings → Database → Connection pooling, **transaction mode**, port 6543 | Any page or action that reads or writes data                                                                                                                                     | Pages render an empty state; mutations return a configuration error                                                                                      |
-| `DIRECT_DATABASE_URL`                | Supabase → Settings → Database → Direct connection, port 5432                        | `pnpm db:migrate`, `pnpm db:studio`                                                                                                                                              | Migrations fail with a named error. `pnpm db:generate` still works — it is offline                                                                       |
-| `NEXT_PUBLIC_SUPABASE_URL`           | Supabase → Settings → API → Project URL                                              | Browser Realtime / Storage                                                                                                                                                       | No live timeline updates; no photo upload                                                                                                                |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY`      | Supabase → Settings → API → anon public                                              | Browser Realtime / Storage                                                                                                                                                       | As above                                                                                                                                                 |
-| `SUPABASE_SERVICE_ROLE_KEY`          | Supabase → Settings → API → service_role                                             | Server-side Storage writes; deleting orphaned auth users during claim reconciliation                                                                                             | Bag photos are not uploaded; orphan deletion degrades to a logged no-op (production refuses to boot — see below)                                         |
-| `NEXT_PUBLIC_TURNSTILE_SITE_KEY`     | Cloudflare → Turnstile → site key. The SECRET key lives in the Supabase dashboard    | Mounting the CAPTCHA widget on auth sends                                                                                                                                        | No widget; auth calls carry no captchaToken — leave Supabase CAPTCHA off (production refuses to boot — see below)                                        |
-| `OTP_LOG_HMAC_KEY`                   | `openssl rand -hex 32` (min 32 chars)                                                | Whenever `DATABASE_URL` is set — enforced at boot                                                                                                                                | With a database configured, boot fails with a named error                                                                                                |
-| `AUTH_SCHEMA_AVAILABLE`              | Set `"false"` ONLY for a bare local Postgres with no GoTrue `auth` schema            | Skipping claim reconciliation against local docker                                                                                                                               | Unset counts as available; a genuinely missing schema fails the send loudly                                                                              |
-| `CRON_SECRET`                        | Any random string                                                                    | Manual `/api/jobs/*` triggers                                                                                                                                                    | Those routes refuse to run                                                                                                                               |
-| `STRIPE_SECRET_KEY`                  | Stripe → Developers → API keys                                                       | Real card authorization and capture                                                                                                                                              | Booking uses `FakePaymentProvider`; no money moves                                                                                                       |
-| `STRIPE_WEBHOOK_SECRET`              | Stripe → Developers → Webhooks, or `stripe listen`                                   | Verifying `/api/webhooks/stripe`                                                                                                                                                 | The route rejects every webhook rather than trusting it; the return page's server-side status re-check still advances paid bookings                      |
-| `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` | Stripe → Developers → API keys                                                       | Mounting the Stripe Payment Element                                                                                                                                              | With no secret key either: the dev payment path. With a secret key set: the pay step refuses loudly (misconfiguration — the browser could never confirm) |
-| `NEXT_PUBLIC_AGENT_APP_URL`          | The agent app's own origin — `http://localhost:3001` locally                         | Admin console building agent invite links                                                                                                                                        | Invite links default to `http://localhost:3001` (production boot refuses — see above)                                                                    |
-| `INNGEST_EVENT_KEY`                  | Inngest Cloud → Events → Event keys                                                  | Sending events to Inngest Cloud. One key covers every event name — names are declared in code, not registered in the dashboard. Unused today: nothing calls `inngest.send()` yet | Works against `pnpm dev:inngest`                                                                                                                         |
-| `INNGEST_SIGNING_KEY`                | Inngest Cloud → Deploy → Signing key                                                 | Serving functions to Inngest Cloud — the direction the crons use, so this is the one that matters for the capture sweep                                                          | Works against `pnpm dev:inngest`                                                                                                                         |
-| `RESEND_API_KEY`                     | Resend → API Keys                                                                    | Real email                                                                                                                                                                       | `ConsoleNotifier` logs instead                                                                                                                           |
-| `AEROAPI_KEY`                        | FlightAware AeroAPI                                                                  | Flight lookup                                                                                                                                                                    | Stubbed — flight details are typed in                                                                                                                    |
-| `GOOGLE_MAPS_API_KEY`                | Google Cloud → Maps Platform                                                         | Real drive-time and address autocomplete                                                                                                                                         | Fixed drive-time estimate is used                                                                                                                        |
-| `ANTHROPIC_API_KEY`                  | console.anthropic.com                                                                | Claude-powered ticket-PDF extraction                                                                                                                                             | The free in-process heuristic extractor runs instead — extraction still works                                                                            |
-| `SENTRY_DSN`                         | Sentry → Project Settings → Client Keys                                              | Error and ops alerting                                                                                                                                                           | Alerts go to console                                                                                                                                     |
-| `TEST_DATABASE_URL`                  | Your throwaway Postgres                                                              | Running integration tests                                                                                                                                                        | They skip, and `pnpm test` stays green                                                                                                                   |
-
-### Runtime env, per app
-
-Which app reads which variable at runtime, and which a **production** boot
-demands (the boot assertions described above). ✓ = read when present;
-**prod** = production refuses to boot without it; — = the app never reads it.
-
-| Variable                                    | web                                          | agent                                        | admin       |
-| ------------------------------------------- | -------------------------------------------- | -------------------------------------------- | ----------- |
-| `NEXT_PUBLIC_APP_URL`                       | ✓                                            | ✓                                            | ✓           |
-| `DATABASE_URL`                              | ✓ **prod**¹                                  | ✓                                            | ✓           |
-| `DIRECT_DATABASE_URL`                       | ✓ (migrations)                               | ✓                                            | ✓           |
-| `NEXT_PUBLIC_SUPABASE_URL`                  | ✓                                            | ✓ **prod**                                   | ✓ **prod**  |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY`             | ✓                                            | ✓ **prod**                                   | ✓ **prod**  |
-| `SUPABASE_SERVICE_ROLE_KEY`                 | ✓ **prod**¹                                  | — (least privilege — must never be set here) | ✓ **prod**  |
-| `NEXT_PUBLIC_TURNSTILE_SITE_KEY`            | ✓ **prod**¹                                  | —                                            | —           |
-| `OTP_LOG_HMAC_KEY`                          | ✓ (required with `DATABASE_URL`)             | —                                            | —           |
-| `AUTH_SCHEMA_AVAILABLE`                     | ✓ (must not be `"false"` in prod)            | —                                            | —           |
-| `CRON_SECRET`                               | ✓                                            | —                                            | —           |
-| `STRIPE_SECRET_KEY`                         | ✓                                            | —                                            | ✓ (refunds) |
-| `STRIPE_WEBHOOK_SECRET`                     | ✓                                            | —                                            | —           |
-| `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`        | ✓                                            | —                                            | —           |
-| `NEXT_PUBLIC_AGENT_APP_URL`                 | —                                            | —                                            | ✓ **prod**  |
-| `INNGEST_EVENT_KEY` / `INNGEST_SIGNING_KEY` | ✓                                            | —                                            | —           |
-| `RESEND_API_KEY`                            | ✓                                            | —                                            | —           |
-| `AEROAPI_KEY`                               | ✓                                            | —                                            | —           |
-| `GOOGLE_MAPS_API_KEY`                       | ✓                                            | ✓                                            | —           |
-| `ANTHROPIC_API_KEY`                         | ✓ (optional — heuristic extractor otherwise) | —                                            | —           |
-| `SENTRY_DSN`                                | ✓                                            | ✓                                            | ✓           |
-
-¹ web's production gate fires only when `NEXT_PUBLIC_SUPABASE_URL` is set
-(without Supabase the auth funnel is inert); agent and admin gate every
-production boot.
-
-Real card payments in the browser need BOTH `STRIPE_SECRET_KEY` and
-`NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` on web; `STRIPE_WEBHOOK_SECRET` is
-required in production for webhook verification, while local dev without it
-still completes bookings via the return page's server-side status re-check.
-
-### Setting up local env files
-
-```bash
-for d in apps/web apps/agent apps/admin; do cp $d/.env.example $d/.env.local; done && cp packages/db/.env.example packages/db/.env
-```
-
-Each app and package has its own `.env.example` documenting only the subset it
-reads, and each is the file that actually takes effect:
-
-- **Next.js reads only `apps/<app>/.env.local`.** It does not traverse up to the
-  monorepo root, and Turborepo does not load `.env` files into a task's
-  environment either — it only hashes them for caching. A repo-root `.env.local`
-  therefore has **no effect on the three apps**.
-- **`drizzle-kit` is the exception.** `packages/db/drizzle.config.ts` explicitly
-  falls back to the repo root, so `pnpm db:migrate` and `pnpm seed` do pick up a
-  root `.env.local`.
-- **`packages/db` uses `.env`, not `.env.local`** — the drizzle-kit convention.
-
-The repo-root [`.env.example`](.env.example) is best treated as the canonical
-reference for where every key comes from, rather than as a shared runtime file.
-
-Keys in the per-app `.env.example` files are deliberately left **empty**, with a
-realistic shape in the comment above each. That keeps `cp .env.example .env.local`
-safe: a malformed value is worse than an absent one, because it passes validation
-and then fails at connect time instead of degrading to the fallback above.
-
-Least privilege is intentional: `apps/agent` carries no Stripe or messaging
-credentials — a shared, frequently-lost device should not hold them — and
-`apps/admin` gets a Stripe secret key for refunds but no webhook or publishable
-key. Only browser-safe values take the `NEXT_PUBLIC_` prefix, since Next.js
-inlines those into the client bundle.
+1. **Every variable is optional at boot.** A fresh clone builds, lints,
+   typechecks and tests green with no credentials. A missing credential
+   degrades to a documented fallback — so **a missing secret looks like a
+   working app with a protection switched off**, not like a failure.
+2. **Production boot gates fail closed.** Each app asserts the config whose
+   absence would silently disable a control, and refuses to start without it.
+   A failed assertion is the intended outcome of a missing secret, not a bug to
+   work around. `next build` is exempt.
+3. **Next.js reads `apps/<app>/.env.local`, never the repo root.** Copy each
+   app's own `.env.example`; the root one is reference material.
 
 ---
 
 ## Testing
 
-```bash
-pnpm test                                    # unit tests; integration tests skip
-pnpm --filter @koolee/core test:watch        # watch mode
-```
+**Full detail: [docs/SCRIPTS.md](docs/SCRIPTS.md)** ·
+[packages/core/docs/local-test-env.md](packages/core/docs/local-test-env.md)
 
-Integration tests are opt-in and need a real Postgres:
+| Tier            | Command                                       | Needs                                  |
+| --------------- | --------------------------------------------- | -------------------------------------- |
+| Unit            | `pnpm test`                                   | Nothing                                |
+| Integration     | `pnpm --filter @koolee/core test:integration` | Postgres via `TEST_DATABASE_URL`       |
+| Auth acceptance | same, with the local stack                    | Supabase GoTrue via `pnpm test:env:up` |
 
-```bash
-pnpm test:env:up                                    # local Supabase stack
-pnpm --filter @koolee/core test:integration         # reads .env.test
-```
+Integration suites are **opt-in**: without `TEST_DATABASE_URL` they skip rather
+than fail, so a fresh clone's `pnpm test` is green.
 
-`docker compose up -d` (Postgres 16 on host port 5433) also works for the
-suites that need only a database, but it has no GoTrue `auth` schema, so the
-auth-acceptance tier needs the Supabase stack.
-
-**Two databases, one Postgres container** (since 2026-08-10):
-
-| database      | who uses it                                        | safe to wipe?                   |
-| ------------- | -------------------------------------------------- | ------------------------------- |
-| `postgres`    | the dev servers, GoTrue/Storage, bookings you make | **no**                          |
-| `koolee_test` | nine of the twelve integration suites              | yes — that is its whole purpose |
-
-`koolee_test` is a second database inside the container that is already
-running — no extra service. Nine suites point there and can wipe freely.
-
-A guard in `packages/core/vitest.global-setup.ts` **aborts any run** whose
-`TEST_DATABASE_URL` lacks the `__koolee_test_database` marker table, so a
-copied `.env`, a stale export, or `npx vitest run` instead of `pnpm test`
-fails closed instead of emptying your data. Seeing
-`REFUSING TO RUN: database "postgres" has no __koolee_test_database marker`
-means the guard worked — run `pnpm test:db:setup`.
-
-Three suites cannot be isolated: `upgrade-guard`, `staff-auth` and
-`booking-ownership` drive the real GoTrue API _and_ read `auth.users` in the
-same connection, and GoTrue only serves `postgres`. The first two preserve
-pre-existing rows; `booking-ownership` wipes and is therefore **skipped
-unless `ALLOW_DEV_DB_WIPE=1`**.
-
-```bash
-pnpm test:db:setup    # create/migrate/mark koolee_test, point .env.test at it
-pnpm test:db:drop     # delete it; test:env:up rebuilds
-```
-
-Details in
-[packages/core/docs/local-test-env.md](packages/core/docs/local-test-env.md).
-
-What is covered:
-
-- **Booking state machine** — the full 10 × 11 status/event matrix, every legal
-  transition and all 88 illegal ones, terminal statuses, the cancel boundary,
-  and custody-event emission.
-- **Cutoff and window logic** — boundary conditions to the minute, both 2025
-  DST transitions, the always-24-windows band invariant, notice/blackout
-  fences, and a displayed-implies-accepted property check between the
-  enumerator and booking acceptance.
-- **Pricing** — additivity, the lead-time multiplier curve (monotonic:
-  closer to departure never costs less), discount stacking, integer-cent
-  invariants, validation.
-- **Payments** — the `FakePaymentProvider` authorize → capture → refund state
-  machine and its rejections.
-- **Coverage** — ZIP normalisation and the service-area allowlist.
-- **Auth upgrade guard** — destination hashing (never plaintext), both OTP
-  throttle windows, and the merged throttle + claim-reconciliation
-  transaction: lock order, capped-send short-circuit, conflict-still-counted,
-  anonymous-claimant removal. Integration tiers add real-lock concurrency
-  (per-user and per-destination caps under burst) and, against the
-  `pnpm test:env:up` GoTrue stack, acceptance tests 15/16 plus the
-  overlapping-guard serialization test (see
-  [packages/core/docs/local-test-env.md](packages/core/docs/local-test-env.md)).
-- **Integration** — `createBooking` end to end: transactional consistency,
-  window validation (band, notice, blackouts), concurrent bookings of the
-  same window both succeeding (windows have no capacity), compensation when
-  payment authorization fails, and the `custody_events` append-only trigger
-  rejecting `UPDATE`/`DELETE`/`TRUNCATE`.
+Two databases live in the local container: `postgres` (your dev data) and the
+disposable `koolee_test` (the only one the suites may wipe). A marker table
+makes that enforceable — the suites **refuse to run** without it, so a
+mispointed `TEST_DATABASE_URL` fails closed instead of emptying your dev
+database.
 
 ---
 
 ## Commands
 
-| Command             | What it does                                 |
-| ------------------- | -------------------------------------------- |
-| `pnpm local`        | Stand up the whole local environment         |
-| `pnpm local:status` | What is running right now                    |
-| `pnpm dev`          | All three apps (3000 / 3001 / 3002)          |
-| `pnpm build`        | Production build of all three                |
-| `pnpm lint`         | ESLint across the workspace                  |
-| `pnpm typecheck`    | `tsc --noEmit` across the workspace          |
-| `pnpm test`         | Unit tests                                   |
-| `pnpm format`       | Prettier write                               |
-| `pnpm db:generate`  | Diff the schema, write a migration (offline) |
-| `pnpm db:migrate`   | Apply migrations (direct connection)         |
-| `pnpm db:studio`    | drizzle-kit studio                           |
-| `pnpm seed`         | Idempotent reference data                    |
-| `pnpm dev:inngest`  | Local Inngest dev server                     |
+**Full reference: [docs/SCRIPTS.md](docs/SCRIPTS.md).** The ones you need daily:
+
+| Command                        | What it does                                                        |
+| ------------------------------ | ------------------------------------------------------------------- |
+| `pnpm local:dev`               | Cold start: Docker → Supabase → migrate → seed → run all three apps |
+| `pnpm local:status`            | What is running right now                                           |
+| `pnpm dev`                     | All three apps (3000 / 3001 / 3002)                                 |
+| `pnpm test`                    | Unit tests                                                          |
+| `pnpm lint` / `pnpm typecheck` | Across the workspace                                                |
+| `pnpm db:generate`             | Diff the schema, write a migration (offline, no credentials)        |
+| `pnpm db:status`               | Migration drift report (read-only, safe against production)         |
+| `pnpm db:migrate`              | Apply migrations (direct connection)                                |
+
+⚠️ `db:migrate`, `db:status`, `seed` and `db:studio` read `packages/db/.env`,
+which points at the **hosted** project. Both `migrate` and `status` print
+`Target host:` first — read that line. Use `pnpm seed:local` or override the URL
+inline for local work.
 
 ---
 
 ## Background jobs
 
-Three Inngest functions, served from `apps/web/app/api/inngest/route.ts`:
+**Five** Inngest functions, all served from `apps/web/app/api/inngest/route.ts`.
+Three are defined in `packages/core/src/jobs/functions.ts`; the two crons that
+need app-held credentials are defined in `apps/web/src/lib/inngest.ts`.
+
+Domain jobs (`packages/core`):
 
 1. **`booking/confirmed`** → durably sleeps until two hours before pickup, then
    sends a reminder SMS through the `Notifier` interface.
@@ -459,9 +309,20 @@ Three Inngest functions, served from `apps/web/app/api/inngest/route.ts`:
    window's start and escalates if the assigned agent never began the
    verification task.
 
-All three are skeletons: real querying and logging, stubbed side effects. Run
-`pnpm dev:inngest` alongside `pnpm dev` and the dev server discovers them
-automatically.
+App-held crons (`apps/web`, because they need Stripe / service-role):
+
+4. **Cron, every 5 minutes** → `captureDueBookings`: captures authorizations
+   whose bags are already in custody. Also at `POST /api/jobs/capture-due`.
+5. **Cron, daily 04:00 America/New_York** → expires abandoned drafts and
+   deletes orphaned anonymous users. Also at `POST /api/jobs/cleanup-anon`.
+
+Both manual routes require `CRON_SECRET` and refuse to run without one.
+
+The three domain jobs are skeletons: real querying and logging, stubbed side
+effects. Run `pnpm dev:inngest` alongside `pnpm dev` and the dev server
+discovers them automatically.
+
+Full detail: [docs/features/jobs-and-notifications.md](docs/features/jobs-and-notifications.md).
 
 ---
 

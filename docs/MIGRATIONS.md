@@ -1,7 +1,7 @@
 # Migrations
 
 > **How schema change works in this repo, and how to not break production.**
-> Baseline: `origin/dev` @ `b17a7de`. Related: [ENVIRONMENT.md](ENVIRONMENT.md) ·
+> Baseline: `dev` @ `5973047`. Related: [ENVIRONMENT.md](ENVIRONMENT.md) ·
 > [SCRIPTS.md](SCRIPTS.md) · [packages/db/README.md](../packages/db/README.md)
 
 ---
@@ -24,15 +24,15 @@ runs.
 
 ## 2. When you need a migration
 
-| Change | Migration? |
-| --- | --- |
-| New table / column / index / constraint | ✅ `db:generate` infers it |
-| Changing a column type or nullability | ✅ `db:generate` — **review the SQL**, it may drop data |
-| New value in a `pgEnum` (e.g. a booking status) | ✅ generated, but see §7 on enums |
-| Trigger, RLS policy, function, publication, storage bucket | ✅ **`--custom`**, Drizzle cannot infer these |
-| New *transition* in the booking state machine | ❌ Core-only. Transitions live in `packages/core`, not the DB ([Learning Ch 1.5](learning/01-product-and-nouns.md#15--the-lifecycle-ten-statuses-one-authority)) |
-| New pricing rule, airport, airline cutoff | ❌ That's **seed/reference data**, not schema |
-| Adding an authorization check | ❌ Goes in a `@koolee/core` service. An RLS policy will silently do nothing for server reads (§6) |
+| Change                                                     | Migration?                                                                                                                                                       |
+| ---------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| New table / column / index / constraint                    | ✅ `db:generate` infers it                                                                                                                                       |
+| Changing a column type or nullability                      | ✅ `db:generate` — **review the SQL**, it may drop data                                                                                                          |
+| New value in a `pgEnum` (e.g. a booking status)            | ✅ generated, but see §7 on enums                                                                                                                                |
+| Trigger, RLS policy, function, publication, storage bucket | ✅ **`--custom`**, Drizzle cannot infer these                                                                                                                    |
+| New _transition_ in the booking state machine              | ❌ Core-only. Transitions live in `packages/core`, not the DB ([Learning Ch 1.5](learning/01-product-and-nouns.md#15--the-lifecycle-ten-statuses-one-authority)) |
+| New pricing rule, airport, airline cutoff                  | ❌ That's **seed/reference data**, not schema                                                                                                                    |
+| Adding an authorization check                              | ❌ Goes in a `@koolee/core` service. An RLS policy will silently do nothing for server reads (§6)                                                                |
 
 ---
 
@@ -40,13 +40,13 @@ runs.
 
 **This is the rule that causes production-only failures.**
 
-| Purpose | Env var | Port | Factory |
-| --- | --- | --- | --- |
-| App runtime | `DATABASE_URL` | `6543` | `createDb()` / `getDb()` — Supavisor pooler, transaction mode |
-| Migrations, DDL | `DIRECT_DATABASE_URL` | `5432` | `createMigrationClient()` — `max: 1` |
+| Purpose         | Env var               | Port   | Factory                                                       |
+| --------------- | --------------------- | ------ | ------------------------------------------------------------- |
+| App runtime     | `DATABASE_URL`        | `6543` | `createDb()` / `getDb()` — Supavisor pooler, transaction mode |
+| Migrations, DDL | `DIRECT_DATABASE_URL` | `5432` | `createMigrationClient()` — `max: 1`                          |
 
 **Why migrations need the direct connection:** the migrator takes a Postgres
-advisory lock and issues DDL. Both need a *stable backend connection* for their
+advisory lock and issues DDL. Both need a _stable backend connection_ for their
 duration. Supavisor transaction mode hands out a different backend per
 statement, which breaks both.
 
@@ -91,7 +91,7 @@ DIRECT_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres \
 ```
 
 Shell env always beats dotenv — `migrate.ts`, `status.ts` and
-`drizzle.config.ts` each capture `process.env` *before* loading dotenv
+`drizzle.config.ts` each capture `process.env` _before_ loading dotenv
 ([migrate.ts:15-21](../packages/db/src/migrate.ts#L15-L21)). Both tools print
 `Target host:` first. **Read that line every time.**
 
@@ -137,8 +137,8 @@ absent (it needs superuser, which Supabase's `postgres` role lacks).
 ### Why it compares hashes, not counts
 
 The first version compared `count(*)` to the number of journal files. On
-2026-08-10 that produced a confidently wrong answer about hosted: *"Applied: 17
-of 16 — this database is 1 migration AHEAD."* Hosted was in fact **in sync**;
+2026-08-10 that produced a confidently wrong answer about hosted: _"Applied: 17
+of 16 — this database is 1 migration AHEAD."_ Hosted was in fact **in sync**;
 the extra row was an orphan from the rewritten `0003`.
 
 The dangerous direction is the quiet one: **one orphan row plus one genuinely
@@ -172,7 +172,7 @@ roles that browser-side `supabase-js` uses for **Realtime and Storage**.
   through PostgREST.
 - `0016` — uniform RLS baseline. Hosted had RLS on for 20 policy-less tables
   (applied out-of-band, likely a Supabase security-advisor remediation) while
-  local had it **off** — meaning local was the *less* safe environment and no
+  local had it **off** — meaning local was the _less_ safe environment and no
   test could catch a client-side read that hosted would refuse. `0016` closes
   that split.
 
@@ -195,7 +195,7 @@ Practical consequences:
   which cannot run inside a transaction on older Postgres. Consider the same
   trade-off before adding a new enum.
 - `custody_events` is **append-only**, enforced by a trigger (`0001`) that
-  raises on `UPDATE`/`DELETE`/`TRUNCATE` *and* by a data-access layer exposing
+  raises on `UPDATE`/`DELETE`/`TRUNCATE` _and_ by a data-access layer exposing
   no update or delete helper. Corrections append a compensating event.
 - `payments (provider, provider_ref)` is unique — the webhook idempotency key.
 - `bags (booking_id, ordinal)` is unique — see
@@ -208,21 +208,21 @@ Practical consequences:
 
 ## 8. Migration history
 
-| # | Tag | Date | What it did |
-| --- | --- | --- | --- |
-| 0000 | `init` | 2026-07-31 | Initial schema |
-| 0001 | `custody_guard_and_rls` | 2026-07-31 | Append-only trigger + the two RLS policies |
-| 0002 | `auth_profile_fields` | 2026-08-02 | Auth profile columns |
-| 0003 | `glamorous_krista_starr` | 2026-08-03 | Regenerated after being applied — source of the surviving orphan row |
-| 0004–0007 | | 2026-08-09 | Auth funnel / drafts work |
-| 0008 | `bag_photos_bucket` | 2026-08-09 | Private storage bucket + policies |
-| 0009 | `staff_check_function` | 2026-08-09 | `public.is_active_staff()` SECURITY DEFINER |
-| 0010–0011 | | 2026-08-09 | Staff / ops tables |
-| 0012 | `yummy_micromacro` | 2026-08-10 | **Virtual windows** — slot inventory retired |
-| 0013 | `curved_adam_destine` | 2026-08-10 | |
-| 0014 | `milky_bug` | 2026-08-10 | `bags.ordinal` + backfill (arbitrary-but-stable for pre-existing rows) |
-| 0015 | `colossal_sue_storm` | 2026-08-10 | |
-| 0016 | `uniform_rls_baseline` | 2026-08-11 | RLS on for every `public` table + `ensure_rls` event trigger |
+| #         | Tag                      | Date       | What it did                                                            |
+| --------- | ------------------------ | ---------- | ---------------------------------------------------------------------- |
+| 0000      | `init`                   | 2026-07-31 | Initial schema                                                         |
+| 0001      | `custody_guard_and_rls`  | 2026-07-31 | Append-only trigger + the two RLS policies                             |
+| 0002      | `auth_profile_fields`    | 2026-08-02 | Auth profile columns                                                   |
+| 0003      | `glamorous_krista_starr` | 2026-08-03 | Regenerated after being applied — source of the surviving orphan row   |
+| 0004–0007 |                          | 2026-08-09 | Auth funnel / drafts work                                              |
+| 0008      | `bag_photos_bucket`      | 2026-08-09 | Private storage bucket + policies                                      |
+| 0009      | `staff_check_function`   | 2026-08-09 | `public.is_active_staff()` SECURITY DEFINER                            |
+| 0010–0011 |                          | 2026-08-09 | Staff / ops tables                                                     |
+| 0012      | `yummy_micromacro`       | 2026-08-10 | **Virtual windows** — slot inventory retired                           |
+| 0013      | `curved_adam_destine`    | 2026-08-10 |                                                                        |
+| 0014      | `milky_bug`              | 2026-08-10 | `bags.ordinal` + backfill (arbitrary-but-stable for pre-existing rows) |
+| 0015      | `colossal_sue_storm`     | 2026-08-10 |                                                                        |
+| 0016      | `uniform_rls_baseline`   | 2026-08-11 | RLS on for every `public` table + `ensure_rls` event trigger           |
 
 > **Note:** older docs state that `0012` is "applied locally but not yet
 > hosted". That predates the hash-based drift check. Verify current state with
@@ -237,7 +237,7 @@ Practical consequences:
 2. Apply over the **direct** connection (`DIRECT_DATABASE_URL`, port 5432).
    Through the pooler you get `prepared statement does not exist` errors in
    production that will not reproduce locally.
-3. `pnpm db:status` again — expect *"In sync — nothing pending"*.
+3. `pnpm db:status` again — expect _"In sync — nothing pending"_.
 4. Seed reference data if the project is new: `pnpm seed` (airports, airline
    cutoffs, one active pricing rule). Idempotent.
 
@@ -250,12 +250,12 @@ backdoor.
 
 ## 10. Recovery playbook
 
-| Situation | Do this |
-| --- | --- |
-| `db:status` says **STRANDED** | Regenerate the migration with a newer timestamp. Never edit journal rows |
-| `db:status` shows **orphans** | Nothing. Expected after a regenerated migration; harmless |
-| Migration applied to the wrong database | Write a corrective forward migration. Do not hand-delete rows |
-| `prepared statement "s1" does not exist` in prod | Migrations ran through the pooler. Re-run over `DIRECT_DATABASE_URL` |
-| `ENOTFOUND` on the direct host | IPv6-only. Use the session pooler on port 5432 (§3) |
-| Local DB in an unknown state | `pnpm test:env:reset` — wipes and re-applies. See [SCRIPTS.md](SCRIPTS.md) |
-| Generated SQL looks destructive | Do not apply. Hand-write a `--custom` migration that preserves data |
+| Situation                                        | Do this                                                                    |
+| ------------------------------------------------ | -------------------------------------------------------------------------- |
+| `db:status` says **STRANDED**                    | Regenerate the migration with a newer timestamp. Never edit journal rows   |
+| `db:status` shows **orphans**                    | Nothing. Expected after a regenerated migration; harmless                  |
+| Migration applied to the wrong database          | Write a corrective forward migration. Do not hand-delete rows              |
+| `prepared statement "s1" does not exist` in prod | Migrations ran through the pooler. Re-run over `DIRECT_DATABASE_URL`       |
+| `ENOTFOUND` on the direct host                   | IPv6-only. Use the session pooler on port 5432 (§3)                        |
+| Local DB in an unknown state                     | `pnpm test:env:reset` — wipes and re-applies. See [SCRIPTS.md](SCRIPTS.md) |
+| Generated SQL looks destructive                  | Do not apply. Hand-write a `--custom` migration that preserves data        |
