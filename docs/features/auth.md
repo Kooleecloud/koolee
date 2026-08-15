@@ -1,7 +1,7 @@
 # Auth
 
 > Two entirely separate auth systems: **customers** (phone/email OTP, self-serve)
-> and **staff** (invite-only email/password). Baseline: `dev` @ `5973047`.
+> and **staff** (invite-only email/password). Baseline: `dev` @ `2fe3a2b`.
 > ← [Features index](README.md)
 >
 > Deeper detail: [setup-auth.md](../../apps/web/docs/setup-auth.md) ·
@@ -84,7 +84,7 @@ keyed by `OTP_LOG_HMAC_KEY`. **Plaintext phones and emails are never persisted
 in the throttle log.**
 
 The key is validated **at import** whenever `DATABASE_URL` is set (min 32
-chars) — see [ENVIRONMENT.md §4.1](../ENVIRONMENT.md#41--otploghmackey-validated-at-import).
+chars) — see [ENVIRONMENT.md §4.1](../ENVIRONMENT.md#41--otp_log_hmac_key-validated-at-import).
 Rotating it resets rate-limit windows, which is harmless.
 
 Collision errors surface as `PHONE_EXISTS` / `EMAIL_EXISTS` rather than leaking

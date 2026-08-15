@@ -1,7 +1,7 @@
 # Architecture
 
 > **The system shape, the boundaries that hold it together, and where any given
-> change belongs.** Baseline: `dev` @ `5973047`.
+> change belongs.** Baseline: `dev` @ `2fe3a2b`.
 >
 > Related: [FEATURES](features/) — end-to-end feature walkthroughs ·
 > [ENVIRONMENT.md](ENVIRONMENT.md) · [MIGRATIONS.md](MIGRATIONS.md) ·

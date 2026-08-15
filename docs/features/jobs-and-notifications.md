@@ -1,7 +1,7 @@
 # Background jobs & notifications
 
 > Inngest functions, the cron-protected manual routes, and the notification
-> seam. Baseline: `dev` @ `5973047`. ← [Features index](README.md)
+> seam. Baseline: `dev` @ `2fe3a2b`. ← [Features index](README.md)
 
 ---
 

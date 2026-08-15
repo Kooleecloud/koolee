@@ -1,7 +1,7 @@
 # Admin ops console
 
 > Dispatch, exceptions, blackouts, staff, zones. App: `apps/admin` (`:3002`).
-> Baseline: `dev` @ `5973047`. ← [Features index](README.md) ·
+> Baseline: `dev` @ `2fe3a2b`. ← [Features index](README.md) ·
 > Deeper: [ops-console.md](../../apps/admin/docs/ops-console.md) ·
 > [staff-auth.md](../../apps/admin/docs/staff-auth.md)
 
@@ -20,6 +20,13 @@ Each is a server component + an `actions.ts` + a client form file.
 | `/exceptions`           | Bookings in `exception`, with the three legal resolutions                                       |
 | `/staff`                | Invite / list / deactivate agents and admins                                                    |
 | `/zones`                | Agent zone coverage, feeding auto-assignment                                                    |
+
+On `/bookings/[bookingId]`, the bags card and the custody timeline render
+evidence photos through the shared `ImageLightbox`
+([packages/ui](../../packages/ui/src/components/image-lightbox.tsx)) — photos
+are captured at ~1200px and thumbnails alone are unreadable when the question is
+_"was that bag already scuffed?"_. The same component backs the agent's capture
+preview and the customer's trip page.
 
 Backed by [dispatch.ts](../../packages/core/src/services/dispatch.ts):
 `getOpsDashboard`, `listBookingsBoard`, `assignAgentToBooking`,
@@ -73,6 +80,31 @@ concept, not a config change. See
 Day filters and ordering use `bookings.pickup_window_start` **directly**. Since
 the virtual-window cutover, `slot_id` is NULL on every new booking, so joining
 through `slots` would silently drop them.
+
+### 4.1 — Sorting
+
+`BOARD_SORT_KEYS` is the closed set the board may sort by: `window`, `booked`,
+`departure`, `status`, `agent`. Every ordering resolves in `orderFor` and ends
+with `asc(bookings.id)` as a tiebreak, so paging is stable.
+
+`booked` sorts on `bookings.created_at` — _when the booking came in_. It is the
+one key with **no nulls clause**, because `created_at` is never null; the others
+carry `nulls last` in both directions since an unassigned or unscheduled row
+should sink, not lead.
+
+### 4.2 — Cells stack time over date
+
+The Booked / Window / Departs columns render the clock on the first line and the
+date underneath, via `formatTimeInAirportTz` + `formatDayInAirportTz`. An
+operator scanning the board reads the hour first. Per
+[TIME.md](../TIME.md#how-to-render), the zone label stays on the **time** line.
+
+### 4.3 — Agent identity
+
+`BoardRow` carries `assigneeName` (`users.full_name`) alongside `assigneeEmail`,
+and the board shows the **name above the email**. `assigneeName` is null for
+staff who never set one — fall back to the email, which is always present for
+staff. Never render a bare name without that fallback.
 
 ---
 

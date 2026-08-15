@@ -1,7 +1,7 @@
 # Payments
 
 > Authorize at booking, capture once bags are in custody, refund on
-> cancellation — all through one provider seam. Baseline: `dev` @ `5973047`.
+> cancellation — all through one provider seam. Baseline: `dev` @ `2fe3a2b`.
 > ← [Features index](README.md) ·
 > Deeper: [payments-lifecycle.md](../../apps/web/docs/payments-lifecycle.md)
 

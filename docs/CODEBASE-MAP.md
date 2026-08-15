@@ -5,6 +5,8 @@
 > detail. For _what is shipped / what is next_, read
 > [PROJECT-STATUS.md](../PROJECT-STATUS.md). For _how to run it_, read
 > [README.md](../README.md).
+>
+> Baseline: `dev` @ `2fe3a2b`.
 
 ## Chapters
 
@@ -157,6 +159,12 @@ keep their foreign key. Do not add to it — see Chapter 4.
   worthless in a dispute.
 - `payments (provider, provider_ref)` is unique — the idempotency key that
   makes webhook redelivery a no-op.
+- `bags.seal_id` is unique **partially** (`WHERE seal_id IS NOT NULL`,
+  migration `0017`), scoped to the whole table rather than one booking: a
+  tamper-evident seal is single-use stock, so its printed id identifies exactly
+  one bag operation-wide. Partial because unsealed bags all hold `NULL` and must
+  not collide. `bags (booking_id, ordinal)` is unique for the ordering reasons
+  in Chapter 1.
 - `bookings.price_breakdown` is a jsonb snapshot of what the pricing engine
   computed at booking time. `price_cents` is the authoritative charge; the
   snapshot is the receipt, and the raw material for pricing analysis.
@@ -216,8 +224,9 @@ Two policies make this trustworthy. **All arithmetic is on absolute
 instants** (`date-fns` `subMinutes`), which is DST-correct by construction;
 wall-clock arithmetic would be off by an hour across a transition, in the
 _unsafe_ direction on spring-forward. **Timezones enter only at the display
-edge** — `formatWindowInAirportTz`, `airportLocalDay`, `airportLocalInstant`
-are the only functions that know what a timezone is.
+edge** — `formatWindowInAirportTz`, `formatTimeInAirportTz`, `airportLocalDay`,
+`airportLocalInstant` are the only functions that know what a timezone is. The
+full formatter table is in [TIME.md](TIME.md#how-to-render).
 
 `resolveCutoffMinutes` throws when no cutoff is on record for an
 airline × airport × scope. A guessed cutoff is worse than no sale: it is how
@@ -518,8 +527,25 @@ unassigned task id simply does not resolve.
 
 **The visit flow** ([agent-visit.ts](../packages/core/src/services/agent-visit.ts))
 is a sequence of appended custody events, not a form submit: arrive → verify
-identity → seal each bag (photo + `seal_id`) → complete. Completing the visit
-is what moves the booking to `verified_sealed` _and_ captures the payment.
+identity → seal each bag → complete. Completing the visit moves the booking to
+`verified_sealed`.
+
+**Completing does _not_ take the money.** This app holds no Stripe credentials
+by design; capture is a sweep (`captureDueBookings`) run from `apps/web`, which
+is the app that has them. See
+[Learning §1.8](learning/01-product-and-nouns.md#18--paid-means-authorized-not-collected).
+
+**Sealing a bag takes all three of a unique `seal_id`, a weight, and a photo**
+— enforced at the form, the server action, and core, with a partial unique
+index on `bags.seal_id` (migration `0017`) as the actual guarantee. There is no
+override; an agent who cannot weigh or photograph files an exception instead.
+[agent-visit §3.2–3.3](features/agent-visit.md#32--sealing-takes-all-three-or-it-does-not-happen).
+
+**Photos are downscaled in the browser** before upload
+([src/lib/photo.ts](../apps/agent/src/lib/photo.ts)): 3–8 MB phone captures blew
+the 1 MB Server Action body limit and `413`'d before the action ran. Resize to
+1600px / ~700 KB client-side, best-effort, with `serverActions.bodySizeLimit`
+raised to `4mb` purely as a safety net.
 
 Anything that goes wrong is a first-class outcome: `reportVisitException`
 moves the booking to `exception` with a reason, which surfaces in the admin
@@ -560,6 +586,13 @@ sales, it does not cancel work.
 **The board reads the booking, not a join.** Day filters and ordering use
 `bookings.pickup_window_start` directly.
 
+**Board sorting** is a closed set — `BOARD_SORT_KEYS` = `window`, `booked`,
+`departure`, `status`, `agent` — resolved in `orderFor` and always tie-broken on
+`bookings.id` so paging is stable. `booked` sorts `created_at` and is the only
+key without a nulls clause. Time cells stack clock over date
+(`formatTimeInAirportTz` + `formatDayInAirportTz`), and `BoardRow.assigneeName`
+renders above the email, falling back to it when null.
+
 Detail: [ops-console.md](../apps/admin/docs/ops-console.md).
 
 ---
@@ -571,6 +604,20 @@ Detail: [ops-console.md](../apps/admin/docs/ops-console.md).
 Card, Input, Select, Dialog, Badge, …), and domain components
 (`CustodyTimeline`, `BookingStatusBadge`, `PriceEstimator`, `OtpInput`,
 `PhoneInput`, `SealMotif`).
+
+**Two components are deliberately shared across all three apps** rather than
+reimplemented per app, because divergence there is a correctness problem, not a
+cosmetic one:
+
+- **`ConfirmDialog`** — every destructive confirmation in the product. A
+  customer discarding a draft and an operator forcing a transition meet the
+  same component. It owns its busy state and stays open until the action's
+  promise settles. `window.confirm` is not an option anywhere; see
+  [booking-funnel §2.3](features/booking-funnel.md#23--every-destructive-confirmation-is-ours).
+- **`ImageLightbox`** (2026-08-15) — evidence photos are captured at ~1200px
+  and were rendered at 78–190px with no way to enlarge them. Backs the agent's
+  capture preview, the ops bags card, and `CustodyTimeline` — so the customer's
+  trip page inherits it. Has Storybook stories.
 
 **One structural rule worth knowing.** `AppHeader` is split into a server half
 (renders all link markup) and a client half (`app-header-chrome.tsx` — the

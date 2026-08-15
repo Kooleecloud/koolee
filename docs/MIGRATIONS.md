@@ -1,7 +1,7 @@
 # Migrations
 
 > **How schema change works in this repo, and how to not break production.**
-> Baseline: `dev` @ `5973047`. Related: [ENVIRONMENT.md](ENVIRONMENT.md) ·
+> Baseline: `dev` @ `2fe3a2b`. Related: [ENVIRONMENT.md](ENVIRONMENT.md) ·
 > [SCRIPTS.md](SCRIPTS.md) · [packages/db/README.md](../packages/db/README.md)
 
 ---
@@ -200,6 +200,9 @@ Practical consequences:
 - `payments (provider, provider_ref)` is unique — the webhook idempotency key.
 - `bags (booking_id, ordinal)` is unique — see
   [Learning §1.4](learning/01-product-and-nouns.md#14--why-bagsordinal-exists).
+- `bags.seal_id` is unique **partially** (`WHERE seal_id IS NOT NULL`), scoped to
+  the whole table rather than the booking — a tamper-evident seal is single-use
+  stock. Partial because every unsealed bag holds `NULL`.
 - `slots` is **legacy** and kept only because pre-cutover bookings point at it.
   `slots.capacity` / `booked_count` are dead weight on a dead table. Do not
   build on it — pickup windows are virtual.
@@ -223,6 +226,34 @@ Practical consequences:
 | 0014      | `milky_bug`              | 2026-08-10 | `bags.ordinal` + backfill (arbitrary-but-stable for pre-existing rows) |
 | 0015      | `colossal_sue_storm`     | 2026-08-10 |                                                                        |
 | 0016      | `uniform_rls_baseline`   | 2026-08-11 | RLS on for every `public` table + `ensure_rls` event trigger           |
+| 0017      | `unique_seal_id`         | 2026-08-15 | `bags.seal_id` plain index → **partial `UNIQUE`** (sealed bags only)   |
+
+⚠️ **`0017` can fail on apply, by design.** It drops `bags_seal_id_idx` and
+builds a partial unique index in its place, so it **refuses to build if
+duplicate seal ids already exist** — which is the whole reason it exists
+(duplicates were observed in agent testing). Get the list first; a failed
+migration is a worse way to learn it:
+
+```sql
+SELECT seal_id, count(*), array_agg(id)
+  FROM bags WHERE seal_id IS NOT NULL
+ GROUP BY seal_id HAVING count(*) > 1;
+```
+
+Clear or correct any rows it returns **before** applying. See
+[agent-visit §3.3](features/agent-visit.md#33--a-seal-id-identifies-exactly-one-bag-operation-wide)
+for what a duplicate actually means.
+
+⚠️ **Not `CONCURRENTLY`** — drizzle's migrator runs all pending migrations in
+one transaction, and `CREATE INDEX CONCURRENTLY` cannot run in a transaction
+block. The plain build takes a `SHARE` lock on `bags`, blocking writes to that
+table for the duration — milliseconds at present volumes. If `bags` ever grows
+past that, build the index out-of-band with `CONCURRENTLY` first; the statement
+is then a no-op thanks to `IF NOT EXISTS`.
+
+The commit that introduced `0017` notes it must reach hosted before that code
+deploys. Confirm the actual applied state with `pnpm db:status` against the
+target — per the note below, don't trust this table for it.
 
 > **Note:** older docs state that `0012` is "applied locally but not yet
 > hosted". That predates the hash-based drift check. Verify current state with

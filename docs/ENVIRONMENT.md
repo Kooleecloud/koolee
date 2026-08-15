@@ -1,7 +1,7 @@
 # Environment & Credentials
 
 > **Canonical reference for every environment variable in this repo.** Baseline:
-> `dev` @ `5973047`. Related: [MIGRATIONS.md](MIGRATIONS.md) ·
+> `dev` @ `2fe3a2b`. Related: [MIGRATIONS.md](MIGRATIONS.md) ·
 > [SCRIPTS.md](SCRIPTS.md) · [CODEBASE-MAP.md](CODEBASE-MAP.md)
 >
 > **No secret values live in this file**, by design. It documents _what_ each

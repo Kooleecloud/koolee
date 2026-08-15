@@ -1,6 +1,6 @@
 # Koolee — Master Documentation Index
 
-> **The one page to navigate everything.** Baseline: `dev` @ `5973047`.
+> **The one page to navigate everything.** Baseline: `dev` @ `2fe3a2b`.
 >
 > Three ways in, pick whichever matches how you're thinking right now:
 >
@@ -132,7 +132,7 @@
   - [3.1 — The seam pattern](ARCHITECTURE.md#31--the-seam-pattern)
 - [4. `packages/db` — data access](ARCHITECTURE.md#4-packagesdb--data-access)
   - [4.1 — Authorization is in core, not the database](ARCHITECTURE.md#41--authorization-is-in-core-not-the-database)
-  - [4.2 — `custody_events` is append-only](ARCHITECTURE.md#42--custodyevents-is-append-only)
+  - [4.2 — `custody_events` is append-only](ARCHITECTURE.md#42--custody_events-is-append-only)
 - [5. Request flow](ARCHITECTURE.md#5-request-flow)
   - [5.1 — The pinned webhook route](ARCHITECTURE.md#51--the-pinned-webhook-route)
 - [6. External services](ARCHITECTURE.md#6-external-services)
@@ -146,7 +146,7 @@
 - [2. Where env files actually live](ENVIRONMENT.md#2-where-env-files-actually-live)
 - [3. The full matrix](ENVIRONMENT.md#3-the-full-matrix)
 - [4. Fail-closed boot gates](ENVIRONMENT.md#4-fail-closed-boot-gates)
-  - [4.1 — `OTP_LOG_HMAC_KEY`, validated at import](ENVIRONMENT.md#41--otploghmackey-validated-at-import)
+  - [4.1 — `OTP_LOG_HMAC_KEY`, validated at import](ENVIRONMENT.md#41--otp_log_hmac_key-validated-at-import)
   - [4.2 — `assertProductionSecurityConfig()` — apps/web](ENVIRONMENT.md#42--assertproductionsecurityconfig--appsweb)
   - [4.3 — `assertProductionBootConfig()` — agent & admin](ENVIRONMENT.md#43--assertproductionbootconfig--agent--admin)
   - [4.4 — Why builds still pass](ENVIRONMENT.md#44--why-builds-still-pass)
@@ -228,7 +228,7 @@
   - [2.2 — The upgrade](features/auth.md#22--the-upgrade)
   - [2.3 — The upgrade send guard ⚠️](features/auth.md#23--the-upgrade-send-guard-)
   - [2.4 — PII: destinations are hashed, never stored](features/auth.md#24--pii-destinations-are-hashed-never-stored)
-  - [2.5 — `AUTH_SCHEMA_AVAILABLE`](features/auth.md#25--authschemaavailable)
+  - [2.5 — `AUTH_SCHEMA_AVAILABLE`](features/auth.md#25--auth_schema_available)
   - [2.6 — Customer routes](features/auth.md#26--customer-routes)
 - [3. Staff auth](features/auth.md#3-staff-auth)
   - [3.1 — The agent app holds no service-role key](features/auth.md#31--the-agent-app-holds-no-service-role-key)
@@ -312,8 +312,8 @@
 | Concept                               | Explained in                                                                                                                                                                    |
 | ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Anonymous drafts / upgrade            | [Auth §2.1–2.3](features/auth.md#2-customer-auth)                                                                                                                               |
-| Append-only custody                   | [ARCHITECTURE §4.2](ARCHITECTURE.md#42--custodyevents-is-append-only) · [Agent §5](features/agent-visit.md#5-custody-events-are-the-product)                                    |
-| `AUTH_SCHEMA_AVAILABLE`               | [Auth §2.5](features/auth.md#25--authschemaavailable) · [ENVIRONMENT §3](ENVIRONMENT.md#3-the-full-matrix)                                                                      |
+| Append-only custody                   | [ARCHITECTURE §4.2](ARCHITECTURE.md#42--custody_events-is-append-only) · [Agent §5](features/agent-visit.md#5-custody-events-are-the-product)                                   |
+| `AUTH_SCHEMA_AVAILABLE`               | [Auth §2.5](features/auth.md#25--auth_schema_available) · [ENVIRONMENT §3](ENVIRONMENT.md#3-the-full-matrix)                                                                    |
 | Auto-assignment                       | [Ops §5](features/ops-console.md#5-assignment) · [Agent §6](features/agent-visit.md#6-assignment)                                                                               |
 | `bags.ordinal`                        | [Learning §1.4](learning/01-product-and-nouns.md#14--why-bagsordinal-exists)                                                                                                    |
 | Blackouts (`slot_blocks`)             | [Ops §3](features/ops-console.md#3-blackouts-matter-more-than-they-look)                                                                                                        |
@@ -331,7 +331,7 @@
 | Lead-time multiplier                  | [Funnel §5.1](features/booking-funnel.md#51--the-lead-time-multiplier-is-the-dynamic-pricing-seam)                                                                              |
 | Marker table (test DB)                | [SCRIPTS §3.2](SCRIPTS.md#32--the-marker-table-makes-it-enforceable)                                                                                                            |
 | OTP throttle                          | [Auth §2.3–2.4](features/auth.md#23--the-upgrade-send-guard-)                                                                                                                   |
-| `OTP_LOG_HMAC_KEY`                    | [ENVIRONMENT §4.1](ENVIRONMENT.md#41--otploghmackey-validated-at-import)                                                                                                        |
+| `OTP_LOG_HMAC_KEY`                    | [ENVIRONMENT §4.1](ENVIRONMENT.md#41--otp_log_hmac_key-validated-at-import)                                                                                                     |
 | Pooled vs direct connection           | [MIGRATIONS §3](MIGRATIONS.md#3-the-two-connection-rule)                                                                                                                        |
 | Pricing engine                        | [Funnel §5](features/booking-funnel.md#5-pricing)                                                                                                                               |
 | RLS (what it is/isn't for)            | [MIGRATIONS §6](MIGRATIONS.md#6-the-authorization-model--read-before-adding-an-rls-policy) · [ARCHITECTURE §4.1](ARCHITECTURE.md#41--authorization-is-in-core-not-the-database) |

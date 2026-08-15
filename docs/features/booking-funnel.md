@@ -1,7 +1,7 @@
 # Booking funnel
 
 > The customer path from landing page to a `draft` booking with an authorized
-> payment. App: `apps/web` (`:3000`). Baseline: `dev` @ `5973047`.
+> payment. App: `apps/web` (`:3000`). Baseline: `dev` @ `2fe3a2b`.
 > ← [Features index](README.md)
 
 ---
@@ -65,6 +65,24 @@ A step is **unlocked when every step before it is complete**
 field to an earlier step retroactively un-completes in-flight drafts. That is
 usually correct — but it will bounce customers backward, so it is a migration
 concern, not just a form change.
+
+### 2.3 — Every destructive confirmation is ours
+
+`ConfirmActionForm` ([confirm-action-form.tsx](../../apps/web/src/components/confirm-action-form.tsx))
+wraps every draft-discarding surface — the stepper's "Start over", the dead-end
+window card, My Trips "Discard" — in the shared `ConfirmDialog`, the same one
+admin uses for custody overrides.
+
+⚠️ **Do not reach for `window.confirm`.** It was used here and was replaced: the
+popup is the browser's, not ours — unstyled, unbranded, worded differently on
+every platform, impossible to test, and on mobile it renders as a system sheet
+that looks like the OS interrupted the page.
+
+The action is invoked **directly on confirm**, not through a real form submit:
+`ConfirmDialog` owns the busy state and stays open until the promise settles,
+which a form submit cannot report back. Props are `title` / `description` /
+`confirmLabel` / `destructive` (default `true` — every use is a discard today,
+but the prop exists for non-destructive reuse).
 
 ---
 

@@ -48,9 +48,17 @@ explicit `tz` — there is no default, on purpose.
 | `formatWindowInAirportTz(start, end, tz)`     | `Tue 10 Jun, 10:00 AM – 11:00 AM EDT`                    |
 | `formatHourRangeInAirportTz(start, end, tz)`  | `10:00 AM – 11:00 AM EDT`                                |
 | `formatInstantInAirportTz(instant, tz)`       | `Tue 10 Jun, 6:20 PM EDT`                                |
+| `formatTimeInAirportTz(instant, tz)`          | `6:20 PM EDT` (clock only — see below)                   |
 | `formatDayInAirportTz(instant, tz)`           | `Tue 10 Jun` (a day has no zone)                         |
 | `formatDateTimeLocalInAirportTz(instant, tz)` | `2026-06-10T18:20` (for `<input type="datetime-local">`) |
 | `dstTransitionNote(start, tz)`                | a warning string on two nights a year, else `null`       |
+
+`formatTimeInAirportTz` pairs with `formatDayInAirportTz` for **stacked table
+cells** — time on the first line, date underneath (the ops board's Booked /
+Window / Departs columns). An operator scanning a board reads the hour first and
+only needs the day to disambiguate. **The zone stays on the time, never on the
+date line**, because the zone qualifies the clock — and rule 2's "always label
+the zone" is still satisfied by the line the reader actually acts on.
 
 Where the zone comes from:
 

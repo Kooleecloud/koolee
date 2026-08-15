@@ -1,7 +1,7 @@
 # Scripts & Commands
 
 > **Every command in this repo, what it actually does, and when to reach for it.**
-> Baseline: `dev` @ `5973047`. Related: [ENVIRONMENT.md](ENVIRONMENT.md) ·
+> Baseline: `dev` @ `2fe3a2b`. Related: [ENVIRONMENT.md](ENVIRONMENT.md) ·
 > [MIGRATIONS.md](MIGRATIONS.md)
 
 ---

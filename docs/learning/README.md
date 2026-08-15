@@ -36,7 +36,7 @@
 
 | #   | Chapter                                                  | Status | Verified at |
 | --- | -------------------------------------------------------- | ------ | ----------- |
-| 1   | [The product & its nouns](01-product-and-nouns.md)       | ✅     | `5973047`   |
+| 1   | [The product & its nouns](01-product-and-nouns.md)       | ✅     | `2fe3a2b`   |
 | 2   | Repo map & boundaries                                    | ⬜     | —           |
 | 3   | Data model & migrations                                  | ⬜     | —           |
 | 4   | Domain core — state machine, cutoffs, windows, pricing   | ⬜     | —           |
@@ -63,3 +63,4 @@ Jump straight to a numbered section.
 | 1.6 | [Three rules of the state machine](01-product-and-nouns.md#16--three-rules-of-the-state-machine)                   |
 | 1.7 | [Three apps = three phases](01-product-and-nouns.md#17--three-apps--three-phases-of-the-lifecycle)                 |
 | 1.8 | [`paid` means authorized, not collected](01-product-and-nouns.md#18--paid-means-authorized-not-collected)          |
+| 1.9 | [A seal id belongs to exactly one bag](01-product-and-nouns.md#19--a-seal-id-belongs-to-exactly-one-bag)           |

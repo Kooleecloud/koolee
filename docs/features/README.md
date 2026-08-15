@@ -1,7 +1,7 @@
 # Features — end-to-end walkthroughs
 
 > **What the system does, and how each capability works from the first click to
-> the database row.** Baseline: `dev` @ `5973047`.
+> the database row.** Baseline: `dev` @ `2fe3a2b`.
 >
 > For _structure_ read [../ARCHITECTURE.md](../ARCHITECTURE.md). For _what is
 > shipped vs planned_ read [../../PROJECT-STATUS.md](../../PROJECT-STATUS.md).

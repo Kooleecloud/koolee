@@ -1,6 +1,6 @@
 # Chapter 1 — The product & its nouns
 
-> **Verified against `dev` @ `5973047`.** ← [Learning track index](README.md)
+> **Verified against `dev` @ `2fe3a2b`.** ← [Learning track index](README.md)
 > · Next: Chapter 2 — Repo map & boundaries
 >
 > **What this chapter buys you.** The vocabulary. Every later chapter names
@@ -37,19 +37,19 @@ you would be adding the first such model, not extending an existing one.
 
 ## 1.2 — The nouns and the tables they live in
 
-| Noun              | Lives in                             | What it is                                                                                                                         |
-| ----------------- | ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------- |
-| **Booking**       | `bookings`                           | One customer, one flight, one pickup window. The spine everything hangs off.                                                       |
-| **Draft**         | `booking_drafts`                     | A booking-in-progress before auth/payment. Survives reload and anonymous → real-user upgrade.                                      |
-| **Bag**           | `bags`                               | One physical bag: weight, photos, a `seal_id`, and an `ordinal`. See [1.4](#14--why-bagsordinal-exists).                           |
-| **Seal**          | `bags.seal_id`                       | Opaque tamper-evident ID. Deliberately technology-agnostic — RFID vs printed QR is still undecided, and neither needs a migration. |
-| **Custody event** | `custody_events`                     | Append-only chain of custody: who held which bag, where, when, with photo evidence.                                                |
-| **Pickup window** | _(none — computed)_                  | The hour the agent comes. **Not a row.** See [1.3](#13--windows-are-not-inventory).                                                |
-| **Blackout**      | `slot_blocks`                        | Ops hiding a span of windows at an airport (weather, no drivers).                                                                  |
-| **Cutoff**        | `airline_cutoffs`                    | Per airline × airport × domestic/international — the latest a bag can be dropped.                                                  |
-| **Task**          | `verification_tasks`, `pickup_tasks` | The unit of work an agent or driver sees.                                                                                          |
-| **Payment**       | `payments`, `payment_webhook_events` | Intent → authorize → capture. The second table is the webhook replay guard.                                                        |
-| **Staff member**  | `staff_members`                      | Invite-only agent/admin accounts.                                                                                                  |
+| Noun              | Lives in                             | What it is                                                                                                                                                                                                      |
+| ----------------- | ------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Booking**       | `bookings`                           | One customer, one flight, one pickup window. The spine everything hangs off.                                                                                                                                    |
+| **Draft**         | `booking_drafts`                     | A booking-in-progress before auth/payment. Survives reload and anonymous → real-user upgrade.                                                                                                                   |
+| **Bag**           | `bags`                               | One physical bag: weight, photos, a `seal_id`, and an `ordinal`. Sealing requires all three of seal/weight/photo — see [1.4](#14--why-bagsordinal-exists) and [1.9](#19--a-seal-id-belongs-to-exactly-one-bag). |
+| **Seal**          | `bags.seal_id`                       | Opaque tamper-evident ID, **unique operation-wide**. Technology-agnostic — RFID vs printed QR is undecided, and neither needs a migration. See [1.9](#19--a-seal-id-belongs-to-exactly-one-bag).                |
+| **Custody event** | `custody_events`                     | Append-only chain of custody: who held which bag, where, when, with photo evidence.                                                                                                                             |
+| **Pickup window** | _(none — computed)_                  | The hour the agent comes. **Not a row.** See [1.3](#13--windows-are-not-inventory).                                                                                                                             |
+| **Blackout**      | `slot_blocks`                        | Ops hiding a span of windows at an airport (weather, no drivers).                                                                                                                                               |
+| **Cutoff**        | `airline_cutoffs`                    | Per airline × airport × domestic/international — the latest a bag can be dropped.                                                                                                                               |
+| **Task**          | `verification_tasks`, `pickup_tasks` | The unit of work an agent or driver sees.                                                                                                                                                                       |
+| **Payment**       | `payments`, `payment_webhook_events` | Intent → authorize → capture. The second table is the webhook replay guard.                                                                                                                                     |
+| **Staff member**  | `staff_members`                      | Invite-only agent/admin accounts.                                                                                                                                                                               |
 
 Schema lives one-file-per-cluster in
 [packages/db/src/schema/](../../packages/db/src/schema/); the status/role/tier
@@ -180,6 +180,51 @@ Cancellation before pickup voids the authorization or refunds.
 🧭 **Decision hook.** This is why `paid` in the state machine means "we have an
 authorization", not "we have the money". Any revenue reporting that reads
 `status = 'paid'` is counting _promises_, not cash. Cash is in `payments`.
+
+---
+
+## 1.9 — A seal id belongs to exactly one bag
+
+> Added 2026-08-15 (`2fe3a2b`). Numbered after 1.8 rather than beside 1.4
+> because section numbers here never shift.
+
+**The rule:** a bag is sealed only with **a unique seal id, a weight, and a
+photo**. All three, or the bag is not sealed.
+
+That trio _is_ the custody record — what was sealed, how heavy it was, what it
+looked like at the door. It is what [1.1](#11--the-claim-and-why-it-is-a-hard-boundary)'s
+promise is actually made of: a bag without it cannot be defended in a damage or
+loss claim, and a claim is exactly when anyone looks.
+
+**Uniqueness is operation-wide, not per booking.** Seals come off a single
+numbered stock, so the id is globally unique by construction. Enforced by a
+partial `UNIQUE` index on `bags.seal_id` (migration `0017`) — partial because
+every unsealed bag holds `NULL` and those must not collide.
+
+⚠️ **Sharp edge, and it already bit.** In agent testing, three bags in one
+booking accepted the **same printed seal number**, and weight and photo were
+both optional. Nothing in the app objected. The seal id is the thing that ties a
+sealed bag to a custody event; two bags answering to one id makes the whole
+record undefendable.
+
+⚠️ **There is no override** — not even for a broken scale. An agent who cannot
+weigh or photograph flags an exception instead of sealing. A "skip" button gets
+used on the worst day, which is the day the evidence matters.
+
+🧭 **Decision hook — where a rule like this belongs.** The guarantee is the
+_index_. `recordBagSealed` also reads for a clash first, but only so the agent
+sees an actionable sentence instead of a driver error, and it tells them which
+case it is (same booking → "each bag needs its own seal"; another booking →
+"check the number on the seal"). That read **races**, and that is accepted by
+design.
+
+The general shape: **app checks are for the message, constraints are for the
+truth.** When you find yourself adding a validation that matters, ask what
+holds when two requests arrive in the same millisecond. If the answer is
+"nothing", the check belongs in the schema too — see
+[MIGRATIONS.md §8](../MIGRATIONS.md#8-migration-history) for the same pattern in
+`UNIQUE (booking_id, ordinal)` ([1.4](#14--why-bagsordinal-exists)) and
+`payments (provider, provider_ref)`.
 
 ---
 
