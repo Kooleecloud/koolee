@@ -64,7 +64,7 @@ zod-validated `env.ts` and hand the results to core as a `CoreConfig`
 **Why:** it makes core testable without a process environment, and reusable from
 a job runner. It is also why the fail-closed boot gates live in each app's
 `env.ts` rather than in core — see
-[ENVIRONMENT.md §4](ENVIRONMENT.md#4--fail-closed-boot-gates).
+[ENVIRONMENT.md §4](ENVIRONMENT.md#4-fail-closed-boot-gates).
 
 🧭 **Where a feature lands.** A typical change touches three layers in this
 order: schema (`packages/db/src/schema/`) → rule + service
@@ -115,7 +115,7 @@ failures:**
 | App runtime     | `DATABASE_URL`        | 6543 | `createDb()` / `getDb()` — pooler, `prepare: false` |
 | Migrations, DDL | `DIRECT_DATABASE_URL` | 5432 | `createMigrationClient()` — `max: 1`                |
 
-Full reasoning in [MIGRATIONS.md §3](MIGRATIONS.md#3--the-two-connection-rule).
+Full reasoning in [MIGRATIONS.md §3](MIGRATIONS.md#3-the-two-connection-rule).
 
 ### 4.1 — Authorization is in core, not the database
 
@@ -126,7 +126,7 @@ one reason: to constrain the `anon` and `authenticated` roles that browser-side
 A missing RLS policy is _not_ a security hole in a server-side path. Adding an
 authorization check means adding it to a core service — adding a policy instead
 will silently do nothing for server reads.
-See [MIGRATIONS.md §6](MIGRATIONS.md#6--the-authorization-model--read-before-adding-an-rls-policy).
+See [MIGRATIONS.md §6](MIGRATIONS.md#6-the-authorization-model--read-before-adding-an-rls-policy).
 
 ### 4.2 — `custody_events` is append-only
 
@@ -276,7 +276,7 @@ Each app validates its own env at boot.
 **Production boot assertions fail closed.** A missing secret stops the app
 rather than silently disabling a protection. The `next build` phase is exempt so
 a fresh clone still builds.
-Details: [ENVIRONMENT.md §4](ENVIRONMENT.md#4--fail-closed-boot-gates).
+Details: [ENVIRONMENT.md §4](ENVIRONMENT.md#4-fail-closed-boot-gates).
 
 **Deploy order:**
 

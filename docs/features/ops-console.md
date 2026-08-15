@@ -64,7 +64,7 @@ Services: `createSlotBlock`, `listSlotBlocks`, `deleteSlotBlock`.
 ⚠️ If you are ever asked for "capacity limits", note that blackouts are a
 _blunt_ instrument — all-or-nothing per airport per span. Real capacity is a new
 concept, not a config change. See
-[booking-funnel.md §4](booking-funnel.md#4--pickup-windows--computed-never-stocked).
+[booking-funnel.md §4](booking-funnel.md#4-pickup-windows--computed-never-stocked).
 
 ---
 

@@ -17,7 +17,7 @@ drop counter** at JFK / LGA / EWR.
 Not check-in. Not TSA. Not the aircraft.
 
 That line is a written, enforced copy rule
-([README.md:153-171](../../README.md#L153-L171)), binding on marketing copy,
+([README § Copy rules](../../README.md#copy-rules)), binding on marketing copy,
 product UI, transactional SMS and email alike:
 
 - **Say:** "delivered to your airline's bag drop."

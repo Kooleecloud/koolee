@@ -65,7 +65,7 @@ ops if not.
 ### 2.4 — Payment capture sweep
 
 Every **5 minutes**, `captureDueBookings` captures authorizations whose bags are
-already in custody. See [payments.md §4](payments.md#4--capture--deferred-and-off-device).
+already in custody. See [payments.md §4](payments.md#4-capture--deferred-and-off-device).
 
 ### 2.5 — Abandoned-draft + anonymous-user GC
 
