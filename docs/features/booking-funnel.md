@@ -117,6 +117,29 @@ What limits choice is never stock:
 
 **There is deliberately no capacity.** Every window accepts unlimited bookings.
 
+### 4.0 — What the picker actually shows (2026-08-16)
+
+A two-column grid of window tiles, grouped under airport-local day headings.
+Each tile is the window's **start time** over its **price**, in the same
+family and weight — the customer is trading time against money, so neither
+line may read as the caption of the other; the time is one step larger only
+because it is what the eye scans for. Tiles are cards (`shadow-lift`) with
+hover, focus-visible, and selected states, the selection driven by a
+visually-hidden radio.
+
+Two things the tiles deliberately do **not** carry:
+
+- **The zone.** It is stated once above the grid ("All times are in local
+  time"). Every window on the page belongs to one airport by construction, and
+  24 tiles each repeating "EDT" is noise. `formatHourInAirportTz` exists for
+  exactly this case and is the only unqualified time formatter in the codebase
+  — everywhere the zone is not stated nearby (ops boards, emails, the agent's
+  screen) still uses `formatTimeInAirportTz`, which carries it.
+- **The duration.** Every window is one hour by construction.
+
+Unbookable windows are not rendered at all: a greyed-out graveyard only invites
+questions the customer cannot act on.
+
 ### 4.1 — Cutoffs
 
 [cutoff.ts](../../packages/core/src/slots/cutoff.ts) resolves the per
@@ -224,7 +247,7 @@ field, never the booking.
 | `/book/return`                 | Route handler: the provider's redirect lands here and **re-checks server-side** |
 | `/book/processing`             | Waiting state while confirmation settles                                        |
 | `/book/confirmed`              | Success                                                                         |
-| `/trips`, `/trips/[bookingId]` | The customer's bookings, with live custody timeline                             |
+| `/trips`, `/trips/[bookingId]` | The customer's bookings, with live custody timeline + sealed-bag photos         |
 
 ⚠️ **A client-side success signal is never trusted.** The booking moves only
 through the state machine, driven by server-side reconciliation and webhooks.

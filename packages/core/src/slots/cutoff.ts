@@ -286,6 +286,18 @@ export function formatHourRangeInAirportTz(
 }
 
 /**
+ * Just the start hour, airport-local and unqualified — "10:00 AM".
+ *
+ * For the customer-facing window grid, where the zone is stated once above the
+ * tiles ("all times are local") instead of on every tile. Anywhere the zone is
+ * NOT stated nearby — ops boards, emails, agent screens — use
+ * `formatTimeInAirportTz` instead, which carries it.
+ */
+export function formatHourInAirportTz(instant: Date, tz: string): string {
+  return format(new TZDate(instant, tz), "h:mm a");
+}
+
+/**
  * `yyyy-MM-ddTHH:mm` in the airport's zone — the value format an
  * `<input type="datetime-local">` expects.
  *

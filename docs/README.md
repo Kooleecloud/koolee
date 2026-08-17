@@ -322,6 +322,7 @@
 | Capture (deferred)                    | [Payments §4](features/payments.md#4-capture--deferred-and-off-device)                                                                                                          |
 | Copy rules                            | [Learning §1.1](learning/01-product-and-nouns.md#11--the-claim-and-why-it-is-a-hard-boundary)                                                                                   |
 | Coverage (NYC ZIPs)                   | [Funnel §3](features/booking-funnel.md#3-coverage)                                                                                                                              |
+| Custody timeline (dots, states)       | [CODEBASE-MAP Ch.11](CODEBASE-MAP.md#chapter-11--ui-package--brand) · [DESIGN.md](../packages/ui/DESIGN.md)                                                                     |
 | Cutoffs (airline)                     | [Funnel §4.1](features/booking-funnel.md#41--cutoffs)                                                                                                                           |
 | Drift report (`db:status`)            | [MIGRATIONS §5](MIGRATIONS.md#5-pnpm-dbstatus--the-drift-report)                                                                                                                |
 | DST                                   | [Funnel §4.2](features/booking-funnel.md#42--timezone-policy) · [TIME.md](TIME.md)                                                                                              |
@@ -339,8 +340,10 @@
 | Seam pattern (fake/real/factory)      | [ARCHITECTURE §3.1](ARCHITECTURE.md#31--the-seam-pattern)                                                                                                                       |
 | Service-role key (why agent has none) | [Auth §3.1](features/auth.md#31--the-agent-app-holds-no-service-role-key) · [Agent §4](features/agent-visit.md#4-photo-evidence)                                                |
 | State machine                         | [Learning §1.5–1.6](learning/01-product-and-nouns.md#15--the-lifecycle-ten-statuses-one-authority)                                                                              |
+| Signed URLs (evidence photos)         | [Agent §4.2](features/agent-visit.md#42--viewing-evidence) · [Ops console — evidence photos](../apps/admin/docs/ops-console.md#evidence-photos)                                 |
 | Storage (`bag-photos`)                | [Agent §4](features/agent-visit.md#4-photo-evidence)                                                                                                                            |
 | STRANDED migrations                   | [MIGRATIONS §5](MIGRATIONS.md#5-pnpm-dbstatus--the-drift-report)                                                                                                                |
+| Task list (what a row shows)          | [Agent §6](features/agent-visit.md#6-assignment) · [CODEBASE-MAP Ch.9](CODEBASE-MAP.md#chapter-9--agent-pwa)                                                                    |
 | Task tables (why two)                 | [Agent §7](features/agent-visit.md#7-why-two-task-tables)                                                                                                                       |
 | Testing tiers                         | [SCRIPTS §4](SCRIPTS.md#4-testing-tiers)                                                                                                                                        |
 | Virtual windows                       | [Funnel §4](features/booking-funnel.md#4-pickup-windows--computed-never-stocked) · [Learning §1.3](learning/01-product-and-nouns.md#13--windows-are-not-inventory)              |

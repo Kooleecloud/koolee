@@ -1,5 +1,6 @@
 import { and, eq } from "drizzle-orm";
 import {
+  addresses,
   airports,
   bookings,
   pickupTasks,
@@ -62,6 +63,30 @@ export interface ScheduledTask<T> {
   task: T;
   /** The booking's display zone (its departure airport's). See display-tz.ts. */
   tz: string;
+  /**
+   * The job in one glance — who, where, how many bags, which flight.
+   *
+   * The queue used to carry the task row alone, which made every entry read
+   * identically ("Verify and seal", a time, a status chip): an agent with six
+   * tasks could not tell them apart, let alone decide which to drive to. A
+   * task is only meaningful in terms of the booking it serves, so the booking
+   * travels with it rather than being fetched per row by the page.
+   */
+  booking: TaskBookingContext;
+}
+
+/** The booking fields an agent needs to identify and reach a job. */
+export interface TaskBookingContext {
+  id: string;
+  paxName: string;
+  flightNumber: string;
+  departureAirport: string;
+  departureAt: Date;
+  bagCount: number;
+  status: string;
+  /** Street line, for recognising the stop. Full address is on the detail. */
+  addressLine1: string;
+  addressCity: string;
 }
 
 export interface AssignedTasks {
@@ -80,19 +105,35 @@ export async function listAssignedTasks(
   db: Database,
   assigneeUserId: string,
 ): Promise<AssignedTasks> {
+  // Selected once and reused by both queues so the two halves of the agent's
+  // list can never describe the same booking differently.
+  const bookingColumns = {
+    id: bookings.id,
+    paxName: bookings.paxName,
+    flightNumber: bookings.flightNumber,
+    departureAirport: bookings.departureAirport,
+    departureAt: bookings.departureAt,
+    bagCount: bookings.bagCount,
+    status: bookings.status,
+    addressLine1: addresses.line1,
+    addressCity: addresses.city,
+  };
+
   const [verification, pickup] = await Promise.all([
     db
-      .select({ task: verificationTasks, tz: airports.tz })
+      .select({ task: verificationTasks, tz: airports.tz, booking: bookingColumns })
       .from(verificationTasks)
       .innerJoin(bookings, eq(bookings.id, verificationTasks.bookingId))
       .innerJoin(airports, eq(airports.code, bookings.departureAirport))
+      .innerJoin(addresses, eq(addresses.id, bookings.pickupAddressId))
       .where(eq(verificationTasks.assigneeUserId, assigneeUserId))
       .orderBy(verificationTasks.scheduledStart),
     db
-      .select({ task: pickupTasks, tz: airports.tz })
+      .select({ task: pickupTasks, tz: airports.tz, booking: bookingColumns })
       .from(pickupTasks)
       .innerJoin(bookings, eq(bookings.id, pickupTasks.bookingId))
       .innerJoin(airports, eq(airports.code, bookings.departureAirport))
+      .innerJoin(addresses, eq(addresses.id, bookings.pickupAddressId))
       .where(eq(pickupTasks.assigneeUserId, assigneeUserId))
       .orderBy(pickupTasks.scheduledStart),
   ]);

@@ -153,6 +153,17 @@ and the custody trail — so the customer's trip page gets it too.
 The agent's capture preview supports **retake**, and **clears on form reset** so
 a stale thumbnail can never imply an attached file.
 
+⚠️ **A stored photo value is a storage PATH, not a URL** — `bags.photo_urls`
+and `custody_events.photo_url` both hold keys into the **private** `bag-photos`
+bucket, whatever their column names suggest. Rendering one means signing it
+first (`createSignedUrls`, 5-minute TTL); fetching the bare path returns
+HTTP 400. Ops did this from the start; the customer's trip page did not, and
+showed a broken image for every hand-off photo until 2026-08-16. Web now signs
+through [bag-photos.ts](../../apps/web/src/lib/bag-photos.ts) — service-role,
+because the bucket's read policy admits active staff only, and safe there only
+because `getBookingDetailForSession` has already established ownership before
+any path reaches it. Any new surface that renders evidence must sign too.
+
 ---
 
 ## 5. Custody events are the product
@@ -184,6 +195,24 @@ Bookings reach an agent two ways:
 
 Agents read their own work through `listAssignedTasks` / `getAssignedTask`
 ([tasks.ts](../../packages/core/src/services/tasks.ts)).
+
+`listAssignedTasks` returns each row as `{ task, tz, booking }`, where
+`booking` is a `TaskBookingContext` — pax name, flight, airport, departure, bag
+count, and the pickup street/city. **The booking travels with the task on
+purpose** (2026-08-16): until then the query returned the task row alone, and
+`/tasks` could only render a kind label, a time, and a status chip. Six tasks
+looked like six copies of one task, and nothing on the screen told an agent
+which door to drive to. A task is only meaningful in terms of the booking it
+serves, so the join lives in the service rather than being re-fetched per row
+by the page.
+
+`/tasks` renders that as **one task per row**, grouped under airport-local day
+headings, with the kind as a coloured chip (verify = seal orange, collect =
+sky), the window time leading the line, then pax · bag count, and address ·
+flight beneath. The day grouping is deliberate: an agent reads a shift, not a
+queue. Sorting stays by absolute instant, never by rendered local time — with
+two airports in one list, a 9 AM Pacific visit would otherwise sort above a
+10 AM Eastern one that happens three hours earlier.
 
 ---
 

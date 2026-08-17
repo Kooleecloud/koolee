@@ -247,22 +247,44 @@ export default async function BookingDetailPage({
             <CardTitle className="text-base">Bags & seals</CardTitle>
           </CardHeader>
           <CardContent>
-            <ul className="flex flex-col gap-3 text-sm">
-              {bags.map((bag) => (
-                <li key={bag.id} className="rounded-lg border p-3">
-                  <div className="flex items-center justify-between gap-3">
-                    <span>Bag {bag.ordinal}</span>
-                    <span className="font-mono text-xs">
-                      {bag.sealId ? `seal ${bag.sealId}` : "not sealed"}
-                      {bag.weightKg ? ` · ${bag.weightKg} kg` : ""}
+            {bags.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No bags recorded yet.</p>
+            ) : (
+              /* One card per bag, wrapping — an operator on a dispute is
+                 comparing bags against each other (which seal, which photo),
+                 and a stacked list makes that a scroll instead of a glance. */
+              <ul className="flex flex-wrap gap-3">
+                {bags.map((bag) => (
+                  <li
+                    key={bag.id}
+                    className="flex w-40 flex-col gap-2 rounded-lg border bg-white p-3 shadow-lift"
+                  >
+                    <div className="flex items-baseline justify-between gap-2">
+                      <span className="font-display text-sm font-semibold text-navy-800">
+                        Bag {bag.ordinal}
+                      </span>
+                      {bag.weightKg ? (
+                        <span className="text-xs text-muted-foreground">
+                          {bag.weightKg} kg
+                        </span>
+                      ) : null}
+                    </div>
+
+                    {/* The seal id is the identifier a dispute turns on, so it
+                        gets its own line in mono rather than sharing one. */}
+                    <span className="font-mono text-xs break-all">
+                      {bag.sealId ? (
+                        bag.sealId
+                      ) : (
+                        <span className="text-muted-foreground">not sealed</span>
+                      )}
                     </span>
-                  </div>
-                  {bag.photoUrls.length > 0 && (
-                    <div className="mt-2 flex flex-wrap gap-2">
-                      {bag.photoUrls.map((path) =>
-                        signedUrls.has(path) ? (
+
+                    {(() => {
+                      const path = bag.photoUrls.find((p) => signedUrls.has(p));
+                      if (path) {
+                        return (
                           <ImageLightbox
-                            key={path}
                             src={signedUrls.get(path)!}
                             alt={`Bag ${bag.ordinal} evidence photo`}
                             title={`Bag ${bag.ordinal}`}
@@ -271,19 +293,40 @@ export default async function BookingDetailPage({
                                 ? `seal ${bag.sealId}${bag.weightKg ? ` · ${bag.weightKg} kg` : ""}`
                                 : undefined
                             }
-                            className="h-20 w-20"
+                            className="h-28 w-full"
                           />
-                        ) : (
-                          <span key={path} className="text-xs text-muted-foreground">
-                            photo (signing unavailable)
-                          </span>
-                        ),
-                      )}
-                    </div>
-                  )}
-                </li>
-              ))}
-            </ul>
+                        );
+                      }
+                      return (
+                        <span className="flex h-28 items-center justify-center rounded-md border border-dashed text-center text-xs text-muted-foreground">
+                          {bag.photoUrls.length > 0
+                            ? "photo (signing unavailable)"
+                            : "no photo"}
+                        </span>
+                      );
+                    })()}
+
+                    {/* Extra photos stay reachable without stretching the card. */}
+                    {bag.photoUrls.filter((p) => signedUrls.has(p)).length > 1 && (
+                      <div className="flex flex-wrap gap-1">
+                        {bag.photoUrls
+                          .filter((p) => signedUrls.has(p))
+                          .slice(1)
+                          .map((path) => (
+                            <ImageLightbox
+                              key={path}
+                              src={signedUrls.get(path)!}
+                              alt={`Bag ${bag.ordinal} evidence photo`}
+                              title={`Bag ${bag.ordinal}`}
+                              className="h-10 w-10"
+                            />
+                          ))}
+                      </div>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
           </CardContent>
         </Card>
 

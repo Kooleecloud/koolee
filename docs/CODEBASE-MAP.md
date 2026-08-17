@@ -555,6 +555,14 @@ console. The agent never edits history — corrections are new events.
 booking's pickup window at assignment time. They are a snapshot for the
 agent's list, not a live join.
 
+**The task list carries its bookings** (2026-08-16). `listAssignedTasks`
+returns `{ task, tz, booking }` — the `booking` half is a `TaskBookingContext`
+(pax, flight, airport, departure, bag count, pickup street/city) joined in the
+service. Before that the query returned task rows alone, so `/tasks` could only
+show a kind label, a time, and a status chip: every row looked identical and
+none of them said which door to drive to. The page renders one task per row
+under airport-local day headings, kind as a coloured chip.
+
 Detail: [verification-visit.md](../apps/agent/docs/verification-visit.md).
 
 ---
@@ -619,6 +627,22 @@ cosmetic one:
   capture preview, the ops bags card, and `CustodyTimeline` — so the customer's
   trip page inherits it. Has Storybook stories.
 
+**`CustodyTimeline` is the visual signature** — the same motif on the marketing
+custody section (`horizontal`) and the live trip page and ops trail
+(`vertical`), so the promise and the product are literally the same drawing.
+State reads through the dot: **navy** for a hand-off already banked, **seal
+orange, pulsing** for the one happening now, **hollow** for what is ahead; the
+rail is always sky. Exactly one dot is orange per timeline, which is what keeps
+orange meaning "this, now".
+
+⚠️ Its dots rendered at **0×0 in the vertical orientation** until 2026-08-16: a
+bare `<span>` is `display:inline`, and width/height do not apply to
+non-replaced inline elements, so `size-3` was inert. The horizontal variant was
+unaffected because its dot is a direct flex child and flex blockifies children
+— so the marketing page looked right while every in-product timeline drew a
+rail with nothing on it, for as long as the component had no story. Markers and
+shape-only spans carry `block`.
+
 **One structural rule worth knowing.** `AppHeader` is split into a server half
 (renders all link markup) and a client half (`app-header-chrome.tsx` — the
 mobile hamburger and its animation). Passing `Link` itself into a client
@@ -645,10 +669,16 @@ there, and the launch-pricing caveat is fixed copy that must appear wherever
 prices do.
 
 **Storybook** runs from `packages/ui` (`pnpm storybook`, port 6006). Coverage
-is partial and known to be: shell, primitives, feedback, and the newer data
-components (`LinkedTableRow`, `MultiSelect`) have stories; most domain
-components do not yet. `src/index.ts` is the authoritative component list —
-this chapter is a map, not an inventory.
+is partial and known to be: shell, primitives, feedback, the newer data
+components (`LinkedTableRow`, `MultiSelect`), `ImageLightbox`, and
+`CustodyTimeline`; most domain components do not yet. `src/index.ts` is the
+authoritative component list — this chapter is a map, not an inventory.
+
+**Elevation** is two tokens from `theme.css` and no others: `shadow-lift` for
+any card-like surface (what `Card` ships since 2026-08-16 — it was
+`shadow-xs`, which left app cards flatter than the marketing surfaces they sat
+beside) and `shadow-lift-lg` for the raised/hover state. Tailwind's default
+`shadow-sm`/`shadow-md` are a second scale and are not used.
 
 ---
 

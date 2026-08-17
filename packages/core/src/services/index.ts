@@ -142,6 +142,8 @@ export {
   listAssignedTasks,
   type AssignedTask,
   type AssignedTasks,
+  type ScheduledTask,
+  type TaskBookingContext,
   type TaskKind,
 } from "./tasks";
 

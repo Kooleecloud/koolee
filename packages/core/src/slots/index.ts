@@ -9,6 +9,7 @@ export {
   dstTransitionNote,
   formatDateTimeLocalInAirportTz,
   formatDayInAirportTz,
+  formatHourInAirportTz,
   formatHourRangeInAirportTz,
   formatInstantInAirportTz,
   formatTimeInAirportTz,

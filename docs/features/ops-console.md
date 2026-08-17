@@ -28,6 +28,14 @@ are captured at ~1200px and thumbnails alone are unreadable when the question is
 _"was that bag already scuffed?"_. The same component backs the agent's capture
 preview and the customer's trip page.
 
+The bags card is a **wrapping row of per-bag cards** (2026-08-16), one card per
+bag carrying its ordinal, weight, seal id on its own line, and its photo — with
+an explicit "no photo" slot when there is none. It was a vertical list with
+seal and weight crushed into one right-aligned mono line and 20px thumbnails.
+A dispute is a comparison between bags ("which one has seal KL-…?", "is this
+the bag in the photo?"), and a stacked list makes that a scroll instead of a
+glance.
+
 Backed by [dispatch.ts](../../packages/core/src/services/dispatch.ts):
 `getOpsDashboard`, `listBookingsBoard`, `assignAgentToBooking`,
 `getBookingAssignment`, `listActiveAgents`, `listAgentWorkload`,

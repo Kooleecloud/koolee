@@ -39,14 +39,37 @@ export interface CustodyTimelineProps extends React.HTMLAttributes<HTMLOListElem
   emptyMessage?: React.ReactNode;
 }
 
+/**
+ * The stage marker.
+ *
+ * `block` is load-bearing, not decoration: a bare <span> is display:inline,
+ * and width/height do not apply to non-replaced inline elements. The
+ * horizontal variant got away with it because the dot is a direct flex item
+ * there (flex blockifies its children); in the vertical variant the dot sits
+ * inside a wrapper span, so it stayed inline and rendered at 0×0 — every
+ * vertical timeline in the product drew its line with no dots on it.
+ *
+ * Colour carries the state: navy for hand-offs already banked, seal orange
+ * for the one happening now (the same orange as the physical tamper seal),
+ * hollow for what has not happened yet.
+ */
 function Dot({ state }: { state: CustodyItemState }) {
+  if (state === "current") {
+    return (
+      <span aria-hidden="true" className="relative block size-3 shrink-0">
+        {/* Two elements because one cannot both pulse and stay legible: the
+            halo animates, the core stays a solid, readable dot. */}
+        <span className="absolute inset-0 animate-ping rounded-full bg-tag opacity-75 motion-reduce:animate-none" />
+        <span className="relative block size-3 rounded-full bg-tag ring-4 ring-tag-100" />
+      </span>
+    );
+  }
   return (
     <span
       aria-hidden="true"
       className={cn(
-        "size-3 shrink-0 rounded-full",
-        state === "complete" && "bg-sky-500",
-        state === "current" && "bg-sky-500 ring-4 ring-sky-200",
+        "block size-3 shrink-0 rounded-full",
+        state === "complete" && "bg-navy-800",
         state === "upcoming" && "border-2 border-input bg-white",
       )}
     />
@@ -79,7 +102,7 @@ function CustodyTimeline({
                 {!isLast && (
                   <span
                     aria-hidden="true"
-                    className="ml-2 hidden flex-1 border-t-2 border-dashed border-sky-300 lg:block"
+                    className="ml-2 hidden flex-1 border-t-2 border-dashed border-sky-400 lg:block"
                   />
                 )}
               </div>
@@ -120,10 +143,12 @@ function CustodyTimeline({
                 <span
                   aria-hidden="true"
                   className={cn(
-                    "flex-1",
+                    // The rail is always blue — it is the thread the eye
+                    // follows; the dots, not the line, carry the state.
+                    "flex-1 rounded-full",
                     state === "upcoming"
                       ? "border-l-2 border-dashed border-border"
-                      : "w-px bg-sky-300",
+                      : "w-0.5 bg-sky-400",
                   )}
                 />
               )}

@@ -54,9 +54,20 @@ function labelFor(eventType: string): string {
 export function CustodyTimeline({
   events,
   tz,
+  signedUrls,
 }: {
   events: CustodyEvent[];
   tz: string;
+  /**
+   * storage path → signed URL, from `signBagPhotoUrls`.
+   *
+   * Required, not optional: `event.photoUrl` is a path into the PRIVATE
+   * bag-photos bucket, so passing it straight to an <img> renders a broken
+   * image — which is what this page did until the map was threaded through.
+   * An event whose path is not in the map renders without its photo rather
+   * than with a broken one.
+   */
+  signedUrls: Map<string, string>;
 }) {
   return (
     <CustodyTimelineView
@@ -70,7 +81,7 @@ export function CustodyTimeline({
         ) : undefined,
         meta: formatInstantInAirportTz(event.createdAt, tz),
         metaDateTime: event.createdAt.toISOString(),
-        photoUrl: event.photoUrl ?? undefined,
+        photoUrl: event.photoUrl ? signedUrls.get(event.photoUrl) : undefined,
         photoAlt: `Evidence for ${labelFor(event.eventType)}`,
         state: i === events.length - 1 ? "current" : "complete",
       }))}

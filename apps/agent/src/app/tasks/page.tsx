@@ -8,9 +8,12 @@ import {
   PageHeader,
 } from "@koolee/ui";
 import {
-  formatInstantInAirportTz,
+  airportLocalDay,
+  formatDayInAirportTz,
+  formatHourInAirportTz,
   listAssignedTasks,
   type PickupTask,
+  type TaskBookingContext,
   type VerificationTask,
 } from "@koolee/core";
 
@@ -20,9 +23,42 @@ import { getAgentSession } from "@/lib/session";
 export const metadata = { title: "My tasks" };
 export const dynamic = "force-dynamic";
 
-type Row =
-  | { kind: "verification"; task: VerificationTask; tz: string }
-  | { kind: "pickup"; task: PickupTask; tz: string };
+type Row = {
+  kind: "verification" | "pickup";
+  task: VerificationTask | PickupTask;
+  tz: string;
+  booking: TaskBookingContext;
+};
+
+/**
+ * What each kind actually asks of the agent.
+ *
+ * The two task kinds used to be told apart by their label alone, in otherwise
+ * identical tiles — so a queue of six read as six copies of the same thing.
+ * The kind now leads the row as a coloured chip with the verb the agent
+ * performs, because "am I sealing bags at a door or driving them to a
+ * terminal?" is the first question every row has to answer.
+ */
+const KIND = {
+  verification: {
+    label: "Verify & seal",
+    hint: "at the door",
+    chip: "bg-tag-100 text-tag-800 ring-1 ring-tag-200",
+  },
+  pickup: {
+    label: "Collect & deliver",
+    hint: "to the bag drop",
+    chip: "bg-sky-100 text-sky-800 ring-1 ring-sky-300",
+  },
+} as const;
+
+/** Status chips: only the states an agent must react to get colour. */
+function statusVariant(status: string) {
+  if (status === "done") return "success" as const;
+  if (status === "failed") return "destructive" as const;
+  if (status === "in_progress") return "warning" as const;
+  return "secondary" as const;
+}
 
 export default async function TasksPage() {
   // The role gate: only an active `agent` staff session sees a task list —
@@ -54,6 +90,28 @@ export default async function TasksPage() {
     }
   }
 
+  // Grouped into days so the list reads as a shift rather than a pile. The day
+  // is the task's OWN airport-local day — an agent working one airport reads
+  // their own calendar, and a cross-airport day boundary stays honest.
+  const days: { key: string; heading: string; rows: Row[] }[] = [];
+  for (const row of rows) {
+    const key = row.task.scheduledStart
+      ? airportLocalDay(row.task.scheduledStart, row.tz)
+      : "unscheduled";
+    const last = days.at(-1);
+    if (last?.key === key) {
+      last.rows.push(row);
+      continue;
+    }
+    days.push({
+      key,
+      heading: row.task.scheduledStart
+        ? formatDayInAirportTz(row.task.scheduledStart, row.tz)
+        : "Unscheduled",
+      rows: [row],
+    });
+  }
+
   return (
     <ContentColumn>
       <PageHeader title="My tasks" />
@@ -65,30 +123,71 @@ export default async function TasksPage() {
           description="Verification and pickup tasks assigned to you will appear here."
         />
       ) : (
-        <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-          {rows.map(({ kind, task, tz }) => (
-            <li key={`${kind}-${task.id}`}>
-              <Link
-                href={`/tasks/${task.id}?kind=${kind}`}
-                className="flex items-start justify-between gap-3 rounded-lg border p-4 transition-colors hover:bg-accent/10"
-              >
-                <span className="flex flex-col gap-1">
-                  <span className="font-medium">
-                    {kind === "verification" ? "Verify and seal" : "Collect and deliver"}
-                  </span>
-                  <span className="text-sm text-muted-foreground">
-                    {task.scheduledStart
-                      ? formatInstantInAirportTz(task.scheduledStart, tz)
-                      : "Unscheduled"}
-                  </span>
-                </span>
-                <Badge variant={task.status === "done" ? "success" : "secondary"}>
-                  {task.status}
-                </Badge>
-              </Link>
-            </li>
+        <div className="flex flex-col gap-6">
+          {days.map((day) => (
+            <section key={day.key} className="flex flex-col gap-2">
+              <h2 className="text-sm font-medium text-muted-foreground">
+                {day.heading}
+              </h2>
+              {/* One task per row: these rows carry an address and a name, and
+                  a multi-column grid squeezes both into ellipses on the phone
+                  this app actually runs on. */}
+              <ul className="flex flex-col gap-2">
+                {day.rows.map(({ kind, task, tz, booking }) => {
+                  const meta = KIND[kind];
+                  return (
+                    <li key={`${kind}-${task.id}`}>
+                      <Link
+                        href={`/tasks/${task.id}?kind=${kind}`}
+                        className="flex flex-col gap-2 rounded-lg border bg-white p-4 shadow-lift transition-all duration-300 hover:-translate-y-0.5 hover:border-sky-300 hover:shadow-lift-lg focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:outline-none motion-reduce:transition-none motion-reduce:hover:translate-y-0"
+                      >
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span
+                            className={`rounded-full px-2 py-0.5 text-xs font-medium ${meta.chip}`}
+                          >
+                            {meta.label}
+                          </span>
+                          <span className="text-xs text-muted-foreground">
+                            {meta.hint}
+                          </span>
+                          <Badge
+                            variant={statusVariant(task.status)}
+                            className="ml-auto"
+                          >
+                            {task.status.replace("_", " ")}
+                          </Badge>
+                        </div>
+
+                        {/* The window leads: an agent plans by clock first,
+                            then decides which of the day's stops this is. */}
+                        <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+                          <span className="font-display text-base font-semibold text-navy-800">
+                            {task.scheduledStart
+                              ? formatHourInAirportTz(task.scheduledStart, tz)
+                              : "Unscheduled"}
+                          </span>
+                          <span className="text-sm font-medium">{booking.paxName}</span>
+                          <span className="text-sm text-muted-foreground">
+                            · {booking.bagCount} bag{booking.bagCount === 1 ? "" : "s"}
+                          </span>
+                        </div>
+
+                        <div className="flex flex-col gap-0.5 text-xs text-muted-foreground">
+                          <span>
+                            {booking.addressLine1}, {booking.addressCity}
+                          </span>
+                          <span>
+                            {booking.flightNumber} · {booking.departureAirport}
+                          </span>
+                        </div>
+                      </Link>
+                    </li>
+                  );
+                })}
+              </ul>
+            </section>
           ))}
-        </ul>
+        </div>
       )}
     </ContentColumn>
   );

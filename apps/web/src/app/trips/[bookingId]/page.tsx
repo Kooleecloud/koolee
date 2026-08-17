@@ -9,6 +9,7 @@ import {
   CardHeader,
   CardTitle,
   DatabaseNotConfigured,
+  ImageLightbox,
   PageHeader,
 } from "@koolee/ui";
 import {
@@ -20,6 +21,7 @@ import {
 
 import { CustodyTimeline } from "@/components/custody-timeline";
 import { CutoffCountdown } from "@/components/cutoff-countdown";
+import { signBagPhotoUrls } from "@/lib/bag-photos";
 import { tryGetCore } from "@/lib/core";
 import { getCustomerSession } from "@/lib/session";
 
@@ -71,6 +73,14 @@ export default async function TripPage({
   } = result;
 
   const isActive = !["completed", "cancelled"].includes(booking.status);
+
+  // Bag and custody photos live in a private bucket and are stored as paths;
+  // they need signing before any <img> can load them. Safe to sign here: the
+  // booking has already passed the ownership check above.
+  const signedUrls = await signBagPhotoUrls([
+    ...bags.flatMap((bag) => bag.photoUrls),
+    ...timeline.map((event) => event.photoUrl).filter((p): p is string => Boolean(p)),
+  ]);
 
   return (
     <>
@@ -164,7 +174,7 @@ export default async function TripPage({
             <CardDescription>Every hand-off, recorded as it happens.</CardDescription>
           </CardHeader>
           <CardContent>
-            <CustodyTimeline events={timeline} tz={tz} />
+            <CustodyTimeline events={timeline} tz={tz} signedUrls={signedUrls} />
           </CardContent>
         </Card>
 
@@ -178,22 +188,47 @@ export default async function TripPage({
             </CardHeader>
             <CardContent>
               <ul className="flex flex-col gap-2 text-sm">
-                {bags.map((bag) => (
-                  <li
-                    key={bag.id}
-                    className="flex items-center justify-between gap-3 rounded-lg border border-border px-3 py-2"
-                  >
-                    <span>Bag {bag.ordinal}</span>
-                    <span className="font-mono text-xs">
-                      {bag.sealId ? (
-                        <>seal {bag.sealId}</>
+                {bags.map((bag) => {
+                  // The first signed photo is the one taken at sealing — the
+                  // evidence the whole page exists to show. Unsigned paths are
+                  // dropped rather than rendered as broken images.
+                  const photo = bag.photoUrls
+                    .map((path) => signedUrls.get(path))
+                    .find(Boolean);
+                  return (
+                    <li
+                      key={bag.id}
+                      className="flex items-center gap-3 rounded-lg border border-border p-2"
+                    >
+                      {photo ? (
+                        <ImageLightbox
+                          src={photo}
+                          alt={`Bag ${bag.ordinal}`}
+                          title={`Bag ${bag.ordinal}`}
+                          description={
+                            bag.sealId ? `seal ${bag.sealId}` : "not yet sealed"
+                          }
+                          className="h-14 w-14 shrink-0"
+                        />
                       ) : (
-                        <span className="text-muted-foreground">not yet sealed</span>
+                        <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-md border border-dashed text-[10px] text-muted-foreground">
+                          no photo
+                        </span>
                       )}
-                      {bag.weightKg ? ` · ${bag.weightKg} kg` : null}
-                    </span>
-                  </li>
-                ))}
+                      <span className="flex min-w-0 flex-col gap-0.5">
+                        <span className="font-medium">Bag {bag.ordinal}</span>
+                        <span className="font-mono text-xs break-all">
+                          {bag.sealId ? (
+                            <>seal {bag.sealId}</>
+                          ) : (
+                            <span className="text-muted-foreground">not yet sealed</span>
+                          )}
+                          {bag.weightKg ? ` · ${bag.weightKg} kg` : null}
+                        </span>
+                      </span>
+                    </li>
+                  );
+                })}
               </ul>
             </CardContent>
           </Card>

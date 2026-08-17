@@ -135,6 +135,15 @@ them through `createSignedUrls` (5-minute TTL) using its service-role
 client; if signing is unavailable (no service key configured) the page
 degrades to a text placeholder instead of breaking.
 
+`bags.photo_urls` and `custody_events.photo_url` hold **storage paths, not
+URLs** — the name is a lie the columns have not shed. Signing is therefore not
+an optimisation, it is the only way to render one: fetching the bare path
+returns HTTP 400. The customer app skipped this step until 2026-08-16 and
+showed broken images on every trip page; it now signs through
+`apps/web/src/lib/bag-photos.ts`, which is the same mechanism with a comment
+explaining why the service-role client is safe there (ownership is already
+established by `getBookingDetailForSession` before any path reaches it).
+
 ## Tests
 
 `packages/core/src/services/dispatch.integration.test.ts` (11 tests):

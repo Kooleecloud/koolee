@@ -122,7 +122,7 @@ Runs when `isProd && NEXT_PUBLIC_SUPABASE_URL` is set
 | Missing                          | Silently disables                                                                                                      |
 | -------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
 | `NEXT_PUBLIC_TURNSTILE_SITE_KEY` | No widget mounts → `requireCaptchaToken` never demands a token → **CAPTCHA off across the whole funnel**               |
-| `SUPABASE_SERVICE_ROLE_KEY`      | `deleteAuthUser` becomes a logged no-op → orphaned GoTrue users survive → reinstates the `phone_change` collision bug  |
+| `SUPABASE_SERVICE_ROLE_KEY`      | `deleteAuthUser` becomes a logged no-op → orphaned GoTrue users survive → reinstates the `phone_change` collision bug; **and** `signBagPhotoUrls` returns an empty map, so the trip page renders bags and custody events with no evidence photos |
 | `DATABASE_URL`                   | `guardUpgradeSend` degrades to allow-all → **no OTP throttle, no reconciliation**, while Supabase still sends real SMS |
 | `AUTH_SCHEMA_AVAILABLE="false"`  | Reconciliation explicitly skipped — a dev-only posture                                                                 |
 

@@ -58,6 +58,14 @@ Until then it lives in the app that needs it.
   own `overflow-x-auto` wrapper, so the page body never scrolls sideways.
 - **Page titles**: `PageHeader` only. Sora display (`text-display-sm`),
   optional muted subtitle, optional trailing `actions`.
+- **Elevation**: two steps, both from `theme.css` — `shadow-lift` for anything
+  that reads as a surface (this is what `Card` ships, as of 2026-08-16;
+  it was `shadow-xs`, which left app cards visibly flatter than the marketing
+  surfaces beside them) and `shadow-lift-lg` for its raised state. A card that
+  is a link or a picker option pairs it with
+  `hover:-translate-y-0.5 … motion-reduce:hover:translate-y-0`. Do not reach
+  for Tailwind's default `shadow-sm`/`shadow-md`: a second shadow scale is how
+  two cards on one page end up sitting at different heights.
 - **Route states**: every data route ships `loading.tsx` (`PageSkeleton`),
   and each app has root `error.tsx` + `not-found.tsx`. Chrome lives in
   layouts, not pages, so those states keep the header alive.
@@ -77,8 +85,11 @@ Until then it lives in the app that needs it.
 
 ## Brand rules (from brand/BRAND.md and brand/)
 
-- Tag orange `#FF6B35` is **CTA-and-seal only**; text on it is navy (white
-  fails contrast). `CTAButton` encodes this — do not hand-roll orange.
+- Tag orange `#FF6B35` is **CTA, seal, and the live-custody dot only**; text on
+  it is navy (white fails contrast). `CTAButton` encodes the CTA case and
+  `CustodyTimeline` the custody case — do not hand-roll orange anywhere else.
+  In a timeline exactly one dot is orange (the `current` item); everything
+  banked is navy and everything ahead is hollow.
 - `KooleeLogo` renders body/wordmark in `currentColor` — default on light,
   `className="text-white"` on navy. Never tint the whole SVG.
 - Fonts: Sora (display) + Inter (body) via `next/font`, exposed as
@@ -109,7 +120,18 @@ Until then it lives in the app that needs it.
 shell pieces, and feedback states. `pnpm --filter @koolee/ui build-storybook`
 produces the static build. Stories are `src/**/*.stories.tsx`.
 
-Coverage is currently four files — `Primitives/Button`, `Primitives/CTAButton`,
-`Shell`, `Feedback`. That is a gap, not the standard: new component → new story
-in the same PR, and the marketing, form, and motion components listed above are
-owed one.
+Coverage is currently `Primitives/Button`, `Primitives/CTAButton`,
+`Primitives/ImageLightbox`, `Primitives/LinkedTableRow`, `Primitives/MultiSelect`,
+`Patterns/CustodyTimeline`, `Shell`, and `Feedback`. That is still a gap, not
+the standard: new component → new story in the same PR, and the marketing,
+form, and motion components listed above are owed one.
+
+The gap has a cost on record. `CustodyTimeline` went unstoried until
+2026-08-16, and in that time its stage dots were rendering at **0×0** in the
+vertical orientation — a bare `<span>` is `display:inline`, and width/height do
+not apply to non-replaced inline elements, so `size-3` did nothing. The
+horizontal marketing variant was fine (its dot is a direct flex child, and flex
+blockifies its children), which is exactly why nobody caught it: the only
+surface anyone looked at was the one that worked. Two rules out of that:
+markers and shape-only spans carry `block`, and a story covers every
+orientation a component claims to support, not just the one in the demo.
