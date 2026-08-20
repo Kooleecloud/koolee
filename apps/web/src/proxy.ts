@@ -19,8 +19,25 @@ import { AUTH_COOKIE_NAME } from "@/lib/supabase/cookie-name";
 
 const VERIFIED_ONLY = [/^\/trips(\/|$)/, /^\/dashboard(\/|$)/];
 
+/** Closed entirely while NEXT_PUBLIC_LAUNCH_MODE=coming_soon. */
+const COMING_SOON_CLOSED = [/^\/login(\/|$)/, /^\/trips(\/|$)/, /^\/dashboard(\/|$)/];
+
 export async function proxy(request: NextRequest) {
   let response = NextResponse.next({ request });
+
+  // Pre-launch: every account surface bounces home. Checked before the
+  // Supabase short-circuit below — this gate must hold even when no
+  // credentials are configured. Read as a literal member expression so the
+  // Next compiler inlines it into the edge bundle.
+  if (
+    process.env.NEXT_PUBLIC_LAUNCH_MODE === "coming_soon" &&
+    COMING_SOON_CLOSED.some((pattern) => pattern.test(request.nextUrl.pathname))
+  ) {
+    const home = request.nextUrl.clone();
+    home.pathname = "/";
+    home.search = "";
+    return NextResponse.redirect(home);
+  }
 
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;

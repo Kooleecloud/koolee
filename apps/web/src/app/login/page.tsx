@@ -3,6 +3,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { AppHeader, PageHeader } from "@koolee/ui";
 
+import { isComingSoon } from "@/env";
 import { sanitizeReturnTo } from "@/lib/return-to";
 import { getCustomerSession } from "@/lib/session";
 
@@ -21,6 +22,9 @@ export default async function LoginPage({
 }: {
   searchParams: Promise<{ returnTo?: string }>;
 }) {
+  // The proxy already bounces /login pre-launch; this covers direct renders.
+  if (isComingSoon()) redirect("/");
+
   const params = await searchParams;
   const returnTo = sanitizeReturnTo(params.returnTo);
 

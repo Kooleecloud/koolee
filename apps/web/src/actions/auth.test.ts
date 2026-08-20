@@ -1,6 +1,6 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { sendOtp } from "./auth";
+import { sendOtp, verifyOtp } from "./auth";
 
 /**
  * The proactive-conflict contract (spec Part B): a permanent account holding
@@ -22,6 +22,7 @@ const h = vi.hoisted(() => ({
   updateUser: vi.fn(),
   signInWithOtp: vi.fn(),
   guardUpgradeOtpSend: vi.fn(),
+  isComingSoon: vi.fn(() => false),
 }));
 
 vi.mock("@koolee/core", () => ({
@@ -41,7 +42,11 @@ vi.mock("@koolee/core", () => ({
   },
 }));
 
-vi.mock("@/env", () => ({ optionalEnv: () => undefined, authSchemaAvailable: true }));
+vi.mock("@/env", () => ({
+  optionalEnv: () => undefined,
+  authSchemaAvailable: true,
+  isComingSoon: h.isComingSoon,
+}));
 vi.mock("@/lib/core", () => ({ tryGetCore: () => ({ db: {} }) }));
 vi.mock("@/lib/supabase/admin", () => ({ deleteAuthUser: vi.fn() }));
 vi.mock("@/lib/draft-sync", () => ({ syncDraftRow: vi.fn() }));
@@ -166,5 +171,46 @@ describe("sendOtp — proactive conflict detection", () => {
     expect(result).toMatchObject({ ok: false, code: "provider_error" });
     expect(h.updateUser).not.toHaveBeenCalled();
     expect(h.signInWithOtp).not.toHaveBeenCalled();
+  });
+});
+
+describe("coming-soon mode — pre-launch hard stop", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    h.isComingSoon.mockReturnValue(true);
+    h.getUser.mockResolvedValue({
+      data: { user: { id: ANON_UID, is_anonymous: true } },
+    });
+  });
+
+  afterEach(() => {
+    // mockReturnValue survives clearAllMocks — restore the live default so
+    // this block stays order-independent.
+    h.isComingSoon.mockReturnValue(false);
+  });
+
+  it("sendOtp refuses before touching Supabase or the throttle", async () => {
+    const result = await sendOtp({
+      phone: "3322602829",
+      turnstileToken: null,
+      intent: "upgrade",
+    });
+
+    expect(result).toMatchObject({ ok: false, code: "not_configured" });
+    // The gate must hold at the action layer: no guard run, nothing sent.
+    expect(h.guardUpgradeOtpSend).not.toHaveBeenCalled();
+    expect(h.updateUser).not.toHaveBeenCalled();
+    expect(h.signInWithOtp).not.toHaveBeenCalled();
+  });
+
+  it("verifyOtp refuses, so no session can be established", async () => {
+    const result = await verifyOtp({
+      mode: "sms",
+      target: "+13322602829",
+      code: "123456",
+    });
+
+    expect(result).toMatchObject({ ok: false, code: "not_configured" });
+    expect(h.getUser).not.toHaveBeenCalled();
   });
 });

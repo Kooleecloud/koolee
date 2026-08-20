@@ -14,7 +14,7 @@ import {
   sendBookingConfirmationEmail,
 } from "@koolee/core";
 
-import { authSchemaAvailable, optionalEnv } from "@/env";
+import { authSchemaAvailable, isComingSoon, optionalEnv } from "@/env";
 import { tryGetCore } from "@/lib/core";
 import { syncDraftRow } from "@/lib/draft-sync";
 import { toE164UsCa } from "@/lib/phone";
@@ -56,6 +56,21 @@ export type OtpMode = "phone_change" | "sms" | "email_change" | "email";
 
 const RATE_LIMIT_COPY = "Too many attempts — try again in a minute.";
 const CONFLICT_COPY = "That number already has bookings with us — sign in to continue.";
+
+/**
+ * Pre-launch hard stop: with NEXT_PUBLIC_LAUNCH_MODE=coming_soon every
+ * account-creating or sign-in action refuses before touching Supabase. The
+ * UI hides these paths too, but this is the layer that actually holds — the
+ * actions are reachable as plain POST endpoints regardless of what renders.
+ */
+function comingSoonClosed(): { ok: false; code: AuthErrorCode; message: string } | null {
+  if (!isComingSoon()) return null;
+  return {
+    ok: false,
+    code: "not_configured",
+    message: "Accounts are coming soon — you can't sign in just yet.",
+  };
+}
 
 /* ------------------------------------------------------------------ */
 /* Resend cap — server-side, per browser session                        */
@@ -303,6 +318,9 @@ export interface SendOtpSuccess {
 export async function sendOtp(
   input: z.infer<typeof sendOtpSchema>,
 ): Promise<AuthActionResult<SendOtpSuccess>> {
+  const closed = comingSoonClosed();
+  if (closed) return closed;
+
   const parsed = sendOtpSchema.safeParse(input);
   if (!parsed.success) {
     return { ok: false, code: "invalid_input", message: "Check the details and try again." };
@@ -470,6 +488,9 @@ const verifyOtpSchema = z.object({
 export async function verifyOtp(
   input: z.infer<typeof verifyOtpSchema>,
 ): Promise<AuthActionResult<{ next: string }>> {
+  const closed = comingSoonClosed();
+  if (closed) return closed;
+
   const parsed = verifyOtpSchema.safeParse(input);
   if (!parsed.success) {
     return { ok: false, code: "invalid_input", message: "Enter the 6-digit code." };
@@ -571,6 +592,9 @@ const magicLinkSchema = z.object({
 export async function sendMagicLink(
   input: z.infer<typeof magicLinkSchema>,
 ): Promise<AuthActionResult<{ email: string }>> {
+  const closed = comingSoonClosed();
+  if (closed) return closed;
+
   const parsed = magicLinkSchema.safeParse(input);
   if (!parsed.success) {
     return { ok: false, code: "invalid_input", message: "Enter a valid email address." };
@@ -629,6 +653,9 @@ const attachEmailSchema = z.object({
 export async function attachEmailPostBooking(
   input: z.infer<typeof attachEmailSchema>,
 ): Promise<AuthActionResult> {
+  const closed = comingSoonClosed();
+  if (closed) return closed;
+
   const parsed = attachEmailSchema.safeParse(input);
   if (!parsed.success) {
     return { ok: false, code: "invalid_input", message: "Enter a valid email address." };

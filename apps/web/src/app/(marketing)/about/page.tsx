@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Image from "next/image";
 import Link from "next/link";
 import {
   CTAButton,
@@ -8,7 +9,13 @@ import {
   SectionHeader,
   StatBadge,
 } from "@koolee/ui";
-import { BadgeCheck, Camera, GraduationCap, ShieldCheck } from "lucide-react";
+import {
+  ArrowUpRight,
+  BadgeCheck,
+  Camera,
+  GraduationCap,
+  ShieldCheck,
+} from "lucide-react";
 
 export const metadata: Metadata = {
   title: "About",
@@ -36,6 +43,26 @@ const VETTING = [
     icon: <Camera aria-hidden="true" className="size-6 text-sky-600" />,
     title: "Accountable on the record",
     body: "Every hand-off an agent makes is photographed and timestamped. Good behavior isn't a promise here; it's a log.",
+  },
+];
+
+const FOUNDERS = [
+  {
+    name: "Karun Rathi",
+    role: "Co-founder · Business & Growth",
+    photo: "/karun_dp.jpeg",
+    // Founder seals: the first two serials Koolee ever issued.
+    serial: "NYC 000001",
+    linkedin: "https://www.linkedin.com/in/karunrathi/",
+    bio: "Karun runs everything at Koolee that isn't code: finance, partnerships, pricing, and growth. A Kelley School of Business grad and former NCAA tennis player, he's spent his life optimizing logistics — first his own across two continents, now yours across three airports.",
+  },
+  {
+    name: "Tarun Dadlani",
+    role: "Co-founder · Technology",
+    photo: "/tarun_dp.jpeg",
+    serial: "NYC 000002",
+    linkedin: "https://www.linkedin.com/in/tarun-dadlani/",
+    bio: "Tarun builds all of Koolee: the booking flow, the live bag timeline, the seal-verification system. A full-stack engineer with a master's in CS from Stevens Institute of Technology, he's shipped software for healthcare and security companies — and now for your suitcase.",
   },
 ];
 
@@ -92,6 +119,59 @@ export default function AboutPage() {
               to take our word for anything.
             </p>
           </div>
+        </Reveal>
+      </Section>
+
+      <Section space="compact" aria-labelledby="founders-heading">
+        <Reveal>
+          <SectionHeader
+            eyebrow="The founders"
+            heading={
+              <span id="founders-heading">Built by two people you can name</span>
+            }
+            body="Koolee is two founders, bootstrapped, doing this the hard way — no warehouse of investors between you and the people responsible for your bags."
+          />
+        </Reveal>
+        <Reveal stagger={0.08} className="mt-10 grid gap-5 sm:grid-cols-2">
+          {FOUNDERS.map((founder) => (
+            <div
+              key={founder.name}
+              className="flex flex-col items-center gap-4 rounded-2xl border border-border bg-white p-8 text-center shadow-lift"
+            >
+              <div className="relative mt-8">
+                <SealMotif
+                  serial={founder.serial}
+                  label={null}
+                  className="absolute -top-8 left-1/2 h-10 -translate-x-4 -rotate-6"
+                />
+                <Image
+                  src={founder.photo}
+                  alt={founder.name}
+                  width={400}
+                  height={400}
+                  className="size-36 rounded-full object-cover ring-4 ring-sky-50"
+                />
+              </div>
+              <div>
+                <h3 className="font-display text-xl font-semibold text-navy-800">
+                  {founder.name}
+                </h3>
+                <p className="text-sm font-medium text-sky-600">{founder.role}</p>
+              </div>
+              <p className="text-sm leading-relaxed text-muted-foreground">
+                {founder.bio}
+              </p>
+              <a
+                href={founder.linkedin}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1.5 text-sm font-medium text-sky-600 transition-colors hover:text-sky-700"
+              >
+                LinkedIn
+                <ArrowUpRight aria-hidden="true" className="size-4" />
+              </a>
+            </div>
+          ))}
         </Reveal>
       </Section>
 
