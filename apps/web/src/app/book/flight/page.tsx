@@ -108,7 +108,8 @@ export default async function FlightStepPage({
               required
             />
             <p className="text-xs text-muted-foreground">
-              We currently cover Manhattan, parts of Brooklyn and Queens, and Jersey City.
+              We currently cover all five NYC boroughs, plus Jersey City, Hoboken, and
+              the rest of Hudson County.
             </p>
           </div>
 

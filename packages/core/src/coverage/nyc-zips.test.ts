@@ -27,16 +27,18 @@ describe("normalizeZip", () => {
 });
 
 describe("coverage allowlist", () => {
-  it("covers Manhattan, Brooklyn, Queens and Hudson County", () => {
+  it("covers all five boroughs and Hudson County", () => {
     expect(coverageAreaFor("10001")).toBe("manhattan");
     expect(coverageAreaFor("11201")).toBe("brooklyn");
     expect(coverageAreaFor("11101")).toBe("queens");
+    expect(coverageAreaFor("10451")).toBe("bronx");
+    expect(coverageAreaFor("10301")).toBe("staten_island");
     expect(coverageAreaFor("07302")).toBe("hudson_county_nj");
   });
 
   it("excludes ZIPs outside the service area", () => {
-    // Staten Island, the Bronx, Westchester, Los Angeles.
-    for (const zip of ["10301", "10451", "10601", "90210"]) {
+    // Westchester, Long Island (Nassau), Bergen County NJ, Los Angeles.
+    for (const zip of ["10601", "11550", "07601", "90210"]) {
       expect(isInCoverage(zip)).toBe(false);
       expect(coverageAreaFor(zip)).toBeNull();
     }

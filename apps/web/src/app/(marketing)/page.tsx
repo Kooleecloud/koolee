@@ -95,7 +95,7 @@ const AIRPORTS = [
   {
     code: "EWR",
     name: "Newark Liberty International",
-    body: "All terminals. Pickups from Manhattan and Jersey City.",
+    body: "All terminals. Pickups from all five boroughs and Hudson County, NJ.",
     note: "Pickup windows are computed from your airline's EWR bag-drop cutoff.",
   },
 ];
@@ -127,7 +127,7 @@ export default function HomePage() {
               </CTAButton>
             </div>
             <p className="text-sm text-muted-foreground">
-              Serving Manhattan, Brooklyn, Queens, and Jersey City.
+              Serving all five NYC boroughs, plus Jersey City and Hoboken.
             </p>
           </Reveal>
 

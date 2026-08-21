@@ -43,8 +43,8 @@ export function OutOfAreaCapture({ zip, retryHref }: { zip: string; retryHref: s
       <CardHeader>
         <CardTitle className="text-base">We don&apos;t serve {zip} yet</CardTitle>
         <CardDescription>
-          Koolee currently covers Manhattan, parts of Brooklyn and Queens, and Jersey
-          City. Leave your email and we&apos;ll tell you when that changes.
+          Koolee currently covers all five NYC boroughs and Hudson County, NJ. Leave
+          your email and we&apos;ll tell you when that changes.
         </CardDescription>
       </CardHeader>
       <CardContent>

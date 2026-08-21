@@ -12,7 +12,7 @@ import { Clock, MapPin, Timer } from "lucide-react";
 export const metadata: Metadata = {
   title: "Airports & coverage",
   description:
-    "Koolee delivers sealed bags to your airline's bag drop at JFK, LaGuardia, and Newark, with doorstep pickups across Manhattan, parts of Brooklyn and Queens, and Jersey City.",
+    "Koolee delivers sealed bags to your airline's bag drop at JFK, LaGuardia, and Newark, with doorstep pickups across all five NYC boroughs and Hudson County, NJ.",
 };
 
 const AIRPORTS = [
@@ -31,7 +31,7 @@ const AIRPORTS = [
   {
     code: "EWR",
     name: "Newark Liberty International",
-    body: "All terminals. Cross-Hudson with luggage is nobody's favorite leg — pickups from Manhattan and Jersey City cover it.",
+    body: "All terminals. Cross-Hudson with luggage is nobody's favorite leg — pickups from anywhere in the five boroughs or Hudson County cover it.",
     note: "Your pickup window is computed from your airline's EWR bag-drop cutoff.",
   },
 ];
@@ -56,9 +56,11 @@ const CUTOFF_STEPS = [
 
 const COVERAGE_AREAS = [
   { area: "Manhattan", detail: "All neighborhoods" },
-  { area: "Brooklyn", detail: "Most neighborhoods — enter your ZIP to confirm" },
-  { area: "Queens", detail: "Most neighborhoods — enter your ZIP to confirm" },
-  { area: "Jersey City", detail: "All neighborhoods" },
+  { area: "Brooklyn", detail: "All neighborhoods" },
+  { area: "Queens", detail: "All neighborhoods, including the Rockaways" },
+  { area: "The Bronx", detail: "All neighborhoods" },
+  { area: "Staten Island", detail: "All neighborhoods" },
+  { area: "Hudson County, NJ", detail: "Jersey City, Hoboken, and neighbors" },
 ];
 
 export default function AirportsPage() {
