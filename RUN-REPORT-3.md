@@ -252,15 +252,14 @@ failures next sweep. 3 integration tests + copy-rule tests.
 
 ## TD manual steps (in order, after review + push + merges)
 
-> **Status 2026-08-23:** all three PRs merged (#8/#9/#10). Steps 1, 2, 4
-> DONE — hosted migrated (21/21 by content hash; the one orphan-row note is
-> the known pre-existing artifact) and re-seeded ("launch-v1 refreshed — the
-> single active rule"; staff seed correctly skipped, no creds passed);
-> Vercel prod env carries RESEND_API_KEY / RESEND_FROM /
-> NEXT_PUBLIC_APP_URL / Inngest **prod** keys. Step 3 (Resend domain) is
-> in flight — DNS records published, verification pending. Still ahead:
-> the `dev → main` release (`web/v0.2.0`) and the Inngest Cloud app sync
-> against `https://www.koolee.cloud/api/inngest` AFTER that deploy.
+> **Status 2026-08-23 (final): ALL DONE.** All three PRs merged (#8/#9/#10);
+> `web/v0.2.0` released `dev → main` onto the **dedicated prod environment**
+> (new Supabase project, us-east-2 — the old hosted project is dev-only
+> now; see ENVIRONMENT §6.5). Prod migrated 21/21 by content hash + seeded;
+> CI migration lanes proven green on both branches; Resend `koolee.cloud`
+> domain **verified**; live smoke test passed — a real `/waitlist` signup
+> persisted to prod `waitlist_signups`. The steps below are kept as the
+> historical procedure.
 
 1. ✅ **Hosted migrations** (one command, applies 0018 + 0019 + 0020):
    ```bash
