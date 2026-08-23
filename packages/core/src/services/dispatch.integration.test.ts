@@ -163,6 +163,10 @@ describeIntegration("admin dispatch + overrides (integration)", () => {
       .returning();
     customerId = customer!.id;
 
+    // TEST-ONLY FIXTURES: the @koolee-test.example accounts exist solely in
+    // the disposable `koolee_test` database and are wiped by the DELETE block
+    // above on every run. They are never seeded into dev or hosted — the dev
+    // roster is the @koolee.local set in packages/db/src/seed.ts.
     const staff = await db
       .insert(users)
       .values([

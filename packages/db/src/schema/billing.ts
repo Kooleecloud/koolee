@@ -116,6 +116,11 @@ export const pricingRules = pgTable(
   },
   (t) => [
     index("pricing_rules_active_effective_idx").on(t.active, t.effectiveFrom),
+    // At most ONE active rule, enforced by the database: every active row has
+    // the same index key (true), so a second `active = true` violates
+    // uniqueness. The pricing engine reads "the" active rule; two of them is
+    // the #41/#51 fixture-leakage class this closes for good.
+    uniqueIndex("pricing_rules_one_active_key").on(t.active).where(sql`${t.active}`),
     check("pricing_rules_base_fee_nonneg_check", sql`${t.baseFeeCents} >= 0`),
     check("pricing_rules_per_bag_nonneg_check", sql`${t.perBagCents} >= 0`),
   ],
