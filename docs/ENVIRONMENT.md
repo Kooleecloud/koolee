@@ -205,6 +205,12 @@ wrong database" is visible rather than discovered later.
 `pnpm seed:local` additionally pins both URLs at the local stack before
 anything reads the environment, and is still the recommended one-command seed.
 
+**Hosted migrations are normally not run by hand at all anymore:** merging
+into `dev`/`main` applies them via GitHub Actions, each branch to its own
+database, using the `DEV_DIRECT_DATABASE_URL` / `PROD_DIRECT_DATABASE_URL`
+GitHub secrets (session-pooler URLs). See
+[MIGRATIONS §9.5](MIGRATIONS.md#95-ci-migrations-apply-automatically-on-merge).
+
 ---
 
 ## 7. Setting up from scratch

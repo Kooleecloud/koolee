@@ -18,9 +18,14 @@
 # already this repo's discipline (see docs/MIGRATIONS.md). A migration the
 # OLD code cannot run against needs a manual, sequenced deploy instead.
 #
-# The secrets hold the DIRECT (port 5432) connection string — never the
-# 6543 pooler, which cannot hold the advisory lock or run DDL reliably.
-# The migrator prints the target HOST only, never credentials.
+# The secrets hold the SESSION POOLER connection string
+# (aws-0-<region>.pooler.supabase.com:5432) — the one Supavisor mode that
+# gives a stable backend, so DDL and the advisory lock work. NOT the
+# transaction pooler (port 6543 — breaks both), and NOT the
+# db.<ref>.supabase.co direct host: that resolves to IPv6 only, and GitHub
+# runners have no IPv6 (ENETUNREACH — proven on this workflow's first run).
+# Details: docs/MIGRATIONS.md §9.5. The migrator prints the target HOST
+# only, never credentials.
 
 name: Migrate database
 
