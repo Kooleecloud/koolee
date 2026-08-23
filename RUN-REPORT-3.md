@@ -252,7 +252,17 @@ failures next sweep. 3 integration tests + copy-rule tests.
 
 ## TD manual steps (in order, after review + push + merges)
 
-1. **Hosted migrations** (one command, applies 0018 + 0019 + 0020):
+> **Status 2026-08-23:** all three PRs merged (#8/#9/#10). Steps 1, 2, 4
+> DONE — hosted migrated (21/21 by content hash; the one orphan-row note is
+> the known pre-existing artifact) and re-seeded ("launch-v1 refreshed — the
+> single active rule"; staff seed correctly skipped, no creds passed);
+> Vercel prod env carries RESEND_API_KEY / RESEND_FROM /
+> NEXT_PUBLIC_APP_URL / Inngest **prod** keys. Step 3 (Resend domain) is
+> in flight — DNS records published, verification pending. Still ahead:
+> the `dev → main` release (`web/v0.2.0`) and the Inngest Cloud app sync
+> against `https://www.koolee.cloud/api/inngest` AFTER that deploy.
+
+1. ✅ **Hosted migrations** (one command, applies 0018 + 0019 + 0020):
    ```bash
    DIRECT_DATABASE_URL='postgresql://postgres.jpvlzoikcivxepgyrkho:<PASSWORD>@aws-0-ca-central-1.pooler.supabase.com:5432/postgres' \
      pnpm db:migrate
@@ -261,17 +271,17 @@ failures next sweep. 3 integration tests + copy-rule tests.
    (new, empty); task unique indexes (dedups duplicates keep-oldest — hosted
    likely has none, the NOTICE will say); pricing one-active index (dedups
    keep-newest). All additive; reversible by dropping the indexes/table.
-2. **Hosted seed re-run** (converges pricing on canonical launch-v1; staff/
+2. ✅ **Hosted seed re-run** (converges pricing on canonical launch-v1; staff/
    zone seeding self-skips on non-local hosts):
    ```bash
    DATABASE_URL='<hosted pooler 6543 url>' pnpm --filter @koolee/db seed
    ```
-3. **Resend: verify the `koolee.cloud` domain** (BLOCKS real recipients —
+3. 🔄 **Resend: verify the `koolee.cloud` domain** (BLOCKS real recipients —
    verified live 2026-08-23: the sandbox From only delivers to the Resend
    account's own address, `info@koolee.cloud`; anyone else gets a 403).
    resend.com/domains → add domain → publish the DKIM/SPF records → after
    verification set `RESEND_FROM=Koolee <notify@koolee.cloud>`.
-4. **Vercel env vars (web project)**: Production — `RESEND_API_KEY`,
+4. ✅ **Vercel env vars (web project)**: Production — `RESEND_API_KEY`,
    `RESEND_FROM` (verified-domain From), `OPS_ALERT_EMAIL`, and
    `NEXT_PUBLIC_APP_URL` (absolute prod origin — without it emails ship with
    no "Track your trip" CTA; also set it in local `.env.local` to see the
