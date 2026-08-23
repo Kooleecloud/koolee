@@ -248,9 +248,6 @@ against live coverage (coverage is code, so "a zone opened" is a deploy),
 emails newly covered signups exactly once, stamps on success, retries
 failures next sweep. 3 integration tests + copy-rule tests.
 
-_All three PR bodies end with:_
-🤖 Generated with [Claude Code](https://claude.com/claude-code)
-
 ---
 
 ## TD manual steps (in order, after review + push + merges)
