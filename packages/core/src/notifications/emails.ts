@@ -168,6 +168,49 @@ export function buildPickupReminderEmail(input: PickupReminderEmailInput): Email
   return { to: input.to, subject: `Pickup reminder — ${input.windowLabel}`, body, html };
 }
 
+export interface ZoneOpenedEmailInput {
+  to: string;
+  /** The ZIP this signup was waiting on. */
+  zip: string;
+  /** Absolute link to start booking. Omitted → no CTA (and no orange). */
+  bookUrl?: string;
+}
+
+/**
+ * The one email the waitlist promises: "the message that says you're
+ * covered". Sent by the zone-opened sweep when a signup's ZIP enters
+ * coverage; `notified_at` is stamped on success so it goes out exactly once.
+ */
+export function buildZoneOpenedEmail(input: ZoneOpenedEmailInput): EmailMessage {
+  const body = [
+    `Good news — Koolee now covers ${input.zip}.`,
+    ``,
+    `You asked us to tell you when your neighborhood opened, and it just did. ` +
+      `We pick up your bags at your door, seal them in front of you, and ` +
+      `deliver them to your airline's bag drop.`,
+    ...(input.bookUrl ? [``, `Book a pickup: ${input.bookUrl}`] : []),
+    ``,
+    `This is the only waitlist email we send.`,
+  ].join("\n");
+
+  const html = layout(
+    `Koolee now covers ${input.zip}`,
+    `<p>Good news — Koolee now covers <strong>${escapeHtml(input.zip)}</strong>.</p>` +
+      `<p>You asked us to tell you when your neighborhood opened, and it just did. ` +
+      `We pick up your bags at your door, seal them in front of you, and ` +
+      `deliver them to your airline's bag drop.</p>` +
+      `<p>This is the only waitlist email we send.</p>`,
+    input.bookUrl ? { label: "Book a pickup", url: input.bookUrl } : undefined,
+  );
+
+  return {
+    to: input.to,
+    subject: `Koolee now covers ${input.zip}`,
+    body,
+    html,
+  };
+}
+
 export interface OpsExceptionEmailInput {
   to: string;
   bookingId: string;

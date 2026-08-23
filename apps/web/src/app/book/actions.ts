@@ -107,8 +107,9 @@ export async function captureOutOfAreaEmail(
     };
   }
 
-  // TODO(waitlist-notify): email via Resend when this ZIP gains coverage
-  // (query rows with notified_at IS NULL, stamp on send).
+  // The "your zone opened" email is owned by the daily waitlist sweep
+  // (waitlist-zone-opened-sweep in @koolee/core jobs): it scans rows with
+  // notified_at IS NULL against live coverage and stamps on send.
   try {
     await recordWaitlistSignup(core.db, { email, zip, source: "booking_out_of_area" });
   } catch (error) {

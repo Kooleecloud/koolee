@@ -236,6 +236,31 @@ all three apps) · web unit 59 · core unit 243 · integration 84 passed /
    booking → confirmation email prints on the dev-server console; the
    Inngest dev UI lists 7 registered functions.
 
-## Unit 3 — waitlist zone-opened notification
+## Unit 3 — waitlist zone-opened notification (`feat/waitlist-zone-notify`)
 
-_Not started yet — stacks on Unit 2 (needs `waitlist_signups` + ResendNotifier)._
+**Status: complete, all gates green.** Stacked on Unit 2 — this is where
+Units 1 and 2 meet: the table + `notified_at` column from Unit 1, the
+notifier + template + jobs machinery from Unit 2.
+
+Design decision (spec'd before code): coverage lives in CODE
+(`@koolee/db/coverage-zips`), so "a zone opened" is a **deploy**, not a
+database event. A daily reconciling sweep beats a trigger: nothing has to
+remember to fire it, and it converges within a day of any coverage expansion.
+
+- `notifyNewlyCoveredWaitlist` (core/waitlist): scan `notified_at IS NULL`
+  (batch 200), skip still-uncovered ZIPs untouched, email covered ones via
+  the notifier, stamp `notified_at` AFTER a successful send (crash between
+  send and stamp = at-most-one duplicate next sweep — the right side of the
+  trade against silently never sending). Failed sends stay queued; per-row
+  isolation. One email per (email, zip) row on purpose.
+- `buildZoneOpenedEmail`: "Koolee now covers <zip>", bag-drop wording,
+  "this is the only waitlist email we send", orange only on the Book CTA —
+  all pinned in the copy-rule tests.
+- `waitlist-zone-opened-sweep` cron (10:00 ET daily) added to
+  `createKooleeFunctions` — 8 registered functions now; the stub comment in
+  `captureOutOfAreaEmail` updated to point at the sweep.
+- Tests: 3 integration (stamp + skip-uncovered + failed-send-stays-queued /
+  next-sweep-retries, via a per-recipient FlakyNotifier), 1 new copy test.
+
+Gates: typecheck+lint ✅ · core unit 244 ✅ · integration 87 passed /
+3 skipped ✅ · web prod build ✅.
