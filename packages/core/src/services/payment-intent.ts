@@ -4,6 +4,7 @@ import { bookings, payments, type Booking } from "@koolee/db";
 import type { CoreConfig } from "../config";
 import { NotFoundError, PaymentFailedError } from "../errors";
 import type { PaymentAuth } from "../payments/types";
+import { autoAssignOnPaid } from "./auto-assign";
 import { applyTransition } from "./bookings";
 import { createBooking, type CreateBookingInput } from "./create-booking";
 import { cancelBookingWithRefund } from "./payment-lifecycle";
@@ -353,7 +354,8 @@ export async function reconcileBookingPayment(
       });
       if (!moved.ok) {
         // Concurrent webhook: success if it moved the booking onto the paid
-        // path; anything else is a genuine failure.
+        // path; anything else is a genuine failure. The webhook that won the
+        // transition also owns firing the auto-assign hook — not this path.
         const current = await db.query.bookings.findFirst({
           where: eq(bookings.id, bookingId),
           columns: { status: true },
@@ -361,6 +363,10 @@ export async function reconcileBookingPayment(
         if (!current || current.status === "draft" || current.status === "cancelled") {
           return { outcome: "failed", bookingId };
         }
+      } else {
+        // This path performed draft → paid: fire dispatch. Never throws, and
+        // an unassignable booking must not fail the payment outcome.
+        await autoAssignOnPaid(config, bookingId);
       }
       // Guarded: never downgrade a row the webhook already advanced past.
       await db

@@ -72,7 +72,19 @@ export interface AssignAgentInput {
 
 export type AssignAgentResult =
   | { ok: true; reassigned: boolean }
-  | { ok: false; error: string };
+  /** `conflict`: a concurrent writer created the task first (0019 unique index). */
+  | { ok: false; error: string; conflict?: boolean };
+
+/** Postgres SQLSTATE from a raw or drizzle-wrapped error (walks `.cause`). */
+function pgErrorCode(err: unknown): string | undefined {
+  let cur: unknown = err;
+  while (cur) {
+    const code = (cur as { code?: unknown }).code;
+    if (typeof code === "string") return code;
+    cur = (cur as { cause?: unknown }).cause;
+  }
+  return undefined;
+}
 
 /**
  * Assigns (or pre-completion reassigns) an agent to a booking's
@@ -131,42 +143,57 @@ export async function assignAgentToBooking(
     };
   }
 
-  await db.transaction(async (tx) => {
-    if (existing) {
-      await tx
-        .update(verificationTasks)
-        .set({ assigneeUserId: input.agentUserId, status: "assigned" })
-        .where(eq(verificationTasks.id, existing.id));
-    } else {
-      await tx.insert(verificationTasks).values({
-        bookingId: booking.id,
-        assigneeUserId: input.agentUserId,
-        status: "assigned",
-        scheduledStart,
-        scheduledEnd,
-      });
-    }
-
-    const existingPickup = await tx.query.pickupTasks.findFirst({
-      where: eq(pickupTasks.bookingId, booking.id),
-    });
-    if (existingPickup) {
-      if (existingPickup.status !== "done") {
+  try {
+    await db.transaction(async (tx) => {
+      if (existing) {
         await tx
-          .update(pickupTasks)
+          .update(verificationTasks)
           .set({ assigneeUserId: input.agentUserId, status: "assigned" })
-          .where(eq(pickupTasks.id, existingPickup.id));
+          .where(eq(verificationTasks.id, existing.id));
+      } else {
+        await tx.insert(verificationTasks).values({
+          bookingId: booking.id,
+          assigneeUserId: input.agentUserId,
+          status: "assigned",
+          scheduledStart,
+          scheduledEnd,
+        });
       }
-    } else {
-      await tx.insert(pickupTasks).values({
-        bookingId: booking.id,
-        assigneeUserId: input.agentUserId,
-        status: "assigned",
-        scheduledStart,
-        scheduledEnd,
+
+      const existingPickup = await tx.query.pickupTasks.findFirst({
+        where: eq(pickupTasks.bookingId, booking.id),
       });
+      if (existingPickup) {
+        if (existingPickup.status !== "done") {
+          await tx
+            .update(pickupTasks)
+            .set({ assigneeUserId: input.agentUserId, status: "assigned" })
+            .where(eq(pickupTasks.id, existingPickup.id));
+        }
+      } else {
+        await tx.insert(pickupTasks).values({
+          bookingId: booking.id,
+          assigneeUserId: input.agentUserId,
+          status: "assigned",
+          scheduledStart,
+          scheduledEnd,
+        });
+      }
+    });
+  } catch (error) {
+    // The on-paid race (Stripe webhook vs /book/return re-check): both
+    // callers passed the existence check above, and the 0019 unique index
+    // refused the second insert. The winner owns the assignment — report
+    // "already assigned", never a failure of the payment path.
+    if (pgErrorCode(error) === "23505") {
+      return {
+        ok: false,
+        error: "Already assigned by a concurrent writer.",
+        conflict: true,
+      };
     }
-  });
+    throw error;
+  }
 
   if (booking.status === "paid") {
     const moved = await applyTransition(config, {

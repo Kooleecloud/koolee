@@ -10,6 +10,7 @@ import {
 import type { CoreConfig } from "../config";
 import { canTransition, transition } from "../booking/state-machine";
 import type { PaymentEvent } from "../payments/types";
+import { autoAssignOnPaid } from "./auto-assign";
 
 /**
  * Payment webhook handling.
@@ -198,6 +199,13 @@ async function moveBooking(
       .set({ status: paymentStatus })
       .where(eq(payments.providerRef, paymentEvent.providerRef));
   });
+
+  // On-paid dispatch: fires only when THIS call performed the move, so a
+  // redelivered webhook (already-in-target no-op above) never re-fires it.
+  // Never throws; failure leaves the booking paid-unassigned for the board.
+  if (to === "paid") {
+    await autoAssignOnPaid(config, bookingId);
+  }
 
   return { handled: true, note: `Booking moved ${from} → ${to}`, bookingId };
 }

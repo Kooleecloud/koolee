@@ -27,6 +27,7 @@ import type { PaymentAuth } from "../payments/types";
 import { price, toPricingRuleInput, type PriceBreakdown } from "../pricing/engine";
 import { resolveCutoffMinutes } from "../slots/cutoff";
 import { evaluateHourlyWindow, pickupLeadMinutesFor } from "../slots/windows";
+import { autoAssignOnPaid } from "./auto-assign";
 import { resolveDisplayTz } from "./display-tz";
 
 /**
@@ -340,6 +341,13 @@ export async function createBooking(
     await tx.insert(custodyEvents).values(moved.custodyEvent);
     return updated;
   });
+
+  // Inline (fake-provider) authorizations reach `paid` right here, without a
+  // webhook or return-page re-check to fire dispatch — so fire it now. Same
+  // never-blocks contract as the notification below.
+  if (settled.status === "paid") {
+    await autoAssignOnPaid(config, settled.id);
+  }
 
   // The custody chain is open — customer messaging for it routes through the
   // dispatcher (a logging stub until the notifications work item). Never
