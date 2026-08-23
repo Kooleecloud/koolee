@@ -13,7 +13,7 @@ import {
   FormMessage,
   Input,
   Label,
-  Select,
+  NumberStepper,
 } from "@koolee/ui";
 
 import { submitPickup, type ActionState } from "@/app/book/actions";
@@ -64,7 +64,6 @@ export function PickupStepForm({
     state: defaults.state,
     zip: defaults.zip,
   });
-  const [bagCount, setBagCount] = useState(String(defaults.bagCount));
   // Which saved address is currently filling the form. Purely a display
   // concern — the submitted values are the inputs, not this id.
   const [selectedAddressId, setSelectedAddressId] = useState<string | null>(null);
@@ -201,20 +200,17 @@ export function PickupStepForm({
       </div>
 
       <div className="grid gap-2">
-        <Label htmlFor="bagCount">Number of checked bags</Label>
-        <Select
+        <Label id="bagCount-label">Number of checked bags</Label>
+        {/* Cap stays at 10, matching the select this replaced. */}
+        <NumberStepper
           id="bagCount"
           name="bagCount"
-          value={bagCount}
-          onChange={(event) => setBagCount(event.target.value)}
-          required
-        >
-          {Array.from({ length: 10 }, (_, i) => i + 1).map((n) => (
-            <option key={n} value={n}>
-              {n} {n === 1 ? "bag" : "bags"}
-            </option>
-          ))}
-        </Select>
+          labelledBy="bagCount-label"
+          defaultValue={defaults.bagCount}
+          min={1}
+          max={10}
+          unit="bags"
+        />
         <p className="text-xs text-muted-foreground">
           Each bag is weighed, sealed, and photographed before it leaves you. Your
           airline&apos;s own baggage fees and weight limits still apply at the bag drop.
