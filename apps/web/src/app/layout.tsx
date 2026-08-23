@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Inter, Sora } from "next/font/google";
+import { Analytics } from "@vercel/analytics/next";
 import { SpeedInsights } from "@vercel/speed-insights/next";
 import { Toaster } from "@koolee/ui";
 
@@ -58,6 +59,7 @@ export default function RootLayout({
         {children}
         <Toaster />
         <DevPanel />
+        <Analytics />
         <SpeedInsights />
       </body>
     </html>

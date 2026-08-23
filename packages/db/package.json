@@ -4,7 +4,8 @@
   "private": true,
   "exports": {
     ".": "./src/index.ts",
-    "./schema": "./src/schema/index.ts"
+    "./schema": "./src/schema/index.ts",
+    "./coverage-zips": "./src/coverage-zips.ts"
   },
   "scripts": {
     "db:generate": "drizzle-kit generate",

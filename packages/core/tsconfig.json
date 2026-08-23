@@ -1,6 +1,6 @@
 {
   "extends": "@koolee/config/tsconfig.base.json",
-  "compilerOptions": { "baseUrl": "." },
+  "compilerOptions": { "paths": { "*": ["./*"] } },
   "include": ["src/**/*.ts", "vitest.config.ts"],
   "exclude": ["node_modules", "dist", ".turbo", "coverage"]
 }

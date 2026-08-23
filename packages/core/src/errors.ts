@@ -18,7 +18,8 @@ export type CoreErrorCode =
   | "NOT_AUTHORIZED"
   | "NOT_FOUND"
   | "NOT_IMPLEMENTED"
-  | "CONFLICT";
+  | "CONFLICT"
+  | "INVALID_INPUT";
 
 export abstract class CoreError extends Error {
   abstract readonly code: CoreErrorCode;
@@ -118,6 +119,21 @@ export class ConflictError extends CoreError {
 
   constructor(field: "phone" | "email" | "address" | "seal", message?: string) {
     super(message ?? `That ${field} already belongs to another account.`);
+    this.field = field;
+  }
+}
+
+/**
+ * A caller passed input the domain refuses outright. Actions validate before
+ * calling core, so reaching this means a bug or a bypassed form — the message
+ * is safe to show but never fine-grained.
+ */
+export class InvalidInputError extends CoreError {
+  readonly code = "INVALID_INPUT" as const;
+  readonly field: string;
+
+  constructor(field: string, message?: string) {
+    super(message ?? `Invalid ${field}.`);
     this.field = field;
   }
 }

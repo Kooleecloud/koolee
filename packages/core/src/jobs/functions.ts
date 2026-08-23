@@ -1,11 +1,28 @@
 import { and, eq, gte, lte } from "drizzle-orm";
-import { airlineCutoffs, bookings, verificationTasks } from "@koolee/db";
+import { addresses, airlineCutoffs, bookings, users, verificationTasks } from "@koolee/db";
 import { subHours } from "date-fns";
 import { cron } from "inngest";
 
 import type { CoreConfig } from "../config";
-import { minutesUntilCutoff, resolveCutoffMinutes } from "../slots/cutoff";
-import { agentNoShowCheck as agentNoShowCheckEvent, bookingConfirmed } from "./client";
+import {
+  buildBookingConfirmationEmail,
+  buildOpsExceptionEmail,
+  buildPickupReminderEmail,
+  type PriceLine,
+} from "../notifications/emails";
+import { resolveDisplayTz } from "../services/display-tz";
+import { notifyNewlyCoveredWaitlist } from "../waitlist/notify-covered";
+import {
+  formatInstantInAirportTz,
+  formatWindowInAirportTz,
+  minutesUntilCutoff,
+  resolveCutoffMinutes,
+} from "../slots/cutoff";
+import {
+  agentNoShowCheck as agentNoShowCheckEvent,
+  bookingConfirmed,
+  exceptionRaised,
+} from "./client";
 import type { KooleeInngest } from "./client";
 
 /**
@@ -19,6 +36,20 @@ import type { KooleeInngest } from "./client";
  */
 
 export type CoreConfigGetter = () => CoreConfig;
+
+export interface KooleeFunctionOptions {
+  /**
+   * Where `booking/exception_raised` alert emails go. Resolved by the app
+   * from OPS_ALERT_EMAIL (core reads no env). Absent → the function logs a
+   * skip; the ConsoleOpsAlerter path still fires.
+   */
+  opsAlertEmail?: string | undefined;
+  /** Absolute app origin for trip-page links (NEXT_PUBLIC_APP_URL). */
+  appOrigin?: string | undefined;
+}
+
+/** Statuses still expecting a pickup — anything else makes a reminder wrong. */
+const REMINDER_WORTHY = new Set(["paid", "agent_assigned"]);
 
 /** One in-transit booking flagged by the cutoff monitor. */
 interface AtRiskBooking {
@@ -40,7 +71,108 @@ const CUTOFF_ALERT_THRESHOLD_MINUTES = 60;
 export function createKooleeFunctions(
   inngest: KooleeInngest,
   getConfig: CoreConfigGetter,
+  options: KooleeFunctionOptions = {},
 ) {
+  const tripUrlFor = (bookingId: string): string | undefined =>
+    options.appOrigin ? `${options.appOrigin.replace(/\/$/, "")}/trips/${bookingId}` : undefined;
+
+  /* ------------------------------------------------------------------ */
+  /* 0. Booking confirmation email                                       */
+  /* ------------------------------------------------------------------ */
+
+  /**
+   * On `booking/confirmed`, emails the customer the full confirmation: ref,
+   * flight, pickup window (BOOKING's tz with abbreviation — docs/TIME.md),
+   * address, bags, price breakdown, trip link.
+   *
+   * Idempotency: senders emit the event with id `booking-confirmed:<id>`, so
+   * the webhook/return-page race collapses to ONE event, and Inngest's step
+   * memoization means a retried run never re-sends a step that succeeded.
+   * A failed send is logged + ops-alerted, never thrown — the booking flow
+   * must not (and cannot, being async) fail on email.
+   */
+  const bookingConfirmationEmail = inngest.createFunction(
+    {
+      id: "booking-confirmation-email",
+      name: "Send booking confirmation email",
+      triggers: [bookingConfirmed],
+    },
+    async ({ event, step, logger }) => {
+      return step.run("send-confirmation-email", async () => {
+        const config = getConfig();
+
+        const booking = await config.db.query.bookings.findFirst({
+          where: eq(bookings.id, event.data.bookingId),
+        });
+        if (!booking) return { sent: false, reason: "booking_missing" };
+        if (booking.status === "cancelled") return { sent: false, reason: "cancelled" };
+
+        const customer = await config.db.query.users.findFirst({
+          where: eq(users.id, booking.userId),
+          columns: { email: true },
+        });
+        if (!customer?.email) {
+          logger.info(`Booking ${booking.id}: customer has no email; skipping.`);
+          return { sent: false, reason: "no_email" };
+        }
+
+        const address = await config.db.query.addresses.findFirst({
+          where: eq(addresses.id, booking.pickupAddressId),
+        });
+        const tz = await resolveDisplayTz(config.db, booking.departureAirport);
+        const windowLabel =
+          booking.pickupWindowStart && booking.pickupWindowEnd
+            ? formatWindowInAirportTz(booking.pickupWindowStart, booking.pickupWindowEnd, tz)
+            : "see your trip page";
+
+        // The breakdown persisted at booking time is the truth of what was
+        // charged — never recompute it here (prices may have changed since).
+        const bd = booking.priceBreakdown;
+        const priceLines: PriceLine[] = bd
+          ? [
+              { label: "Base fee", amountCents: bd.baseFeeCents },
+              { label: "Bags", amountCents: bd.bagsCents },
+              { label: "Distance", amountCents: bd.distanceCents },
+              ...(bd.leadTimeAdjustmentCents !== 0
+                ? [{ label: "Lead-time adjustment", amountCents: bd.leadTimeAdjustmentCents }]
+                : []),
+              ...bd.discounts.map((d) => ({ label: d.label, amountCents: -d.amountCents })),
+            ]
+          : [];
+
+        const message = buildBookingConfirmationEmail({
+          to: customer.email,
+          paxName: booking.paxName,
+          flightNumber: booking.flightNumber,
+          departureAirport: booking.departureAirport,
+          windowLabel,
+          departureLabel: formatInstantInAirportTz(booking.departureAt, tz),
+          addressLine: address
+            ? `${address.line1}${address.line2 ? `, ${address.line2}` : ""}, ${address.city}, ${address.state} ${address.zip}`
+            : "your saved pickup address",
+          bagCount: booking.bagCount,
+          priceLines,
+          totalCents: bd?.totalCents ?? 0,
+          ...(tripUrlFor(booking.id) === undefined
+            ? {}
+            : { tripUrl: tripUrlFor(booking.id)! }),
+        });
+
+        try {
+          await config.notifier.sendEmail(message);
+        } catch (error) {
+          await config.opsAlerter.alert({
+            severity: "warning",
+            title: `Confirmation email failed for booking ${booking.id}`,
+            detail: { bookingId: booking.id, error: String(error) },
+          });
+          return { sent: false, reason: "send_failed" };
+        }
+        return { sent: true, bookingId: booking.id };
+      });
+    },
+  );
+
   /* ------------------------------------------------------------------ */
   /* 1. Pickup reminder                                                  */
   /* ------------------------------------------------------------------ */
@@ -71,10 +203,12 @@ export function createKooleeFunctions(
         );
       }
 
-      return step.run("send-reminder-sms", async () => {
+      const sms = await step.run("send-reminder-sms", async () => {
         const config = getConfig();
 
-        // Re-read: the booking may have been cancelled while we slept.
+        // Re-read: the booking may have moved on while we slept. Anything
+        // past `agent_assigned` (or cancelled/exception) is no longer
+        // reminder-worthy — the visit is already happening or never will.
         const booking = await config.db.query.bookings.findFirst({
           where: eq(bookings.id, event.data.bookingId),
         });
@@ -83,13 +217,13 @@ export function createKooleeFunctions(
           logger.warn(`Booking ${event.data.bookingId} no longer exists; skipping.`);
           return { sent: false, reason: "booking_missing" };
         }
-        if (booking.status === "cancelled") {
-          logger.info(`Booking ${booking.id} was cancelled; skipping reminder.`);
-          return { sent: false, reason: "cancelled" };
+        if (!REMINDER_WORTHY.has(booking.status)) {
+          logger.info(`Booking ${booking.id} is ${booking.status}; skipping reminder.`);
+          return { sent: false, reason: `status_${booking.status}` };
         }
 
-        // TODO(notifications): ConsoleNotifier is the default. Wire the real
-        // SMS adapter (notifications work item) and this starts sending for free.
+        // TODO(notifications): SMS stays on the console fallback until the
+        // Twilio work item. Wiring the real adapter changes nothing here.
         await config.notifier.sendSms({
           to: event.data.customerPhone,
           body:
@@ -99,6 +233,97 @@ export function createKooleeFunctions(
         });
 
         return { sent: true, bookingId: booking.id };
+      });
+
+      const email = await step.run("send-reminder-email", async () => {
+        const config = getConfig();
+
+        const booking = await config.db.query.bookings.findFirst({
+          where: eq(bookings.id, event.data.bookingId),
+        });
+        if (!booking || !REMINDER_WORTHY.has(booking.status)) {
+          return { sent: false, reason: "not_reminder_worthy" };
+        }
+
+        const customer = await config.db.query.users.findFirst({
+          where: eq(users.id, booking.userId),
+          columns: { email: true },
+        });
+        if (!customer?.email) return { sent: false, reason: "no_email" };
+
+        const tz = await resolveDisplayTz(config.db, booking.departureAirport);
+        const message = buildPickupReminderEmail({
+          to: customer.email,
+          paxName: booking.paxName,
+          windowLabel:
+            booking.pickupWindowStart && booking.pickupWindowEnd
+              ? formatWindowInAirportTz(booking.pickupWindowStart, booking.pickupWindowEnd, tz)
+              : "soon — see your trip page",
+          bagCount: booking.bagCount,
+          ...(tripUrlFor(booking.id) === undefined
+            ? {}
+            : { tripUrl: tripUrlFor(booking.id)! }),
+        });
+
+        try {
+          await config.notifier.sendEmail(message);
+        } catch (error) {
+          await config.opsAlerter.alert({
+            severity: "warning",
+            title: `Reminder email failed for booking ${booking.id}`,
+            detail: { bookingId: booking.id, error: String(error) },
+          });
+          return { sent: false, reason: "send_failed" };
+        }
+        return { sent: true };
+      });
+
+      return { sms, email };
+    },
+  );
+
+  /* ------------------------------------------------------------------ */
+  /* 1b. Exception ops alert email                                       */
+  /* ------------------------------------------------------------------ */
+
+  /**
+   * On `booking/exception_raised`, emails the ops inbox. The address comes in
+   * via options (OPS_ALERT_EMAIL) — unset means log-and-skip, and the
+   * ConsoleOpsAlerter/board paths still surface the exception.
+   */
+  const exceptionOpsAlertEmail = inngest.createFunction(
+    {
+      id: "exception-ops-alert-email",
+      name: "Email ops when a booking enters exception",
+      triggers: [exceptionRaised],
+    },
+    async ({ event, step, logger }) => {
+      return step.run("send-ops-alert-email", async () => {
+        const to = options.opsAlertEmail;
+        if (!to) {
+          logger.info("OPS_ALERT_EMAIL not configured; skipping exception email.");
+          return { sent: false, reason: "no_ops_email" };
+        }
+
+        const config = getConfig();
+        const message = buildOpsExceptionEmail({
+          to,
+          bookingId: event.data.bookingId,
+          reason: event.data.reason,
+          raisedByUserId: event.data.raisedByUserId,
+        });
+
+        try {
+          await config.notifier.sendEmail(message);
+        } catch (error) {
+          await config.opsAlerter.alert({
+            severity: "critical",
+            title: `Exception email failed for booking ${event.data.bookingId}`,
+            detail: { bookingId: event.data.bookingId, error: String(error) },
+          });
+          return { sent: false, reason: "send_failed" };
+        }
+        return { sent: true };
       });
     },
   );
@@ -260,7 +485,46 @@ export function createKooleeFunctions(
     },
   );
 
-  return [pickupReminder, cutoffRiskMonitor, agentNoShowCheck];
+  /* ------------------------------------------------------------------ */
+  /* 4. Waitlist zone-opened sweep                                        */
+  /* ------------------------------------------------------------------ */
+
+  /**
+   * Daily reconciler for the waitlist's promised email. Coverage lives in
+   * code, so "a zone opened" is a deploy — this sweep converges on it within
+   * a day: unnotified signups whose ZIP is covered NOW get the email and a
+   * `notified_at` stamp (see notifyNewlyCoveredWaitlist for the idempotency
+   * contract). Quiet when there is nothing to do, which is almost always.
+   */
+  const waitlistZoneOpenedSweep = inngest.createFunction(
+    {
+      id: "waitlist-zone-opened-sweep",
+      name: "Email waitlist signups whose ZIP gained coverage",
+      triggers: [cron("TZ=America/New_York 0 10 * * *")],
+    },
+    async ({ step, logger }) => {
+      return step.run("notify-newly-covered", async () => {
+        const result = await notifyNewlyCoveredWaitlist(getConfig(), {
+          appOrigin: options.appOrigin,
+        });
+        if (result.notified > 0 || result.failed > 0) {
+          logger.info(
+            `waitlist sweep: notified ${result.notified}, failed ${result.failed}, still uncovered ${result.stillUncovered}`,
+          );
+        }
+        return result;
+      });
+    },
+  );
+
+  return [
+    bookingConfirmationEmail,
+    pickupReminder,
+    exceptionOpsAlertEmail,
+    waitlistZoneOpenedSweep,
+    cutoffRiskMonitor,
+    agentNoShowCheck,
+  ];
 }
 
 export type KooleeFunctions = ReturnType<typeof createKooleeFunctions>;

@@ -370,7 +370,8 @@ function BagStep({
                   name="weightKg"
                   type="number"
                   inputMode="decimal"
-                  step="0.1"
+                  // Real scales read to 10 g — step 0.1 rejected e.g. 23.45.
+                  step="0.01"
                   min="0.1"
                   max="99"
                   required

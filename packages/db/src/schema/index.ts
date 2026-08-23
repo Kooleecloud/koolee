@@ -14,4 +14,5 @@ export * from "./custody";
 export * from "./tasks";
 export * from "./ops";
 export * from "./billing";
+export * from "./waitlist";
 export * from "./relations";

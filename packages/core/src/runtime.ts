@@ -7,6 +7,7 @@ import {
   type CoreDefaults,
 } from "./config";
 import { createTicketExtractor, type TicketExtractorConfig } from "./extraction/factory";
+import { createNotifier, type NotifierConfig } from "./notifications/factory";
 import type { Notifier, OpsAlerter } from "./notifications/notifier";
 import { createPaymentProvider, type PaymentProviderConfig } from "./payments/factory";
 
@@ -31,6 +32,12 @@ export interface RuntimeOptions {
   payments: PaymentProviderConfig;
   /** Omitted → the free heuristic extractor. */
   extraction?: TicketExtractorConfig;
+  /**
+   * Declarative notifier selection (console vs Resend) — the normal app
+   * path. Omitted → console. Ignored when an explicit `notifier` instance is
+   * given (tests inject `RecordingNotifier` that way).
+   */
+  notifications?: NotifierConfig;
   notifier?: Notifier;
   opsAlerter?: OpsAlerter;
   clock?: Clock;
@@ -55,7 +62,11 @@ export function createRuntime(options: RuntimeOptions): CoreConfig {
     ...(options.extraction === undefined
       ? {}
       : { ticketExtractor: createTicketExtractor(options.extraction) }),
-    ...(options.notifier === undefined ? {} : { notifier: options.notifier }),
+    ...(options.notifier !== undefined
+      ? { notifier: options.notifier }
+      : options.notifications !== undefined
+        ? { notifier: createNotifier(options.notifications) }
+        : {}),
     ...(options.opsAlerter === undefined ? {} : { opsAlerter: options.opsAlerter }),
     ...(options.clock === undefined ? {} : { clock: options.clock }),
     ...(options.defaults === undefined ? {} : { defaults: options.defaults }),

@@ -1,3 +1,4 @@
+import { cache } from "react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import {
@@ -28,6 +29,34 @@ import { getCustomerSession } from "@/lib/session";
 export const dynamic = "force-dynamic";
 
 /**
+ * One fetch per request: `cache` dedupes between `generateMetadata` and the
+ * page body, so the title costs no extra query. Auth stays inside —
+ * `getBookingDetailForSession` 404s on other people's bookings, and the
+ * metadata path inherits that (no identifying title for a trip the viewer
+ * can't see).
+ */
+const loadTripDetail = cache(async (bookingId: string) => {
+  const core = tryGetCore();
+  if (!core) return null;
+  const session = await getCustomerSession();
+  if (!session) return null;
+  return getBookingDetailForSession(core.db, session, bookingId).catch(() => null);
+});
+
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ bookingId: string }>;
+}) {
+  const { bookingId } = await params;
+  const detail = await loadTripDetail(bookingId);
+  if (!detail) return { title: "Trip" };
+  return {
+    title: `${detail.booking.flightNumber} · ${detail.booking.departureAirport} pickup`,
+  };
+}
+
+/**
  * Task status in customer language. The internal vocabulary ("assigned",
  * "in_progress") describes our queue, not the customer's morning.
  */
@@ -56,9 +85,7 @@ export default async function TripPage({
   const session = await getCustomerSession();
   if (!session) notFound();
 
-  const result = await getBookingDetailForSession(core.db, session, bookingId).catch(
-    () => null,
-  );
+  const result = await loadTripDetail(bookingId);
   if (!result) notFound();
 
   const {
@@ -151,8 +178,10 @@ export default async function TripPage({
               <dd className="mt-1 font-medium">
                 {assignedAgent ? (
                   <>
-                    {assignedAgent.givenName ?? "Assigned"}
-                    <span className="ml-2 font-normal text-muted-foreground">
+                    {/* Real space, not margin: without it the accessible/text
+                        content read "Leo· confirmed" (#51). */}
+                    {assignedAgent.givenName ?? "Assigned"}{" "}
+                    <span className="font-normal text-muted-foreground">
                       {AGENT_STATUS_COPY[assignedAgent.taskStatus]}
                     </span>
                   </>

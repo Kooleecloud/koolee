@@ -8,6 +8,7 @@ import {
   discardBookingDraft,
   listBookableWindows,
   OutOfCoverageError,
+  recordWaitlistSignup,
   SlotNotSellableError,
   softDeleteBookingDraft,
   type AirportCode,
@@ -16,6 +17,7 @@ import {
 
 import { ensureDraftSession } from "@/actions/auth";
 import { getAuthUser } from "@/lib/auth";
+import { emitBookingConfirmed } from "@/lib/booking-events";
 import { clearDraft, readDraft, writeDraft } from "@/lib/booking-draft";
 import { nextIncompleteStep } from "@/lib/booking-steps";
 import { buildCheckoutSetup, isDraftReadyForPayment } from "@/lib/checkout";
@@ -82,7 +84,7 @@ export async function startOverBooking(): Promise<void> {
   redirect("/book/flight");
 }
 
-/** Out-of-area waitlist. Stubbed — nothing is stored yet. */
+/** Out-of-area waitlist: persists to `waitlist_signups` via core. */
 export async function captureOutOfAreaEmail(
   _prev: ActionState,
   form: FormData,
@@ -93,11 +95,27 @@ export async function captureOutOfAreaEmail(
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
     return { error: "Enter a valid email address.", outOfCoverageZip: zip };
   }
+  if (!/^\d{5}$/.test(zip)) {
+    return { error: "That ZIP code doesn't look right — go back and re-enter it.", outOfCoverageZip: zip };
+  }
 
-  // TODO(waitlist): persist to a `waitlist` table and notify via Resend.
-  // Deliberately not stored yet — capturing an address we then drop on the
-  // floor is worse than not asking.
-  console.log(`[waitlist] ${email} wants coverage in ${zip}`);
+  const core = tryGetCore();
+  if (!core) {
+    return {
+      error: "We can't save signups right now — please try again in a few minutes.",
+      outOfCoverageZip: zip,
+    };
+  }
+
+  // The "your zone opened" email is owned by the daily waitlist sweep
+  // (waitlist-zone-opened-sweep in @koolee/core jobs): it scans rows with
+  // notified_at IS NULL against live coverage and stamps on send.
+  try {
+    await recordWaitlistSignup(core.db, { email, zip, source: "booking_out_of_area" });
+  } catch (error) {
+    console.error("[waitlist] failed to persist out-of-area signup", error);
+    return { error: "Something went wrong saving your spot — please try again.", outOfCoverageZip: zip };
+  }
 
   return { ok: true };
 }
@@ -363,6 +381,12 @@ export async function confirmBooking(
     const bookedFromTz = str(form, "bookedFromTz");
 
     const result = await createBooking(core, { ...input, contactPhone, bookedFromTz });
+
+    // Inline (fake-provider) authorization reaches `paid` with no webhook and
+    // no return-page re-check — emit the confirmation event here. No-throw.
+    if (result.booking.status === "paid") {
+      await emitBookingConfirmed(core, result.booking);
+    }
 
     try {
       await softDeleteBookingDraft(core.db, userRow.id);

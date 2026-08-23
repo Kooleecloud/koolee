@@ -94,7 +94,10 @@ NYC ZIP service area lives in
 the funnel check is UX, the core check is the rule.
 
 Out-of-area entries are captured (`out-of-area-capture.tsx` → waitlist) rather
-than dead-ended.
+than dead-ended. Since `feat/waitlist-persistence` they land in the
+`waitlist_signups` table via core's `recordWaitlistSignup` — one row per
+(email, zip) pair, idempotent on resubmit — shared with the marketing
+`/waitlist` page (`source` column tells them apart).
 
 ---
 
