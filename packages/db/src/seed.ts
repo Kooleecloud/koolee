@@ -59,56 +59,53 @@ const AIRPORTS = [
  * verify against the airline before these drive real sales. The cutoff is the
  * single input that decides whether a pickup can physically make the flight.
  */
-const CUTOFFS: NewAirlineCutoff[] = [
-  {
-    airlineIata: "DL",
-    airportCode: "JFK",
-    scope: "domestic",
-    cutoffMinutesBeforeDeparture: 45,
-    source:
-      "seed: Delta published domestic bag-drop policy — VERIFY before production use",
-  },
-  {
-    airlineIata: "DL",
-    airportCode: "JFK",
-    scope: "international",
-    cutoffMinutesBeforeDeparture: 60,
-    source:
-      "seed: Delta published international bag-drop policy — VERIFY before production use",
-  },
-  {
-    airlineIata: "AA",
-    airportCode: "JFK",
-    scope: "domestic",
-    cutoffMinutesBeforeDeparture: 45,
-    source:
-      "seed: American published domestic bag-drop policy — VERIFY before production use",
-  },
-  {
-    airlineIata: "AA",
-    airportCode: "JFK",
-    scope: "international",
-    cutoffMinutesBeforeDeparture: 60,
-    source:
-      "seed: American published international bag-drop policy — VERIFY before production use",
-  },
-  {
-    airlineIata: "UA",
-    airportCode: "JFK",
-    scope: "domestic",
-    cutoffMinutesBeforeDeparture: 45,
-    source:
-      "seed: United published domestic bag-drop policy — VERIFY before production use",
-  },
-  {
-    airlineIata: "UA",
-    airportCode: "JFK",
-    scope: "international",
-    cutoffMinutesBeforeDeparture: 60,
-    source:
-      "seed: United published international bag-drop policy — VERIFY before production use",
-  },
-];
+const DOMESTIC_CUTOFF_MINUTES = 45;
+const INTERNATIONAL_CUTOFF_MINUTES = 60;
+
+/**
+ * Carriers with a published schedule at each airport (rosters researched
+ * 2026-08; see the airports' own airline directories). Every carrier gets a
+ * row in BOTH scopes at the standard placeholder cutoffs above, so a demo
+ * flight never dead-ends on a missing row. Ops must verify each airline's
+ * actual bag-drop policy before real sales — every row's `source` says so.
+ */
+const AIRLINES_BY_AIRPORT: Record<AirportCode, readonly string[]> = {
+  // Hubs: Delta, JetBlue, American. Heavy international presence.
+  JFK: [
+    "AA", "AS", "B6", "DL", "F9", "UA",
+    "AC", "AF", "AY", "AZ", "BA", "CX", "EI", "EK", "EY", "IB", "JL", "KE",
+    "KL", "LH", "LX", "LY", "NH", "OS", "QF", "QR", "SQ", "TK", "TP", "VS",
+  ],
+  // Domestic-focused (perimeter rule); Delta and American hubs.
+  LGA: ["AA", "AC", "B6", "DL", "F9", "NK", "PD", "UA", "WN"],
+  // United's hub; Star Alliance internationals concentrate here.
+  EWR: [
+    "AA", "AC", "AS", "B6", "DL", "F9", "G4", "NK", "PD", "SY", "UA",
+    "AI", "BA", "EI", "ET", "FI", "LH", "LX", "LY", "OS", "SK", "SN", "SQ",
+    "TK", "TP",
+  ],
+};
+
+const CUTOFFS: NewAirlineCutoff[] = (
+  Object.entries(AIRLINES_BY_AIRPORT) as [AirportCode, readonly string[]][]
+).flatMap(([airportCode, airlines]) =>
+  airlines.flatMap((airlineIata): NewAirlineCutoff[] => [
+    {
+      airlineIata,
+      airportCode,
+      scope: "domestic",
+      cutoffMinutesBeforeDeparture: DOMESTIC_CUTOFF_MINUTES,
+      source: `seed: placeholder — VERIFY ${airlineIata} domestic bag-drop policy at ${airportCode} before production use`,
+    },
+    {
+      airlineIata,
+      airportCode,
+      scope: "international",
+      cutoffMinutesBeforeDeparture: INTERNATIONAL_CUTOFF_MINUTES,
+      source: `seed: placeholder — VERIFY ${airlineIata} international bag-drop policy at ${airportCode} before production use`,
+    },
+  ]),
+);
 
 async function main(): Promise<void> {
   const db = createDb();

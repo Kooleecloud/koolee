@@ -3,8 +3,9 @@
 import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { CTAButton } from "@koolee/ui";
+import { Badge, CTAButton } from "@koolee/ui";
 
+import { isComingSoon } from "@/env";
 import { getSupabaseBrowserClient } from "@/lib/supabase/browser";
 
 /**
@@ -36,6 +37,25 @@ export function AuthNavActions() {
       subscription.unsubscribe();
     };
   }, []);
+
+  // Pre-launch: no session can exist (OTP actions are closed), so render the
+  // signed-out actions with sign-in disabled and tagged.
+  if (isComingSoon()) {
+    return (
+      <>
+        <span
+          aria-disabled="true"
+          className="flex cursor-default items-center gap-2 rounded-md px-3 py-2 text-sm font-medium text-navy-600/60"
+        >
+          My bookings
+          <Badge variant="secondary">Coming soon</Badge>
+        </span>
+        <CTAButton asChild>
+          <Link href="/book">Book a pickup</Link>
+        </CTAButton>
+      </>
+    );
+  }
 
   if (!signedIn) {
     return (

@@ -30,6 +30,13 @@ const schema = z.object({
   // --- App ---------------------------------------------------------------
   /** Absolute origin of this app. Used to build absolute links and callbacks. */
   NEXT_PUBLIC_APP_URL: optionalUrl,
+  /**
+   * "coming_soon" ships the marketing site and a browsable booking funnel
+   * with every account surface closed: /login, /trips and /dashboard bounce
+   * home, the funnel's verify step renders a coming-soon panel, and the OTP
+   * server actions refuse to send. Anything else (or unset) means live.
+   */
+  NEXT_PUBLIC_LAUNCH_MODE: z.enum(["live", "coming_soon"]).default("live").catch("live"),
 
   // --- Database (Supabase Postgres) -------------------------------------
   /** Supavisor transaction-mode pooler, port 6543. Runtime queries. */
@@ -102,6 +109,7 @@ const raw = {
   NODE_ENV: process.env.NODE_ENV,
 
   NEXT_PUBLIC_APP_URL: process.env.NEXT_PUBLIC_APP_URL,
+  NEXT_PUBLIC_LAUNCH_MODE: process.env.NEXT_PUBLIC_LAUNCH_MODE,
 
   DATABASE_URL: process.env.DATABASE_URL,
   DIRECT_DATABASE_URL: process.env.DIRECT_DATABASE_URL,
@@ -212,6 +220,15 @@ export const isDev = env.NODE_ENV === "development";
 export const isProd = env.NODE_ENV === "production";
 
 /**
+ * Pre-launch posture (NEXT_PUBLIC_LAUNCH_MODE=coming_soon): account creation
+ * and sign-in are closed everywhere. A function, not a const, so tests can
+ * mock it per-case.
+ */
+export function isComingSoon(): boolean {
+  return env.NEXT_PUBLIC_LAUNCH_MODE === "coming_soon";
+}
+
+/**
  * Whether the database carries GoTrue's `auth` schema, i.e. whether upgrade
  * sends can (and therefore MUST) reconcile phone/email claims. Unset counts
  * as available on purpose: against a database that unexpectedly lacks the
@@ -261,7 +278,12 @@ export function assertProductionSecurityConfig(): void {
   }
 }
 
-if (typeof window === "undefined" && isProd && env.NEXT_PUBLIC_SUPABASE_URL) {
+/*
+ * Coming-soon deploys skip the gate on purpose: the OTP actions are hard-
+ * disabled (`comingSoonClosed` in actions/auth.ts), so the funnel's auth is
+ * inert and none of the guarded controls can fail open.
+ */
+if (typeof window === "undefined" && isProd && env.NEXT_PUBLIC_SUPABASE_URL && !isComingSoon()) {
   assertProductionSecurityConfig();
 }
 

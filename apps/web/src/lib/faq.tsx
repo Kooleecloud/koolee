@@ -130,8 +130,8 @@ export const FAQS: FAQItem[] = [
     question: "Which airports and neighborhoods do you cover?",
     answer: (
       <p>
-        We deliver to JFK, LaGuardia, and Newark, with pickups across Manhattan, parts
-        of Brooklyn and Queens, and Jersey City. Somewhere else?{" "}
+        We deliver to JFK, LaGuardia, and Newark, with pickups across all five NYC
+        boroughs and Hudson County, NJ. Somewhere else?{" "}
         <Link href="/waitlist" className={faqLink}>
           Join the waitlist
         </Link>{" "}
