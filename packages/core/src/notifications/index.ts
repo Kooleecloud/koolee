@@ -13,3 +13,6 @@ export {
   type NotificationChannel,
   type NotificationDispatcher,
 } from "./dispatcher";
+
+export { createNotifier, type NotifierConfig } from "./factory";
+export { ResendNotifier, ResendSendError } from "./resend";

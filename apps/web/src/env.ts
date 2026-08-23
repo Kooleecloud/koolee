@@ -88,6 +88,13 @@ const schema = z.object({
   // credentials land with the notifications work item (NotificationDispatcher
   // in @koolee/core is the seam).
   RESEND_API_KEY: optionalString,
+  /**
+   * RFC 5322 From for transactional email. The default is Resend's sandbox
+   * sender — fine for dev/testing, but real deliveries need a verified
+   * domain: set RESEND_FROM to e.g. `Koolee <notify@koolee.com>` once the
+   * domain's DKIM/SPF records are in place (see the manual-setup doc).
+   */
+  RESEND_FROM: z.string().default("Koolee <onboarding@resend.dev>"),
 
   // --- Third-party data --------------------------------------------------
   AEROAPI_KEY: optionalString,
@@ -133,6 +140,7 @@ const raw = {
   INNGEST_SIGNING_KEY: process.env.INNGEST_SIGNING_KEY,
 
   RESEND_API_KEY: process.env.RESEND_API_KEY,
+  RESEND_FROM: process.env.RESEND_FROM,
 
   AEROAPI_KEY: process.env.AEROAPI_KEY,
   GOOGLE_MAPS_API_KEY: process.env.GOOGLE_MAPS_API_KEY,
@@ -287,6 +295,33 @@ if (typeof window === "undefined" && isProd && env.NEXT_PUBLIC_SUPABASE_URL && !
   assertProductionSecurityConfig();
 }
 
+/*
+ * Fail-closed production gate for transactional email: without a key the
+ * notifier silently degrades to console, which in production means booking
+ * confirmations vanish into a log nobody reads. Exemptions, each deliberate:
+ *  - coming-soon deploys — no booking can complete, nothing sends;
+ *  - no Supabase — the funnel is inert scaffold, same as the auth gate;
+ *  - the build phase — `next build` runs with NODE_ENV=production on
+ *    credential-less machines by design (zero-config-boot rule above); the
+ *    assertion is about SERVING production, and the deployed server's boot
+ *    still enforces it.
+ */
+if (
+  typeof window === "undefined" &&
+  isProd &&
+  process.env.NEXT_PHASE !== "phase-production-build" &&
+  env.NEXT_PUBLIC_SUPABASE_URL &&
+  !isComingSoon() &&
+  !env.RESEND_API_KEY
+) {
+  throw new Error(
+    "RESEND_API_KEY is required in production: transactional email would " +
+      "silently degrade to console logging. Set the key (and RESEND_FROM " +
+      "once the sending domain is verified), or deploy with " +
+      "NEXT_PUBLIC_LAUNCH_MODE=coming_soon.",
+  );
+}
+
 /* ------------------------------------------------------------------ */
 /* Dev-only diagnostics                                                */
 /* ------------------------------------------------------------------ */
@@ -343,7 +378,7 @@ export function describeEnvStatus(): ServiceStatus[] {
       service: "Resend email",
       configured: has("RESEND_API_KEY"),
       fallback: "Notifier logs to console.",
-      keys: ["RESEND_API_KEY"],
+      keys: ["RESEND_API_KEY", "RESEND_FROM"],
     },
     {
       service: "AeroAPI (flights)",

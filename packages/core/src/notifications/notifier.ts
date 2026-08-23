@@ -15,8 +15,10 @@ export interface SmsMessage {
 export interface EmailMessage {
   to: string;
   subject: string;
-  /** Plain text. HTML templating is out of scope for the scaffold. */
+  /** Plain-text body — ALWAYS present, the deliverability baseline. */
   body: string;
+  /** Optional HTML alternative (simple brand templates; see BRAND.md). */
+  html?: string;
 }
 
 export interface Notifier {
@@ -70,13 +72,12 @@ export class RecordingNotifier implements Notifier {
 }
 
 /**
- * TODO(notifications): real SMS/email adapters land with the notifications
- * work item, behind the `NotificationDispatcher` seam (./dispatcher.ts).
- * Their provider credentials will be server-side env resolved by the app —
- * NOT auth-related: auth OTP delivery is owned entirely by Supabase Auth,
- * whose provider credentials live only in the Supabase dashboard.
- *
- * TODO(resend): same for transactional email via RESEND_API_KEY.
+ * TODO(notifications): the real SMS adapter (Twilio) lands with a later work
+ * item. Email is REAL now — `ResendNotifier` in ./resend, selected by
+ * `createNotifier` when the app injects a `RESEND_API_KEY` (core still reads
+ * no env). NOT auth-related either way: auth OTP delivery is owned entirely
+ * by Supabase Auth, whose provider credentials live only in the Supabase
+ * dashboard.
  */
 
 /** Ops alerting seam — Sentry in production, console until then. */
