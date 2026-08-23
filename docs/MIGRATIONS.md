@@ -266,18 +266,77 @@ target — per the note below, don't trust this table for it.
 
 ## 9. Deploying a migration
 
+**The normal path is automatic** — see §9.5: merging into `dev` or `main`
+applies pending migrations to that branch's database via GitHub Actions. The
+manual procedure below remains for first-time project setup, for anything the
+ordering caveat in §9.5 rules out, and for recovery.
+
 1. `pnpm db:status` against the target — **confirm the `Target host:` line**.
-2. Apply over the **direct** connection (`DIRECT_DATABASE_URL`, port 5432).
-   Through the pooler you get `prepared statement does not exist` errors in
-   production that will not reproduce locally.
+2. Apply over a **stable-session** connection (`DIRECT_DATABASE_URL`, port
+   5432) — the session pooler (`aws-0-<region>.pooler.supabase.com:5432`)
+   counts; see §3's IPv6 gotcha. Through the **transaction** pooler (6543)
+   you get `prepared statement does not exist` errors in production that
+   will not reproduce locally.
 3. `pnpm db:status` again — expect _"In sync — nothing pending"_.
 4. Seed reference data if the project is new: `pnpm seed` (airports, airline
-   cutoffs, one active pricing rule). Idempotent.
+   cutoffs, one active pricing rule). Idempotent. CI never seeds — this step
+   is always yours.
 
 ⚠️ `pnpm seed` also creates dev staff/customer accounts — but **only** when the
 Supabase host is `127.0.0.1`/`localhost`. A non-local host is a **hard skip, not
 a warning**: seeding known passwords into a hosted project would be a standing
 backdoor.
+
+---
+
+## 9.5 CI: migrations apply automatically on merge
+
+[.github/workflows/migrate.yml](../.github/workflows/migrate.yml) runs on
+every push to `dev` or `main` that touches `packages/db/drizzle/**` (or the
+migrator/status scripts), and applies pending migrations to **that branch's
+database**:
+
+| Branch | Database                     | Secret                     |
+| ------ | ---------------------------- | --------------------------- |
+| `main` | production Supabase project  | `PROD_DIRECT_DATABASE_URL` |
+| `dev`  | dev/hosted Supabase project  | `DEV_DIRECT_DATABASE_URL`  |
+
+After applying, the workflow runs `db:status`: the applied set must match the
+checkout **by content hash**, so drift fails the run red instead of hiding.
+
+### The secrets
+
+- **Value:** the project's **session pooler** URL —
+  `postgresql://postgres.<ref>:<password>@aws-0-<region>.pooler.supabase.com:5432/postgres`.
+  Never the transaction pooler (6543 — no DDL, no advisory lock), and never
+  the `db.<ref>.supabase.co` direct host — that one is **IPv6-only and GitHub
+  runners have no IPv6**, so you get `ENETUNREACH` (learned the hard way,
+  first run, 2026-08-23).
+- **Where they live:** GitHub **repository** secrets work on every plan.
+  **Organization** secrets also work — same `${{ secrets.NAME }}` lookup, a
+  repo-level secret of the same name wins — but check two things: the org
+  secret's *repository access policy* must include this repo, and on the
+  GitHub **Free** org plan, org secrets are only visible to **public**
+  repositories.
+- A missing/invisible secret is a **hard failure** ("No DIRECT_DATABASE_URL
+  secret configured"), never a silent skip.
+
+### Failure and retry
+
+The migrator's advisory lock plus a per-branch concurrency queue make
+overlapping merges safe. A red run is re-runnable from the **Actions** tab
+("Re-run jobs") once the cause is fixed — migrations already applied are
+skipped, same as always.
+
+### ⚠️ The ordering caveat
+
+The workflow runs **in parallel** with the Vercel deploy of the same push —
+neither waits for the other. That is safe exactly as long as migrations stay
+**backward-compatible** (expand → deploy → contract, the discipline in §2/§7):
+for a moment, old code may run against the new schema or new code against the
+old. A migration the currently-deployed code cannot survive (dropping or
+renaming something still read) must NOT ride this workflow — do a manual,
+sequenced deploy instead (§9), and say so in the PR.
 
 ---
 
