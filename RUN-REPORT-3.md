@@ -224,14 +224,19 @@ all three apps) · web unit 59 · core unit 243 · integration 84 passed /
    ```bash
    DATABASE_URL='<hosted pooler 6543 url>' pnpm --filter @koolee/db seed
    ```
-3. **Resend account**: create, add the sending domain, publish the DKIM/SPF
-   records Resend shows, verify. Until verified, RESEND_FROM's sandbox
-   default only delivers to your own account address.
+3. **Resend: verify the `koolee.cloud` domain** (BLOCKS real recipients —
+   verified live 2026-08-23: the sandbox From only delivers to the Resend
+   account's own address, `info@koolee.cloud`; anyone else gets a 403).
+   resend.com/domains → add domain → publish the DKIM/SPF records → after
+   verification set `RESEND_FROM=Koolee <notify@koolee.cloud>`.
 4. **Vercel env vars (web project)**: Production — `RESEND_API_KEY`,
-   `RESEND_FROM` (verified-domain From), `OPS_ALERT_EMAIL`. Preview —
-   optional; without a key previews log emails to console.
-   Note: the prod boot gate only fires on live-mode deploys with Supabase
-   configured; the current coming-soon deploy boots fine without the key.
+   `RESEND_FROM` (verified-domain From), `OPS_ALERT_EMAIL`, and
+   `NEXT_PUBLIC_APP_URL` (absolute prod origin — without it emails ship with
+   no "Track your trip" CTA; also set it in local `.env.local` to see the
+   button in dev). Preview — optional; without a key previews log emails to
+   console. Note: the prod boot gate only fires on live-mode deploys with
+   Supabase configured; the current coming-soon deploy boots fine without
+   the key.
 5. **Local dev check** (optional): `pnpm dev:inngest` + a fake-provider
    booking → confirmation email prints on the dev-server console; the
    Inngest dev UI lists 7 registered functions.
