@@ -6,7 +6,7 @@
 > [PROJECT-STATUS.md](../PROJECT-STATUS.md). For _how to run it_, read
 > [README.md](../README.md).
 >
-> Baseline: `dev` @ `2fe3a2b`.
+> Baseline: `dev` @ `ad65272`.
 
 ## Chapters
 
@@ -50,6 +50,7 @@ enforced across marketing, UI, SMS and email ([README §Copy rules](../README.md
 | Task          | `verification_tasks`, `pickup_tasks` | The unit of work an agent or driver sees.                                                                                                                                                                                               |
 | Payment       | `payments`, `payment_webhook_events` | Intent → authorize → capture. Webhook events table is the replay guard.                                                                                                                                                                 |
 | Staff member  | `staff_members`                      | Invite-only agent/admin accounts.                                                                                                                                                                                                       |
+| Waitlist signup | `waitlist_signups`                 | One (email, ZIP) pair — "this person wants service in this zone." Unique together; `notified_at` stamps the one promised "you're covered" email.                                                                                        |
 
 **The lifecycle.** Ten booking statuses, and the legal moves between them are
 defined in exactly one place — [state-machine.ts](../packages/core/src/booking/state-machine.ts).
@@ -145,6 +146,13 @@ one file per concern, re-exported through `index.ts`:
 | `staff.ts`       | `staff_members`                                       |
 | `otp.ts`         | `otp_send_log`                                        |
 | `ops.ts`         | `routes`                                              |
+| `waitlist.ts`    | `waitlist_signups`                                    |
+
+One non-table module lives beside them: `coverage-zips.ts` — the service-area
+ZIP data as pure constants, imported by core's coverage logic AND the seed via
+the `@koolee/db/coverage-zips` subpath (pure data, no driver, so client
+bundles that reach it through core stay clean). Data here, semantics in core:
+the seed needs the list and core depends on db, never the reverse.
 
 **The legacy table.** `slots` predates virtual pickup windows. Nothing sells
 from it; new bookings leave `slot_id` NULL and carry
@@ -291,9 +299,10 @@ charged at checkout. No quote-locking mechanism is needed.
 ### Coverage
 
 [coverage/nyc-zips.ts](../packages/core/src/coverage/nyc-zips.ts) — a
-hardcoded ZIP allowlist (Manhattan plus the reachable parts of Brooklyn,
-Queens, Jersey City). Hardcoded on purpose: the service boundary is a
-commercial decision that changes rarely and should be reviewable in a diff.
+hardcoded ZIP allowlist (all five NYC boroughs plus Hudson County, NJ;
+widened for launch-demo completeness 2026-08). Hardcoded on purpose: the
+service boundary is a commercial decision that changes rarely and should be
+reviewable in a diff.
 
 ---
 
@@ -302,15 +311,23 @@ commercial decision that changes rarely and should be reviewable in a diff.
 Everything external is an interface with a fake implementation, so the whole
 product runs and tests without a single third-party credential.
 
-| Seam              | Interface                | Real               | Fake / default                         |
-| ----------------- | ------------------------ | ------------------ | -------------------------------------- |
-| Payments          | `PaymentProvider`        | Stripe adapter     | `FakePaymentProvider` (in-memory, dev) |
-| Ticket extraction | `TicketExtractor`        | Claude             | Heuristic parser                       |
-| Notifications     | `NotificationDispatcher` | _(unbuilt)_        | `NoopDispatcher` (logs)                |
-| Ops alerts        | `OpsAlerter`             | _(unbuilt)_        | `ConsoleOpsAlerter`                    |
-| Clock             | `Clock`                  | `systemClock`      | `fixedClock(instant)` for tests        |
-| Sessions          | `SessionReader`          | Supabase per app   | injected per request                   |
-| Staff roles       | `assertRole`             | `requireStaffRole` | injected                               |
+| Seam              | Interface                | Real                                    | Fake / default                         |
+| ----------------- | ------------------------ | ---------------------------------------- | -------------------------------------- |
+| Payments          | `PaymentProvider`        | Stripe adapter                           | `FakePaymentProvider` (in-memory, dev) |
+| Ticket extraction | `TicketExtractor`        | Claude                                   | Heuristic parser                       |
+| Email             | `Notifier`               | `ResendNotifier` (REST, injectable fetch) | `ConsoleNotifier` (logs)               |
+| SMS dispatch      | `NotificationDispatcher` | _(unbuilt — Twilio later)_               | `NoopDispatcher` (logs)                |
+| Ops alerts        | `OpsAlerter`             | _(unbuilt)_                              | `ConsoleOpsAlerter`                    |
+| Clock             | `Clock`                  | `systemClock`                            | `fixedClock(instant)` for tests        |
+| Sessions          | `SessionReader`          | Supabase per app                         | injected per request                   |
+| Staff roles       | `assertRole`             | `requireStaffRole`                       | injected                               |
+
+Email selection mirrors the payments factory: apps resolve `RESEND_API_KEY` /
+`RESEND_FROM` in their env and pass `createRuntime` a
+`notifications: { kind: "resend" | "console", … }` config —
+`createNotifier` builds the adapter, core reads no env. Templates are pure
+builders in [notifications/emails.ts](../packages/core/src/notifications/emails.ts),
+copy rules pinned by tests.
 
 `CoreConfig` ([config.ts](../packages/core/src/config.ts)) is the bundle: db,
 payments, dispatcher, alerter, extractor, clock, and `defaults`
@@ -326,36 +343,50 @@ client-side success signal is never trusted — see Chapter 8.
 API: `create-booking`, `windows` (window listing + blackout CRUD), `quote`,
 `bookings` (transitions + session-scoped reads), `dispatch`, `payment-intent`,
 `payment-lifecycle`, `agent-visit`, `customers`, `addresses`,
-`booking-drafts`, `ticket-uploads`, `staff`, `tasks`, `webhooks`.
+`booking-drafts`, `ticket-uploads`, `staff`, `tasks`, `webhooks`. Two more
+modules sit beside `services/`: `waitlist/` (`recordWaitlistSignup` — the
+idempotent (email, zip) upsert behind both capture surfaces — and
+`notifyNewlyCoveredWaitlist`, the zone-opened sweep's engine) and
+`auto-assign` in `services/` whose `autoAssignOnPaid` hook fires from every
+path a booking takes to `paid` (webhook, return-page re-check, fake-provider
+inline) — never throws, never fails the payment path; the 0019 unique
+indexes referee the webhook/re-check race.
 
 A service is where ownership is enforced. Session-scoped reads are
 404-shaped on a foreign id — existence is itself a disclosure — and the
 `…ForSession` suffix marks the functions that carry that guarantee.
 
-**Jobs** are five Inngest functions, all served from apps/web
-([api/inngest/route.ts](../apps/web/src/app/api/inngest/route.ts)) — three in
+**Jobs** are eight Inngest functions, all served from apps/web
+([api/inngest/route.ts](../apps/web/src/app/api/inngest/route.ts)) — six in
 [jobs/functions.ts](../packages/core/src/jobs/functions.ts) plus two defined in
 [apps/web/src/lib/inngest.ts](../apps/web/src/lib/inngest.ts):
 
-| function                  | trigger                             | live?                                        |
-| ------------------------- | ----------------------------------- | -------------------------------------------- |
-| `capture-due-bookings`    | `cron("*/5 * * * *")`               | yes — charges cards once bags are in custody |
-| `cutoff-risk-monitor`     | `cron("*/5 * * * *")`               | yes                                          |
-| `cleanup-anonymous-users` | daily 04:00 ET                      | yes                                          |
-| `booking-pickup-reminder` | event `booking/confirmed`           | **never fires** — nothing sends events       |
-| `agent-no-show-check`     | event `booking/agent_no_show_check` | **never fires**                              |
+| function                     | trigger                             | live?                                          |
+| ---------------------------- | ----------------------------------- | ----------------------------------------------- |
+| `capture-due-bookings`       | `cron("*/5 * * * *")`               | yes — charges cards once bags are in custody   |
+| `cutoff-risk-monitor`        | `cron("*/5 * * * *")`               | yes                                            |
+| `cleanup-anonymous-users`    | daily 04:00 ET                      | yes                                            |
+| `booking-confirmation-email` | event `booking/confirmed`           | yes — real email via the Notifier seam         |
+| `booking-pickup-reminder`    | event `booking/confirmed`           | yes — email real, SMS console until Twilio     |
+| `exception-ops-alert-email`  | event `booking/exception_raised`    | yes — to `OPS_ALERT_EMAIL` (unset = skip)      |
+| `waitlist-zone-opened-sweep` | daily 10:00 ET                      | yes — the waitlist's promised email            |
+| `agent-no-show-check`        | event `booking/agent_no_show_check` | **never fires** — that event is still unsent   |
 
-Inngest rather than a plain cron service because two of them use
+The `booking/confirmed` and `booking/exception_raised` events are actually
+emitted now (2026-08-23) from
+[apps/web/src/lib/booking-events.ts](../apps/web/src/lib/booking-events.ts):
+every path to `paid` emits with a deterministic id, keyed on "this call
+performed the move" so redeliveries and races never re-fire — see
+[features/jobs-and-notifications.md](features/jobs-and-notifications.md).
+`booking/agent_no_show_check` is the one still-unsent event.
+
+Inngest rather than a plain cron service because the reminder uses
 `step.sleepUntil` — a durable per-booking delay (sleep until 2h before pickup,
 then send). Cloud Scheduler / Vercel Cron / `pg_cron` cannot suspend and
 resume a run; replacing that needs Cloud Tasks, EventBridge Scheduler, or a
-Postgres-backed queue. The three crons are scheduler-agnostic: each has an
+Postgres-backed queue. The 5-minute crons are scheduler-agnostic: each has an
 authenticated route (`/api/jobs/…` behind `CRON_SECRET`) that any scheduler
 can drive.
-
-The two event-driven functions have never run — there is no `inngest.send()`
-call anywhere yet. Their side effects remain stubs pending the notification
-integrations.
 
 ---
 
@@ -372,6 +403,14 @@ ZIP + flight    address+bags    window       review + verify + pay
 `/book` itself is a route handler, not a page: it rehydrates the funnel cookie
 from the server draft row and redirects to the first incomplete step, which is
 what makes a draft resumable across devices.
+
+**Out-of-coverage is a fork, not a dead end.** An uncovered ZIP at the flight
+step swaps in an email-capture card, and the marketing `/waitlist` page offers
+the same signup standalone (ZIP required there — the row IS the per-zone
+demand signal). Both persist through core's `recordWaitlistSignup` into
+`waitlist_signups`, idempotently — resubmitting never errors and never leaks
+"already registered". The promised follow-up ("the one email that says you're
+covered") is the daily zone-opened sweep in Chapter 5's jobs table.
 
 **The unlock model** is pure and unit-tested: a step is unlocked when every
 step before it is complete. Completed steps stay clickable so a customer can
@@ -574,7 +613,7 @@ Detail: [verification-visit.md](../apps/agent/docs/verification-visit.md).
 | Route         | What it does                                                                                |
 | ------------- | ------------------------------------------------------------------------------------------- |
 | `/`           | Dashboard: today's bookings by status, unassigned count, open exceptions — all real queries |
-| `/bookings`   | Dispatch board: filter by status/airport/day, assign an agent, see at-risk bookings         |
+| `/bookings`   | Dispatch board: filter by status/airport/day, assign an agent, see at-risk bookings. Since 2026-08-23 assignment is automatic on `paid` (`autoAssignOnPaid`); the board's Assign button is the manual override, and an uncovered ZIP still falls through to it via the at-risk flag |
 | `/blocks`     | Window blackouts — the ops lever over what customers can book                               |
 | `/exceptions` | Bookings in `exception`, with the three legal resolutions                                   |
 | `/staff`      | Invite / list / deactivate agents and admins                                                |
@@ -746,10 +785,19 @@ deploys independently and reads its own env, validated at boot by a
 zod-parsed `env.ts`.
 
 **Production boot assertions** fail closed. `apps/web` asserts its security
-config (`assertProductionSecurityConfig`), and the two staff apps assert their
-Supabase + service-role wiring. A missing secret stops the app rather than
-silently disabling a protection. The build phase is exempt, so a fresh clone
-still builds.
+config (`assertProductionSecurityConfig`) AND, on live-mode (non-coming-soon)
+boots, `RESEND_API_KEY` — a missing email key would silently degrade booking
+confirmations to console logs. The two staff apps assert their Supabase +
+service-role wiring. A missing secret stops the app rather than silently
+disabling a protection. The build phase is exempt, so a fresh clone still
+builds.
+
+**Email + jobs in production** need three more things beyond the code:
+Resend domain verification (until it flips, sends only reach the Resend
+account's own address), `RESEND_FROM` on the verified domain plus
+`NEXT_PUBLIC_APP_URL` for the email CTAs, and the Inngest Cloud app synced
+against `<origin>/api/inngest` with the **prod** event/signing keys —
+without the sync, no cron or event function ever runs in production.
 
 **Two database URLs, always.** `DATABASE_URL` is the pooled connection apps
 use at runtime; `DIRECT_DATABASE_URL` (port 5432) is for migrations only.
