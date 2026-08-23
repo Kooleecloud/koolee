@@ -11,6 +11,7 @@ import {
   type PriceLine,
 } from "../notifications/emails";
 import { resolveDisplayTz } from "../services/display-tz";
+import { notifyNewlyCoveredWaitlist } from "../waitlist/notify-covered";
 import {
   formatInstantInAirportTz,
   formatWindowInAirportTz,
@@ -484,10 +485,43 @@ export function createKooleeFunctions(
     },
   );
 
+  /* ------------------------------------------------------------------ */
+  /* 4. Waitlist zone-opened sweep                                        */
+  /* ------------------------------------------------------------------ */
+
+  /**
+   * Daily reconciler for the waitlist's promised email. Coverage lives in
+   * code, so "a zone opened" is a deploy — this sweep converges on it within
+   * a day: unnotified signups whose ZIP is covered NOW get the email and a
+   * `notified_at` stamp (see notifyNewlyCoveredWaitlist for the idempotency
+   * contract). Quiet when there is nothing to do, which is almost always.
+   */
+  const waitlistZoneOpenedSweep = inngest.createFunction(
+    {
+      id: "waitlist-zone-opened-sweep",
+      name: "Email waitlist signups whose ZIP gained coverage",
+      triggers: [cron("TZ=America/New_York 0 10 * * *")],
+    },
+    async ({ step, logger }) => {
+      return step.run("notify-newly-covered", async () => {
+        const result = await notifyNewlyCoveredWaitlist(getConfig(), {
+          appOrigin: options.appOrigin,
+        });
+        if (result.notified > 0 || result.failed > 0) {
+          logger.info(
+            `waitlist sweep: notified ${result.notified}, failed ${result.failed}, still uncovered ${result.stillUncovered}`,
+          );
+        }
+        return result;
+      });
+    },
+  );
+
   return [
     bookingConfirmationEmail,
     pickupReminder,
     exceptionOpsAlertEmail,
+    waitlistZoneOpenedSweep,
     cutoffRiskMonitor,
     agentNoShowCheck,
   ];

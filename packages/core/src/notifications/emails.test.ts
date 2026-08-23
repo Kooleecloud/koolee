@@ -4,6 +4,7 @@ import {
   buildBookingConfirmationEmail,
   buildOpsExceptionEmail,
   buildPickupReminderEmail,
+  buildZoneOpenedEmail,
   centsToUsd,
 } from "./emails";
 
@@ -48,6 +49,11 @@ describe("transactional email copy rules", () => {
       bookingId: "abc",
       reason: "payment authorization expired",
     }),
+    buildZoneOpenedEmail({
+      to: "casey@example.com",
+      zip: "10701",
+      bookUrl: "https://koolee.test/book",
+    }),
   ];
 
   it("never claims airline check-in, in text or html", () => {
@@ -79,6 +85,18 @@ describe("brand color rules", () => {
     expect(occurrences).toBe(1);
     const ctaIndex = html!.indexOf("<a href=");
     expect(html!.indexOf(ORANGE)).toBeGreaterThan(ctaIndex);
+  });
+
+  it("zone-opened email keeps the same rule — one orange, on the CTA", () => {
+    const { html, body } = buildZoneOpenedEmail({
+      to: "casey@example.com",
+      zip: "10701",
+      bookUrl: "https://koolee.test/book",
+    });
+    expect(html!.split(ORANGE).length - 1).toBe(1);
+    expect(body).toContain("10701");
+    expect(body).toContain("airline's bag drop");
+    expect(body).toContain("only waitlist email");
   });
 
   it("has NO orange anywhere when there is no CTA", () => {

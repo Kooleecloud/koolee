@@ -208,6 +208,48 @@ all three apps) · web unit 59 · core unit 243 · integration 84 passed /
 
 ---
 
+## PR texts (open in this order; each into `dev`)
+
+### PR 1 — `feat/waitlist-persistence`
+
+**Title:** `feat(waitlist): persist signups to a waitlist_signups table`
+
+Both email-capture surfaces (the /waitlist page and the booking funnel's
+out-of-area fork) were deliberate stubs — validated, logged, dropped. Now:
+migration 0018 (`waitlist_signups`, unique (email, zip) pair — one row per
+person-per-zone so demand counts stay honest; nullable `notified_at` as the
+notify landing pad), a core idempotent-upsert seam, both actions wired, ZIP
+now required on the waitlist form, honest error states replace fake success.
+5 integration tests. Hosted owes `db:migrate` (see RUN-REPORT-3).
+
+### PR 2 — `feat/dispatch-close-out-and-email` (after PR 1 merges)
+
+**Title:** `feat: dispatch debt close-out + real email notifications (Tier 1+2 slice)`
+
+Phases 0–6 of SLICE-PROMPT-tier1-tier2, 7 commits reviewable phase by phase:
+small fixes + Vercel Analytics · migration 0019 one-task-per-booking
+(dedup-first) · on-paid auto-assign from every payment path with the
+webhook/re-check race integration-tested · migration 0020 one-active pricing
+rule + seed convergence on canonical launch-v1 + agent zones for all 198
+covered ZIPs (ZIP data moved to `@koolee/db/coverage-zips`, core API
+unchanged) · ResendNotifier behind the seam with prod boot gate ·
+booking/confirmed + exception events now actually emitted, confirmation/
+reminder/exception emails with pinned copy rules · docs + close-out
+(`packages/db/.env` LOCAL-default flip documented). Final gate: turbo 19/19,
+243 unit / 84 integration, three consecutive green integration runs.
+TD manual steps in RUN-REPORT-3 (hosted migrations, seed, Resend DNS + env).
+
+### PR 3 — `feat/waitlist-zone-notify` (after PR 2 merges)
+
+**Title:** `feat(waitlist): daily zone-opened sweep sends the promised "you're covered" email`
+
+Closes the waitlist loop: a daily cron reconciles `notified_at IS NULL`
+against live coverage (coverage is code, so "a zone opened" is a deploy),
+emails newly covered signups exactly once, stamps on success, retries
+failures next sweep. 3 integration tests + copy-rule tests.
+
+---
+
 ## TD manual steps (in order, after review + push + merges)
 
 1. **Hosted migrations** (one command, applies 0018 + 0019 + 0020):
@@ -241,6 +283,31 @@ all three apps) · web unit 59 · core unit 243 · integration 84 passed /
    booking → confirmation email prints on the dev-server console; the
    Inngest dev UI lists 7 registered functions.
 
-## Unit 3 — waitlist zone-opened notification
+## Unit 3 — waitlist zone-opened notification (`feat/waitlist-zone-notify`)
 
-_Not started yet — stacks on Unit 2 (needs `waitlist_signups` + ResendNotifier)._
+**Status: complete, all gates green.** Stacked on Unit 2 — this is where
+Units 1 and 2 meet: the table + `notified_at` column from Unit 1, the
+notifier + template + jobs machinery from Unit 2.
+
+Design decision (spec'd before code): coverage lives in CODE
+(`@koolee/db/coverage-zips`), so "a zone opened" is a **deploy**, not a
+database event. A daily reconciling sweep beats a trigger: nothing has to
+remember to fire it, and it converges within a day of any coverage expansion.
+
+- `notifyNewlyCoveredWaitlist` (core/waitlist): scan `notified_at IS NULL`
+  (batch 200), skip still-uncovered ZIPs untouched, email covered ones via
+  the notifier, stamp `notified_at` AFTER a successful send (crash between
+  send and stamp = at-most-one duplicate next sweep — the right side of the
+  trade against silently never sending). Failed sends stay queued; per-row
+  isolation. One email per (email, zip) row on purpose.
+- `buildZoneOpenedEmail`: "Koolee now covers <zip>", bag-drop wording,
+  "this is the only waitlist email we send", orange only on the Book CTA —
+  all pinned in the copy-rule tests.
+- `waitlist-zone-opened-sweep` cron (10:00 ET daily) added to
+  `createKooleeFunctions` — 8 registered functions now; the stub comment in
+  `captureOutOfAreaEmail` updated to point at the sweep.
+- Tests: 3 integration (stamp + skip-uncovered + failed-send-stays-queued /
+  next-sweep-retries, via a per-recipient FlakyNotifier), 1 new copy test.
+
+Gates: typecheck+lint ✅ · core unit 244 ✅ · integration 87 passed /
+3 skipped ✅ · web prod build ✅.
