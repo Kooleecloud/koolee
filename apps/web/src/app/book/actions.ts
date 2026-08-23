@@ -8,6 +8,7 @@ import {
   discardBookingDraft,
   listBookableWindows,
   OutOfCoverageError,
+  recordWaitlistSignup,
   SlotNotSellableError,
   softDeleteBookingDraft,
   type AirportCode,
@@ -82,7 +83,7 @@ export async function startOverBooking(): Promise<void> {
   redirect("/book/flight");
 }
 
-/** Out-of-area waitlist. Stubbed — nothing is stored yet. */
+/** Out-of-area waitlist: persists to `waitlist_signups` via core. */
 export async function captureOutOfAreaEmail(
   _prev: ActionState,
   form: FormData,
@@ -93,11 +94,26 @@ export async function captureOutOfAreaEmail(
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
     return { error: "Enter a valid email address.", outOfCoverageZip: zip };
   }
+  if (!/^\d{5}$/.test(zip)) {
+    return { error: "That ZIP code doesn't look right — go back and re-enter it.", outOfCoverageZip: zip };
+  }
 
-  // TODO(waitlist): persist to a `waitlist` table and notify via Resend.
-  // Deliberately not stored yet — capturing an address we then drop on the
-  // floor is worse than not asking.
-  console.log(`[waitlist] ${email} wants coverage in ${zip}`);
+  const core = tryGetCore();
+  if (!core) {
+    return {
+      error: "We can't save signups right now — please try again in a few minutes.",
+      outOfCoverageZip: zip,
+    };
+  }
+
+  // TODO(waitlist-notify): email via Resend when this ZIP gains coverage
+  // (query rows with notified_at IS NULL, stamp on send).
+  try {
+    await recordWaitlistSignup(core.db, { email, zip, source: "booking_out_of_area" });
+  } catch (error) {
+    console.error("[waitlist] failed to persist out-of-area signup", error);
+    return { error: "Something went wrong saving your spot — please try again.", outOfCoverageZip: zip };
+  }
 
   return { ok: true };
 }

@@ -9,6 +9,7 @@ export * from "./pricing";
 export * from "./payments";
 export * from "./auth";
 export * from "./coverage";
+export * from "./waitlist";
 export * from "./services";
 export * from "./notifications";
 
@@ -46,4 +47,6 @@ export type {
   User,
   UserRole,
   VerificationTask,
+  WaitlistSignupRow,
+  WaitlistSource,
 } from "@koolee/db";
