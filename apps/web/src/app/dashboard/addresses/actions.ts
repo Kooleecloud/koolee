@@ -84,7 +84,7 @@ export async function createAddress(
     return { error: "Something went wrong saving the address." };
   }
 
-  revalidatePath("/dashboard/addresses");
+  revalidatePath("/dashboard/profile");
   return { ok: true };
 }
 
@@ -126,7 +126,7 @@ export async function updateAddress(
     return { error: "Something went wrong saving the address." };
   }
 
-  revalidatePath("/dashboard/addresses");
+  revalidatePath("/dashboard/profile");
   return { ok: true };
 }
 
@@ -156,6 +156,6 @@ export async function deleteAddress(
     return { error: "Something went wrong deleting the address." };
   }
 
-  revalidatePath("/dashboard/addresses");
+  revalidatePath("/dashboard/profile");
   return { ok: true };
 }
