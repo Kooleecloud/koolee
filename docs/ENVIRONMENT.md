@@ -213,6 +213,34 @@ GitHub secrets (session-pooler URLs). See
 
 ---
 
+## 6.5 Two Supabase projects: prod vs dev (since 2026-08-23)
+
+| | **prod** | **dev** |
+| --- | --- | --- |
+| Project ref | `dblfbpxorleurqdlkylz` | `jpvlzoikcivxepgyrkho` |
+| Region | `us-east-2` | `ca-central-1` (historical accident) |
+| Data API | **disabled** (nothing uses `/rest/v1`; auth + storage unaffected) | enabled (legacy) |
+| Vercel env scope | **Production** (deploys of `main`) | **Preview** (every other branch) |
+| CI migration secret | `PROD_DIRECT_DATABASE_URL` | `DEV_DIRECT_DATABASE_URL` |
+| Test OTP phone numbers | **NEVER** | yes (`+13322602829` etc.) |
+| Stripe | live keys at launch (test until then) | test keys |
+
+Rules that make the split hold:
+
+- **Secrets are never shared across the pair** — prod has its own
+  `OTP_LOG_HMAC_KEY`, `CRON_SECRET`, Turnstile widget, and Supabase keys.
+- **Connection strings use the pooler host** with username
+  `postgres.<ref>`: transaction mode `:6543` for app runtime
+  (`DATABASE_URL`), session mode `:5432` for migrations. The
+  `db.<ref>.supabase.co` host is IPv6-only — unreachable from GitHub
+  runners and most home networks (§6, MIGRATIONS §9.5).
+- **Nothing dev-flavored can leak into prod by construction**: the staff/
+  customer seed hard-skips non-local Supabase hosts, agent zones seed only
+  locally, and CI never seeds.
+- Dashboard-owned config (Twilio creds, Turnstile secret, Site URL,
+  redirect URLs) must be set **per project** — it does not travel with
+  migrations.
+
 ## 7. Setting up from scratch
 
 ```bash
