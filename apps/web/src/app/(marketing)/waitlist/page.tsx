@@ -18,7 +18,7 @@ export default function WaitlistPage() {
             as="h1"
             eyebrow="Waitlist"
             heading="Not in your neighborhood yet?"
-            body="We're expanding the pickup area street by street. Leave your email — and your ZIP if you like — and we'll send exactly one message: the one that says you're covered."
+            body="We're expanding the pickup area street by street. Leave your email and ZIP, and we'll send exactly one message: the one that says you're covered."
           />
         </Reveal>
         <Reveal delay={0.1}>

@@ -63,3 +63,11 @@ export const routeStatusEnum = pgEnum("route_status", [
   "cancelled",
 ]);
 export type RouteStatus = (typeof routeStatusEnum.enumValues)[number];
+
+export const waitlistSourceEnum = pgEnum("waitlist_source", [
+  /** The marketing /waitlist page. */
+  "waitlist_page",
+  /** The out-of-area email capture inside the booking funnel. */
+  "booking_out_of_area",
+]);
+export type WaitlistSource = (typeof waitlistSourceEnum.enumValues)[number];

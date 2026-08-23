@@ -127,6 +127,13 @@
       "when": 1786771592986,
       "tag": "0017_unique_seal_id",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1787454002900,
+      "tag": "0018_vengeful_odin",
+      "breakpoints": true
     }
   ]
 }

@@ -83,14 +83,13 @@ export function WaitlistForm() {
               />
             </div>
             <div className="flex flex-col gap-2">
-              <Label htmlFor="waitlist-zip">
-                ZIP code <span className="font-normal text-muted-foreground">(optional)</span>
-              </Label>
+              <Label htmlFor="waitlist-zip">ZIP code</Label>
               <Input
                 id="waitlist-zip"
                 name="zip"
                 inputMode="numeric"
                 maxLength={5}
+                required
                 placeholder="11201"
                 disabled={pending}
               />
