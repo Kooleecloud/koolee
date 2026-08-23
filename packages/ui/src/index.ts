@@ -10,8 +10,18 @@ export {
   CardContent,
 } from "./components/card";
 export { Input } from "./components/input";
+export {
+  Popover,
+  PopoverTrigger,
+  PopoverAnchor,
+  PopoverContent,
+} from "./components/popover";
 export { Label } from "./components/label";
 export { Badge, badgeVariants, type BadgeProps } from "./components/badge";
+export {
+  VerifiedIndicator,
+  type VerifiedIndicatorProps,
+} from "./components/verified-indicator";
 export {
   Dialog,
   DialogPortal,
@@ -81,6 +91,15 @@ export {
   type PhoneInputProps,
 } from "./components/phone-input";
 export { OTPInput, type OTPInputProps } from "./components/otp-input";
+export { Calendar, type CalendarProps } from "./components/calendar";
+export {
+  DateTimeField,
+  type DateTimeFieldProps,
+} from "./components/date-time-field";
+export {
+  NumberStepper,
+  type NumberStepperProps,
+} from "./components/number-stepper";
 export {
   PriceEstimator,
   type PriceEstimatorProps,
