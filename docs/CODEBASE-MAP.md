@@ -453,7 +453,7 @@ the page.
 
 ## Chapter 7 — Auth
 
-**Three session kinds**, one Supabase project
+**Three session kinds**, one Supabase project per environment
 ([auth/types.ts](../packages/core/src/auth/types.ts)):
 
 | Kind              | Who          | How                                                           |
@@ -480,7 +480,8 @@ account; what gates the consoles is `requireStaffRole` on every request. That
 is also what makes deactivation immediate — a deactivated admin's live session
 fails its next request.
 
-**Cookie names are per app.** All three apps share one Supabase project, and
+**Cookie names are per app.** All three apps share one Supabase project (per
+environment — see Ch 13), and
 `@supabase/ssr`'s default cookie name is host-scoped (ports are ignored), so on
 localhost signing into one app logged the others out. Each app pins its own
 name: `sb-koolee-web-auth`, `sb-koolee-admin-auth`, `sb-koolee-agent-auth`.
@@ -648,9 +649,28 @@ Detail: [ops-console.md](../apps/admin/docs/ops-console.md).
 
 **`packages/ui`** holds every shared component — layout (`AppShell`,
 `AppHeader`, `ContentColumn`, `Section`, `PageHeader`), primitives (Button,
-Card, Input, Select, Dialog, Badge, …), and domain components
-(`CustodyTimeline`, `BookingStatusBadge`, `PriceEstimator`, `OtpInput`,
-`PhoneInput`, `SealMotif`).
+Card, Input, Select, Dialog, Badge, Popover, Calendar, `VerifiedIndicator`, …),
+form controls (`DateTimeField`, `NumberStepper`, `OTPInput`, `PhoneInput`), and
+domain components (`CustodyTimeline`, `BookingStatusBadge`, `PriceEstimator`,
+`SealMotif`).
+
+**The one third-party widget in the package is `Calendar`** — a
+`react-day-picker` v10 `DayPicker` (2026-08-23), styled entirely with Tailwind
+against the theme tokens. Its own stylesheet is deliberately **not** imported:
+a component whose colours live in a third-party CSS API cannot follow the brand
+palette or dark mode without override fights. `@radix-ui/react-popover` came in
+with it.
+
+⚠️ **`DateTimeField` carries a timezone contract, not just a layout.** It
+replaced the flight step's native `<input type="datetime-local">`, and its
+submitted value is still a **wall-clock string** — byte-identical to what that
+input posted — because the flight step feeds it the *airport's* wall clock, not
+the browser's. Every transformation inside is string-level; the single `Date`
+exists so `DayPicker` has something to render and is built from, and read back
+as, local calendar fields. `Intl.DateTimeFormat` is avoided (the repo's lint
+rule bans it there), so the label comes from a fixed month/weekday table.
+Changing any of that reintroduces the bug the wall-clock contract prevents —
+see [TIME.md](TIME.md).
 
 **Two components are deliberately shared across all three apps** rather than
 reimplemented per app, because divergence there is a correctness problem, not a
@@ -780,9 +800,19 @@ Detail: [local-test-env.md](../packages/core/docs/local-test-env.md).
 
 ## Chapter 13 — Deployment picture
 
-**Three Next apps, one Supabase project, one Stripe account.** Each app
+**Three Next apps, TWO Supabase projects, one Stripe account.** Each app
 deploys independently and reads its own env, validated at boot by a
 zod-parsed `env.ts`.
+
+**The prod/dev split (2026-08-23).** `apps/web` is one Vercel project whose
+branch decides everything: `main` → Production scope → `koolee.cloud` → the
+prod Supabase project; every other branch → Preview scope → the dev Supabase
+project, with the `dev` branch pinned to `dev.koolee.cloud`. `NODE_ENV` is
+`production` in Preview too, so every boot gate below fires on dev exactly as
+it does on prod — dev rehearses prod, deliberately. Full detail, including the
+Supabase auth-email settings that are invisible in code and the reason
+Deployment Protection has to stay off for Preview, is
+[ENVIRONMENT.md §6.5–6.6](ENVIRONMENT.md).
 
 **Production boot assertions** fail closed. `apps/web` asserts its security
 config (`assertProductionSecurityConfig`) AND, on live-mode (non-coming-soon)

@@ -270,8 +270,13 @@ Things that are true everywhere, and expensive to violate:
 
 ## 9. Deployment
 
-Three Next apps deploy independently; one Supabase project; one Stripe account.
-Each app validates its own env at boot.
+Three Next apps deploy independently; **two Supabase projects** (prod and dev,
+since 2026-08-23); one Stripe account. Each app validates its own env at boot.
+
+`apps/web` is one Vercel project where the branch picks the environment: `main`
+→ Production scope → `koolee.cloud` → the prod project; every other branch →
+Preview scope → the dev project, with `dev` pinned to `dev.koolee.cloud`.
+Details: [ENVIRONMENT.md §6.5–6.6](ENVIRONMENT.md).
 
 **Production boot assertions fail closed.** A missing secret stops the app
 rather than silently disabling a protection. The `next build` phase is exempt so

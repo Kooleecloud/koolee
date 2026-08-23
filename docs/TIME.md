@@ -43,15 +43,24 @@ it exists to protect.
 Use the formatters in `packages/core/src/slots/cutoff.ts`. They all take an
 explicit `tz` — there is no default, on purpose.
 
-| Function                                      | Output                                                   |
-| --------------------------------------------- | -------------------------------------------------------- |
-| `formatWindowInAirportTz(start, end, tz)`     | `Tue 10 Jun, 10:00 AM – 11:00 AM EDT`                    |
-| `formatHourRangeInAirportTz(start, end, tz)`  | `10:00 AM – 11:00 AM EDT`                                |
-| `formatInstantInAirportTz(instant, tz)`       | `Tue 10 Jun, 6:20 PM EDT`                                |
-| `formatTimeInAirportTz(instant, tz)`          | `6:20 PM EDT` (clock only — see below)                   |
-| `formatDayInAirportTz(instant, tz)`           | `Tue 10 Jun` (a day has no zone)                         |
-| `formatDateTimeLocalInAirportTz(instant, tz)` | `2026-06-10T18:20` (for `<input type="datetime-local">`) |
-| `dstTransitionNote(start, tz)`                | a warning string on two nights a year, else `null`       |
+| Function                                      | Output                                             |
+| --------------------------------------------- | -------------------------------------------------- |
+| `formatWindowInAirportTz(start, end, tz)`     | `Tue 10 Jun, 10:00 AM – 11:00 AM EDT`              |
+| `formatHourRangeInAirportTz(start, end, tz)`  | `10:00 AM – 11:00 AM EDT`                          |
+| `formatInstantInAirportTz(instant, tz)`       | `Tue 10 Jun, 6:20 PM EDT`                          |
+| `formatTimeInAirportTz(instant, tz)`          | `6:20 PM EDT` (clock only — see below)             |
+| `formatDayInAirportTz(instant, tz)`           | `Tue 10 Jun` (a day has no zone)                   |
+| `formatDateTimeLocalInAirportTz(instant, tz)` | `2026-06-10T18:20` (wall-clock string — see below) |
+| `dstTransitionNote(start, tz)`                | a warning string on two nights a year, else `null` |
+
+`formatDateTimeLocalInAirportTz` produces the `datetime-local` wall-clock
+format. Its consumer is no longer a native input: since 2026-08-23 the flight
+step uses `DateTimeField` (`packages/ui`), which keeps that exact string as its
+submitted value. **The format is the contract** — the string is the airport's
+wall clock and must never be reinterpreted against a zone, which is why the
+component does all its work on strings and never lets a `Date` cross its
+boundary. Anything that swaps in a `Date`-valued picker reintroduces the
+"6 PM departure shows as 22:00" bug this function exists to prevent.
 
 `formatTimeInAirportTz` pairs with `formatDayInAirportTz` for **stacked table
 cells** — time on the first line, date underneath (the ops board's Booked /
