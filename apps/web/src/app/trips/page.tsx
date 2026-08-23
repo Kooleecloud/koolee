@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { formatDistanceToNow } from "date-fns";
+import { Plane } from "lucide-react";
 import {
   BookingStatusBadge,
   Button,
@@ -16,6 +17,7 @@ import {
 import { redirect } from "next/navigation";
 import {
   formatInstantInAirportTz,
+  formatWindowInAirportTz,
   getBookingDraft,
   getDisplayZones,
   listBookingsForSession,
@@ -26,6 +28,7 @@ import {
 import { discardDraft } from "@/app/trips/actions";
 import { ConfirmActionForm } from "@/components/confirm-action-form";
 import { getAuthUser } from "@/lib/auth";
+import { bookingReference } from "@/lib/booking-reference";
 import { bookingDraftSchema, type TypedBookingDraft } from "@/lib/booking-draft-schema";
 import { BOOKING_STEPS, draftHasProgress, nextIncompleteStep } from "@/lib/booking-steps";
 import { tryGetCore } from "@/lib/core";
@@ -98,32 +101,69 @@ export default async function TripsPage() {
         />
       ) : bookings.length === 0 ? null : (
         <ul className="flex flex-col gap-3">
-          {bookings.map((booking) => (
-            <li key={booking.id}>
-              <Link
-                href={`/trips/${booking.id}`}
-                className="flex items-center justify-between gap-4 rounded-xl border border-border bg-white p-5 shadow-xs transition-all hover:-translate-y-0.5 hover:shadow-lift focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
-              >
-                <span className="flex flex-col gap-1">
-                  <span className="font-display font-semibold text-navy-800">
-                    {booking.flightNumber} · {booking.departureAirport}
+          {bookings.map((booking) => {
+            const tz = zoneFor(zones, booking.departureAirport);
+            const window =
+              booking.pickupWindowStart && booking.pickupWindowEnd
+                ? formatWindowInAirportTz(
+                    booking.pickupWindowStart,
+                    booking.pickupWindowEnd,
+                    tz,
+                  )
+                : booking.pickupWindowStart
+                  ? formatInstantInAirportTz(booking.pickupWindowStart, tz)
+                  : "Not scheduled yet";
+            return (
+              <li key={booking.id}>
+                <Link
+                  href={`/trips/${booking.id}`}
+                  className="flex flex-col gap-4 rounded-xl border border-border bg-white p-5 shadow-xs transition-all hover:-translate-y-0.5 hover:shadow-lift focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  <span className="flex items-start justify-between gap-4">
+                    <span className="flex flex-col gap-1">
+                      <span className="font-display font-semibold text-navy-800">
+                        {booking.flightNumber} · {booking.departureAirport}
+                      </span>
+                      <span className="flex items-center gap-1.5 text-sm text-muted-foreground">
+                        <Plane aria-hidden className="size-3.5 shrink-0 text-sky-700" />
+                        {formatInstantInAirportTz(booking.departureAt, tz)}
+                      </span>
+                    </span>
+                    <BookingStatusBadge status={booking.status} />
                   </span>
-                  <span className="text-sm text-muted-foreground">
-                    {formatInstantInAirportTz(
-                      booking.departureAt,
-                      zoneFor(zones, booking.departureAirport),
-                    )}{" "}
-                    ·{" "}
-                    {booking.bagCount} {booking.bagCount === 1 ? "bag" : "bags"}
-                  </span>
-                </span>
-                <BookingStatusBadge status={booking.status} />
-              </Link>
-            </li>
-          ))}
+
+                  <dl className="grid grid-cols-2 gap-x-4 gap-y-3 border-t border-border pt-4 text-sm sm:grid-cols-3">
+                    <TripFact label="Pickup window" value={window} />
+                    <TripFact label="Passenger" value={booking.paxName} />
+                    <TripFact
+                      label="Bags"
+                      value={`${booking.bagCount} ${booking.bagCount === 1 ? "bag" : "bags"}`}
+                    />
+                    {/* "Total", not "Paid" — a booking can sit unpaid, and
+                        `priceCents` is the quote either way. */}
+                    <TripFact
+                      label="Total"
+                      value={`$${(booking.priceCents / 100).toFixed(2)} ${booking.currency.toUpperCase()}`}
+                    />
+                    <TripFact label="Reference" value={bookingReference(booking.id)} />
+                  </dl>
+                </Link>
+              </li>
+            );
+          })}
         </ul>
       )}
     </>
+  );
+}
+
+/** One labelled fact inside a trip card. */
+function TripFact({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <dt className="text-xs text-muted-foreground">{label}</dt>
+      <dd className="mt-0.5 font-medium text-navy-800">{value}</dd>
+    </div>
   );
 }
 
