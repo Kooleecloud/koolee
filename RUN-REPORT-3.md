@@ -258,8 +258,11 @@ failures next sweep. 3 integration tests + copy-rule tests.
 > now; see ENVIRONMENT §6.5). Prod migrated 21/21 by content hash + seeded;
 > CI migration lanes proven green on both branches; Resend `koolee.cloud`
 > domain **verified**; live smoke test passed — a real `/waitlist` signup
-> persisted to prod `waitlist_signups`. The steps below are kept as the
-> historical procedure.
+> persisted to prod `waitlist_signups`. Inngest Cloud app synced against
+> `https://www.koolee.cloud/api/inngest` — **8 functions registered** on the
+> production environment, crons armed. `bookings@koolee.cloud` alias created
+> (replies to the transactional From land in the real inbox). The steps
+> below are kept as the historical procedure.
 
 1. ✅ **Hosted migrations** (one command, applies 0018 + 0019 + 0020):
    ```bash

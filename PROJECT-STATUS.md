@@ -71,9 +71,12 @@ package-specific in `packages/<pkg>/docs/`. Nothing new accumulates at the root.
   ca-central-1) is now DEV-ONLY — Vercel Production points at prod, Preview
   at dev (see ENVIRONMENT §6.5). CI applies migrations per branch (merge to
   `dev`/`main` → that branch's DB; proven green on both lanes). Resend
-  domain `koolee.cloud` VERIFIED — real recipients receive. Live smoke test
-  passed: a real signup persisted to prod `waitlist_signups`. The waitlist
-  is collecting demand in production, and the zone-opened email is armed.
+  domain `koolee.cloud` VERIFIED — real recipients receive (From:
+  `bookings@koolee.cloud`, aliased so replies land in the real inbox).
+  Inngest Cloud app synced — 8 functions registered on production, crons
+  armed. Live smoke test passed: a real signup persisted to prod
+  `waitlist_signups`. The waitlist is collecting demand in production, and
+  the zone-opened email is armed end to end.
   Launch-day list (blocked on going live, not on code): Stripe live mode +
   prod webhook secret, own Twilio account + business verification, flip
   `NEXT_PUBLIC_LAUNCH_MODE` + redeploy, VERIFY the placeholder cutoff matrix
