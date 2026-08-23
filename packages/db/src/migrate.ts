@@ -39,10 +39,13 @@ async function main(): Promise<void> {
   // wrong database is exactly the failure this line exists to make visible.
   console.log(`Target host: ${new URL(connectionString!).hostname}`);
   console.log(`Applying migrations from ${migrationsFolder}`);
-  await migrate(db, { migrationsFolder });
-  console.log("Migrations applied.");
-
-  await client.end();
+  try {
+    await migrate(db, { migrationsFolder });
+    console.log("Migrations applied.");
+  } finally {
+    // A failed migration must exit non-zero, not hang on the open connection.
+    await client.end();
+  }
 }
 
 main().catch((error: unknown) => {

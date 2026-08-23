@@ -1,7 +1,7 @@
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
-import { eq } from "drizzle-orm";
+import { asc, eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
 import postgres from "postgres";
@@ -288,7 +288,14 @@ describeIntegration("createBooking (integration)", () => {
 
     expect(await db.select().from(payments)).toHaveLength(0);
 
-    const events = await db.select().from(custodyEvents);
+    // ORDER BY is load-bearing: a bare SELECT returns heap order, which is
+    // not insertion order under vacuum/plan changes — this assertion flaked.
+    // The two events come from two separate transactions, so created_at
+    // orders them reliably.
+    const events = await db
+      .select()
+      .from(custodyEvents)
+      .orderBy(asc(custodyEvents.createdAt));
     expect(events.map((e) => e.eventType)).toEqual([
       "booking.created",
       "booking.cancelled",

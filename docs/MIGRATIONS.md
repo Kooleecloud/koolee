@@ -82,11 +82,13 @@ pnpm db:status
 pnpm db:migrate
 ```
 
-⚠️ **Steps 4 and 5 read `packages/db/.env`, which points at the HOSTED
-project.** Pin the URL for anything local:
+⚠️ **Steps 4 and 5 read `packages/db/.env`, which points at the LOCAL stack
+by default** (changed 2026-08-22 — it used to point at hosted, and a bare
+`pnpm db:migrate`/`pnpm seed` silently targeting production is exactly the
+accident the flip prevents). Hosted is reached ONLY via an inline override:
 
 ```bash
-DIRECT_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres \
+DIRECT_DATABASE_URL='postgresql://postgres.PROJECT_REF:PASSWORD@aws-0-<region>.pooler.supabase.com:5432/postgres' \
   pnpm db:migrate
 ```
 

@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
-import { handlePaymentEvent, WebhookVerificationError } from "@koolee/core";
+import { getBooking, handlePaymentEvent, WebhookVerificationError } from "@koolee/core";
+
+import { emitBookingConfirmed, emitExceptionRaised } from "@/lib/booking-events";
 
 import { getCore } from "@/lib/core";
 
@@ -48,6 +50,21 @@ export async function POST(request: Request): Promise<NextResponse> {
 
   try {
     const outcome = await handlePaymentEvent(core, event);
+
+    // Side effects keyed on "THIS delivery performed the move" (movedTo), so
+    // Stripe redeliveries — which handlePaymentEvent reports as no-ops —
+    // never re-fire them. Both emitters are no-throw.
+    if (outcome.bookingId && outcome.movedTo === "paid") {
+      const booking = await getBooking(core.db, outcome.bookingId);
+      if (booking) await emitBookingConfirmed(core, booking);
+    } else if (outcome.bookingId && outcome.movedTo === "exception") {
+      await emitExceptionRaised({
+        bookingId: outcome.bookingId,
+        reason: "Payment authorization cancelled or expired provider-side.",
+        dedupeKey: event.id,
+      });
+    }
+
     // Always 200 once the signature is valid: a non-2xx makes Stripe retry, and
     // "we chose not to act on this event" is not a failure worth retrying.
     return NextResponse.json({ received: true, ...outcome });

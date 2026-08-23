@@ -249,6 +249,15 @@ export async function autoAssignBooking(
   });
 
   if (!assigned.ok) {
+    if (assigned.conflict) {
+      // Lost the on-paid race — a concurrent writer (the other payment path)
+      // assigned it first. Same outcome as "already assigned", not an error.
+      return {
+        ok: false,
+        reason: "not_assignable",
+        detail: "Already assigned by a concurrent writer.",
+      };
+    }
     return { ok: false, reason: "assignment_failed", detail: assigned.error };
   }
 
@@ -257,6 +266,34 @@ export async function autoAssignBooking(
     agentUserId: winner.agentUserId,
     candidatesConsidered: candidates.length,
   };
+}
+
+/**
+ * The on-paid hook. Every path that moves a booking to `paid` — the Stripe
+ * webhook, the /book/return re-check, and createBooking's inline (fake
+ * provider) authorization — calls this afterwards. The first two race BY
+ * DESIGN; the 0019 unique indexes referee, and the loser lands on
+ * `not_assignable`.
+ *
+ * NEVER throws, and a skip is not an error: a booking nobody covers stays
+ * paid-unassigned, which the board already surfaces as at-risk. The one
+ * outcome worth shouting about is a refused WRITE (`assignment_failed`) —
+ * that means a candidate was picked and the assignment itself broke.
+ */
+export async function autoAssignOnPaid(
+  config: CoreConfig,
+  bookingId: string,
+): Promise<void> {
+  try {
+    const result = await autoAssignBooking(config, { bookingId });
+    if (!result.ok && result.reason === "assignment_failed") {
+      console.error(
+        `[auto-assign] on-paid assignment failed for ${bookingId}: ${result.detail}`,
+      );
+    }
+  } catch (error) {
+    console.error(`[auto-assign] on-paid hook crashed for ${bookingId}`, error);
+  }
 }
 
 /* ------------------------------------------------------------------ */

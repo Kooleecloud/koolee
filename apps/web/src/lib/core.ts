@@ -4,6 +4,7 @@ import {
   createRuntime,
   tryCreateRuntime,
   type CoreConfig,
+  type NotifierConfig,
   type PaymentProviderConfig,
   type TicketExtractorConfig,
 } from "@koolee/core";
@@ -62,12 +63,23 @@ export function resolveExtractionConfig(): TicketExtractorConfig {
   return apiKey ? { kind: "claude", apiKey } : { kind: "heuristic" };
 }
 
+/**
+ * Real email iff `RESEND_API_KEY` is set, otherwise the console notifier —
+ * dev is unchanged by the Resend integration. Production REQUIRES the key
+ * (fail-closed boot gate in env.ts).
+ */
+export function resolveNotifierConfig(): NotifierConfig {
+  const apiKey = optionalEnv("RESEND_API_KEY");
+  return apiKey ? { kind: "resend", apiKey, from: env.RESEND_FROM } : { kind: "console" };
+}
+
 /** Throws when the database is not configured. Use in mutation paths. */
 export function getCore(): CoreConfig {
   return createRuntime({
     databaseUrl: env.DATABASE_URL,
     payments: resolvePaymentConfig(),
     extraction: resolveExtractionConfig(),
+    notifications: resolveNotifierConfig(),
   });
 }
 
@@ -80,5 +92,6 @@ export function tryGetCore(): CoreConfig | null {
     databaseUrl: env.DATABASE_URL,
     payments: resolvePaymentConfig(),
     extraction: resolveExtractionConfig(),
+    notifications: resolveNotifierConfig(),
   });
 }

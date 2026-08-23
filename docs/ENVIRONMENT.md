@@ -88,7 +88,9 @@ Legend: ● required for the feature to work · ○ optional/degrades · — not
 | `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` |  ●  |   —   |   —   | Stripe → Developers → API keys                                                       |
 | `INNGEST_EVENT_KEY`                  |  ○  |   —   |   —   | Inngest Cloud → Events. Not needed for `pnpm dev:inngest`                            |
 | `INNGEST_SIGNING_KEY`                |  ○  |   —   |   —   | Inngest Cloud → Deploy → Signing key                                                 |
-| `RESEND_API_KEY`                     |  ○  |   —   |   —   | Resend dashboard                                                                     |
+| `RESEND_API_KEY`                     |  ○  |   —   |   —   | Resend dashboard. **Required in production** (boot gate) — without it email degrades to console |
+| `RESEND_FROM`                        |  ○  |   —   |   —   | RFC 5322 From. Defaults to Resend's sandbox sender; set to the verified domain for real sends |
+| `OPS_ALERT_EMAIL`                    |  ○  |   —   |   —   | Ops inbox for `booking/exception_raised` alert emails; unset → skipped              |
 | `AEROAPI_KEY`                        |  ○  |   —   |   —   | FlightAware AeroAPI. **Stubbed**                                                     |
 | `GOOGLE_MAPS_API_KEY`                |  ○  |   ○   |   —   | Google Cloud → Maps Platform. **Stubbed**                                            |
 | `ANTHROPIC_API_KEY`                  |  ○  |   —   |   —   | Ticket-PDF extraction. Out of scope in scaffold                                      |
@@ -137,6 +139,14 @@ Admin ([admin/src/env.ts](../apps/admin/src/env.ts)): also requires
 no-ops) and `NEXT_PUBLIC_AGENT_APP_URL` (agent invite links would land on the
 wrong app).
 
+### 4.3b — `RESEND_API_KEY` in production — apps/web
+
+Runs under the same conditions as 4.2 (prod + Supabase configured + not
+coming-soon), plus the 4.4 build-phase exemption. Without the key the notifier
+silently degrades to console — in production that means booking confirmations
+vanish into a log nobody reads. Coming-soon deploys are exempt because no
+booking can complete.
+
 ### 4.4 — Why builds still pass
 
 `next build` runs with `NODE_ENV=production`. The agent and admin gates are
@@ -168,33 +178,32 @@ service key ([agent/src/env.ts describeEnvStatus](../apps/agent/src/env.ts)).
 
 ---
 
-## 6. ⚠️ The sharpest edge: `packages/db/.env` points at HOSTED
+## 6. `packages/db/.env` points at LOCAL — hosted only by explicit override
 
-`packages/db/.env` currently resolves to a **hosted Supabase pooler**
-(`aws-0-ca-central-1.pooler.supabase.com`).
-
-Every db tool loads dotenv in this order —
-`.env.local`, `.env`, `../../.env.local`, `../../.env` — so a **bare**
+**Flipped 2026-08-22** (it used to point at hosted, and a bare command
+silently migrating/seeding the hosted project is exactly the accident that
+motivated the flip). `packages/db/.env` and `.env.example` now default both
+URLs to the local Supabase stack (`127.0.0.1:54322`), so a **bare**
 `pnpm db:migrate`, `pnpm db:status`, `pnpm seed`, or `pnpm db:studio` targets
-the **hosted project**, not your local stack.
+**local**.
 
-**The guard:** shell env always wins. `migrate.ts`, `status.ts`, and
-`drizzle.config.ts` each capture `process.env.DIRECT_DATABASE_URL` /
-`DATABASE_URL` _before_ calling dotenv, so an inline override beats every dotenv
-file ([migrate.ts:15-21](../packages/db/src/migrate.ts#L15-L21)).
+Targeting **hosted** now requires an inline override — shell env always wins:
+`migrate.ts`, `status.ts`, and `drizzle.config.ts` each capture
+`process.env.DIRECT_DATABASE_URL` / `DATABASE_URL` _before_ calling dotenv
+([migrate.ts:15-21](../packages/db/src/migrate.ts#L15-L21)).
 
 ```bash
-# Targets LOCAL — pin the URL explicitly.
-DIRECT_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres \
+# Targets HOSTED — deliberate, visible, never the default.
+DIRECT_DATABASE_URL='postgresql://postgres.PROJECT_REF:PASSWORD@aws-0-<region>.pooler.supabase.com:5432/postgres' \
   pnpm db:migrate
 ```
 
 **Both `migrate.ts` and `status.ts` print `Target host:` before doing anything.**
-Read that line. It exists specifically so "migrations silently landed on the
+Read that line every time — it exists specifically so "migrations landed on the
 wrong database" is visible rather than discovered later.
 
-`pnpm seed:local` is the safe one-command version — it pins both URLs at the
-local stack before anything reads the environment.
+`pnpm seed:local` additionally pins both URLs at the local stack before
+anything reads the environment, and is still the recommended one-command seed.
 
 ---
 

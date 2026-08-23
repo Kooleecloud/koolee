@@ -19,6 +19,7 @@
     "@stripe/stripe-js": "^9.12.1",
     "@supabase/ssr": "^0.12.4",
     "@supabase/supabase-js": "^2.111.0",
+    "@vercel/analytics": "^2.0.1",
     "@vercel/speed-insights": "^2.0.0",
     "date-fns": "^4.1.0",
     "inngest": "^4.14.0",

@@ -62,10 +62,27 @@ describe("env — assertProductionSecurityConfig boot gate", () => {
     vi.stubEnv("OTP_LOG_HMAC_KEY", "f".repeat(64));
     vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "service-role-key");
     vi.stubEnv("NEXT_PUBLIC_TURNSTILE_SITE_KEY", "1x00000000000000000000BB");
+    // The transactional-email gate (§4.3b) is part of "complete" too.
+    vi.stubEnv("RESEND_API_KEY", "re_test_key");
   }
 
   it("boots when the production security config is complete", async () => {
     stubCompleteProdConfig();
+    vi.resetModules();
+    await expect(import("./env")).resolves.toBeDefined();
+  });
+
+  it("throws at import when RESEND_API_KEY is missing on a live prod boot", async () => {
+    stubCompleteProdConfig();
+    vi.stubEnv("RESEND_API_KEY", "");
+    vi.resetModules();
+    await expect(import("./env")).rejects.toThrow(/RESEND_API_KEY/);
+  });
+
+  it("boots without RESEND_API_KEY when the deploy is coming-soon", async () => {
+    stubCompleteProdConfig();
+    vi.stubEnv("RESEND_API_KEY", "");
+    vi.stubEnv("NEXT_PUBLIC_LAUNCH_MODE", "coming_soon");
     vi.resetModules();
     await expect(import("./env")).resolves.toBeDefined();
   });

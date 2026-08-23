@@ -1,5 +1,12 @@
 import { NextResponse } from "next/server";
-import { NotFoundError, reconcileBookingPayment, softDeleteBookingDraft } from "@koolee/core";
+import {
+  getBooking,
+  NotFoundError,
+  reconcileBookingPayment,
+  softDeleteBookingDraft,
+} from "@koolee/core";
+
+import { emitBookingConfirmed } from "@/lib/booking-events";
 
 import { getVerifiedAuthUser } from "@/lib/auth";
 import { DRAFT_COOKIE_NAME } from "@/lib/booking-draft";
@@ -56,6 +63,14 @@ export async function GET(request: Request): Promise<NextResponse> {
 
   switch (outcome.outcome) {
     case "authorized": {
+      // Confirmation side effects fire only when THIS re-check performed the
+      // draft → paid move — a refresh, or losing the race to the webhook
+      // (which then owns the emit), stays side-effect-free. No-throw.
+      if (outcome.movedToPaid) {
+        const booking = await getBooking(core.db, bookingId);
+        if (booking) await emitBookingConfirmed(core, booking);
+      }
+
       // Funds held, booking advanced — the funnel draft is finished. Clear
       // both the server-side mirror and the cookie on this response.
       try {

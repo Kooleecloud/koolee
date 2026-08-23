@@ -1,14 +1,17 @@
 import { config as loadEnv } from "dotenv";
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 
 import { createDb } from "./client";
+import { ALL_COVERAGE_ZIPS } from "./coverage-zips";
 import {
+  agentZones,
   airlineCutoffs,
   airports,
   pricingRules,
   staffMembers,
   users,
   type AirportCode,
+  type DiscountRuleJson,
   type LeadTimeMultiplierJson,
   type NewAirlineCutoff,
 } from "./schema";
@@ -140,27 +143,41 @@ async function main(): Promise<void> {
   }
 
   console.log("Seeding pricing rule…");
-  const [existingRule] = await db.select().from(pricingRules).limit(1);
-  if (!existingRule) {
-    await db.insert(pricingRules).values({
-      name: "launch-v1",
-      baseFeeCents: 2900,
-      perBagCents: 1500,
-      distanceMultiplier: "45.0000",
-      leadTimeMultipliers: LEAD_TIME_CURVE,
-      discountRules: [{ kind: "family", minBags: 3, percent: 10 }],
-      active: true,
-    });
-  } else if ((existingRule.leadTimeMultipliers ?? []).length === 0) {
-    // Pre-cutover rule row: give it the launch lead-time curve so windows
-    // price by proximity to departure. Everything else is left alone.
+  // Exactly ONE active rule, always the canonical launch rule. The old heal
+  // ("patch whatever limit(1) found") let stale fixture rules stay active —
+  // the #41/#51 leakage class. Migration 0020's partial unique index enforces
+  // the invariant at the database; this block converges the data on it:
+  // deactivate everything, then upsert launch-v1 (full launch config: the
+  // lead-time curve AND the family discount) as the single active rule.
+  // Rows are only deactivated, never deleted — pricing history stays intact.
+  const LAUNCH_RULE = {
+    name: "launch-v1",
+    baseFeeCents: 2900,
+    perBagCents: 1500,
+    distanceMultiplier: "45.0000",
+    leadTimeMultipliers: LEAD_TIME_CURVE,
+    discountRules: [
+      { kind: "family", minBags: 3, percent: 10 },
+    ] as DiscountRuleJson[],
+  };
+  await db
+    .update(pricingRules)
+    .set({ active: false })
+    .where(eq(pricingRules.active, true));
+  const [launchRule] = await db
+    .select()
+    .from(pricingRules)
+    .where(eq(pricingRules.name, LAUNCH_RULE.name))
+    .limit(1);
+  if (launchRule) {
     await db
       .update(pricingRules)
-      .set({ leadTimeMultipliers: LEAD_TIME_CURVE })
-      .where(eq(pricingRules.id, existingRule.id));
-    console.log("  added launch lead-time curve to the existing pricing rule");
+      .set({ ...LAUNCH_RULE, active: true })
+      .where(eq(pricingRules.id, launchRule.id));
+    console.log("  launch-v1 refreshed — the single active rule");
   } else {
-    console.log("  pricing rule already present — leaving it alone");
+    await db.insert(pricingRules).values({ ...LAUNCH_RULE, active: true });
+    console.log("  launch-v1 inserted — the single active rule");
   }
 
   // Pickup windows are virtual (computed per flight from the pricing rule and
@@ -262,6 +279,7 @@ async function seedLocalStaff(db: ReturnType<typeof createDb>): Promise<void> {
   }
 
   console.log("Seeding local staff accounts…");
+  const agentUserIds: string[] = [];
   const staffAccounts = [
     { email: "admin@koolee.local", password: "koolee-admin-dev-1", role: "admin" as const, fullName: "Alex Morgan" },
     { email: "admin2@koolee.local", password: "koolee-admin-dev-2", role: "admin" as const, fullName: "Priya Rao" },
@@ -309,7 +327,31 @@ async function seedLocalStaff(db: ReturnType<typeof createDb>): Promise<void> {
         target: staffMembers.userId,
         set: { role: account.role, active: true },
       });
+    if (account.role === "agent") agentUserIds.push(userId);
     console.log(`  ${account.email} → ${account.role} (password documented in seed.ts)`);
+  }
+
+  // Dev zone coverage: every covered ZIP gets exactly one of the seeded
+  // agents, so auto-assign can ALWAYS pick someone locally. Deterministic on
+  // purpose — the sorted ZIP list round-robins across the agents in roster
+  // order (agent → agent5), so the same ZIP always lands on the same agent
+  // and a re-run converges instead of reshuffling: the seeded agents' zones
+  // are replaced wholesale (other agents' zones are untouched).
+  if (agentUserIds.length > 0) {
+    const zips = [...ALL_COVERAGE_ZIPS].sort();
+    await db.delete(agentZones).where(inArray(agentZones.agentUserId, agentUserIds));
+    await db
+      .insert(agentZones)
+      .values(
+        zips.map((zip, i) => ({
+          agentUserId: agentUserIds[i % agentUserIds.length]!,
+          zip,
+        })),
+      )
+      .onConflictDoNothing();
+    console.log(
+      `  agent zones: ${zips.length} covered ZIPs round-robined across ${agentUserIds.length} agents`,
+    );
   }
 
   console.log("Seeding local customer test accounts…");

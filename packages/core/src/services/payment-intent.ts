@@ -4,6 +4,7 @@ import { bookings, payments, type Booking } from "@koolee/db";
 import type { CoreConfig } from "../config";
 import { NotFoundError, PaymentFailedError } from "../errors";
 import type { PaymentAuth } from "../payments/types";
+import { autoAssignOnPaid } from "./auto-assign";
 import { applyTransition } from "./bookings";
 import { createBooking, type CreateBookingInput } from "./create-booking";
 import { cancelBookingWithRefund } from "./payment-lifecycle";
@@ -295,8 +296,13 @@ export interface ReconcileBookingPaymentInput {
 }
 
 export type ReconcileBookingPaymentResult =
-  /** Funds held; the booking is (now) `paid` or beyond. */
-  | { outcome: "authorized"; bookingId: string }
+  /**
+   * Funds held; the booking is (now) `paid` or beyond. `movedToPaid` is true
+   * only when THIS call performed the draft → paid move — the caller keys
+   * one-shot side effects (the confirmation-email event) off it, so a page
+   * refresh or a lost race against the webhook never re-fires them.
+   */
+  | { outcome: "authorized"; bookingId: string; movedToPaid?: boolean }
   /** Confirmation submitted, outcome still settling — show pending copy. */
   | { outcome: "processing"; bookingId: string }
   /** Never confirmed (abandoned, or 3DS/decline bounced it back) — retry on the pay step. */
@@ -353,7 +359,8 @@ export async function reconcileBookingPayment(
       });
       if (!moved.ok) {
         // Concurrent webhook: success if it moved the booking onto the paid
-        // path; anything else is a genuine failure.
+        // path; anything else is a genuine failure. The webhook that won the
+        // transition also owns firing the auto-assign hook — not this path.
         const current = await db.query.bookings.findFirst({
           where: eq(bookings.id, bookingId),
           columns: { status: true },
@@ -361,13 +368,17 @@ export async function reconcileBookingPayment(
         if (!current || current.status === "draft" || current.status === "cancelled") {
           return { outcome: "failed", bookingId };
         }
+      } else {
+        // This path performed draft → paid: fire dispatch. Never throws, and
+        // an unassignable booking must not fail the payment outcome.
+        await autoAssignOnPaid(config, bookingId);
       }
       // Guarded: never downgrade a row the webhook already advanced past.
       await db
         .update(payments)
         .set({ status: "authorized" })
         .where(and(eq(payments.id, payment.id), eq(payments.status, "pending")));
-      return { outcome: "authorized", bookingId };
+      return { outcome: "authorized", bookingId, movedToPaid: moved.ok };
     }
     case "processing":
       return { outcome: "processing", bookingId };

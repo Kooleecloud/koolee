@@ -71,9 +71,170 @@ Notes / deferred:
 
 ## Unit 2 — dispatch close-out + email slice (`feat/dispatch-close-out-and-email`)
 
-_Not started yet — begins after Unit 1's commit, stacked on its tip.
-Phases 0–6 per SLICE-PROMPT-tier1-tier2.md, plus Vercel Analytics as
-Phase 0 item 7._
+Stacked on Unit 1's tip. Phases per SLICE-PROMPT-tier1-tier2.md, plus Vercel
+Analytics as Phase 0 item 7.
+
+### Phase 0 — small fixes batch ✅
+
+1. **migrate.ts** — `client.end()` moved into `finally`; a failed migration
+   now exits non-zero instead of hanging on the open connection (#48).
+2. **Agent weight input** — `step="0.01"` (0.1 rejected real scale readings).
+3. **Admin /exceptions airport-local times** — **already fixed upstream**:
+   the page renders every row via `formatInstantInAirportTz` +
+   per-airport `getDisplayZones`. Verified, no change needed.
+4. **Customer trip page `<title>`** — `generateMetadata` returns
+   `"<flight> · <airport> pickup"`; the detail fetch is wrapped in React
+   `cache()` so metadata + page share ONE query, and auth is inside the
+   loader (no identifying title for someone else's booking).
+5. **Copy fixes** — "Leo· confirmed": real text space replaces the `ml-2`
+   margin (accessible text was missing the space). "3/3bags sealed":
+   **already fixed upstream** in visit-flow (the `{" "}` fix, with comment).
+6. **packages/db/.env → LOCAL default** — machine-local `.env` flipped to
+   127.0.0.1:54322; hosted now requires an inline URL override (shell beats
+   dotenv). Committed counterparts updated: `.env.example` (local-first with
+   hosted override recipe) and `docs/MIGRATIONS.md` (warning block rewritten).
+7. **Vercel Analytics** — `@vercel/analytics@^2.0.1` added to apps/web,
+   `<Analytics />` next to `<SpeedInsights />` in the root layout.
+
+Gates: turbo typecheck+lint 12/12 · unit tests 4/4 packages · core
+integration 81 passed/3 skipped · web+agent prod builds ✅.
+
+### Phase 1 — task uniqueness (migration 0019) ✅
+
+Unique indexes on `verification_tasks(booking_id)` + `pickup_tasks(booking_id)`
+(names `*_booking_id_key`, replacing the plain `*_idx`). The migration dedups
+FIRST, deterministically — keep oldest by (created_at, id), `RAISE NOTICE` the
+removals. Local apply: **zero duplicates found**, status 20/20 by hash.
+Gates: typecheck+lint ✅ · integration 81 ✅ · db:status in sync.
+
+### Phase 2 — on-paid auto-assign ✅
+
+`autoAssignOnPaid(config, bookingId)` — never throws — fired by every path to
+`paid`: webhook `moveBooking`, `/book/return` re-check (only when it performed
+the move), and createBooking's inline fake-provider path (dev parity).
+`assignAgentToBooking` catches the 23505 from a concurrent insert → reported
+as `conflict` → mapped to `not_assignable` ("already assigned"), exactly as
+the slice requires. No coverage keeps the booking paid-unassigned (board's
+at-risk flag). System actor (`actor_user_id: null`) stamps automatic
+assignments. Integration tests: the production race VERBATIM (webhook +
+re-check via `Promise.all` → exactly one task pair, one assignment event), a
+4-way hook burst (system-actor stamped), no-coverage never touches payment.
+Gates: typecheck+lint ✅ · unit 229 ✅ · integration 84 ✅ (3 new).
+
+### Phase 3 — seed integrity (migration 0020) ✅
+
+1. `agent_zones` seeded: all **198** covered ZIPs round-robined (sorted ZIPs ×
+   roster order) across the five dev agents — deterministic, re-runs converge
+   (dev agents' zones replaced wholesale, others untouched). To make the ZIP
+   list reachable from the seed WITHOUT a db→core cycle, the data moved to
+   `@koolee/db/coverage-zips` (pure-data subpath — no Postgres driver in
+   client bundles); core keeps all coverage logic, public API unchanged.
+2. ONE active pricing rule: migration **0020** partial unique index
+   (`active WHERE active`, dedup-first keep-newest); the seed's `limit(1)`
+   heal replaced by convergence — deactivate all, upsert canonical
+   `launch-v1` (lead-time curve + family discount). Local run verified:
+   "launch-v1 inserted — the single active rule". History never deleted.
+3. `dispatch.a/b@koolee-test.example`: verified they exist ONLY in the
+   disposable `koolee_test` fixtures (wiped per run) — marked with a comment;
+   nothing to remove from any seed.
+Gates: full turbo 16/16 ✅ · integration 84 ✅ · all three app builds ✅.
+
+### Phase 4 — ResendNotifier ✅
+
+`ResendNotifier` in `packages/core/src/notifications/resend/` (REST via
+injectable fetch — no SDK dep, so no new ESLint carve-out is needed; the
+directory carries the same only-place boundary as payments/stripe).
+`createNotifier(NotifierConfig)` mirrors the Stripe factory; injected through
+`createRuntime`'s new `notifications` option. apps/web: key present → Resend,
+absent → console (dev unchanged); `RESEND_FROM` (sandbox-sender default,
+documented); fail-closed prod boot gate (build-phase exempt — first attempt
+broke credential-less builds, fixed to match the 4.2/4.4 gate pattern).
+SMS deliberately untouched. Unit tests: payload shape, html omission, typed
+error with status on non-2xx, network errors propagate, SMS never hits the
+API. Gates: typecheck+lint ✅ · unit 235 ✅ · web build ✅.
+
+### Phase 5 — email side effects (Inngest) ✅
+
+Discovery that shaped the phase: `booking/confirmed` and
+`booking/exception_raised` were catalogued but NEVER EMITTED — the existing
+pickup-reminder function was dead code. Now:
+- Emission (apps/web `lib/booking-events.ts`, no-throw, deterministic ids):
+  `booking/confirmed` from all three paid paths, keyed on
+  "this call performed the move" (`WebhookOutcome.movedTo` /
+  `movedToPaid` on the reconcile result — both added) so redeliveries,
+  refreshes, and lost races never re-fire; `booking/exception_raised` from
+  the webhook payment-cancelled path.
+- `booking-confirmation-email`: airport-tz window with abbreviation
+  (docs/TIME.md formatters), address, bags, the breakdown PERSISTED at
+  booking time (never recomputed), trip link (NEXT_PUBLIC_APP_URL).
+- Pickup reminder: email channel added; both channels behind a shared
+  reminder-worthy guard (`paid`/`agent_assigned` only).
+- `exception-ops-alert-email` → OPS_ALERT_EMAIL (new env, injected via
+  `createKooleeFunctions` options; unset = log+skip).
+- Send failures inside functions: log + ops-alert, never thrown.
+- Templates: pure builders, text always + simple HTML; copy rules PINNED by
+  tests — "airline's bag drop", no check-in claims, Tag Orange #FF6B35 only
+  on the CTA, html-escaped interpolation.
+Deferred, explicitly: admin-raised exception emission (apps/admin has no
+Inngest client today); real SMS (#15).
+Dev visibility: with no RESEND_API_KEY emails print via ConsoleNotifier to
+the dev-server console (Mailpit at :54324 carries only Supabase AUTH mail —
+not these). Live registration check (`pnpm dev:inngest`) left to TD's next
+dev session; the functions array now exports 7 functions (5 core + 2 crons),
+crons untouched.
+Gates: typecheck+lint ✅ · unit 243 ✅ · integration 84 ✅ · web build ✅.
+
+### Phase 6 — docs + close-out ✅
+
+ENVIRONMENT.md: §6 rewritten (LOCAL default, hosted-by-override), matrix rows
+for RESEND_FROM/OPS_ALERT_EMAIL, new boot-gate §4.3b. PROJECT-STATUS: rows
+15 → 🔨 (email shipped; SMS/AeroAPI/Maps open), 16 → 🔨 (email side effects
+shipped; SMS + admin-exception emission open), 47 → ✅ (closed by 0019 +
+on-paid trigger), snapshot updated.
+
+Two failures surfaced in the first full-gate run, both fixed:
+- `env.test.ts` "complete prod config" predated the new Resend gate — the
+  gate working as designed. Stub now includes the key, and the gate itself is
+  pinned by two new tests (missing key refuses a live prod boot; coming-soon
+  boots without it).
+- A PRE-EXISTING flake in `create-booking.integration.test.ts` (reproduced
+  1-in-~5): the custody-trail assertion read event ORDER from an unordered
+  SELECT — heap order, not insertion order. Fixed with an explicit
+  `ORDER BY created_at` (the two events come from separate transactions).
+
+**Final full gate: turbo 19/19 (typecheck+lint+test+build, every package and
+all three apps) · web unit 59 · core unit 243 · integration 84 passed /
+3 skipped, green on three consecutive runs.**
+
+---
+
+## TD manual steps (in order, after review + push + merges)
+
+1. **Hosted migrations** (one command, applies 0018 + 0019 + 0020):
+   ```bash
+   DIRECT_DATABASE_URL='postgresql://postgres.jpvlzoikcivxepgyrkho:<PASSWORD>@aws-0-ca-central-1.pooler.supabase.com:5432/postgres' \
+     pnpm db:migrate
+   ```
+   Read the `Target host:` line. Blast radius: waitlist_signups table + enum
+   (new, empty); task unique indexes (dedups duplicates keep-oldest — hosted
+   likely has none, the NOTICE will say); pricing one-active index (dedups
+   keep-newest). All additive; reversible by dropping the indexes/table.
+2. **Hosted seed re-run** (converges pricing on canonical launch-v1; staff/
+   zone seeding self-skips on non-local hosts):
+   ```bash
+   DATABASE_URL='<hosted pooler 6543 url>' pnpm --filter @koolee/db seed
+   ```
+3. **Resend account**: create, add the sending domain, publish the DKIM/SPF
+   records Resend shows, verify. Until verified, RESEND_FROM's sandbox
+   default only delivers to your own account address.
+4. **Vercel env vars (web project)**: Production — `RESEND_API_KEY`,
+   `RESEND_FROM` (verified-domain From), `OPS_ALERT_EMAIL`. Preview —
+   optional; without a key previews log emails to console.
+   Note: the prod boot gate only fires on live-mode deploys with Supabase
+   configured; the current coming-soon deploy boots fine without the key.
+5. **Local dev check** (optional): `pnpm dev:inngest` + a fake-provider
+   booking → confirmation email prints on the dev-server console; the
+   Inngest dev UI lists 7 registered functions.
 
 ## Unit 3 — waitlist zone-opened notification
 
