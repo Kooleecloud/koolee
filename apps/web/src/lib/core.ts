@@ -5,6 +5,7 @@ import {
   tryCreateRuntime,
   type CoreConfig,
   type PaymentProviderConfig,
+  type TicketExtractorConfig,
 } from "@koolee/core";
 
 import { env, optionalEnv } from "@/env";
@@ -39,11 +40,34 @@ export function hasStripeCheckout(): boolean {
   );
 }
 
+/**
+ * The pay step's three honest configurations:
+ *  - "ready": both Stripe keys present — the Payment Element collects a card;
+ *  - "fake": no secret key — the in-memory FakePaymentProvider, dev only;
+ *  - "misconfigured": secret key WITHOUT a publishable key. The runtime would
+ *    authorize against real Stripe but the browser can never confirm, so the
+ *    pay step must refuse loudly instead of pretending either mode works.
+ */
+export function stripeCheckoutState(): "ready" | "fake" | "misconfigured" {
+  if (hasStripeCheckout()) return "ready";
+  return optionalEnv("STRIPE_SECRET_KEY") ? "misconfigured" : "fake";
+}
+
+/**
+ * Claude-powered ticket extraction iff `ANTHROPIC_API_KEY` is set, otherwise
+ * the free in-process heuristic. One env var is the whole switch.
+ */
+export function resolveExtractionConfig(): TicketExtractorConfig {
+  const apiKey = optionalEnv("ANTHROPIC_API_KEY");
+  return apiKey ? { kind: "claude", apiKey } : { kind: "heuristic" };
+}
+
 /** Throws when the database is not configured. Use in mutation paths. */
 export function getCore(): CoreConfig {
   return createRuntime({
     databaseUrl: env.DATABASE_URL,
     payments: resolvePaymentConfig(),
+    extraction: resolveExtractionConfig(),
   });
 }
 
@@ -55,5 +79,6 @@ export function tryGetCore(): CoreConfig | null {
   return tryCreateRuntime({
     databaseUrl: env.DATABASE_URL,
     payments: resolvePaymentConfig(),
+    extraction: resolveExtractionConfig(),
   });
 }

@@ -92,6 +92,19 @@ export function tryGetDb(config: DbConfig = {}): Database | null {
 }
 
 /**
+ * Local Postgres (Supabase CLI, docker compose) speaks plaintext and rejects a
+ * forced TLS handshake; everything else is assumed to be cloud and gets TLS.
+ */
+function isLocalHost(url: string): boolean {
+  try {
+    const { hostname } = new URL(url);
+    return hostname === "127.0.0.1" || hostname === "localhost";
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Migration connection factory — the **direct** connection on port 5432, not
  * the pooler. DDL and advisory locks need a stable backend, which transaction
  * pooling cannot provide.
@@ -100,5 +113,10 @@ export function createMigrationClient(url?: string): Sql {
   const resolved = url ?? process.env.DIRECT_DATABASE_URL;
   if (!resolved) throw new MissingDatabaseUrlError("DIRECT_DATABASE_URL");
 
-  return postgres(resolved, { max: 1, prepare: false, onnotice: () => {} });
+  return postgres(resolved, {
+    max: 1,
+    prepare: false,
+    onnotice: () => {},
+    ssl: isLocalHost(resolved) ? false : "require",
+  });
 }

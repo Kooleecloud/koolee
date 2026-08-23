@@ -1,12 +1,13 @@
-import { format } from "date-fns";
-import { Badge } from "@koolee/ui";
-import type { CustodyEvent } from "@koolee/core";
+import { Badge, CustodyTimeline as CustodyTimelineView } from "@koolee/ui";
+import { formatInstantInAirportTz, type CustodyEvent } from "@koolee/core";
 
 /**
- * Chain-of-custody timeline.
+ * Chain-of-custody timeline for /trips — maps `custody_events` rows onto the
+ * shared `CustodyTimeline` visual in @koolee/ui (the same motif the marketing
+ * site uses, so the product looks like the promise).
  *
- * Server-rendered from `custody_events`, which is append-only — so this is a
- * faithful record, not a summary that could drift from what happened.
+ * Server-rendered from `custody_events`, which is append-only — a faithful
+ * record, not a summary that could drift from what happened.
  *
  * TODO(realtime): subscribe to INSERTs on `custody_events` for this booking via
  * supabase-js so the timeline updates live while a pickup is in progress.
@@ -44,59 +45,46 @@ function labelFor(eventType: string): string {
   return LABELS[eventType] ?? eventType;
 }
 
-export function CustodyTimeline({ events }: { events: CustodyEvent[] }) {
-  if (events.length === 0) {
-    return (
-      <p className="text-sm text-muted-foreground">
-        Nothing has happened yet. Events appear here as your bags move.
-      </p>
-    );
-  }
-
+/**
+ * `tz` is required, not defaulted: these timestamps sit next to the pickup
+ * window on the same page, and a custody trail rendered in a different zone
+ * would make the hand-offs look like they happened at the wrong time relative
+ * to the visit the customer is reading about.
+ */
+export function CustodyTimeline({
+  events,
+  tz,
+  signedUrls,
+}: {
+  events: CustodyEvent[];
+  tz: string;
+  /**
+   * storage path → signed URL, from `signBagPhotoUrls`.
+   *
+   * Required, not optional: `event.photoUrl` is a path into the PRIVATE
+   * bag-photos bucket, so passing it straight to an <img> renders a broken
+   * image — which is what this page did until the map was threaded through.
+   * An event whose path is not in the map renders without its photo rather
+   * than with a broken one.
+   */
+  signedUrls: Map<string, string>;
+}) {
   return (
-    <ol className="flex flex-col">
-      {events.map((event, i) => {
-        const isLast = i === events.length - 1;
-        return (
-          <li key={event.id} className="flex gap-4">
-            <div className="flex flex-col items-center">
-              <span
-                className={
-                  isLast
-                    ? "mt-1.5 size-2.5 rounded-full bg-primary ring-4 ring-primary/20"
-                    : "mt-1.5 size-2.5 rounded-full bg-muted-foreground/40"
-                }
-              />
-              {!isLast && <span className="w-px flex-1 bg-border" />}
-            </div>
-
-            <div className="flex flex-1 flex-col gap-1 pb-6">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="text-sm font-medium">{labelFor(event.eventType)}</span>
-                {event.actorRole && (
-                  <Badge variant="outline" className="text-[10px]">
-                    {event.actorRole}
-                  </Badge>
-                )}
-              </div>
-              <time
-                dateTime={event.createdAt.toISOString()}
-                className="text-xs text-muted-foreground"
-              >
-                {format(event.createdAt, "EEE d MMM, h:mm a")}
-              </time>
-              {event.photoUrl && (
-                /* eslint-disable-next-line @next/next/no-img-element */
-                <img
-                  src={event.photoUrl}
-                  alt={`Evidence for ${labelFor(event.eventType)}`}
-                  className="mt-1 max-w-48 rounded-md border"
-                />
-              )}
-            </div>
-          </li>
-        );
-      })}
-    </ol>
+    <CustodyTimelineView
+      items={events.map((event, i) => ({
+        id: event.id,
+        title: labelFor(event.eventType),
+        badge: event.actorRole ? (
+          <Badge variant="outline" className="text-[10px]">
+            {event.actorRole}
+          </Badge>
+        ) : undefined,
+        meta: formatInstantInAirportTz(event.createdAt, tz),
+        metaDateTime: event.createdAt.toISOString(),
+        photoUrl: event.photoUrl ? signedUrls.get(event.photoUrl) : undefined,
+        photoAlt: `Evidence for ${labelFor(event.eventType)}`,
+        state: i === events.length - 1 ? "current" : "complete",
+      }))}
+    />
   );
 }

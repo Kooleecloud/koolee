@@ -6,6 +6,7 @@ import {
   type CoreConfig,
   type CoreDefaults,
 } from "./config";
+import { createTicketExtractor, type TicketExtractorConfig } from "./extraction/factory";
 import type { Notifier, OpsAlerter } from "./notifications/notifier";
 import { createPaymentProvider, type PaymentProviderConfig } from "./payments/factory";
 
@@ -28,6 +29,8 @@ export interface RuntimeOptions {
   databaseUrl?: string | undefined;
   db?: DbConfig;
   payments: PaymentProviderConfig;
+  /** Omitted → the free heuristic extractor. */
+  extraction?: TicketExtractorConfig;
   notifier?: Notifier;
   opsAlerter?: OpsAlerter;
   clock?: Clock;
@@ -49,6 +52,9 @@ export function createRuntime(options: RuntimeOptions): CoreConfig {
   return createCoreConfig({
     db,
     payments: createPaymentProvider(options.payments),
+    ...(options.extraction === undefined
+      ? {}
+      : { ticketExtractor: createTicketExtractor(options.extraction) }),
     ...(options.notifier === undefined ? {} : { notifier: options.notifier }),
     ...(options.opsAlerter === undefined ? {} : { opsAlerter: options.opsAlerter }),
     ...(options.clock === undefined ? {} : { clock: options.clock }),

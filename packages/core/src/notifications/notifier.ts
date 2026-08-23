@@ -70,9 +70,11 @@ export class RecordingNotifier implements Notifier {
 }
 
 /**
- * TODO(twilio): implement against the Twilio Messaging API using
- * TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN / TWILIO_MESSAGING_SERVICE_SID.
- * Real integration is explicitly out of scope for this scaffold.
+ * TODO(notifications): real SMS/email adapters land with the notifications
+ * work item, behind the `NotificationDispatcher` seam (./dispatcher.ts).
+ * Their provider credentials will be server-side env resolved by the app —
+ * NOT auth-related: auth OTP delivery is owned entirely by Supabase Auth,
+ * whose provider credentials live only in the Supabase dashboard.
  *
  * TODO(resend): same for transactional email via RESEND_API_KEY.
  */

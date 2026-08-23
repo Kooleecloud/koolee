@@ -5,24 +5,33 @@ import { PricingRuleInvalidError } from "../errors";
 import {
   price,
   priceCents,
+  resolveLeadTimeMultiplier,
   toPricingRuleInput,
   type PriceInput,
   type PricingRuleInput,
 } from "./engine";
 
+/** The launch curve: ≤10h ×1.4, ≤16h ×1.2, ≤24h ×1.1, further out ×1. */
+const CURVE = [
+  { maxLeadMinutes: 10 * 60, multiplier: 1.4 },
+  { maxLeadMinutes: 16 * 60, multiplier: 1.2 },
+  { maxLeadMinutes: 24 * 60, multiplier: 1.1 },
+];
+
 const RULE: PricingRuleInput = {
   baseFeeCents: 2900,
   perBagCents: 1500,
   distanceMultiplier: 45, // cents per km
-  slotTierMultiplier: { standard_4h: 1, express_2h: 1.35, priority_1h: 1.8 },
+  leadTimeMultipliers: CURVE,
   discountRules: [],
 };
 
+/** Default lead: 27h out — past every curve step, so multiplier ×1. */
 const input = (over: Partial<PriceInput> = {}): PriceInput => ({
   rule: RULE,
   bagCount: 2,
   distanceKm: 20,
-  slotTier: "standard_4h",
+  pickupLeadMinutes: 27 * 60,
   ...over,
 });
 
@@ -49,31 +58,48 @@ describe("price", () => {
     expect(price(input({ distanceKm: 33.5 })).distanceCents).toBe(1508); // round(1507.5)
   });
 
-  it("applies the tier multiplier to the whole subtotal", () => {
-    const standard = price(input({ slotTier: "standard_4h" }));
-    const express = price(input({ slotTier: "express_2h" }));
-    const priority = price(input({ slotTier: "priority_1h" }));
+  it("applies the lead-time multiplier to the whole subtotal", () => {
+    const farOut = price(input({ pickupLeadMinutes: 27 * 60 }));
+    const closer = price(input({ pickupLeadMinutes: 13 * 60 }));
+    const closest = price(input({ pickupLeadMinutes: 8 * 60 }));
 
-    expect(standard.totalCents).toBe(6800);
-    expect(express.totalCents).toBe(Math.round(6800 * 1.35)); // 9180
-    expect(priority.totalCents).toBe(Math.round(6800 * 1.8)); // 12240
+    expect(farOut.totalCents).toBe(6800);
+    expect(closer.totalCents).toBe(Math.round(6800 * 1.2)); // 8160
+    expect(closest.totalCents).toBe(Math.round(6800 * 1.4)); // 9520
 
-    expect(express.tierMultiplier).toBe(1.35);
-    expect(express.tierAdjustmentCents).toBe(9180 - 6800);
+    expect(closer.leadTimeMultiplier).toBe(1.2);
+    expect(closer.leadTimeAdjustmentCents).toBe(8160 - 6800);
   });
 
-  it("treats an unlisted tier as no adjustment rather than free", () => {
+  it("prices monotonically: a window closer to departure never costs less", () => {
+    let previous = Number.POSITIVE_INFINITY;
+    for (const lead of [6 * 60, 10 * 60, 12 * 60, 16 * 60, 20 * 60, 24 * 60, 30 * 60]) {
+      const total = price(input({ pickupLeadMinutes: lead })).totalCents;
+      expect(total).toBeLessThanOrEqual(previous);
+      previous = total;
+    }
+  });
+
+  it("treats an empty curve as no adjustment rather than free", () => {
     const result = price(
-      input({ rule: { ...RULE, slotTierMultiplier: {} }, slotTier: "priority_1h" }),
+      input({ rule: { ...RULE, leadTimeMultipliers: [] }, pickupLeadMinutes: 8 * 60 }),
     );
-    expect(result.tierMultiplier).toBe(1);
+    expect(result.leadTimeMultiplier).toBe(1);
     expect(result.totalCents).toBe(6800);
+  });
+
+  it("resolveLeadTimeMultiplier picks the smallest covering step, unsorted input included", () => {
+    const shuffled = [CURVE[2]!, CURVE[0]!, CURVE[1]!];
+    expect(resolveLeadTimeMultiplier(shuffled, 6 * 60)).toBe(1.4);
+    expect(resolveLeadTimeMultiplier(shuffled, 10 * 60)).toBe(1.4); // boundary inclusive
+    expect(resolveLeadTimeMultiplier(shuffled, 10 * 60 + 1)).toBe(1.2);
+    expect(resolveLeadTimeMultiplier(shuffled, 24 * 60 + 1)).toBe(1);
   });
 
   it("always returns whole cents", () => {
     for (const distanceKm of [1.3, 7.77, 12.345, 99.999]) {
-      for (const tier of ["standard_4h", "express_2h", "priority_1h"] as const) {
-        const result = price(input({ distanceKm, slotTier: tier }));
+      for (const lead of [8 * 60, 13 * 60, 20 * 60, 27 * 60]) {
+        const result = price(input({ distanceKm, pickupLeadMinutes: lead }));
         expect(Number.isInteger(result.totalCents)).toBe(true);
         expect(Number.isInteger(result.subtotalCents)).toBe(true);
         expect(Number.isInteger(result.distanceCents)).toBe(true);
@@ -92,8 +118,8 @@ describe("price", () => {
   });
 
   it("priceCents matches the breakdown total", () => {
-    expect(priceCents(input({ slotTier: "express_2h" }))).toBe(
-      price(input({ slotTier: "express_2h" })).totalCents,
+    expect(priceCents(input({ pickupLeadMinutes: 13 * 60 }))).toBe(
+      price(input({ pickupLeadMinutes: 13 * 60 })).totalCents,
     );
   });
 });
@@ -179,15 +205,15 @@ describe("discounts", () => {
     expect(a.totalCents).toBe(b.totalCents);
   });
 
-  it("takes discounts after the tier multiplier", () => {
+  it("takes discounts after the lead-time multiplier", () => {
     const rule: PricingRuleInput = {
       ...RULE,
       discountRules: [{ kind: "family", minBags: 2, percent: 10 }],
     };
-    const result = price(input({ rule, slotTier: "express_2h" }));
-    // 6800 × 1.35 = 9180; 10% of 9180 = 918
-    expect(result.discountCents).toBe(918);
-    expect(result.totalCents).toBe(8262);
+    const result = price(input({ rule, pickupLeadMinutes: 13 * 60 }));
+    // 6800 × 1.2 = 8160; 10% of 8160 = 816
+    expect(result.discountCents).toBe(816);
+    expect(result.totalCents).toBe(7344);
   });
 });
 
@@ -201,6 +227,12 @@ describe("validation", () => {
   it("rejects a negative or non-finite distance", () => {
     for (const distanceKm of [-1, NaN, Infinity]) {
       expect(() => price(input({ distanceKm }))).toThrow(PricingRuleInvalidError);
+    }
+  });
+
+  it("rejects a negative or non-finite lead", () => {
+    for (const pickupLeadMinutes of [-1, NaN, Infinity]) {
+      expect(() => price(input({ pickupLeadMinutes }))).toThrow(PricingRuleInvalidError);
     }
   });
 
@@ -232,7 +264,8 @@ describe("toPricingRuleInput", () => {
       perBagCents: 1500,
       // numeric comes back from postgres-js as a string.
       distanceMultiplier: "45.0000",
-      slotTierMultiplier: { standard_4h: 1, express_2h: 1.35 },
+      slotTierMultiplier: {},
+      leadTimeMultipliers: CURVE,
       discountRules: [{ kind: "family", minBags: 3, percent: 10 }],
       active: true,
       effectiveFrom: new Date("2025-01-01T00:00:00Z"),
@@ -257,9 +290,9 @@ describe("toPricingRuleInput", () => {
 
   it("tolerates null jsonb columns", () => {
     const parsed = toPricingRuleInput(
-      row({ slotTierMultiplier: null as never, discountRules: null as never }),
+      row({ leadTimeMultipliers: null as never, discountRules: null as never }),
     );
-    expect(parsed.slotTierMultiplier).toEqual({});
+    expect(parsed.leadTimeMultipliers).toEqual([]);
     expect(parsed.discountRules).toEqual([]);
   });
 });

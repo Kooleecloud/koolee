@@ -34,6 +34,12 @@ export const payments = pgTable(
     provider: text("provider").notNull(),
     /** Provider-side id: a PaymentIntent id for Stripe. */
     providerRef: text("provider_ref").notNull(),
+    /**
+     * Provider-side capture id, set when the authorization is captured at
+     * pickup. Stripe reuses the PaymentIntent id; the fake provider mints a
+     * distinct one — refunds go against this when present.
+     */
+    captureRef: text("capture_ref"),
     status: paymentStatusEnum("status").notNull(),
     amountCents: integer("amount_cents").notNull(),
     createdAt: createdAt(),
@@ -47,8 +53,25 @@ export const payments = pgTable(
   ],
 );
 
-/** Per-tier multiplier applied on top of the base + per-bag + distance total. */
+/**
+ * DEPRECATED — the tiered-window product is retired; pickup windows are all
+ * one hour and priced by lead time (`LeadTimeMultiplierJson`). The column
+ * stays so pre-cutover rule rows keep their history; the engine no longer
+ * reads it.
+ */
 export type SlotTierMultiplier = Partial<Record<SlotTier, number>>;
+
+/**
+ * One step of the lead-time price curve. A window whose END is within
+ * `maxLeadMinutes` of departure gets `multiplier` applied to the subtotal;
+ * the smallest matching step wins, and no match means ×1. This is the seam
+ * the real dynamic-pricing algorithm will replace — @koolee/core validates
+ * the blob with zod before applying it.
+ */
+export interface LeadTimeMultiplierJson {
+  maxLeadMinutes: number;
+  multiplier: number;
+}
 
 /**
  * A discount rule. Shapes are stubbed — senior and family are placeholders
@@ -77,6 +100,11 @@ export const pricingRules = pgTable(
       .$type<SlotTierMultiplier>()
       .notNull()
       .default({}),
+    /** Lead-time price curve — see `LeadTimeMultiplierJson`. */
+    leadTimeMultipliers: jsonb("lead_time_multipliers")
+      .$type<LeadTimeMultiplierJson[]>()
+      .notNull()
+      .default([]),
     discountRules: jsonb("discount_rules")
       .$type<DiscountRuleJson[]>()
       .notNull()
@@ -93,7 +121,30 @@ export const pricingRules = pgTable(
   ],
 );
 
+/**
+ * Processed payment-webhook event ids — the replay guard.
+ *
+ * Providers redeliver webhooks (that is the contract), so the handler
+ * records each event id it fully processed and no-ops on a repeat. Rows are
+ * tiny and append-only; prune with the daily cleanup if volume ever matters.
+ */
+export const paymentWebhookEvents = pgTable(
+  "payment_webhook_events",
+  {
+    id: primaryId(),
+    /** "stripe" | "fake". */
+    provider: text("provider").notNull(),
+    /** Provider-side event id (`evt_…` for Stripe). */
+    eventId: text("event_id").notNull(),
+    /** Normalised event type, for debugging redeliveries. */
+    eventType: text("event_type").notNull(),
+    receivedAt: createdAt(),
+  },
+  (t) => [uniqueIndex("payment_webhook_events_provider_event_key").on(t.provider, t.eventId)],
+);
+
 export type Payment = typeof payments.$inferSelect;
 export type NewPayment = typeof payments.$inferInsert;
+export type PaymentWebhookEvent = typeof paymentWebhookEvents.$inferSelect;
 export type PricingRule = typeof pricingRules.$inferSelect;
 export type NewPricingRule = typeof pricingRules.$inferInsert;

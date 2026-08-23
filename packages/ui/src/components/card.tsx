@@ -7,7 +7,10 @@ const Card = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElemen
     <div
       ref={ref}
       className={cn(
-        "rounded-xl border bg-card text-card-foreground shadow-sm",
+        // `shadow-lift` is the house elevation token (theme.css), the same one
+        // the marketing surfaces use — a card in the app and a card on the
+        // landing page should sit at the same height off the page.
+        "rounded-xl border bg-card text-card-foreground shadow-lift",
         className,
       )}
       {...props}

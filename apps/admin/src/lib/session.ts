@@ -1,33 +1,48 @@
 import "server-only";
 
-import { createDevAdminSessionReader, type AdminSession } from "@koolee/core";
+import {
+  NotAuthorizedError,
+  requireStaffRole,
+  type AdminSession,
+} from "@koolee/core";
 
-import { env } from "@/env";
+import { tryGetCore } from "@/lib/core";
+import { getSupabaseServerClient } from "@/lib/supabase/server";
 
 /**
- * Admin session.
+ * Admin session: a Supabase email/password session PLUS an active
+ * `staff_members` row with role `admin`.
  *
- * A development stub. It throws `NotImplementedError` outside
- * `NODE_ENV=development` — see the TODO(auth-admin) block in
- * `packages/core/src/auth/stubs.ts`. Admins can force state transitions and
- * issue refunds, so this app must not be reachable without real SSO and an
- * audit trail.
+ * The role lookup runs on every request through `requireStaffRole` — the
+ * `assertRole` seam in @koolee/core. That per-request check is the security
+ * boundary (NOT signup availability: anonymous sign-ins must stay enabled
+ * for the customer funnel, so anyone can hold *an* account — an account
+ * without the role gets nothing here). It is also what makes deactivation
+ * immediate: a deactivated admin's live session fails the next request.
+ * Admins can force state transitions and issue refunds; every such write
+ * carries this session's real user id as the custody-event actor.
  */
-const reader = createDevAdminSessionReader({ nodeEnv: env.NODE_ENV });
-
 export async function getAdminSession(): Promise<AdminSession | null> {
-  return reader.getSession();
+  try {
+    return await requireAdminSession();
+  } catch {
+    return null;
+  }
 }
 
-/** Non-throwing variant so pages can render a refusal instead of a 500. */
-export async function tryGetAdminSession(): Promise<
-  { session: AdminSession | null } | { error: string }
-> {
-  try {
-    return { session: await reader.getSession() };
-  } catch (error: unknown) {
-    return {
-      error: error instanceof Error ? error.message : "Sign-in is not available.",
-    };
-  }
+/** Throwing variant for server actions and route handlers. */
+export async function requireAdminSession(): Promise<AdminSession> {
+  const supabase = await getSupabaseServerClient();
+  if (!supabase) throw new NotAuthorizedError("Supabase is not configured.");
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) throw new NotAuthorizedError("Not signed in.");
+
+  const core = tryGetCore();
+  if (!core) throw new NotAuthorizedError("Database is not configured.");
+
+  await requireStaffRole(core.db, user.id, ["admin"]);
+  return { kind: "admin", role: "admin", userId: user.id };
 }

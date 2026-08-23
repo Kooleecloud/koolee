@@ -9,7 +9,7 @@ import { z } from "zod";
  */
 
 const optionalString = z.string().min(1).optional().catch(undefined);
-const optionalUrl = z.string().url().optional().catch(undefined);
+const optionalUrl = z.url().optional().catch(undefined);
 
 const schema = z.object({
   NODE_ENV: z
@@ -19,6 +19,9 @@ const schema = z.object({
 
   /** Absolute origin of this app. Used to build absolute links and callbacks. */
   NEXT_PUBLIC_APP_URL: optionalUrl,
+
+  /** Origin of the agent app — agent invite links must land THERE. */
+  NEXT_PUBLIC_AGENT_APP_URL: optionalUrl,
 
   DATABASE_URL: optionalString,
   DIRECT_DATABASE_URL: optionalString,
@@ -38,6 +41,7 @@ const raw = {
   NODE_ENV: process.env.NODE_ENV,
 
   NEXT_PUBLIC_APP_URL: process.env.NEXT_PUBLIC_APP_URL,
+  NEXT_PUBLIC_AGENT_APP_URL: process.env.NEXT_PUBLIC_AGENT_APP_URL,
 
   DATABASE_URL: process.env.DATABASE_URL,
   DIRECT_DATABASE_URL: process.env.DIRECT_DATABASE_URL,
@@ -85,6 +89,54 @@ export function optionalEnv(key: EnvKey): string | undefined {
 
 export const isDev = env.NODE_ENV === "development";
 export const isProd = env.NODE_ENV === "production";
+
+/**
+ * Fail-loud production gate (same `isProd` convention as apps/web).
+ *
+ * Each of these, absent, silently disables something ops depends on rather
+ * than erroring: no Supabase URL/anon key → admin sign-in unavailable; no
+ * service-role key → staff invites and evidence-photo signed URLs degrade to
+ * no-ops; no agent-app origin → agent invite links land on the wrong app.
+ * In production that silence is a misconfiguration, so the boot refuses.
+ */
+export function assertProductionBootConfig(): void {
+  const missing: string[] = [];
+  if (!optionalEnv("NEXT_PUBLIC_SUPABASE_URL")) {
+    missing.push("NEXT_PUBLIC_SUPABASE_URL (admin sign-in silently unavailable without it)");
+  }
+  if (!optionalEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY")) {
+    missing.push("NEXT_PUBLIC_SUPABASE_ANON_KEY (admin sign-in silently unavailable without it)");
+  }
+  if (!optionalEnv("SUPABASE_SERVICE_ROLE_KEY")) {
+    missing.push(
+      "SUPABASE_SERVICE_ROLE_KEY (staff invites and evidence-photo signed URLs degrade to no-ops)",
+    );
+  }
+  if (!optionalEnv("NEXT_PUBLIC_AGENT_APP_URL")) {
+    missing.push("NEXT_PUBLIC_AGENT_APP_URL (agent invite links would land on the wrong app)");
+  }
+  if (missing.length > 0) {
+    throw new Error(
+      "Refusing to run the admin app in production with ops config missing:\n" +
+        missing.map((m) => `  - ${m}`).join("\n") +
+        "\nSee apps/admin/.env.example.",
+    );
+  }
+}
+
+/*
+ * `next build` itself runs with NODE_ENV=production and must stay green on a
+ * credential-less fresh clone (the repo-wide contract), so the build phase is
+ * exempt; the gate fires when a production SERVER actually boots. The
+ * `typeof window` guard keeps client bundles from throwing over server env.
+ */
+if (
+  typeof window === "undefined" &&
+  isProd &&
+  process.env.NEXT_PHASE !== "phase-production-build"
+) {
+  assertProductionBootConfig();
+}
 
 export interface ServiceStatus {
   service: string;

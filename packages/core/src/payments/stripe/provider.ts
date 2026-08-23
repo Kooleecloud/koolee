@@ -57,8 +57,9 @@ export class StripeProvider implements PaymentProvider {
       }
       this.#client = new Stripe(this.#config.secretKey, {
         // Pinning is deliberate: an unpinned account-default version can change
-        // response shapes under us without a deploy.
-        apiVersion: "2024-12-18.acacia" as Stripe.LatestApiVersion,
+        // response shapes under us without a deploy. Must match the installed
+        // SDK's pinned version (`Stripe.LatestApiVersion`) exactly.
+        apiVersion: "2026-07-29.dahlia",
         typescript: true,
         appInfo: { name: "koolee", version: "0.1.0" },
       });
@@ -96,6 +97,58 @@ export class StripeProvider implements PaymentProvider {
     } catch (error: unknown) {
       throw new PaymentFailedError(
         `Stripe authorize failed for booking ${bookingId}: ${describe(error)}`,
+        error,
+      );
+    }
+  }
+
+  /**
+   * Re-reads the intent from Stripe. `retrieve` includes the client secret,
+   * which is what lets a revisit of the pay step remount the Payment Element
+   * against the SAME intent instead of minting a second one.
+   */
+  async getAuth(authId: string): Promise<PaymentAuth> {
+    try {
+      const intent = await this.#stripe.paymentIntents.retrieve(authId);
+      return {
+        authId: intent.id,
+        amountCents: intent.amount,
+        currency: intent.currency,
+        status: mapIntentStatus(intent.status),
+        clientSecret: intent.client_secret ?? undefined,
+        raw: intent,
+      };
+    } catch (error: unknown) {
+      throw new PaymentFailedError(
+        `Stripe retrieve failed for ${authId}: ${describe(error)}`,
+        error,
+      );
+    }
+  }
+
+  /**
+   * Stripe supports changing the amount of a not-yet-confirmed intent
+   * (`requires_payment_method` / `requires_confirmation` / `requires_action`)
+   * — the documented "update" half of the amount-changed contract. States
+   * past confirmation reject provider-side, which callers treat as the
+   * cancel + recreate signal.
+   */
+  async updateAuthAmount(authId: string, amountCents: number): Promise<PaymentAuth> {
+    try {
+      const intent = await this.#stripe.paymentIntents.update(authId, {
+        amount: amountCents,
+      });
+      return {
+        authId: intent.id,
+        amountCents: intent.amount,
+        currency: intent.currency,
+        status: mapIntentStatus(intent.status),
+        clientSecret: intent.client_secret ?? undefined,
+        raw: intent,
+      };
+    } catch (error: unknown) {
+      throw new PaymentFailedError(
+        `Stripe amount update failed for ${authId}: ${describe(error)}`,
         error,
       );
     }
@@ -195,8 +248,11 @@ function mapIntentStatus(status: Stripe.PaymentIntent.Status): PaymentAuth["stat
     case "requires_payment_method":
     case "requires_confirmation":
     case "requires_action":
-    case "processing":
       return "requires_action";
+    case "processing":
+      // Confirmed, outcome pending — the client must NOT re-confirm, so this
+      // is distinct from requires_action (the return page renders "pending").
+      return "processing";
     case "succeeded":
       // Captured already — only possible if capture_method was changed.
       return "authorized";

@@ -2,10 +2,10 @@
   "name": "koolee",
   "version": "0.1.0",
   "private": true,
-  "description": "Koolee — doorstep luggage pickup, delivered to your airline's bag drop (JFK/LGA/EWR)",
+  "description": "Koolee — doorstep luggage pickup, delivered to your airline's bag drop",
   "packageManager": "pnpm@11.18.0",
   "engines": {
-    "node": ">=22"
+    "node": ">=24"
   },
   "scripts": {
     "build": "turbo run build",
@@ -13,11 +13,25 @@
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",
+    "local": "./scripts/local.sh up",
+    "local:dev": "./scripts/local.sh dev",
+    "local:status": "./scripts/local.sh status",
+    "local:down": "./scripts/local.sh down",
+    "local:reset": "./scripts/local.sh reset",
+    "seed:local": "pnpm --filter @koolee/db seed:local",
+    "test:env:up": "./scripts/test-env.sh up",
+    "test:env:verify": "./scripts/test-env.sh verify",
+    "test:env:reset": "./scripts/test-env.sh reset",
+    "test:env:down": "./scripts/test-env.sh down",
+    "test:env:doctor": "./scripts/test-env.sh doctor",
+    "test:db:setup": "./scripts/test-env.sh setup-test-db",
+    "test:db:drop": "./scripts/test-env.sh drop-test-db",
     "clean": "turbo run clean && rm -rf node_modules",
     "format": "prettier --write \"**/*.{ts,tsx,js,mjs,cjs,json,md,css}\"",
     "format:check": "prettier --check \"**/*.{ts,tsx,js,mjs,cjs,json,md,css}\"",
     "db:generate": "pnpm --filter @koolee/db db:generate",
     "db:migrate": "pnpm --filter @koolee/db db:migrate",
+    "db:status": "pnpm --filter @koolee/db db:status",
     "db:studio": "pnpm --filter @koolee/db db:studio",
     "seed": "pnpm --filter @koolee/db seed",
     "dev:inngest": "npx inngest-cli@latest dev -u http://localhost:3000/api/inngest"
@@ -25,7 +39,7 @@
   "devDependencies": {
     "@koolee/config": "workspace:*",
     "prettier": "^3.4.2",
-    "turbo": "^2.3.3",
+    "turbo": "^2.10.9",
     "typescript": "^5.7.3"
   }
 }

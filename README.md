@@ -2,7 +2,7 @@
 
 Doorstep luggage pickup, delivered to your airline's bag drop. NYC — JFK, LGA, EWR.
 
-A Turborepo monorepo: three Next.js 15 apps over a shared domain package, a
+A Turborepo monorepo: three Next.js 16 apps over a shared domain package, a
 Drizzle schema, and a shadcn/ui component library.
 
 ---
@@ -10,7 +10,7 @@ Drizzle schema, and a shadcn/ui component library.
 ## Quickstart
 
 ```bash
-nvm use                 # Node 22 (see .nvmrc)
+nvm use                 # Node 24 (see .nvmrc)
 corepack enable         # pnpm 11
 pnpm install
 
@@ -28,12 +28,31 @@ To actually run it against data:
 for d in apps/web apps/agent apps/admin; do cp $d/.env.example $d/.env.local; done
 cp packages/db/.env.example packages/db/.env
 # then set DATABASE_URL + DIRECT_DATABASE_URL in each (see Environment below)
+# NOTE: packages/db/.env points at the HOSTED project. A bare `pnpm db:migrate`
+# or `pnpm seed` targets production — use `pnpm seed:local`, or override the URL
+# inline. `migrate.ts` prints its target host; read that line before confirming.
 
-docker compose up -d           # Postgres 16 on host port 5433
-pnpm db:migrate                # applies migrations over the DIRECT connection
-pnpm seed                      # airports, airline cutoffs, a pricing rule, 3 days of slots
+pnpm local                     # the whole local environment, one command
 pnpm dev                       # all three apps
 ```
+
+`pnpm local` starts Docker Desktop if it is not running, brings up the Supabase
+stack (Postgres + GoTrue) on 127.0.0.1, migrates the local database, builds the
+disposable `koolee_test` DB, runs eight verify assertions, seeds, and prints a
+status board with every URL and the test OTP numbers. It pins the database URL
+to localhost itself, so it sidesteps the `packages/db/.env` hazard in the note
+above — and it aborts if you have a non-local `DATABASE_URL` exported.
+
+Every step is idempotent, so it is also the right command when you are not sure
+what is already running:
+
+| Command             | Does                                                              |
+| ------------------- | ----------------------------------------------------------------- |
+| `pnpm local`        | Everything above, then stops so you can start the apps yourself   |
+| `pnpm local:dev`    | The above, then `pnpm dev`                                        |
+| `pnpm local:status` | Read-only: what is running right now, including :3000/:3001/:3002 |
+| `pnpm local:down`   | Stop the stack (data volumes persist)                             |
+| `pnpm local:reset`  | Wipe + re-migrate the local DB, then force a reseed               |
 
 In a second terminal, for background jobs:
 
@@ -41,11 +60,47 @@ In a second terminal, for background jobs:
 pnpm dev:inngest               # Inngest dev server, discovers /api/inngest on :3000
 ```
 
+Locally this needs **no credentials** — the client passes
+`isDev: NODE_ENV !== "production"`, so the SDK talks to that dev server and
+ignores Inngest Cloud even when keys are present. A local run therefore never
+appears in the Cloud dashboard; the dev server's own UI is at
+<http://localhost:8288>.
+
+**For production, keys alone are not enough.** All five functions are served
+from `apps/web`, so put `INNGEST_EVENT_KEY` and `INNGEST_SIGNING_KEY` in that
+app's deployed environment (agent and admin need neither), then **sync the app
+to `https://<web-domain>/api/inngest`** in the Inngest dashboard. Crons do not
+fire until that sync happens — it is the step that gets missed. Keys are
+per-environment, so staging gets its own pair.
+
 | App          | Port | What it is                                                 |
 | ------------ | ---- | ---------------------------------------------------------- |
 | `apps/web`   | 3000 | Marketing site, booking flow, customer dashboard           |
 | `apps/agent` | 3001 | PWA for check-in agents and drivers — ID, seal, photos, QR |
-| `apps/admin` | 3002 | Ops console — bookings, exceptions, manual overrides       |
+| `apps/admin` | 3002 | Ops console — bookings, exceptions, blackouts, staff       |
+
+---
+
+## Documentation
+
+This file is the entry point: how to run it, and the rules that are not
+obvious from the code. **Everything else lives in [docs/](docs/).**
+
+| Read this                                    | When you want                                                                                                          |
+| -------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| **[docs/learning/](docs/learning/)**         | **To learn the codebase.** Nine numbered chapters, bottom-up, written to be re-entered. **Start here if you are new.** |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | The system shape, the boundaries, where a change belongs                                                               |
+| [docs/features/](docs/features/)             | How a capability works end to end — funnel, auth, payments, agent visit, ops, jobs                                     |
+| [docs/ENVIRONMENT.md](docs/ENVIRONMENT.md)   | Every env var, the boot gates, secret ownership                                                                        |
+| [docs/MIGRATIONS.md](docs/MIGRATIONS.md)     | Schema change, drift detection, the RLS stance                                                                         |
+| [docs/SCRIPTS.md](docs/SCRIPTS.md)           | Every command and when to reach for it                                                                                 |
+| [docs/CODEBASE-MAP.md](docs/CODEBASE-MAP.md) | The dense 13-chapter narrative reference                                                                               |
+| [PROJECT-STATUS.md](PROJECT-STATUS.md)       | What shipped, what is in flight, what is next                                                                          |
+
+Full index, including app- and package-level docs: **[docs/README.md](docs/README.md)**.
+
+New app docs go in `apps/<app>/docs/`, package docs in `packages/<pkg>/docs/`.
+Nothing new accumulates at the repo root.
 
 ---
 
@@ -74,12 +129,12 @@ build when crossed:
 
 ### Packages
 
-| Package           | Contents                                                                                            |
-| ----------------- | --------------------------------------------------------------------------------------------------- |
-| `packages/core`   | Booking state machine, cutoff/slot logic, pricing, payments, auth contracts, services, Inngest jobs |
-| `packages/db`     | Drizzle schema, migrations, pooled + direct connection factories                                    |
-| `packages/ui`     | shadcn/ui components and the shared Tailwind preset                                                 |
-| `packages/config` | Shared `tsconfig`, ESLint flat config, Prettier config                                              |
+| Package           | Contents                                                                                              |
+| ----------------- | ----------------------------------------------------------------------------------------------------- |
+| `packages/core`   | Booking state machine, cutoff/window logic, pricing, payments, auth contracts, services, Inngest jobs |
+| `packages/db`     | Drizzle schema, migrations, pooled + direct connection factories                                      |
+| `packages/ui`     | shadcn/ui components and the shared Tailwind preset                                                   |
+| `packages/config` | Shared `tsconfig`, ESLint flat config, Prettier config                                                |
 
 ### `packages/core` reads no environment variables
 
@@ -150,17 +205,23 @@ locally. Details in [packages/db/README.md](packages/db/README.md).
 
 ### The cutoff logic is the highest-liability code here
 
-`packages/core/src/slots/cutoff.ts` decides which pickup windows are sellable:
+Pickup windows are **virtual**: every flight sees the same 24 clock-aligned
+one-hour windows, ending between 30 and 6 hours before departure
+(`packages/core/src/slots/windows.ts`), with no capacity — what varies per
+window is the price (lead-time curve on the pricing rule). The deadlines the
+band is built on come from `packages/core/src/slots/cutoff.ts`:
 
 ```
 latest pickup start = departure − airline cutoff − drive time − buffer
+deadline            = min(that, departure − 6 h operations reserve)
 ```
 
-A window is sellable only when its **end** is at or before that instant — the
-pickup must be able to begin at any point in the window. All arithmetic is on
+A window is bookable only when its **end** is at or before that deadline, it
+starts at least 2 hours after the moment of booking, and it overlaps no ops
+blackout (`slot_blocks`, managed in the admin app). All arithmetic is on
 absolute instants (`date-fns` `subMinutes`), so it is DST-correct by
 construction; timezones are applied only when formatting for a human. The test
-suite covers both 2025 US DST transitions explicitly.
+suites cover both 2025 US DST transitions explicitly.
 
 If no cutoff is on record for an airline/airport/scope, the code **refuses to
 sell** rather than guessing. A guessed cutoff is how bags miss flights.
@@ -169,136 +230,99 @@ sell** rather than guessing. A guessed cutoff is how bags miss flights.
 
 ## Environment
 
-Every variable is optional at boot. This table says what each one unlocks and
-what happens without it.
+**Canonical reference: [docs/ENVIRONMENT.md](docs/ENVIRONMENT.md)** — every
+variable, which app reads it, where to obtain it, what silently breaks without
+it, and the full boot-gate rules.
 
-| Variable                             | Where to get it                                                                      | Required when                                | Without it                                                                         |
-| ------------------------------------ | ------------------------------------------------------------------------------------ | -------------------------------------------- | ---------------------------------------------------------------------------------- |
-| `NEXT_PUBLIC_APP_URL`                | This app's own origin — `3000` / `3001` / `3002` locally                             | Absolute links and Stripe return URLs        | Relative links only                                                                |
-| `DATABASE_URL`                       | Supabase → Settings → Database → Connection pooling, **transaction mode**, port 6543 | Any page or action that reads or writes data | Pages render an empty state; mutations return a configuration error                |
-| `DIRECT_DATABASE_URL`                | Supabase → Settings → Database → Direct connection, port 5432                        | `pnpm db:migrate`, `pnpm db:studio`          | Migrations fail with a named error. `pnpm db:generate` still works — it is offline |
-| `NEXT_PUBLIC_SUPABASE_URL`           | Supabase → Settings → API → Project URL                                              | Browser Realtime / Storage                   | No live timeline updates; no photo upload                                          |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY`      | Supabase → Settings → API → anon public                                              | Browser Realtime / Storage                   | As above                                                                           |
-| `SUPABASE_SERVICE_ROLE_KEY`          | Supabase → Settings → API → service_role                                             | Server-side Storage writes                   | Bag photos are not uploaded                                                        |
-| `STRIPE_SECRET_KEY`                  | Stripe → Developers → API keys                                                       | Real card authorization and capture          | Booking uses `FakePaymentProvider`; no money moves                                 |
-| `STRIPE_WEBHOOK_SECRET`              | Stripe → Developers → Webhooks, or `stripe listen`                                   | Verifying `/api/webhooks/stripe`             | The route rejects every webhook rather than trusting it                            |
-| `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` | Stripe → Developers → API keys                                                       | Mounting Stripe Elements                     | Checkout shows the dev payment path                                                |
-| `INNGEST_EVENT_KEY`                  | Inngest Cloud → Events → Event keys                                                  | Sending events to Inngest Cloud              | Works against `pnpm dev:inngest`                                                   |
-| `INNGEST_SIGNING_KEY`                | Inngest Cloud → Deploy → Signing key                                                 | Serving functions to Inngest Cloud           | Works against `pnpm dev:inngest`                                                   |
-| `TWILIO_ACCOUNT_SID`                 | Twilio Console                                                                       | Real SMS                                     | `ConsoleNotifier` logs instead                                                     |
-| `TWILIO_AUTH_TOKEN`                  | Twilio Console                                                                       | Real SMS                                     | As above                                                                           |
-| `TWILIO_MESSAGING_SERVICE_SID`       | Twilio → Messaging → Services                                                        | Real SMS                                     | As above                                                                           |
-| `RESEND_API_KEY`                     | Resend → API Keys                                                                    | Real email                                   | `ConsoleNotifier` logs instead                                                     |
-| `AEROAPI_KEY`                        | FlightAware AeroAPI                                                                  | Flight lookup                                | Stubbed — flight details are typed in                                              |
-| `GOOGLE_MAPS_API_KEY`                | Google Cloud → Maps Platform                                                         | Real drive-time and address autocomplete     | Fixed drive-time estimate is used                                                  |
-| `ANTHROPIC_API_KEY`                  | console.anthropic.com                                                                | Ticket-PDF extraction                        | Out of scope for this scaffold                                                     |
-| `SENTRY_DSN`                         | Sentry → Project Settings → Client Keys                                              | Error and ops alerting                       | Alerts go to console                                                               |
-| `TEST_DATABASE_URL`                  | Your throwaway Postgres                                                              | Running integration tests                    | They skip, and `pnpm test` stays green                                             |
+The three things worth knowing here:
 
-### Setting up local env files
-
-```bash
-for d in apps/web apps/agent apps/admin; do cp $d/.env.example $d/.env.local; done && cp packages/db/.env.example packages/db/.env
-```
-
-Each app and package has its own `.env.example` documenting only the subset it
-reads, and each is the file that actually takes effect:
-
-- **Next.js reads only `apps/<app>/.env.local`.** It does not traverse up to the
-  monorepo root, and Turborepo does not load `.env` files into a task's
-  environment either — it only hashes them for caching. A repo-root `.env.local`
-  therefore has **no effect on the three apps**.
-- **`drizzle-kit` is the exception.** `packages/db/drizzle.config.ts` explicitly
-  falls back to the repo root, so `pnpm db:migrate` and `pnpm seed` do pick up a
-  root `.env.local`.
-- **`packages/db` uses `.env`, not `.env.local`** — the drizzle-kit convention.
-
-The repo-root [`.env.example`](.env.example) is best treated as the canonical
-reference for where every key comes from, rather than as a shared runtime file.
-
-Keys in the per-app `.env.example` files are deliberately left **empty**, with a
-realistic shape in the comment above each. That keeps `cp .env.example .env.local`
-safe: a malformed value is worse than an absent one, because it passes validation
-and then fails at connect time instead of degrading to the fallback above.
-
-Least privilege is intentional: `apps/agent` carries no Stripe or messaging
-credentials — a shared, frequently-lost device should not hold them — and
-`apps/admin` gets a Stripe secret key for refunds but no webhook or publishable
-key. Only browser-safe values take the `NEXT_PUBLIC_` prefix, since Next.js
-inlines those into the client bundle.
+1. **Every variable is optional at boot.** A fresh clone builds, lints,
+   typechecks and tests green with no credentials. A missing credential
+   degrades to a documented fallback — so **a missing secret looks like a
+   working app with a protection switched off**, not like a failure.
+2. **Production boot gates fail closed.** Each app asserts the config whose
+   absence would silently disable a control, and refuses to start without it.
+   A failed assertion is the intended outcome of a missing secret, not a bug to
+   work around. `next build` is exempt.
+3. **Next.js reads `apps/<app>/.env.local`, never the repo root.** Copy each
+   app's own `.env.example`; the root one is reference material.
 
 ---
 
 ## Testing
 
-```bash
-pnpm test                                    # unit tests; integration tests skip
-pnpm --filter @koolee/core test:watch        # watch mode
-```
+**Full detail: [docs/SCRIPTS.md](docs/SCRIPTS.md)** ·
+[packages/core/docs/local-test-env.md](packages/core/docs/local-test-env.md)
 
-Integration tests are opt-in and need a real Postgres:
+| Tier            | Command                                       | Needs                                  |
+| --------------- | --------------------------------------------- | -------------------------------------- |
+| Unit            | `pnpm test`                                   | Nothing                                |
+| Integration     | `pnpm --filter @koolee/core test:integration` | Postgres via `TEST_DATABASE_URL`       |
+| Auth acceptance | same, with the local stack                    | Supabase GoTrue via `pnpm test:env:up` |
 
-```bash
-docker compose up -d
-TEST_DATABASE_URL=postgres://koolee:koolee@localhost:5433/koolee \
-  pnpm --filter @koolee/core test:integration
-```
+Integration suites are **opt-in**: without `TEST_DATABASE_URL` they skip rather
+than fail, so a fresh clone's `pnpm test` is green.
 
-They migrate and truncate the database they are pointed at. **Point them at a
-throwaway instance.**
-
-What is covered:
-
-- **Booking state machine** — the full 10 × 11 status/event matrix, every legal
-  transition and all 88 illegal ones, terminal statuses, the cancel boundary,
-  and custody-event emission.
-- **Cutoff and slot logic** — boundary conditions to the minute, both 2025 DST
-  transitions, domestic vs international cutoffs, and a property check that no
-  returned slot ever ends after the latest safe pickup start.
-- **Pricing** — additivity, tier multipliers, discount stacking, integer-cent
-  invariants, validation.
-- **Payments** — the `FakePaymentProvider` authorize → capture → refund state
-  machine and its rejections.
-- **Coverage** — ZIP normalisation and the service-area allowlist.
-- **Integration** — `createBooking` end to end: transactional consistency,
-  concurrent overselling (three racing bookings against a capacity of two),
-  rollback on a full slot, compensation when payment authorization fails, and
-  the `custody_events` append-only trigger rejecting `UPDATE`/`DELETE`/`TRUNCATE`.
+Two databases live in the local container: `postgres` (your dev data) and the
+disposable `koolee_test` (the only one the suites may wipe). A marker table
+makes that enforceable — the suites **refuse to run** without it, so a
+mispointed `TEST_DATABASE_URL` fails closed instead of emptying your dev
+database.
 
 ---
 
 ## Commands
 
-| Command            | What it does                                 |
-| ------------------ | -------------------------------------------- |
-| `pnpm dev`         | All three apps (3000 / 3001 / 3002)          |
-| `pnpm build`       | Production build of all three                |
-| `pnpm lint`        | ESLint across the workspace                  |
-| `pnpm typecheck`   | `tsc --noEmit` across the workspace          |
-| `pnpm test`        | Unit tests                                   |
-| `pnpm format`      | Prettier write                               |
-| `pnpm db:generate` | Diff the schema, write a migration (offline) |
-| `pnpm db:migrate`  | Apply migrations (direct connection)         |
-| `pnpm db:studio`   | drizzle-kit studio                           |
-| `pnpm seed`        | Idempotent reference data                    |
-| `pnpm dev:inngest` | Local Inngest dev server                     |
+**Full reference: [docs/SCRIPTS.md](docs/SCRIPTS.md).** The ones you need daily:
+
+| Command                        | What it does                                                        |
+| ------------------------------ | ------------------------------------------------------------------- |
+| `pnpm local:dev`               | Cold start: Docker → Supabase → migrate → seed → run all three apps |
+| `pnpm local:status`            | What is running right now                                           |
+| `pnpm dev`                     | All three apps (3000 / 3001 / 3002)                                 |
+| `pnpm test`                    | Unit tests                                                          |
+| `pnpm lint` / `pnpm typecheck` | Across the workspace                                                |
+| `pnpm db:generate`             | Diff the schema, write a migration (offline, no credentials)        |
+| `pnpm db:status`               | Migration drift report (read-only, safe against production)         |
+| `pnpm db:migrate`              | Apply migrations (direct connection)                                |
+
+⚠️ `db:migrate`, `db:status`, `seed` and `db:studio` read `packages/db/.env`,
+which points at the **hosted** project. Both `migrate` and `status` print
+`Target host:` first — read that line. Use `pnpm seed:local` or override the URL
+inline for local work.
 
 ---
 
 ## Background jobs
 
-Three Inngest functions, served from `apps/web/app/api/inngest/route.ts`:
+**Five** Inngest functions, all served from `apps/web/app/api/inngest/route.ts`.
+Three are defined in `packages/core/src/jobs/functions.ts`; the two crons that
+need app-held credentials are defined in `apps/web/src/lib/inngest.ts`.
+
+Domain jobs (`packages/core`):
 
 1. **`booking/confirmed`** → durably sleeps until two hours before pickup, then
    sends a reminder SMS through the `Notifier` interface.
 2. **Cron, every 5 minutes** → scans in-transit bookings, compares a (stubbed)
    driver ETA against the bag-drop cutoff, and alerts ops on anything tight.
-3. **`booking/agent_no_show_check`** → waits 15 minutes past slot start and
-   escalates if the assigned agent never began the verification task.
+3. **`booking/agent_no_show_check`** → waits 15 minutes past the pickup
+   window's start and escalates if the assigned agent never began the
+   verification task.
 
-All three are skeletons: real querying and logging, stubbed side effects. Run
-`pnpm dev:inngest` alongside `pnpm dev` and the dev server discovers them
-automatically.
+App-held crons (`apps/web`, because they need Stripe / service-role):
+
+4. **Cron, every 5 minutes** → `captureDueBookings`: captures authorizations
+   whose bags are already in custody. Also at `POST /api/jobs/capture-due`.
+5. **Cron, daily 04:00 America/New_York** → expires abandoned drafts and
+   deletes orphaned anonymous users. Also at `POST /api/jobs/cleanup-anon`.
+
+Both manual routes require `CRON_SECRET` and refuse to run without one.
+
+The three domain jobs are skeletons: real querying and logging, stubbed side
+effects. Run `pnpm dev:inngest` alongside `pnpm dev` and the dev server
+discovers them automatically.
+
+Full detail: [docs/features/jobs-and-notifications.md](docs/features/jobs-and-notifications.md).
 
 ---
 
@@ -312,15 +336,19 @@ Listed so nobody goes looking for it:
 - **Per-bag tracking hardware.**
 - **Rejected-bag and lost-bag exception flows.** The exceptions page lists
   affected bookings; resolution is manual state overrides for now.
-- **Real agent and admin auth.** Development stubs that throw outside
-  `NODE_ENV=development`. See the `TODO(auth-*)` block in
-  `packages/core/src/auth/stubs.ts` for the requirements.
-- **Customer session in the booking flow.** Bookings currently attach to a
-  placeholder customer. The Supabase phone-OTP verification helper is
-  implemented; it is not yet threaded through.
-- **Ticket-PDF extraction with Claude.** The upload button is present and
-  disabled.
-- **Real AeroAPI, Maps, Twilio, Resend integrations.** Interfaces and stubs
-  only.
+- **Real AeroAPI, Maps, custody-SMS, Resend integrations.** Interfaces and
+  stubs only, so flight details are typed in and drive time is a fixed
+  estimate. Auth OTP SMS already works — Supabase Auth owns it end-to-end and
+  its provider credentials live in the Supabase dashboard, not app env.
+- **The Inngest jobs' side effects.** All three functions query and log for
+  real; the messages they would send are stubs, blocked on the line above.
+- **Pickup-window capacity.** Windows deliberately accept unlimited bookings.
+  Re-introducing seat limits would need both a schema and a concurrency story.
+- **Dynamic pricing.** The lead-time curve is a configurable placeholder; the
+  seam it will replace is `resolveLeadTimeMultiplier` in the pricing engine.
 - **React Native.**
 - **Vercel deploy config** beyond the repo being deploy-ready.
+
+Previously listed here and now **shipped**: staff auth (invite-only
+agent/admin accounts), the customer session threaded through the booking flow,
+and ticket-PDF extraction.

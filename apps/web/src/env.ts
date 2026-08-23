@@ -10,13 +10,16 @@ import { z } from "zod";
  *    code path that genuinely needs it executes — call `requireEnv()` there.
  *  - Malformed values degrade to `undefined` with a dev warning rather than
  *    crashing the process.
+ *  - TWO exceptions, both server-side boot checks below: OTP_LOG_HMAC_KEY is
+ *    validated at import whenever DATABASE_URL is set, and a production boot
+ *    with Supabase configured must pass `assertProductionSecurityConfig`.
  *
  * NEXT_PUBLIC_* vars are referenced as literal `process.env.X` member
  * expressions so the Next compiler can inline them into the client bundle.
  */
 
 const optionalString = z.string().min(1).optional().catch(undefined);
-const optionalUrl = z.string().url().optional().catch(undefined);
+const optionalUrl = z.url().optional().catch(undefined);
 
 const schema = z.object({
   NODE_ENV: z
@@ -27,6 +30,13 @@ const schema = z.object({
   // --- App ---------------------------------------------------------------
   /** Absolute origin of this app. Used to build absolute links and callbacks. */
   NEXT_PUBLIC_APP_URL: optionalUrl,
+  /**
+   * "coming_soon" ships the marketing site and a browsable booking funnel
+   * with every account surface closed: /login, /trips and /dashboard bounce
+   * home, the funnel's verify step renders a coming-soon panel, and the OTP
+   * server actions refuse to send. Anything else (or unset) means live.
+   */
+  NEXT_PUBLIC_LAUNCH_MODE: z.enum(["live", "coming_soon"]).default("live").catch("live"),
 
   // --- Database (Supabase Postgres) -------------------------------------
   /** Supavisor transaction-mode pooler, port 6543. Runtime queries. */
@@ -34,10 +44,34 @@ const schema = z.object({
   /** Direct connection, port 5432. Migrations only. */
   DIRECT_DATABASE_URL: optionalString,
 
-  // --- Supabase (client SDK: Realtime + Storage only) --------------------
+  // --- Supabase (auth, Realtime, Storage) --------------------------------
   NEXT_PUBLIC_SUPABASE_URL: optionalUrl,
   NEXT_PUBLIC_SUPABASE_ANON_KEY: optionalString,
   SUPABASE_SERVICE_ROLE_KEY: optionalString,
+  /**
+   * Declares whether DATABASE_URL points at a database with GoTrue's `auth`
+   * schema. "false" (bare local Postgres) skips claim reconciliation on
+   * upgrade sends — an explicit signal, not the 42P01 error-code sniffing it
+   * replaced. Unset counts as available: a genuinely missing schema then
+   * fails the send loudly instead of silently disabling reconciliation.
+   */
+  AUTH_SCHEMA_AVAILABLE: z.enum(["true", "false"]).optional().catch(undefined),
+
+  // --- Bot protection (Cloudflare Turnstile) ------------------------------
+  // Site key only. The SECRET key lives in the Supabase dashboard (Auth →
+  // Attack Protection): Supabase verifies the captchaToken we forward on
+  // auth calls, so this app never calls siteverify.
+  NEXT_PUBLIC_TURNSTILE_SITE_KEY: optionalString,
+
+  // --- OTP send-log hashing ------------------------------------------------
+  // Server-side only. HMAC key for otp_send_log.destination_hash; the OTP
+  // throttle persists hashes, never plaintext phones/emails. Required (min
+  // 32 chars) whenever DATABASE_URL is set — enforced at boot below.
+  OTP_LOG_HMAC_KEY: optionalString,
+
+  // --- Scheduled jobs ------------------------------------------------------
+  /** Shared secret for manually-invoked job routes (/api/jobs/*). */
+  CRON_SECRET: optionalString,
 
   // --- Payments ----------------------------------------------------------
   STRIPE_SECRET_KEY: optionalString,
@@ -49,9 +83,10 @@ const schema = z.object({
   INNGEST_SIGNING_KEY: optionalString,
 
   // --- Notifications -----------------------------------------------------
-  TWILIO_ACCOUNT_SID: optionalString,
-  TWILIO_AUTH_TOKEN: optionalString,
-  TWILIO_MESSAGING_SERVICE_SID: optionalString,
+  // Auth OTP delivery is owned by Supabase Auth; its SMS provider credentials
+  // live ONLY in the Supabase dashboard, never here. Custody-event SMS
+  // credentials land with the notifications work item (NotificationDispatcher
+  // in @koolee/core is the seam).
   RESEND_API_KEY: optionalString,
 
   // --- Third-party data --------------------------------------------------
@@ -74,6 +109,7 @@ const raw = {
   NODE_ENV: process.env.NODE_ENV,
 
   NEXT_PUBLIC_APP_URL: process.env.NEXT_PUBLIC_APP_URL,
+  NEXT_PUBLIC_LAUNCH_MODE: process.env.NEXT_PUBLIC_LAUNCH_MODE,
 
   DATABASE_URL: process.env.DATABASE_URL,
   DIRECT_DATABASE_URL: process.env.DIRECT_DATABASE_URL,
@@ -81,6 +117,13 @@ const raw = {
   NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL,
   NEXT_PUBLIC_SUPABASE_ANON_KEY: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
   SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY,
+  AUTH_SCHEMA_AVAILABLE: process.env.AUTH_SCHEMA_AVAILABLE,
+
+  NEXT_PUBLIC_TURNSTILE_SITE_KEY: process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY,
+
+  OTP_LOG_HMAC_KEY: process.env.OTP_LOG_HMAC_KEY,
+
+  CRON_SECRET: process.env.CRON_SECRET,
 
   STRIPE_SECRET_KEY: process.env.STRIPE_SECRET_KEY,
   STRIPE_WEBHOOK_SECRET: process.env.STRIPE_WEBHOOK_SECRET,
@@ -89,9 +132,6 @@ const raw = {
   INNGEST_EVENT_KEY: process.env.INNGEST_EVENT_KEY,
   INNGEST_SIGNING_KEY: process.env.INNGEST_SIGNING_KEY,
 
-  TWILIO_ACCOUNT_SID: process.env.TWILIO_ACCOUNT_SID,
-  TWILIO_AUTH_TOKEN: process.env.TWILIO_AUTH_TOKEN,
-  TWILIO_MESSAGING_SERVICE_SID: process.env.TWILIO_MESSAGING_SERVICE_SID,
   RESEND_API_KEY: process.env.RESEND_API_KEY,
 
   AEROAPI_KEY: process.env.AEROAPI_KEY,
@@ -128,6 +168,16 @@ const HINTS: Partial<Record<EnvKey, string>> = {
   NEXT_PUBLIC_SUPABASE_ANON_KEY: "Supabase → Project Settings → API → anon public key.",
   SUPABASE_SERVICE_ROLE_KEY:
     "Supabase → Project Settings → API → service_role key. Server-side only.",
+  AUTH_SCHEMA_AVAILABLE:
+    'Set "false" only when DATABASE_URL is a bare Postgres with no GoTrue ' +
+    "auth schema (local docker). Leave unset against any Supabase project.",
+  NEXT_PUBLIC_TURNSTILE_SITE_KEY:
+    "Cloudflare Dashboard → Turnstile → your site → Site key (invisible mode). " +
+    "The secret key goes in the Supabase dashboard, not in app env.",
+  OTP_LOG_HMAC_KEY:
+    "Generate with `openssl rand -hex 32` (min 32 chars). Rotating it resets " +
+    "OTP rate-limit windows, which is harmless.",
+  CRON_SECRET: "Any random string; protects /api/jobs/* manual triggers.",
   INNGEST_EVENT_KEY:
     "Inngest Cloud → Events → Event keys. Not needed for `pnpm dev:inngest`.",
   INNGEST_SIGNING_KEY: "Inngest Cloud → Deploy → Signing key.",
@@ -150,8 +200,92 @@ export function optionalEnv(key: EnvKey): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
+/*
+ * The one exception to the never-throw contract: with a database configured
+ * the OTP throttle WILL write `destination_hash` rows, so a missing or short
+ * OTP_LOG_HMAC_KEY must fail HERE at env validation — not at the first OTP
+ * send. A fresh clone with no DATABASE_URL still boots green: without a
+ * database the throttle never runs and the key is never read.
+ * `typeof window` guard: the server bundle is where the key matters; client
+ * bundles never see server-side vars and must not throw over their absence.
+ */
+if (typeof window === "undefined" && env.DATABASE_URL) {
+  const key = env.OTP_LOG_HMAC_KEY;
+  if (!key || key.length < 32) {
+    throw new MissingEnvError("OTP_LOG_HMAC_KEY", HINTS.OTP_LOG_HMAC_KEY!);
+  }
+}
+
 export const isDev = env.NODE_ENV === "development";
 export const isProd = env.NODE_ENV === "production";
+
+/**
+ * Pre-launch posture (NEXT_PUBLIC_LAUNCH_MODE=coming_soon): account creation
+ * and sign-in are closed everywhere. A function, not a const, so tests can
+ * mock it per-case.
+ */
+export function isComingSoon(): boolean {
+  return env.NEXT_PUBLIC_LAUNCH_MODE === "coming_soon";
+}
+
+/**
+ * Whether the database carries GoTrue's `auth` schema, i.e. whether upgrade
+ * sends can (and therefore MUST) reconcile phone/email claims. Unset counts
+ * as available on purpose: against a database that unexpectedly lacks the
+ * schema, reconciliation then fails the send loudly instead of being
+ * silently skipped — only an explicit "false" opts out.
+ */
+export const authSchemaAvailable = env.AUTH_SCHEMA_AVAILABLE !== "false";
+
+/**
+ * Fail-closed production gate for the auth funnel's security config. Each
+ * item, when absent, silently DISABLES a control rather than erroring:
+ *
+ *  - no Turnstile site key → no widget is mounted, so `requireCaptchaToken`
+ *    never demands a token and CAPTCHA is off across the whole funnel;
+ *  - no service-role key → `deleteAuthUser` degrades to a logged no-op and
+ *    reconciliation stops removing orphaned GoTrue users — reinstating the
+ *    phone_change collision bug acceptance tests 15/16 close out;
+ *  - no DATABASE_URL → `guardUpgradeSend` degrades to allow-all: no
+ *    throttle, no reconciliation, while Supabase still sends real SMS;
+ *  - AUTH_SCHEMA_AVAILABLE=false → reconciliation is explicitly skipped,
+ *    which is a dev-only posture.
+ *
+ * Acceptable degradations on a fresh clone; not in production with auth
+ * live. Runs at import (below) whenever a production server has Supabase
+ * configured — without Supabase the funnel is inert and nothing fails open.
+ */
+export function assertProductionSecurityConfig(): void {
+  const missing: string[] = [];
+  if (!optionalEnv("NEXT_PUBLIC_TURNSTILE_SITE_KEY")) {
+    missing.push("NEXT_PUBLIC_TURNSTILE_SITE_KEY (CAPTCHA silently off without it)");
+  }
+  if (!optionalEnv("SUPABASE_SERVICE_ROLE_KEY")) {
+    missing.push("SUPABASE_SERVICE_ROLE_KEY (orphaned auth users never deleted without it)");
+  }
+  if (!optionalEnv("DATABASE_URL")) {
+    missing.push("DATABASE_URL (OTP throttle and claim reconciliation off without it)");
+  }
+  if (env.AUTH_SCHEMA_AVAILABLE === "false") {
+    missing.push('AUTH_SCHEMA_AVAILABLE="false" (claim reconciliation explicitly disabled)');
+  }
+  if (missing.length > 0) {
+    throw new Error(
+      "Refusing to run the auth funnel in production with security config " +
+        `incomplete:\n${missing.map((m) => `  - ${m}`).join("\n")}\n` +
+        "See apps/web/docs/pre-launch-security.md (item 3).",
+    );
+  }
+}
+
+/*
+ * Coming-soon deploys skip the gate on purpose: the OTP actions are hard-
+ * disabled (`comingSoonClosed` in actions/auth.ts), so the funnel's auth is
+ * inert and none of the guarded controls can fail open.
+ */
+if (typeof window === "undefined" && isProd && env.NEXT_PUBLIC_SUPABASE_URL && !isComingSoon()) {
+  assertProductionSecurityConfig();
+}
 
 /* ------------------------------------------------------------------ */
 /* Dev-only diagnostics                                                */
@@ -183,6 +317,13 @@ export function describeEnvStatus(): ServiceStatus[] {
       keys: ["NEXT_PUBLIC_SUPABASE_URL", "NEXT_PUBLIC_SUPABASE_ANON_KEY"],
     },
     {
+      service: "Turnstile (bot protection)",
+      configured: has("NEXT_PUBLIC_TURNSTILE_SITE_KEY"),
+      fallback:
+        "Auth calls send no captchaToken — enable Supabase CAPTCHA protection only once this is set.",
+      keys: ["NEXT_PUBLIC_TURNSTILE_SITE_KEY"],
+    },
+    {
       service: "Stripe",
       configured: has("STRIPE_SECRET_KEY"),
       fallback: "Checkout uses FakePaymentProvider.",
@@ -197,12 +338,6 @@ export function describeEnvStatus(): ServiceStatus[] {
       configured: has("INNGEST_EVENT_KEY"),
       fallback: "Works against the local Inngest dev server (`pnpm dev:inngest`).",
       keys: ["INNGEST_EVENT_KEY", "INNGEST_SIGNING_KEY"],
-    },
-    {
-      service: "Twilio SMS",
-      configured: has("TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN"),
-      fallback: "Notifier logs to console.",
-      keys: ["TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN", "TWILIO_MESSAGING_SERVICE_SID"],
     },
     {
       service: "Resend email",

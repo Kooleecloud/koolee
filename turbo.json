@@ -12,15 +12,16 @@
         "DATABASE_URL",
         "DIRECT_DATABASE_URL",
         "SUPABASE_SERVICE_ROLE_KEY",
+        "OTP_LOG_HMAC_KEY",
         "STRIPE_SECRET_KEY",
         "STRIPE_WEBHOOK_SECRET",
         "INNGEST_*",
-        "TWILIO_*",
         "RESEND_API_KEY",
         "AEROAPI_KEY",
         "GOOGLE_MAPS_API_KEY",
         "ANTHROPIC_API_KEY",
-        "SENTRY_DSN"
+        "SENTRY_DSN",
+        "CRON_SECRET"
       ]
     },
     "dev": {

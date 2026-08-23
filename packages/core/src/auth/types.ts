@@ -1,11 +1,12 @@
 import type { UserRole } from "@koolee/db";
 
 /**
- * Auth contracts. This is a **seam**, not an implementation.
+ * Auth contracts.
  *
- * Only the customer path is real (Supabase phone OTP). Agent and admin
- * authentication is deliberately unbuilt — see `./stubs.ts` for what has to
- * replace it before either app is exposed to anything but localhost.
+ * Customers verify by phone/email OTP; staff (agent, admin) sign in with
+ * email + password and are authorized by their `staff_members` row through
+ * `requireStaffRole` (see `../services/staff.ts`) — the role lookup happens
+ * per request, which is what makes deactivation immediate.
  */
 
 export interface BaseSession {
@@ -81,20 +82,24 @@ export function isAdminSession(session: Session): session is AdminSession {
 }
 
 /**
- * Whether a session may act on a booking.
+ * Whether a session may act on a booking, decided synchronously.
  *
  * This is the authorization boundary — RLS is not, because every server-side
  * query runs on a service-role connection that bypasses it. See
  * `packages/db/README.md`.
+ *
+ * Agents are TASK-scoped: they may act only on bookings with a verification
+ * or pickup task assigned to them, which needs a database read. This sync
+ * check therefore answers `false` for agents; agent paths go through
+ * `sessionCanActOnBooking` in `../services/bookings.ts`, which performs the
+ * assignment lookup.
  */
 export function canActOnBooking(session: Session, booking: { userId: string }): boolean {
   switch (session.kind) {
     case "admin":
       return true;
     case "agent":
-      // TODO: narrow to bookings with a task assigned to this user. Requires
-      // the dispatch model, which is not built yet.
-      return true;
+      return false;
     case "customer":
       return session.userId === booking.userId;
   }

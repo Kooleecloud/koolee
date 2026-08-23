@@ -1,0 +1,27 @@
+import Link from "next/link";
+import { AppHeader, ContentColumn, CTAButton } from "@koolee/ui";
+
+/**
+ * Shared chrome for /trips and /trips/[bookingId]. Header lives here (not in
+ * pages) so loading.tsx keeps live chrome during the DB round-trip.
+ */
+export default function TripsLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="min-h-dvh">
+      <AppHeader
+        linkComponent={Link}
+        links={[
+          { href: "/dashboard/profile", label: "Profile" },
+          { href: "/dashboard/addresses", label: "Addresses" },
+          { href: "/trips", label: "Trips" },
+        ]}
+        actions={
+          <CTAButton size="sm" asChild>
+            <Link href="/book">Book a pickup</Link>
+          </CTAButton>
+        }
+      />
+      <ContentColumn>{children}</ContentColumn>
+    </div>
+  );
+}

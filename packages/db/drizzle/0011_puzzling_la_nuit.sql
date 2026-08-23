@@ -1,0 +1,2 @@
+ALTER TABLE "booking_drafts" ADD COLUMN "expires_at" timestamp with time zone DEFAULT now() + interval '7 days' NOT NULL;--> statement-breakpoint
+ALTER TABLE "booking_drafts" ADD COLUMN "deleted_at" timestamp with time zone;

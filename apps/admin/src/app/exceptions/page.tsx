@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { format } from "date-fns";
+import { redirect } from "next/navigation";
 import {
   Button,
   Card,
@@ -7,10 +7,21 @@ import {
   CardDescription,
   CardHeader,
   CardTitle,
+  ContentColumn,
+  DatabaseNotConfigured,
+  EmptyState,
+  PageHeader,
 } from "@koolee/ui";
-import { listBookings, type Booking } from "@koolee/core";
+import {
+  formatInstantInAirportTz,
+  getDisplayZones,
+  listBookings,
+  zoneFor,
+  type Booking,
+} from "@koolee/core";
 
 import { tryGetCore } from "@/lib/core";
+import { getAdminSession } from "@/lib/session";
 
 export const metadata = { title: "Exceptions" };
 export const dynamic = "force-dynamic";
@@ -28,42 +39,38 @@ export const dynamic = "force-dynamic";
  * the custody log rather than editing it.
  */
 export default async function ExceptionsPage() {
+  const session = await getAdminSession();
+  if (!session) redirect("/login");
+
   const core = tryGetCore();
 
   let exceptions: Booking[] = [];
+  let zones: Record<string, string> = {};
   let unavailable = core === null;
 
   if (core) {
     try {
-      exceptions = await listBookings(core.db, { status: "exception", limit: 100 });
+      // Exceptions can span airports, so each row renders in its own zone.
+      [exceptions, zones] = await Promise.all([
+        listBookings(core.db, { status: "exception", limit: 100 }),
+        getDisplayZones(core.db),
+      ]);
     } catch {
       unavailable = true;
     }
   }
 
   return (
-    <main className="container flex max-w-3xl flex-col gap-6 py-8">
-      <header className="flex flex-col gap-1">
-        <h1 className="text-2xl font-semibold tracking-tight">Exceptions</h1>
-        <p className="text-sm text-muted-foreground">Bookings that need a human.</p>
-      </header>
+    <ContentColumn>
+      <PageHeader title="Exceptions" subtitle="Bookings that need a human." />
 
       {unavailable ? (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Database not configured</CardTitle>
-            <CardDescription>
-              Set <code>DATABASE_URL</code> in <code>.env.local</code>.
-            </CardDescription>
-          </CardHeader>
-        </Card>
+        <DatabaseNotConfigured />
       ) : exceptions.length === 0 ? (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Nothing in exception</CardTitle>
-            <CardDescription>Every booking is on its normal path.</CardDescription>
-          </CardHeader>
-        </Card>
+        <EmptyState
+          title="Nothing in exception"
+          description="Every booking is on its normal path."
+        />
       ) : (
         <ul className="flex flex-col gap-3">
           {exceptions.map((booking) => (
@@ -77,7 +84,12 @@ export default async function ExceptionsPage() {
                     {booking.flightNumber} · {booking.departureAirport}
                   </span>
                   <span className="text-sm text-muted-foreground">
-                    Departs {format(booking.departureAt, "EEE d MMM, HH:mm")} ·{" "}
+                    Departs{" "}
+                    {formatInstantInAirportTz(
+                      booking.departureAt,
+                      zoneFor(zones, booking.departureAirport),
+                    )}{" "}
+                    ·{" "}
                     {booking.paxName}
                   </span>
                 </span>
@@ -103,6 +115,6 @@ export default async function ExceptionsPage() {
           See the TODO(exceptions) note in this file.
         </CardContent>
       </Card>
-    </main>
+    </ContentColumn>
   );
 }

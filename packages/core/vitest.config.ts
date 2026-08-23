@@ -1,4 +1,14 @@
+import { fileURLToPath } from "node:url";
+
+import { config as loadEnv } from "dotenv";
 import { defineConfig } from "vitest/config";
+
+// `scripts/test-env.sh up` writes .env.test at the repo root with
+// TEST_DATABASE_URL / AUTH_SCHEMA_AVAILABLE pointed at local Supabase.
+// dotenv never overrides variables already exported in the shell, so an
+// explicit `TEST_DATABASE_URL=... pnpm test:integration` still wins, and a
+// missing .env.test is silently fine (integration tests then skip as before).
+loadEnv({ path: fileURLToPath(new URL("../../.env.test", import.meta.url)), quiet: true });
 
 /**
  * One config, two kinds of test.
@@ -14,6 +24,8 @@ export default defineConfig({
     globals: false,
     environment: "node",
     include: ["src/**/*.test.ts"],
+    // Heals the shared local dev data if a run truncated it — see the file.
+    globalSetup: ["./vitest.global-setup.ts"],
     // Integration tests migrate a database and share rows.
     testTimeout: 30_000,
     hookTimeout: 60_000,

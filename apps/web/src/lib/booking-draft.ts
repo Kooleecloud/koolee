@@ -1,8 +1,10 @@
 import "server-only";
 
 import { cookies } from "next/headers";
-import { z } from "zod";
-import type { AirportCode, CutoffScope, SlotTier } from "@koolee/core";
+
+import { bookingDraftSchema, type TypedBookingDraft } from "./booking-draft-schema";
+
+export { bookingDraftSchema, type BookingDraft, type TypedBookingDraft } from "./booking-draft-schema";
 
 /**
  * Multi-step booking draft, held in a cookie.
@@ -13,46 +15,36 @@ import type { AirportCode, CutoffScope, SlotTier } from "@koolee/core";
  * re-validated by `createBooking` before a booking exists.
  *
  * No PII beyond a passenger name and address, and the cookie is httpOnly and
- * expires with the session.
+ * expires 24 hours after the last step (sliding — see
+ * DRAFT_COOKIE_MAX_AGE_SECONDS).
  */
 
-const COOKIE_NAME = "koolee_draft";
-const AIRPORT_CODES = ["JFK", "LGA", "EWR"] as const;
+/**
+ * Exported for the /book/return route handler, which deletes the cookie on
+ * its own redirect response — the one draft-clearing site that cannot use
+ * `clearDraft()`'s request-scoped store.
+ */
+export const DRAFT_COOKIE_NAME = "koolee_draft";
 
-export const bookingDraftSchema = z.object({
-  flightNumber: z.string().min(2).max(10).optional(),
-  airlineIata: z.string().length(2).or(z.string().length(3)).optional(),
-  departureAirport: z.enum(AIRPORT_CODES).optional(),
-  /** ISO-8601 — cookies hold strings, not Dates. */
-  departureAt: z.string().datetime().optional(),
-  scope: z.enum(["domestic", "international"]).optional(),
-  paxName: z.string().min(1).max(120).optional(),
-  /** E.164. Placeholder until customer sign-in is wired. */
-  phone: z.string().min(8).max(20).optional(),
+const COOKIE_NAME = DRAFT_COOKIE_NAME;
 
-  line1: z.string().min(1).max(200).optional(),
-  line2: z.string().max(200).optional(),
-  city: z.string().min(1).max(100).optional(),
-  state: z.string().length(2).optional(),
-  zip: z.string().min(5).max(10).optional(),
+/**
+ * Sliding inactivity TTL: refreshed on every write, so the guest draft
+ * survives 24 hours since the LAST step, then the browser drops it. Account
+ * holders outlive this via the `booking_drafts` mirror row (7 days), which
+ * the /book entry rehydrates from.
+ */
+export const DRAFT_COOKIE_MAX_AGE_SECONDS = 24 * 3600;
 
-  bagCount: z.number().int().min(1).max(10).optional(),
-  slotId: z.string().uuid().optional(),
-  slotTier: z.enum(["standard_4h", "express_2h", "priority_1h"]).optional(),
-  promoCode: z.string().max(40).optional(),
-
-  bookingId: z.string().uuid().optional(),
-});
-
-export type BookingDraft = z.infer<typeof bookingDraftSchema>;
-
-export interface TypedBookingDraft extends Omit<
-  BookingDraft,
-  "departureAirport" | "scope" | "slotTier"
-> {
-  departureAirport?: AirportCode;
-  scope?: CutoffScope;
-  slotTier?: SlotTier;
+/** Shared with the /book entry route, which sets the cookie on a redirect. */
+export function draftCookieOptions() {
+  return {
+    httpOnly: true,
+    sameSite: "lax",
+    path: "/",
+    secure: process.env.NODE_ENV === "production",
+    maxAge: DRAFT_COOKIE_MAX_AGE_SECONDS,
+  } as const;
 }
 
 export async function readDraft(): Promise<TypedBookingDraft> {
@@ -75,12 +67,7 @@ export async function writeDraft(patch: TypedBookingDraft): Promise<TypedBooking
   const next = bookingDraftSchema.parse({ ...current, ...patch });
 
   const store = await cookies();
-  store.set(COOKIE_NAME, JSON.stringify(next), {
-    httpOnly: true,
-    sameSite: "lax",
-    path: "/",
-    secure: process.env.NODE_ENV === "production",
-  });
+  store.set(COOKIE_NAME, JSON.stringify(next), draftCookieOptions());
 
   return next;
 }
@@ -90,13 +77,18 @@ export async function clearDraft(): Promise<void> {
   store.delete(COOKIE_NAME);
 }
 
-/** Which step a draft is ready for — used to bounce a deep link back. */
-export function nextIncompleteStep(draft: TypedBookingDraft): string {
-  if (!draft.flightNumber || !draft.departureAt || !draft.departureAirport) {
-    return "/book/flight";
-  }
-  if (!draft.zip || !draft.line1) return "/book/address";
-  if (!draft.bagCount) return "/book/bags";
-  if (!draft.slotId) return "/book/slot";
-  return "/book/pay";
+/**
+ * The draft's funnel-session id, minted on first use. Guest artifacts
+ * (ticket uploads) key on this until the verified user id attaches at the
+ * payment gate.
+ */
+export async function ensureDraftId(): Promise<string> {
+  const draft = await readDraft();
+  if (draft.draftId) return draft.draftId;
+  const draftId = crypto.randomUUID();
+  await writeDraft({ draftId });
+  return draftId;
 }
+
+// Step order, completion, and `nextIncompleteStep` live in the pure module
+// `booking-steps.ts` so the client stepper can share them.

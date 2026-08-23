@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { PricingRule, SlotTier } from "@koolee/db";
+import type { PricingRule } from "@koolee/db";
 
 import { PricingRuleInvalidError } from "../errors";
 
@@ -11,8 +11,14 @@ import { PricingRuleInvalidError } from "../errors";
  * multiplier arithmetic, which is rounded once per stage at a defined point.
  *
  *   subtotal = base + (perBag × bags) + round(centsPerKm × distanceKm)
- *   tiered   = round(subtotal × tierMultiplier)
- *   total    = max(0, tiered − discounts)
+ *   timed    = round(subtotal × leadTimeMultiplier)
+ *   total    = max(0, timed − discounts)
+ *
+ * The lead-time multiplier is the dynamic-pricing seam: today it is a step
+ * curve over `pickupLeadMinutes` (how far the window's END sits from
+ * departure), configured on the pricing rule. The future algorithm replaces
+ * `resolveLeadTimeMultiplier` — everything downstream (breakdown shape,
+ * snapshot, display) already carries its output.
  */
 
 /* ------------------------------------------------------------------ */
@@ -60,12 +66,25 @@ export interface DiscountContext {
 /* Inputs and outputs                                                  */
 /* ------------------------------------------------------------------ */
 
+/**
+ * One step of the lead-time curve: a window whose lead (minutes from window
+ * end to departure) is ≤ `maxLeadMinutes` gets `multiplier`. The smallest
+ * matching step wins; no match means ×1 — the far end of the band is the
+ * base price, and steps make closer windows dearer.
+ */
+export const leadTimeMultiplierSchema = z.object({
+  maxLeadMinutes: z.number().int().positive(),
+  multiplier: z.number().min(0),
+});
+
+export type LeadTimeMultiplier = z.infer<typeof leadTimeMultiplierSchema>;
+
 export const pricingRuleInputSchema = z.object({
   baseFeeCents: z.number().int().min(0),
   perBagCents: z.number().int().min(0),
   /** Cents per kilometre of drive distance. */
   distanceMultiplier: z.number().min(0),
-  slotTierMultiplier: z.record(z.string(), z.number().min(0)).default({}),
+  leadTimeMultipliers: z.array(leadTimeMultiplierSchema).default([]),
   discountRules: z.array(discountRuleSchema).default([]),
 });
 
@@ -76,7 +95,12 @@ export interface PriceInput {
   rule: PricingRuleInput;
   bagCount: number;
   distanceKm: number;
-  slotTier: SlotTier;
+  /**
+   * Minutes from the pickup window's END to scheduled departure. Determined
+   * entirely by which window the customer picks for which flight — never by
+   * when they book — so a displayed price cannot drift before payment.
+   */
+  pickupLeadMinutes: number;
   discountContext?: DiscountContext;
 }
 
@@ -90,12 +114,28 @@ export interface PriceBreakdown {
   bagsCents: number;
   distanceCents: number;
   subtotalCents: number;
-  tierMultiplier: number;
-  tierAdjustmentCents: number;
+  leadTimeMultiplier: number;
+  leadTimeAdjustmentCents: number;
   discounts: AppliedDiscount[];
   discountCents: number;
   /** What the customer is charged. */
   totalCents: number;
+}
+
+/**
+ * The dynamic-pricing seam. Today: first step (by ascending `maxLeadMinutes`)
+ * that covers the lead wins; outside every step the multiplier is 1. Replace
+ * this function's body when the real algorithm lands — its signature (facts
+ * in, multiplier out) is the contract the rest of checkout depends on.
+ */
+export function resolveLeadTimeMultiplier(
+  steps: readonly LeadTimeMultiplier[],
+  pickupLeadMinutes: number,
+): number {
+  const winner = [...steps]
+    .sort((a, b) => a.maxLeadMinutes - b.maxLeadMinutes)
+    .find((step) => pickupLeadMinutes <= step.maxLeadMinutes);
+  return winner?.multiplier ?? 1;
 }
 
 /* ------------------------------------------------------------------ */
@@ -122,20 +162,27 @@ export function price(input: PriceInput): PriceBreakdown {
       `distanceKm must be a non-negative number, got ${input.distanceKm}`,
     );
   }
+  if (!Number.isFinite(input.pickupLeadMinutes) || input.pickupLeadMinutes < 0) {
+    throw new PricingRuleInvalidError(
+      `pickupLeadMinutes must be a non-negative number, got ${input.pickupLeadMinutes}`,
+    );
+  }
 
   const baseFeeCents = rule.baseFeeCents;
   const bagsCents = rule.perBagCents * input.bagCount;
   const distanceCents = Math.round(rule.distanceMultiplier * input.distanceKm);
   const subtotalCents = baseFeeCents + bagsCents + distanceCents;
 
-  // An unlisted tier means "no adjustment", not "free".
-  const tierMultiplier = rule.slotTierMultiplier[input.slotTier] ?? 1;
-  const tieredCents = Math.round(subtotalCents * tierMultiplier);
-  const tierAdjustmentCents = tieredCents - subtotalCents;
+  const leadTimeMultiplier = resolveLeadTimeMultiplier(
+    rule.leadTimeMultipliers,
+    input.pickupLeadMinutes,
+  );
+  const timedCents = Math.round(subtotalCents * leadTimeMultiplier);
+  const leadTimeAdjustmentCents = timedCents - subtotalCents;
 
   const discounts = applyDiscounts({
     rules: rule.discountRules,
-    amountCents: tieredCents,
+    amountCents: timedCents,
     bagCount: input.bagCount,
     context: input.discountContext ?? {},
   });
@@ -146,11 +193,11 @@ export function price(input: PriceInput): PriceBreakdown {
     bagsCents,
     distanceCents,
     subtotalCents,
-    tierMultiplier,
-    tierAdjustmentCents,
+    leadTimeMultiplier,
+    leadTimeAdjustmentCents,
     discounts,
     discountCents,
-    totalCents: Math.max(0, tieredCents - discountCents),
+    totalCents: Math.max(0, timedCents - discountCents),
   };
 }
 
@@ -247,7 +294,7 @@ export function toPricingRuleInput(row: PricingRule): PricingRuleInput {
     baseFeeCents: row.baseFeeCents,
     perBagCents: row.perBagCents,
     distanceMultiplier,
-    slotTierMultiplier: row.slotTierMultiplier ?? {},
+    leadTimeMultipliers: row.leadTimeMultipliers ?? [],
     discountRules: (row.discountRules ?? []) as DiscountRule[],
   };
 }

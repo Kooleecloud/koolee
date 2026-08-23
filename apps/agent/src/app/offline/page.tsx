@@ -1,10 +1,17 @@
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@koolee/ui";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+  ContentColumn,
+} from "@koolee/ui";
 
 export const metadata = { title: "Offline" };
 
 export default function OfflinePage() {
   return (
-    <main className="container flex max-w-md flex-col gap-6 py-16">
+    <ContentColumn width="narrow">
       <Card>
         <CardHeader>
           <CardTitle>You&apos;re offline</CardTitle>
@@ -17,6 +24,6 @@ export default function OfflinePage() {
           again.
         </CardContent>
       </Card>
-    </main>
+    </ContentColumn>
   );
 }

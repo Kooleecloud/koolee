@@ -1,35 +1,46 @@
 import "server-only";
 
-import { createDevAgentSessionReader, type AgentSession } from "@koolee/core";
+import {
+  NotAuthorizedError,
+  requireStaffRole,
+  type AgentSession,
+} from "@koolee/core";
 
-import { env } from "@/env";
+import { tryGetCore } from "@/lib/core";
+import { getSupabaseServerClient } from "@/lib/supabase/server";
 
 /**
- * Agent session.
+ * Agent session: a Supabase email/password session PLUS an active
+ * `staff_members` row with role `agent`.
  *
- * A development stub. It throws `NotImplementedError` outside
- * `NODE_ENV=development` — see the TODO(auth-agent) block in
- * `packages/core/src/auth/stubs.ts` for what must exist before this app is
- * reachable from anywhere but localhost.
+ * The role lookup runs on every request through `requireStaffRole` — the
+ * `assertRole` seam in @koolee/core. That per-request check is the security
+ * boundary (NOT signup availability: anonymous sign-ins must stay enabled
+ * for the customer funnel, so anyone can hold *an* account — an account
+ * without the role gets nothing here). It is also what makes deactivation
+ * immediate: a deactivated agent's live session fails the next request.
  */
-const reader = createDevAgentSessionReader({ nodeEnv: env.NODE_ENV });
-
 export async function getAgentSession(): Promise<AgentSession | null> {
-  return reader.getSession();
+  try {
+    return await requireAgentSession();
+  } catch {
+    return null;
+  }
 }
 
-/**
- * Non-throwing variant so a page can render a "not available" state instead of
- * a 500 when the stub refuses outside development.
- */
-export async function tryGetAgentSession(): Promise<
-  { session: AgentSession | null } | { error: string }
-> {
-  try {
-    return { session: await reader.getSession() };
-  } catch (error: unknown) {
-    return {
-      error: error instanceof Error ? error.message : "Sign-in is not available.",
-    };
-  }
+/** Throwing variant for server actions and route handlers. */
+export async function requireAgentSession(): Promise<AgentSession> {
+  const supabase = await getSupabaseServerClient();
+  if (!supabase) throw new NotAuthorizedError("Supabase is not configured.");
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) throw new NotAuthorizedError("Not signed in.");
+
+  const core = tryGetCore();
+  if (!core) throw new NotAuthorizedError("Database is not configured.");
+
+  await requireStaffRole(core.db, user.id, ["agent"]);
+  return { kind: "agent", role: "agent", userId: user.id };
 }

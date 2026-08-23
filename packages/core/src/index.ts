@@ -3,6 +3,7 @@ export * from "./config";
 export * from "./runtime";
 
 export * from "./booking";
+export * from "./extraction";
 export * from "./slots";
 export * from "./pricing";
 export * from "./payments";
@@ -24,6 +25,7 @@ export type {
   AirportCode,
   Bag,
   Booking,
+  BookingDraft as BookingDraftRow,
   BookingStatus,
   CustodyEvent,
   CutoffScope,
@@ -35,8 +37,12 @@ export type {
   Route,
   RouteStatus,
   Slot,
+  SlotBlock,
   SlotTier,
+  StaffMember,
   TaskStatus,
+  TicketExtractionStatus,
+  TicketUpload,
   User,
   UserRole,
   VerificationTask,

@@ -9,21 +9,37 @@ import {
   varchar,
 } from "drizzle-orm/pg-core";
 
-import { createdAt, primaryId } from "./columns";
+import { createdAt, primaryId, timestamptz } from "./columns";
 import { userRoleEnum } from "./enums";
 
 export const users = pgTable(
   "users",
   {
     id: primaryId(),
-    /** E.164. Primary identifier — customers sign in with phone OTP. */
-    phone: varchar("phone", { length: 20 }).notNull(),
+    /**
+     * E.164. Primary identifier — customers verify it with a phone OTP.
+     * Nullable because an anonymous funnel user has no phone until the
+     * payment gate, and email-only travellers never set one.
+     */
+    phone: varchar("phone", { length: 20 }),
     email: varchar("email", { length: 320 }),
     fullName: text("full_name"),
     role: userRoleEnum("role").notNull().default("customer"),
+    /** True for a guest funnel session (Supabase anonymous sign-in). */
+    isAnonymous: boolean("is_anonymous").notNull().default(false),
+    phoneVerifiedAt: timestamptz("phone_verified_at"),
+    emailVerifiedAt: timestamptz("email_verified_at"),
+    profileCompletedAt: timestamptz("profile_completed_at"),
+    /** Touched on draft activity and sign-in; drives anonymous-user GC. */
+    lastSeenAt: timestamptz("last_seen_at").notNull().defaultNow(),
     createdAt: createdAt(),
   },
-  (t) => [uniqueIndex("users_phone_key").on(t.phone), index("users_role_idx").on(t.role)],
+  (t) => [
+    uniqueIndex("users_phone_key").on(t.phone),
+    uniqueIndex("users_email_key").on(t.email),
+    index("users_role_idx").on(t.role),
+    index("users_anon_last_seen_idx").on(t.isAnonymous, t.lastSeenAt),
+  ],
 );
 
 export const addresses = pgTable(
@@ -33,6 +49,8 @@ export const addresses = pgTable(
     userId: uuid("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
+    /** Customer-facing name for a saved address ("Home", "Office"). */
+    label: text("label"),
     line1: text("line1").notNull(),
     line2: text("line2"),
     city: text("city").notNull(),
