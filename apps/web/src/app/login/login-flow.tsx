@@ -7,14 +7,14 @@ import { CTAButton, FormMessage, formatUsPhone, Input, Label, OTPInput, PhoneInp
 import { type SendOtpSuccess } from "@/actions/auth";
 import { TurnstileGate, type TurnstileGateHandle } from "@/components/auth/turnstile-gate";
 
-import { sendMagicLink, sendOtp, verifyOtp } from "./actions";
+import { sendOtp, verifyOtp } from "./actions";
 
 /**
  * Returning-user sign-in. Primary: phone → OTP. Secondary: email magic link
  * (existing accounts only). No passwords anywhere; no OAuth in v1.
  */
 
-type Step = "phone" | "code" | "email" | "email-sent";
+type Step = "phone" | "code" | "email";
 
 const RESEND_SECONDS = 30;
 const MAX_RESENDS = 3;
@@ -42,6 +42,16 @@ export function LoginFlow({ returnTo }: { returnTo: string | null }) {
 
   const e164 = toE164(digits);
 
+  /** Shared by both channels so the two senders cannot drift apart. */
+  const enterCodeStep = (result: SendOtpSuccess, isResend: boolean) => {
+    setSent(result);
+    setCode("");
+    setOtpKey((k) => k + 1);
+    setStep("code");
+    setResendIn(RESEND_SECONDS);
+    if (isResend) setResends((n) => n + 1);
+  };
+
   const sendCode = async (isResend = false) => {
     if (!e164) {
       setError("Enter your 10-digit US phone number.");
@@ -66,12 +76,7 @@ export function LoginFlow({ returnTo }: { returnTo: string | null }) {
       return;
     }
 
-    setSent(result);
-    setCode("");
-    setOtpKey((k) => k + 1);
-    setStep("code");
-    setResendIn(RESEND_SECONDS);
-    if (isResend) setResends((n) => n + 1);
+    enterCodeStep(result, isResend);
   };
 
   const verifyCode = async (token: string) => {
@@ -98,8 +103,9 @@ export function LoginFlow({ returnTo }: { returnTo: string | null }) {
     window.location.assign(result.next);
   };
 
-  const sendLink = async () => {
-    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+  const sendEmailCode = async (isResend = false) => {
+    const address = email.trim().toLowerCase();
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(address)) {
       setError("Enter a valid email address.");
       return;
     }
@@ -108,10 +114,11 @@ export function LoginFlow({ returnTo }: { returnTo: string | null }) {
 
     const token = (await turnstile.current?.getToken()) ?? null;
 
-    const result = await sendMagicLink({
-      email: email.trim().toLowerCase(),
+    const result = await sendOtp({
+      email: address,
       turnstileToken: token,
-      next: returnTo ?? "/trips",
+      intent: "signin",
+      isResend,
     });
     setBusy(false);
 
@@ -119,8 +126,11 @@ export function LoginFlow({ returnTo }: { returnTo: string | null }) {
       setError(result.message);
       return;
     }
-    setStep("email-sent");
+
+    enterCodeStep(result, isResend);
   };
+
+  const viaEmail = sent?.mode === "email" || sent?.mode === "email_change";
 
   const slide = reduceMotion
     ? { initial: { opacity: 0 }, animate: { opacity: 1 }, exit: { opacity: 0 } }
@@ -192,10 +202,11 @@ export function LoginFlow({ returnTo }: { returnTo: string | null }) {
           >
             <div className="flex flex-col gap-1.5">
               <h2 className="font-display text-lg font-semibold text-navy-800">
-                Check your texts
+                {viaEmail ? "Check your email" : "Check your texts"}
               </h2>
               <p className="text-sm text-muted-foreground">
-                We sent a 6-digit code to {formatUsPhone(digits)}.
+                We sent a 6-digit code to{" "}
+                {viaEmail ? (sent?.target ?? "") : formatUsPhone(digits)}.
               </p>
             </div>
 
@@ -229,17 +240,19 @@ export function LoginFlow({ returnTo }: { returnTo: string | null }) {
               <button
                 type="button"
                 onClick={() => {
-                  setStep("phone");
+                  setStep(viaEmail ? "email" : "phone");
                   setCode("");
                   setError(null);
                 }}
                 className="text-navy-600 underline-offset-4 hover:text-navy-800 hover:underline"
               >
-                Use a different number
+                {viaEmail ? "Use a different email" : "Use a different number"}
               </button>
               <button
                 type="button"
-                onClick={() => void sendCode(true)}
+                onClick={() =>
+                  void (viaEmail ? sendEmailCode(true) : sendCode(true))
+                }
                 disabled={busy || resendIn > 0 || resends >= MAX_RESENDS}
                 className="text-sky-700 underline-offset-4 hover:text-sky-600 hover:underline disabled:cursor-not-allowed disabled:text-muted-foreground disabled:no-underline"
               >
@@ -256,7 +269,7 @@ export function LoginFlow({ returnTo }: { returnTo: string | null }) {
             transition={transition}
             onSubmit={(e) => {
               e.preventDefault();
-              void sendLink();
+              void sendEmailCode();
             }}
             className="flex flex-col gap-5"
           >
@@ -281,7 +294,7 @@ export function LoginFlow({ returnTo }: { returnTo: string | null }) {
             {error ? <FormMessage variant="error">{error}</FormMessage> : null}
 
             <CTAButton type="submit" size="lg" className="w-full" loading={busy}>
-              {busy ? "Sending…" : "Email me a sign-in link"}
+              {busy ? "Sending…" : "Email me a code"}
             </CTAButton>
 
             <button
@@ -297,29 +310,6 @@ export function LoginFlow({ returnTo }: { returnTo: string | null }) {
           </motion.form>
         )}
 
-        {step === "email-sent" && (
-          <motion.div
-            key="email-sent"
-            {...slide}
-            transition={transition}
-            className="flex flex-col gap-3"
-          >
-            <h2 className="font-display text-lg font-semibold text-navy-800">
-              Check your inbox
-            </h2>
-            <p className="text-sm text-muted-foreground">
-              We sent a sign-in link to {email.trim().toLowerCase()}. Open it on this
-              device to continue.
-            </p>
-            <button
-              type="button"
-              onClick={() => setStep("email")}
-              className="self-start text-sm text-navy-600 underline-offset-4 hover:text-navy-800 hover:underline"
-            >
-              Use a different email
-            </button>
-          </motion.div>
-        )}
       </AnimatePresence>
     </div>
   );

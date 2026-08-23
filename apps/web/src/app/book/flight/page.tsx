@@ -1,4 +1,11 @@
-import { FormMessage, Input, Label, PageHeader, Select } from "@koolee/ui";
+import {
+  DateTimeField,
+  FormMessage,
+  Input,
+  Label,
+  PageHeader,
+  Select,
+} from "@koolee/ui";
 import {
   FALLBACK_DISPLAY_TZ,
   formatDateTimeLocalInAirportTz,
@@ -145,13 +152,18 @@ export default async function FlightStepPage({
 
           <div className="grid gap-2">
             <Label htmlFor="departureAt">Departure date and time</Label>
-            <Input
+            {/*
+              Posts the same `datetime-local` wall-clock string the native input
+              did, so `submitFlight` is untouched. Native `required` does not
+              apply to the hidden field behind this control — the action already
+              rejects an empty value with "Enter your departure date and time."
+            */}
+            <DateTimeField
               id="departureAt"
               name="departureAt"
-              type="datetime-local"
               defaultValue={departureAtDefault}
-              className={flagged(prefill?.departureAtLocal)}
-              required
+              triggerClassName={flagged(prefill?.departureAtLocal)}
+              hint={`Times are ${airportDefault} local`}
             />
           </div>
         </div>

@@ -12,7 +12,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         linkComponent={Link}
         links={[
           { href: "/dashboard/profile", label: "Profile" },
-          { href: "/dashboard/addresses", label: "Addresses" },
           { href: "/trips", label: "Trips" },
         ]}
         actions={

@@ -1,5 +1,6 @@
 "use client";
 
+import * as React from "react";
 import { useActionState } from "react";
 import {
   Button,
@@ -22,7 +23,17 @@ export interface ProfileDefaults {
   emailLocked: boolean;
 }
 
-export function ProfileForm({ defaults }: { defaults: ProfileDefaults }) {
+export function ProfileForm({
+  defaults,
+  contact,
+}: {
+  defaults: ProfileDefaults;
+  /**
+   * Server-rendered read-only contact rows, shown above the editable fields
+   * so name, phone and email read as one card rather than two.
+   */
+  contact?: React.ReactNode;
+}) {
   const [state, formAction, pending] = useActionState<ProfileActionState, FormData>(
     saveProfile,
     {},
@@ -41,6 +52,12 @@ export function ProfileForm({ defaults }: { defaults: ProfileDefaults }) {
           <CardTitle className="text-base">Your details</CardTitle>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
+          {contact ? (
+            <div className="flex flex-col gap-4 border-b border-border pb-4">
+              {contact}
+            </div>
+          ) : null}
+
           <div className="grid gap-2">
             <Label htmlFor="fullName">Display name</Label>
             <Input
