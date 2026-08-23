@@ -1,4 +1,4 @@
-import { index, pgTable, text, uuid } from "drizzle-orm/pg-core";
+import { index, pgTable, text, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 
 import { createdAt, primaryId, timestamptz, updatedAt } from "./columns";
 import { taskStatusEnum } from "./enums";
@@ -36,7 +36,11 @@ export const verificationTasks = pgTable(
     updatedAt: updatedAt(),
   },
   (t) => [
-    index("verification_tasks_booking_id_idx").on(t.bookingId),
+    // One verification task per booking — every reader already assumes it
+    // (findFirst / limit 1), and the on-paid auto-assign trigger races by
+    // design (webhook + /book/return): this index is what makes the second
+    // concurrent insert fail cleanly instead of duplicating the task.
+    uniqueIndex("verification_tasks_booking_id_key").on(t.bookingId),
     index("verification_tasks_assignee_status_idx").on(t.assigneeUserId, t.status),
     index("verification_tasks_scheduled_start_idx").on(t.scheduledStart),
   ],
@@ -63,7 +67,8 @@ export const pickupTasks = pgTable(
     updatedAt: updatedAt(),
   },
   (t) => [
-    index("pickup_tasks_booking_id_idx").on(t.bookingId),
+    // Same one-per-booking rule as verification_tasks (see comment there).
+    uniqueIndex("pickup_tasks_booking_id_key").on(t.bookingId),
     index("pickup_tasks_assignee_status_idx").on(t.assigneeUserId, t.status),
     index("pickup_tasks_scheduled_start_idx").on(t.scheduledStart),
   ],
