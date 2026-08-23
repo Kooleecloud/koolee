@@ -1,0 +1,73 @@
+# Applies pending Drizzle migrations to the database that belongs to the
+# branch that was just pushed:
+#
+#   main → the PRODUCTION Supabase project   (secret PROD_DIRECT_DATABASE_URL)
+#   dev  → the dev/hosted Supabase project   (secret DEV_DIRECT_DATABASE_URL)
+#
+# Safe to run repeatedly and concurrently-ish:
+#  - the migrator takes a Postgres advisory lock, so two overlapping runs
+#    serialize instead of interleaving DDL;
+#  - the concurrency group below still queues runs per branch, because two
+#    queued runs are clearer than one waiting on a lock;
+#  - `db:status` afterwards asserts the applied set matches this checkout by
+#    content hash — drift fails the workflow loudly.
+#
+# ORDERING CAVEAT (deliberate): this runs in PARALLEL with the Vercel deploy
+# of the same push — neither waits for the other. That is safe only while
+# migrations stay backward-compatible (expand → deploy → contract), which is
+# already this repo's discipline (see docs/MIGRATIONS.md). A migration the
+# OLD code cannot run against needs a manual, sequenced deploy instead.
+#
+# The secrets hold the DIRECT (port 5432) connection string — never the
+# 6543 pooler, which cannot hold the advisory lock or run DDL reliably.
+# The migrator prints the target HOST only, never credentials.
+
+name: Migrate database
+
+on:
+  push:
+    branches: [main, dev]
+    paths:
+      - "packages/db/drizzle/**"
+      - "packages/db/src/migrate.ts"
+      - "packages/db/src/status.ts"
+      - ".github/workflows/migrate.yml"
+
+concurrency:
+  group: migrate-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4 # version comes from package.json "packageManager"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install (db package only)
+        run: pnpm install --frozen-lockfile --filter @koolee/db...
+
+      - name: Resolve target database
+        env:
+          PROD_URL: ${{ secrets.PROD_DIRECT_DATABASE_URL }}
+          DEV_URL: ${{ secrets.DEV_DIRECT_DATABASE_URL }}
+        run: |
+          if [ "${{ github.ref_name }}" = "main" ]; then URL="$PROD_URL"; else URL="$DEV_URL"; fi
+          if [ -z "$URL" ]; then
+            echo "::error::No DIRECT_DATABASE_URL secret configured for branch ${{ github.ref_name }}"
+            exit 1
+          fi
+          echo "DIRECT_DATABASE_URL=$URL" >> "$GITHUB_ENV"
+
+      - name: Apply migrations
+        run: pnpm --filter @koolee/db db:migrate
+
+      - name: Verify applied set matches this checkout
+        run: pnpm --filter @koolee/db db:status
