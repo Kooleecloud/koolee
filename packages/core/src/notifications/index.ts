@@ -16,3 +16,4 @@ export {
 
 export { createNotifier, type NotifierConfig } from "./factory";
 export { ResendNotifier, ResendSendError } from "./resend";
+export * from "./emails";

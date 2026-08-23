@@ -82,7 +82,10 @@ const captureDueCron = inngest.createFunction(
 );
 
 export const functions = [
-  ...createKooleeFunctions(inngest, () => getCore()),
+  ...createKooleeFunctions(inngest, () => getCore(), {
+    opsAlertEmail: optionalEnv("OPS_ALERT_EMAIL"),
+    appOrigin: optionalEnv("NEXT_PUBLIC_APP_URL"),
+  }),
   cleanupAnonymousUsersCron,
   captureDueCron,
 ];

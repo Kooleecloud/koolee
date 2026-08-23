@@ -17,6 +17,7 @@ import {
 
 import { ensureDraftSession } from "@/actions/auth";
 import { getAuthUser } from "@/lib/auth";
+import { emitBookingConfirmed } from "@/lib/booking-events";
 import { clearDraft, readDraft, writeDraft } from "@/lib/booking-draft";
 import { nextIncompleteStep } from "@/lib/booking-steps";
 import { buildCheckoutSetup, isDraftReadyForPayment } from "@/lib/checkout";
@@ -379,6 +380,12 @@ export async function confirmBooking(
     const bookedFromTz = str(form, "bookedFromTz");
 
     const result = await createBooking(core, { ...input, contactPhone, bookedFromTz });
+
+    // Inline (fake-provider) authorization reaches `paid` with no webhook and
+    // no return-page re-check — emit the confirmation event here. No-throw.
+    if (result.booking.status === "paid") {
+      await emitBookingConfirmed(core, result.booking);
+    }
 
     try {
       await softDeleteBookingDraft(core.db, userRow.id);

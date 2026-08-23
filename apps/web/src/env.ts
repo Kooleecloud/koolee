@@ -88,6 +88,8 @@ const schema = z.object({
   // credentials land with the notifications work item (NotificationDispatcher
   // in @koolee/core is the seam).
   RESEND_API_KEY: optionalString,
+  /** Ops inbox for `booking/exception_raised` alert emails. Unset → skip. */
+  OPS_ALERT_EMAIL: optionalString,
   /**
    * RFC 5322 From for transactional email. The default is Resend's sandbox
    * sender — fine for dev/testing, but real deliveries need a verified
@@ -141,6 +143,7 @@ const raw = {
 
   RESEND_API_KEY: process.env.RESEND_API_KEY,
   RESEND_FROM: process.env.RESEND_FROM,
+  OPS_ALERT_EMAIL: process.env.OPS_ALERT_EMAIL,
 
   AEROAPI_KEY: process.env.AEROAPI_KEY,
   GOOGLE_MAPS_API_KEY: process.env.GOOGLE_MAPS_API_KEY,

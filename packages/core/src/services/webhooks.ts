@@ -29,6 +29,13 @@ export interface WebhookOutcome {
   handled: boolean;
   note: string;
   bookingId?: string;
+  /**
+   * Set only when THIS call performed a status transition (e.g. "paid",
+   * "exception") — a redelivered/no-op event leaves it unset. The route
+   * handler keys side effects (confirmation email event, exception alert)
+   * off this so they fire exactly once.
+   */
+  movedTo?: string;
 }
 
 export async function handlePaymentEvent(
@@ -207,5 +214,5 @@ async function moveBooking(
     await autoAssignOnPaid(config, bookingId);
   }
 
-  return { handled: true, note: `Booking moved ${from} → ${to}`, bookingId };
+  return { handled: true, note: `Booking moved ${from} → ${to}`, bookingId, movedTo: to };
 }
