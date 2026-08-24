@@ -8,6 +8,9 @@ const NAV_LINKS = [
   { href: "/how-it-works", label: "How it works" },
   { href: "/pricing", label: "Pricing" },
   { href: "/airports", label: "Airports" },
+  // Who is behind this is a top-level question for a service that comes to
+  // your door, so it belongs in the header — not only in the footer.
+  { href: "/about", label: "About us" },
   { href: "/faq", label: "FAQ" },
 ];
 

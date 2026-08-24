@@ -3,48 +3,58 @@ import Link from "next/link";
 import {
   CTAButton,
   CustodyTimeline,
+  JourneyGlyph,
   Reveal,
-  SealMotif,
   Section,
   SectionHeader,
   type CustodyTimelineItem,
+  type JourneyGlyphName,
 } from "@koolee/ui";
-import { CalendarCheck, MapPin, Route } from "lucide-react";
 
 export const metadata: Metadata = {
   title: "How it works",
   description:
-    "The Koolee journey in four steps: book online, get verified and sealed at your door, follow the live-tracked ride, and we deliver your bags to your airline's bag drop.",
+    "The Koolee journey in four steps: book online, your agent verifies, weighs and seals your bags at the door, follow the live tracking, and your bags are delivered to your airline's bag drop.",
 };
 
-const STEPS = [
+/**
+ * One line per step, and no more.
+ *
+ * The previous version explained the cutoff arithmetic behind a pickup window
+ * and listed a "you get:" outcome under every step. Both went: a traveller does
+ * not need our method to trust the result, and a competitor should not be
+ * handed it. The step titles match the homepage exactly — this page is the same
+ * four beats with one sentence each, not a second, longer story.
+ */
+const STEPS: {
+  number: number;
+  title: string;
+  glyph: JourneyGlyphName;
+  body: string;
+}[] = [
   {
     number: 1,
-    title: "Book online",
-    visual: <CalendarCheck aria-hidden="true" className="size-10 text-sky-600" />,
-    body: "Enter your flight and pickup address. We look up your airline's bag-drop cutoff at your airport, subtract the drive and a safety buffer, and offer only pickup windows that comfortably fit. Pick your window, see the full price, pay online.",
-    detail: "You get: instant confirmation with your pickup window and your agent's details before arrival.",
+    title: "Book a Koolee online",
+    glyph: "book",
+    body: "Your flight, your address, and the pickup window you want.",
   },
   {
     number: 2,
-    title: "Verified & sealed at your door",
-    visual: <SealMotif label={null} className="h-12" />,
-    body: "Your Koolee agent arrives in the window you chose. First: ID — the traveler's identity is checked against the booking before anything else happens. Then each bag is weighed and closed with a serialized, tamper-evident orange seal, photographed, and logged. All of it happens in front of you.",
-    detail: "You get: each seal's serial number and pickup photos on your trip page, before the agent leaves your doorstep.",
+    title: "Agent arrives, verifies, weighs and seals your bags",
+    glyph: "seal",
+    body: "Your Koolee agent arrives in the window you chose.",
   },
   {
     number: 3,
-    title: "Live-tracked to the airport",
-    visual: <Route aria-hidden="true" className="size-10 text-sky-600" />,
-    body: "Your sealed bags travel in a tracked vehicle, and every hand-off along the way is photographed and timestamped. Open your trip page any time — the timeline updates as your bags move.",
-    detail: "You get: a live timeline from your door to the terminal, with a countdown to your airline's cutoff.",
+    title: "Live tracking",
+    glyph: "track",
+    body: "Follow your bags from your doorstep to the terminal.",
   },
   {
     number: 4,
-    title: "Delivered to your airline's bag drop",
-    visual: <MapPin aria-hidden="true" className="size-10 text-sky-600" />,
-    body: "We hand your sealed bags to your airline's bag-drop counter ahead of the cutoff, and photograph the delivery. From there, your bags follow the airline's normal checked-baggage process — exactly as if you'd carried them to the counter yourself. You check in as usual and walk to security carrying nothing.",
-    detail: "You get: delivery confirmation with photo, and your timeline closes out with every hand-off accounted for.",
+    title: "Delivered to your airline",
+    glyph: "deliver",
+    body: "Handed to your airline's bag drop and photographed. You check in as usual.",
   },
 ];
 
@@ -85,38 +95,48 @@ export default function HowItWorksPage() {
             as="h1"
             eyebrow="How it works"
             heading="From your hallway to the bag drop, in plain sight."
-            body="Four steps, each one visible on your trip page as it happens. Here's the whole journey, in the order your bags experience it."
+            body="Four steps, each one visible on your trip page as it happens."
           />
         </Reveal>
       </Section>
 
       <Section space="compact" aria-label="The four steps">
-        <ol className="flex flex-col gap-6">
-          {STEPS.map((step, index) => (
+        {/*
+          One layout for all four cards. The previous version alternated sides
+          with `order-last`, which moved the children but not the 1fr/1.6fr
+          columns — so steps 2 and 4 put the narrow column on the right and the
+          text into it, and only steps 1 and 3 ran the full width. A fixed-width
+          number rail plus a 1fr body column makes every card identical.
+        */}
+        <ol className="flex flex-col gap-4">
+          {STEPS.map((step) => (
             <li key={step.number}>
               <Reveal
                 delay={0.05}
-                className={`grid items-center gap-8 rounded-2xl border border-border bg-white p-8 shadow-lift sm:p-10 lg:grid-cols-[1fr_1.6fr] ${
-                  index % 2 === 1 ? "lg:[&>*:first-child]:order-last" : ""
-                }`}
+                className="grid items-center gap-5 rounded-2xl border border-border bg-white p-6 shadow-lift sm:grid-cols-[auto_1fr] sm:gap-8 sm:p-7"
               >
-                <div className="flex items-center gap-6 lg:flex-col lg:items-start">
+                {/* Number and glyph sit side by side at every width. Stacking
+                    them made the rail twice as tall as the two lines of copy
+                    beside it, and the card inherited that height as blank
+                    space — the exact complaint the copy review opened with. */}
+                <div className="flex items-center gap-4 sm:w-44">
                   <span
                     aria-hidden="true"
-                    className="font-display text-7xl font-semibold leading-none text-navy-100"
+                    className="font-display text-5xl leading-none font-semibold text-navy-100"
                   >
                     {String(step.number).padStart(2, "0")}
                   </span>
-                  <div className="rounded-2xl bg-navy-50 p-5">{step.visual}</div>
+                  <div className="rounded-2xl bg-navy-50 p-3.5">
+                    <JourneyGlyph name={step.glyph} className="h-11" />
+                  </div>
                 </div>
-                <div className="flex flex-col gap-3">
+                <div className="flex flex-col gap-2">
                   <h2 className="font-display text-display-sm font-semibold text-navy-800">
                     <span className="sr-only">Step {step.number}: </span>
                     {step.title}
                   </h2>
-                  <p className="leading-relaxed text-muted-foreground">{step.body}</p>
-                  <p className="mt-1 border-l-2 border-sky-400 pl-4 text-sm font-medium text-navy-700">
-                    {step.detail}
+                  <p className="text-lg leading-relaxed text-muted-foreground">
+                    {step.body}
                   </p>
                 </div>
               </Reveal>
@@ -130,14 +150,12 @@ export default function HowItWorksPage() {
           <Reveal>
             <SectionHeader
               eyebrow="Your trip page"
-              heading={
-                <span id="sample-timeline-heading">Watch it happen, live</span>
-              }
-              body="This is the timeline every Koolee trip produces — the same chain-of-custody view you saw on our landing page, filled in with your bags, your seals, your timestamps."
+              heading={<span id="sample-timeline-heading">Watch it happen, live</span>}
+              body="The same timeline you saw on the home page — filled in with your bags, your seals, your timestamps."
             />
           </Reveal>
           <Reveal className="rounded-2xl border border-border bg-background p-6 sm:p-8">
-            <p className="mb-5 text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+            <p className="mb-5 text-xs font-semibold tracking-[0.14em] text-muted-foreground uppercase">
               Example trip
             </p>
             <CustodyTimeline items={SAMPLE_TIMELINE} />

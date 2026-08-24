@@ -62,10 +62,10 @@ export function TicketUpload() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-base">Upload your ticket instead</CardTitle>
+        <CardTitle className="text-base">Upload your e-ticket</CardTitle>
         <CardDescription>
-          We&apos;ll read the flight details off your e-ticket PDF and fill in the form
-          for you to review.
+          We&apos;ll read your flight details off the PDF and fill in the form above for
+          you to review.
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
