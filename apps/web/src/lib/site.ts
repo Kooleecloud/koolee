@@ -18,9 +18,9 @@ export const SITE = {
   /** `<title>` template for pages that set their own title. */
   titleTemplate: `%s · ${NAME}`,
   description:
-    "Doorstep luggage pickup in NYC. We seal your bags at your door and deliver them to your airline's bag drop at JFK, LGA, or EWR — so you walk into the airport carrying nothing.",
+    "Off-airport luggage pickup in NYC. From your doorstep to your airline's bag drop at JFK, LGA, or EWR — we seal every bag at your door, so you skip the haul and the bag-drop line.",
   ogDescription:
-    "Doorstep luggage pickup, sealed and delivered to your airline's bag drop at JFK, LGA, and EWR.",
+    "Off-airport luggage pickup, sealed at your door and delivered to your airline's bag drop at JFK, LGA, and EWR.",
   /** Public contact address shown in footers, FAQ, and legal pages. */
   contactEmail: "info@koolee.cloud",
   /** Airports we serve, for display copy. Booking validation has its own list. */

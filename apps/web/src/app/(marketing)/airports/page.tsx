@@ -2,12 +2,12 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import {
   AirportCard,
+  CoverageScene,
   CTAButton,
   Reveal,
   Section,
   SectionHeader,
 } from "@koolee/ui";
-import { Clock, MapPin, Timer } from "lucide-react";
 
 export const metadata: Metadata = {
   title: "Airports & coverage",
@@ -15,42 +15,27 @@ export const metadata: Metadata = {
     "Koolee delivers sealed bags to your airline's bag drop at JFK, LaGuardia, and Newark, with doorstep pickups across all five NYC boroughs and Hudson County, NJ.",
 };
 
+/**
+ * No per-airport cutoff note here any more. Bag-drop cutoffs are load-bearing
+ * inside the booking flow — the window picker will not offer a window that
+ * misses one — but as marketing copy they described our arithmetic instead of
+ * the traveller's day.
+ */
 const AIRPORTS = [
   {
     code: "JFK",
     name: "John F. Kennedy International",
     body: "All terminals, all airlines with a bag-drop counter. The long haul out to Queens is exactly the trip you'll be glad to skip with luggage in tow.",
-    note: "Your pickup window is computed from your airline's JFK bag-drop cutoff — international cutoffs are typically earlier, and we plan for yours specifically.",
   },
   {
     code: "LGA",
     name: "LaGuardia",
     body: "All terminals. Close to the city but famously awkward to reach by transit with bags — we take that part off your hands.",
-    note: "Your pickup window is computed from your airline's LGA bag-drop cutoff.",
   },
   {
     code: "EWR",
     name: "Newark Liberty International",
     body: "All terminals. Cross-Hudson with luggage is nobody's favorite leg — pickups from anywhere in the five boroughs or Hudson County cover it.",
-    note: "Your pickup window is computed from your airline's EWR bag-drop cutoff.",
-  },
-];
-
-const CUTOFF_STEPS = [
-  {
-    icon: <Clock aria-hidden="true" className="size-6 text-sky-600" />,
-    title: "We start at your cutoff",
-    body: "Every airline sets a bag-drop cutoff per airport — the moment its counter stops accepting checked bags. We keep track of these so you don't have to.",
-  },
-  {
-    icon: <Timer aria-hidden="true" className="size-6 text-sky-600" />,
-    title: "We plan backwards",
-    body: "From your cutoff we subtract the drive to your airport and a safety buffer. What's left is the latest your pickup can start.",
-  },
-  {
-    icon: <MapPin aria-hidden="true" className="size-6 text-sky-600" />,
-    title: "You only see windows that work",
-    body: "The booking flow simply never offers a pickup window that would cut it close. If a window is on your screen, your bags make the counter with room to spare.",
   },
 ];
 
@@ -71,7 +56,7 @@ export default function AirportsPage() {
           <SectionHeader
             as="h1"
             eyebrow="Coverage"
-            heading="Three airports. One less thing to carry."
+            heading="Three airports, one easy departure."
             body="We deliver sealed bags to the airline bag-drop counters at JFK, LaGuardia, and Newark, with doorstep pickups across the neighborhoods below."
           />
         </Reveal>
@@ -85,39 +70,15 @@ export default function AirportsPage() {
         </Reveal>
       </Section>
 
-      <Section tone="raised" aria-labelledby="cutoff-heading">
-        <Reveal>
-          <SectionHeader
-            eyebrow="Cutoffs, explained"
-            heading={<span id="cutoff-heading">Why your bags are never late</span>}
-            body="The pickup window we offer you isn't a guess — it's arithmetic, done backwards from your airline's own deadline."
-          />
-        </Reveal>
-        <Reveal stagger={0.1} className="mt-10 grid gap-5 md:grid-cols-3">
-          {CUTOFF_STEPS.map((step) => (
-            <div
-              key={step.title}
-              className="flex flex-col gap-3 rounded-2xl border border-border bg-white p-6 shadow-lift"
-            >
-              <div className="w-fit rounded-xl bg-sky-50 p-3">{step.icon}</div>
-              <h3 className="font-display text-lg font-semibold text-navy-800">
-                {step.title}
-              </h3>
-              <p className="text-sm leading-relaxed text-muted-foreground">{step.body}</p>
-            </div>
-          ))}
-        </Reveal>
-      </Section>
-
-      <Section aria-labelledby="service-area-heading">
-        <div className="grid items-start gap-10 lg:grid-cols-2">
+      <Section tone="raised" aria-labelledby="service-area-heading">
+        <div className="grid items-center gap-12 lg:grid-cols-2">
           <Reveal className="flex flex-col items-start gap-6">
             <SectionHeader
               eyebrow="Pickup area"
               heading={<span id="service-area-heading">Where we knock</span>}
               body="Enter your ZIP in the booking flow and we'll confirm instantly. Outside the area? Join the waitlist and we'll email you the day your neighborhood opens."
             />
-            <ul className="flex w-full max-w-md flex-col divide-y divide-border rounded-2xl border border-border bg-white shadow-lift">
+            <ul className="flex w-full max-w-md flex-col divide-y divide-border rounded-2xl border border-border bg-background shadow-lift">
               {COVERAGE_AREAS.map((item) => (
                 <li
                   key={item.area}
@@ -135,15 +96,11 @@ export default function AirportsPage() {
             </CTAButton>
           </Reveal>
 
-          <Reveal className="flex min-h-72 flex-col items-center justify-center gap-3 rounded-2xl border-2 border-dashed border-navy-200 bg-navy-50 p-10 text-center lg:min-h-96">
-            <MapPin aria-hidden="true" className="size-8 text-navy-300" />
-            <p className="font-display text-lg font-semibold text-navy-600">
-              Service-area map coming soon
-            </p>
-            <p className="max-w-xs text-sm text-muted-foreground">
-              An interactive pickup-area map is on the way. Until then, your ZIP code in
-              the booking flow is the source of truth.
-            </p>
+          <Reveal>
+            <CoverageScene
+              airports={["LGA", "JFK", "EWR"]}
+              caption="Schematic, not to scale. One pickup area, three airline bag drops — your ZIP confirms the exact address at booking."
+            />
           </Reveal>
         </div>
       </Section>
