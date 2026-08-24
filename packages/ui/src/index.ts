@@ -10,8 +10,18 @@ export {
   CardContent,
 } from "./components/card";
 export { Input } from "./components/input";
+export {
+  Popover,
+  PopoverTrigger,
+  PopoverAnchor,
+  PopoverContent,
+} from "./components/popover";
 export { Label } from "./components/label";
 export { Badge, badgeVariants, type BadgeProps } from "./components/badge";
+export {
+  VerifiedIndicator,
+  type VerifiedIndicatorProps,
+} from "./components/verified-indicator";
 export {
   Dialog,
   DialogPortal,
@@ -53,6 +63,24 @@ export {
 export { StepCard, type StepCardProps } from "./components/step-card";
 export { AirportCard, type AirportCardProps } from "./components/airport-card";
 export {
+  TripContrast,
+  type TripContrastProps,
+  type TripContrastColumn,
+} from "./components/trip-contrast";
+export {
+  MilestoneTrack,
+  type MilestoneTrackProps,
+} from "./components/milestone-track";
+export {
+  CoverageScene,
+  type CoverageSceneProps,
+} from "./components/coverage-scene";
+export {
+  JourneyGlyph,
+  type JourneyGlyphProps,
+  type JourneyGlyphName,
+} from "./components/journey-glyph";
+export {
   Accordion,
   AccordionItem,
   AccordionTrigger,
@@ -81,6 +109,15 @@ export {
   type PhoneInputProps,
 } from "./components/phone-input";
 export { OTPInput, type OTPInputProps } from "./components/otp-input";
+export { Calendar, type CalendarProps } from "./components/calendar";
+export {
+  DateTimeField,
+  type DateTimeFieldProps,
+} from "./components/date-time-field";
+export {
+  NumberStepper,
+  type NumberStepperProps,
+} from "./components/number-stepper";
 export {
   PriceEstimator,
   type PriceEstimatorProps,
@@ -113,6 +150,7 @@ export { ImageLightbox, type ImageLightboxProps } from "./components/image-light
 /* Feedback — every async action must show one of these */
 export { Spinner, type SpinnerProps } from "./components/spinner";
 export { FormMessage, type FormMessageProps } from "./components/form-message";
+export { OrDivider, type OrDividerProps } from "./components/or-divider";
 export { usePreservedFormValues } from "./lib/use-preserved-form";
 export {
   PasswordResetForm,

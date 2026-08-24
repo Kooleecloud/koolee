@@ -29,25 +29,13 @@ const AIRPORTS = [
   { code: "EWR", label: "Newark Liberty International" },
 ];
 
-const PRICE_PARTS = [
-  {
-    title: "Base fee — $29",
-    body: "Covers the visit: your agent at the door, ID verification, weighing, sealing, and the delivery hand-off at the airline's bag-drop counter.",
-  },
-  {
-    title: "$15 per bag",
-    body: "Each sealed bag adds a flat rate. No tiers by size — your airline's checked-bag rules are the only limits.",
-  },
-  {
-    title: "Travel, by distance",
-    body: "A small distance-based amount for the drive to your airport. The estimate uses a typical route; your exact address prices it precisely at booking.",
-  },
-  {
-    title: "Your window, your call",
-    body: "Every pickup is a one-hour window you choose, offered from 30 down to 6 hours before departure. Earlier windows are included; the closer your window sits to your flight, the more it costs.",
-  },
-];
-
+/**
+ * The four-card "How your price is built" breakdown is gone. Every booking
+ * already itemises the same lines before payment, and the estimator prints
+ * them live — restating the formula in prose on the marketing page added
+ * reading without adding trust. What survives is the promise, which is the
+ * part a visitor cannot get from the widget.
+ */
 export default function PricingPage() {
   return (
     <>
@@ -57,7 +45,7 @@ export default function PricingPage() {
             as="h1"
             eyebrow="Pricing"
             heading="Know the price before you pack."
-            body="One base fee, a flat per-bag rate, and the pickup window you choose. The estimate below runs on the same pricing engine as a real booking — you always see the full amount before you pay."
+            body="One base fee, a flat per-bag rate, and the pickup window you choose. You always see the full amount before you pay."
           />
         </Reveal>
       </Section>
@@ -73,34 +61,20 @@ export default function PricingPage() {
         </Reveal>
       </Section>
 
-      <Section aria-labelledby="price-parts-heading">
-        <Reveal>
-          <SectionHeader
-            heading={<span id="price-parts-heading">How your price is built</span>}
-            body="Four parts, no fine print. Every booking shows this exact breakdown."
-          />
-        </Reveal>
-        <Reveal stagger={0.08} className="mt-10 grid gap-5 sm:grid-cols-2">
-          {PRICE_PARTS.map((part) => (
-            <div
-              key={part.title}
-              className="rounded-2xl border border-border bg-white p-6 shadow-lift"
-            >
-              <h3 className="font-display text-lg font-semibold text-navy-800">
-                {part.title}
-              </h3>
-              <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-                {part.body}
-              </p>
-            </div>
-          ))}
-        </Reveal>
-        <Reveal className="mt-8 rounded-2xl bg-navy-50 p-6 text-sm leading-relaxed text-navy-800">
-          <p>
-            <strong className="font-semibold">Our fair-play promise:</strong> if we miss
-            your airline&apos;s bag-drop cutoff for a reason within our control, the
-            trip is free. No tips, no hidden fees — the number you approve is the
-            number you pay.
+      <Section aria-labelledby="fair-play-heading">
+        <Reveal className="mx-auto flex max-w-3xl flex-col gap-4 rounded-2xl bg-navy-50 p-8 sm:p-10">
+          <p className="text-sm font-semibold tracking-[0.18em] text-sky-600 uppercase">
+            Our fair-play promise
+          </p>
+          <h2
+            id="fair-play-heading"
+            className="font-display text-display-sm font-semibold text-navy-800"
+          >
+            If we miss your airline&apos;s bag-drop cutoff for a reason within our
+            control, the trip is free.
+          </h2>
+          <p className="text-lg leading-relaxed text-muted-foreground">
+            No tips, no hidden fees — the number you approve is the number you pay.
           </p>
         </Reveal>
       </Section>

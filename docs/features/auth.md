@@ -100,14 +100,42 @@ explicit signal, replacing the `42P01` error-code sniffing it superseded.
 lacks the schema, reconciliation then fails the send **loudly** instead of being
 silently skipped. Only an explicit `"false"` opts out.
 
-### 2.6 — Customer routes
+### 2.6 — Signing in: two channels, one code screen
 
-| Route                                        | Role                   |
-| -------------------------------------------- | ---------------------- |
-| `/login`                                     | Phone/email OTP entry  |
-| `/auth/callback`                             | Session exchange       |
-| `/book/verify`                               | The funnel's auth gate |
-| `/dashboard/profile`, `/dashboard/addresses` | Account area           |
+`/login` takes a phone **or** an email, and both land on the same six-digit
+code screen and the same `verifyOtp`.
+
+**Email is a signup channel, not just a lookup.** It calls `sendOtp`'s email
+branch with `shouldCreateUser: true`, so an address with no account gets one.
+It previously called `sendMagicLink` (`shouldCreateUser: false`), where an
+unknown address made Supabase answer `otp_disabled` and the flow dead-ended on
+"we couldn't find that email" — no account could ever be created by email.
+That matters while phone verification waits on Twilio business approval: there
+has to be at least one way in.
+
+An address that already belongs to someone simply signs that person in. The
+`PHONE_EXISTS` / `EMAIL_EXISTS` collisions in §2.3 are about **attaching** a
+destination to a _different_ account — the funnel's upgrade path — not about
+signing in.
+
+**No magic links.** A code works when the inbox is on a different device from
+the browser; a link does not.
+
+⚠️ Email OTP is inert without four Supabase dashboard settings, none of them
+visible in the codebase: custom SMTP, `{{ .Token }}` in three templates, OTP
+length **6** (`verifyOtp` validates `/^\d{6}$/`, so an 8-digit code is
+rejected after delivery starts working), and the Site URL. See
+[ENVIRONMENT.md §6.6](../ENVIRONMENT.md).
+
+### 2.7 — Customer routes
+
+| Route                  | Role                                                   |
+| ---------------------- | ------------------------------------------------------ |
+| `/login`               | Phone/email OTP entry                                  |
+| `/auth/callback`       | Session exchange                                       |
+| `/book/verify`         | The funnel's auth gate                                 |
+| `/dashboard/profile`   | Account area — name, contact channels, saved addresses |
+| `/dashboard/addresses` | Redirects to `/dashboard/profile` (retired)            |
 
 ---
 

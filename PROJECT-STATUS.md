@@ -62,14 +62,25 @@ package-specific in `packages/<pkg>/docs/`. Nothing new accumulates at the root.
   converging on canonical `launch-v1`, dev agents cover all 198 ZIPs,
   `packages/db/.env` defaults to LOCAL, ResendNotifier + confirmation/
   reminder/exception emails wired end-to-end (events actually emitted now).
-  **Hosted caught up 2026-08-23**: migrated 21/21 by content hash + re-seeded
-  (single active `launch-v1`, 128-row cutoff matrix); Vercel prod env carries
-  RESEND_API_KEY / RESEND_FROM / NEXT_PUBLIC_APP_URL / Inngest prod keys.
-  Still open before the live site has any of this: the `dev → main` release
-  (`web/v0.2.0`), the Inngest Cloud app sync AFTER that deploy, and Resend
-  domain verification (DNS pending — until it flips, sends only reach
-  info@koolee.cloud). Confirmation email verified live end-to-end locally
-  (real Resend delivery).
+  Confirmation email verified live end-to-end locally (real Resend delivery).
+- **v0.2.0 RELEASED on a dedicated production environment (2026-08-23).**
+  New prod Supabase project (`dblfbpxorleurqdlkylz`, us-east-2, Data API
+  disabled, auto-RLS): migrated 21/21 by hash, RLS baseline clean, seeded
+  (airports, 128-row cutoff matrix, single active `launch-v1`), `bag-photos`
+  bucket via 0008. The old hosted project (`jpvlzoikcivxepgyrkho`,
+  ca-central-1) is now DEV-ONLY — Vercel Production points at prod, Preview
+  at dev (see ENVIRONMENT §6.5). CI applies migrations per branch (merge to
+  `dev`/`main` → that branch's DB; proven green on both lanes). Resend
+  domain `koolee.cloud` VERIFIED — real recipients receive (From:
+  `bookings@koolee.cloud`, aliased so replies land in the real inbox).
+  Inngest Cloud app synced — 8 functions registered on production, crons
+  armed. Live smoke test passed: a real signup persisted to prod
+  `waitlist_signups`. The waitlist is collecting demand in production, and
+  the zone-opened email is armed end to end.
+  Launch-day list (blocked on going live, not on code): Stripe live mode +
+  prod webhook secret, own Twilio account + business verification, flip
+  `NEXT_PUBLIC_LAUNCH_MODE` + redeploy, VERIFY the placeholder cutoff matrix
+  and coverage drive-times before real sales.
 - **Waitlist persisted (2026-08-22, `feat/waitlist-persistence`).** Row 56.
 - **Scaffold + domain core: done.** Booking state machine (full 10×11
   status/event matrix tested), cutoff + virtual-window logic (DST-correct,
@@ -310,6 +321,8 @@ the linked row is the current behaviour)
 | 2026-08-20                          | `web-consumer-launch-demo`: coming-soon launch mode (`NEXT_PUBLIC_LAUNCH_MODE`) — public site + browsable funnel with login/OTP/account surfaces closed at proxy, page, and server-action layers; built for the first Vercel deploy of `apps/web`                                                                                                                                                        |
 | 2026-08-16                          | #53 UI pass across all three apps: custody-timeline dots fixed (inline `<span>` → `block`; they had been rendering 0×0 in every in-product timeline), customer evidence photos signed instead of broken, agent task list given its booking context, window-picker tiles + ops bags card reworked, `Card` moved to the house `shadow-lift` elevation                                                     |
 | 2026-08-22/23 (overnight run 3)     | Three stacked branches, merged as PRs #8/#9/#10: #56 waitlist persistence (migration 0018), the full Tier 1+2 dispatch/email slice (#47 closed via 0019 on-paid auto-assign, 0020 one-active pricing + seed integrity, ResendNotifier, booking/confirmed + exception events actually emitted, confirmation/reminder/exception emails, Vercel Analytics, `packages/db/.env` → LOCAL default), #57 waitlist zone-opened sweep. Hosted migrated to 0020 + re-seeded same day. See [RUN-REPORT-3.md](RUN-REPORT-3.md)  |
+| 2026-08-23 (release v0.2.0)         | `dev → main`, tagged `web/v0.2.0`, first deploy onto the **dedicated prod environment**: new Supabase project (us-east-2, Data API off, auto-RLS) migrated + seeded; old project demoted to dev-only; Vercel Production/Preview scoping split accordingly; CI migration lanes (merge → that branch's DB) proven green on both; Resend `koolee.cloud` domain verified; live smoke test — a real `/waitlist` signup persisted to prod. Seed gained the `Target host:` first line after two silent wrong-database seeds during the env split  |
+| 2026-08-23 (dev environment + UX pass) | `feat/app-ux-and-email-otp`: the **dev environment went live** — `dev.koolee.cloud` pinned to the `dev` branch in Vercel's Preview scope (GoDaddy CNAME), Preview-scoped variables against the dev Supabase project, Inngest synced per-environment (8 functions in dev, prod's app untouched — the app id is a shared hardcoded `"koolee"`, so separate signing keys are what keep the sync from repointing prod), Deployment Protection off for Preview because the SSO wall 302s Inngest and Stripe. Proven live: waitlist row landed in the dev DB and not prod, phone sign-in, a full test booking with its confirmation email. Supabase auth email fixed end to end — SMTP moved off Outlook (silently failing) to Resend, `{{ .Token }}` added to three templates, OTP length 8 → 6 (the app validates `/^\\d{6}$/`, so every code would have been rejected). All of it in ENVIRONMENT.md §6.6. **UX pass in the same branch:** `/dashboard/addresses` folded into `/dashboard/profile` (one card, name + phone + email, green check / amber question-mark indicators replacing "verified 21 minutes ago", inline code entry for an unverified email; the retired route redirects and the address actions now revalidate the page that actually renders them); the flight step's native `datetime-local` replaced with a Calendar + time popover that keeps the airport wall-clock STRING contract intact (no `Date` crosses the boundary, and `Intl.DateTimeFormat` is avoided per the TIME lint rule); bags select → +/- stepper as a labelled group; trip cards now carry pickup window, passenger, bags, total and a derived `KL-XXXXXX` reference (there is no ticket/PNR column, so the reference is derived from the booking id); login's email path moved from `sendMagicLink` (`shouldCreateUser: false`, which never sent anything for a new address) to `sendOtp`'s email branch (`shouldCreateUser: true`), so email now signs up as well as in and both channels land on the same verify screen. web 64/64, lint + typecheck 4/4. **Not done:** `noindex` on the preview host; the pre-payment phone gate; live flight status |
 
 ---
 

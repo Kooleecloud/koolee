@@ -213,6 +213,113 @@ GitHub secrets (session-pooler URLs). See
 
 ---
 
+## 6.5 Two Supabase projects: prod vs dev (since 2026-08-23)
+
+| | **prod** | **dev** |
+| --- | --- | --- |
+| Project ref | `dblfbpxorleurqdlkylz` | `jpvlzoikcivxepgyrkho` |
+| Region | `us-east-2` | `ca-central-1` (historical accident) |
+| Data API | **disabled** (nothing uses `/rest/v1`; auth + storage unaffected) | enabled (legacy) |
+| Vercel env scope | **Production** (deploys of `main`) | **Preview** (every other branch) |
+| CI migration secret | `PROD_DIRECT_DATABASE_URL` | `DEV_DIRECT_DATABASE_URL` |
+| Test OTP phone numbers | **NEVER** | yes (`+13322602829` etc.) |
+| Stripe | live keys at launch (test until then) | test keys |
+
+Rules that make the split hold:
+
+- **Secrets are never shared across the pair** — prod has its own
+  `OTP_LOG_HMAC_KEY`, `CRON_SECRET`, Turnstile widget, and Supabase keys.
+- **Connection strings use the pooler host** with username
+  `postgres.<ref>`: transaction mode `:6543` for app runtime
+  (`DATABASE_URL`), session mode `:5432` for migrations. The
+  `db.<ref>.supabase.co` host is IPv6-only — unreachable from GitHub
+  runners and most home networks (§6, MIGRATIONS §9.5).
+- **Nothing dev-flavored can leak into prod by construction**: the staff/
+  customer seed hard-skips non-local Supabase hosts, agent zones seed only
+  locally, and CI never seeds.
+- Dashboard-owned config (Twilio creds, Turnstile secret, Site URL,
+  redirect URLs) must be set **per project** — it does not travel with
+  migrations.
+
+## 6.6 The Vercel side of the split, and the dashboard config behind it (2026-08-23)
+
+`apps/web` is ONE Vercel project. The branch decides which variable set a build
+sees:
+
+| | **Production scope** | **Preview scope** |
+| --- | --- | --- |
+| Branch | `main` | every other branch |
+| Domain | `koolee.cloud` | `dev.koolee.cloud`, pinned to the `dev` branch (Vercel → Domains → Git Branch). Other branches get their own `*.vercel.app` URL |
+| `NEXT_PUBLIC_LAUNCH_MODE` | `coming_soon` until launch | `live` |
+
+Rejected alternatives: two Vercel projects, and Vercel Custom Environments.
+Both duplicate configuration that Preview scope already provides, and §6.5's
+"every non-`main` branch talks to the dev database" property falls out of
+Preview scope for free.
+
+Things that cost real debugging time to learn:
+
+- **Vercel bakes env vars into a build** — server-side ones too, not just
+  `NEXT_PUBLIC_*`. Changing a variable does nothing to deployments that already
+  exist. Redeploy with the build cache **off**, or a cached client bundle keeps
+  the old inlined value and the fix looks like it did not work.
+- **Every variable naming an external service needs two rows**, one per scope,
+  with different values. A single row ticked for both environments is how a dev
+  deployment ends up writing to the production database. Shared read-only keys
+  (`AEROAPI_KEY`, `GOOGLE_MAPS_API_KEY`, `RESEND_API_KEY`, `SENTRY_DSN`) are the
+  exception.
+- **`NODE_ENV` is `production` in Preview too**, so every boot gate in §4 fires
+  on `dev.koolee.cloud` exactly as it does in production. That is deliberate —
+  dev rehearses prod. `VERCEL_ENV` is the only variable that distinguishes them.
+- **Deployment Protection must be OFF for Preview.** With Vercel Authentication
+  on, `/api/inngest` and `/api/webhooks/stripe` answer machine callers with a
+  302 to `vercel.com/sso-api`, so Inngest cannot sync and Stripe cannot deliver.
+  A browser session hides this, because the developer is already logged in.
+  Consequence: `dev.koolee.cloud` is publicly reachable while running the live
+  funnel. It is **not** `noindex` yet — see the TODO below.
+
+### Supabase auth email (dev project, 2026-08-23)
+
+Email OTP is dead in the water without all four of these, and none of them are
+visible in the codebase:
+
+1. **Custom SMTP** — Authentication → Notifications → Email. Resend:
+   host `smtp.resend.com`, port `465`, username the literal string `resend`,
+   password a Resend API key. The project was previously on Outlook SMTP, which
+   silently failed: Microsoft has disabled basic SMTP auth for most tenants and
+   would not send as `@koolee.cloud` anyway.
+2. **`{{ .Token }}` in three templates** — *Confirm signup* (new user via
+   `signInWithOtp`), *Magic Link* (existing user), *Change Email Address*
+   (`updateUser({ email })`, which is the profile page's resend). A template
+   holding only `{{ .ConfirmationURL }}` sends a LINK no matter what the app
+   asked for, which reads as "the code never arrives".
+3. **OTP length 6.** `verifyOtp` validates `/^\d{6}$/` and three strings say
+   "6-digit code". The project defaulted to 8, so every code would have been
+   rejected after delivery started working.
+4. **Site URL** = `https://dev.koolee.cloud`, since `{{ .ConfirmationURL }}` is
+   built from it.
+
+### Inngest and Turnstile
+
+- **Inngest app id is hardcoded `"koolee"`** (`packages/core/src/jobs/client.ts`)
+  for every environment. Syncing a dev URL into the **Production** Inngest
+  environment therefore does not create a second app — it repoints prod's app at
+  dev, and prod's crons start running against the dev database. Separate
+  per-environment signing keys are what make this safe: Inngest routes a sync by
+  the key that authenticated it. Sync URL: `https://dev.koolee.cloud/api/inngest`.
+- **Turnstile: two widgets**, one per hostname (`koolee.cloud`,
+  `dev.koolee.cloud`). Hostname entries already cover subdomains, so adding the
+  apex to the dev widget would silently make it valid for production. Ad-hoc
+  `*.vercel.app` previews **cannot** pass the captcha: `vercel.app` is on the
+  Public Suffix List, and the secret is a single per-Supabase-project value, so
+  it cannot be varied per branch. Treat those URLs as UI review only and test
+  anything auth- or booking-shaped on `dev.koolee.cloud`.
+
+TODO(dev-env): `dev.koolee.cloud` needs `X-Robots-Tag: noindex` while it serves
+the live funnel on a public URL. Gate it on `VERCEL_ENV === "preview"` — not
+`!== "production"`, so a missing variable fails safe and cannot de-index the
+real site.
+
 ## 7. Setting up from scratch
 
 ```bash

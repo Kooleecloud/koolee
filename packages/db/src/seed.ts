@@ -1,6 +1,12 @@
 import { config as loadEnv } from "dotenv";
 import { eq, inArray } from "drizzle-orm";
 
+// Shell-first, same rule as migrate.ts/status.ts. dotenv never overrides an
+// exported variable, but capturing before loadEnv keeps the three db tools
+// on one identical resolution path — and makes the Target-host print below
+// honest about what actually won.
+const shellDatabaseUrl = process.env.DATABASE_URL;
+
 import { createDb } from "./client";
 import { ALL_COVERAGE_ZIPS } from "./coverage-zips";
 import {
@@ -111,7 +117,14 @@ const CUTOFFS: NewAirlineCutoff[] = (
 );
 
 async function main(): Promise<void> {
-  const db = createDb();
+  const connectionString = shellDatabaseUrl ?? process.env.DATABASE_URL;
+  const db = createDb(connectionString ? { url: connectionString } : {});
+
+  // Host only — never the credentials. Same first line as migrate/status:
+  // a seed silently landing on the wrong database happened twice on
+  // 2026-08-23 (DIRECT_DATABASE_URL set, DATABASE_URL falling back to
+  // packages/db/.env) before this print existed. Read it every time.
+  console.log(`Target host: ${new URL(connectionString!).hostname}`);
 
   console.log("Seeding airports…");
   for (const airport of AIRPORTS) {

@@ -1,4 +1,12 @@
-import { FormMessage, Input, Label, PageHeader, Select } from "@koolee/ui";
+import {
+  DateTimeField,
+  FormMessage,
+  Input,
+  Label,
+  OrDivider,
+  PageHeader,
+  Select,
+} from "@koolee/ui";
 import {
   FALLBACK_DISPLAY_TZ,
   formatDateTimeLocalInAirportTz,
@@ -72,7 +80,7 @@ export default async function FlightStepPage({
         subtitle={
           fromTicket
             ? "Here's what we read from your ticket — check every field before continuing."
-            : "Tell us where your bags are and which flight they're catching — your airline's bag-drop cutoff decides which pickup windows we can offer."
+            : "Tell us where your bags are and which flight they're catching."
         }
       />
 
@@ -107,10 +115,6 @@ export default async function FlightStepPage({
               maxLength={10}
               required
             />
-            <p className="text-xs text-muted-foreground">
-              We currently cover all five NYC boroughs, plus Jersey City, Hoboken, and
-              the rest of Hudson County.
-            </p>
           </div>
 
           <div className="grid gap-2">
@@ -145,13 +149,18 @@ export default async function FlightStepPage({
 
           <div className="grid gap-2">
             <Label htmlFor="departureAt">Departure date and time</Label>
-            <Input
+            {/*
+              Posts the same `datetime-local` wall-clock string the native input
+              did, so `submitFlight` is untouched. Native `required` does not
+              apply to the hidden field behind this control — the action already
+              rejects an empty value with "Enter your departure date and time."
+            */}
+            <DateTimeField
               id="departureAt"
               name="departureAt"
-              type="datetime-local"
               defaultValue={departureAtDefault}
-              className={flagged(prefill?.departureAtLocal)}
-              required
+              triggerClassName={flagged(prefill?.departureAtLocal)}
+              hint={`Times are ${airportDefault} local`}
             />
           </div>
         </div>
@@ -168,9 +177,6 @@ export default async function FlightStepPage({
               <option value="domestic">Domestic</option>
               <option value="international">International</option>
             </Select>
-            <p className="text-xs text-muted-foreground">
-              International flights usually have an earlier bag-drop cutoff.
-            </p>
           </div>
 
           <div className="grid gap-2">
@@ -184,9 +190,6 @@ export default async function FlightStepPage({
               autoComplete="name"
               required
             />
-            <p className="text-xs text-muted-foreground">
-              Our agent checks this against your photo ID at pickup.
-            </p>
           </div>
         </div>
 
@@ -195,6 +198,8 @@ export default async function FlightStepPage({
             never blocks paint. */}
         <TurnstileFormField />
       </CoverageStepForm>
+
+      <OrDivider />
 
       <TicketUpload />
     </div>
