@@ -2,13 +2,16 @@ import type { Metadata } from "next";
 import Image from "next/image";
 import Link from "next/link";
 import {
+  Badge,
   CTAButton,
+  CustodyTimeline,
   MilestoneTrack,
   Reveal,
   SealMotif,
   Section,
   SectionHeader,
   StatBadge,
+  type CustodyTimelineItem,
 } from "@koolee/ui";
 import {
   ArrowUpRight,
@@ -55,6 +58,12 @@ const VETTING = [
  *
  * Everything in these bios is checkable. No invented dates, no invented
  * outcomes at former employers.
+ *
+ * KEEP THE TWO BALANCED. Same shape (a role line, then the history), roughly
+ * the same word count, and the same number of track chips. These cards sit one
+ * above the other, so a bio half again as long as its neighbour reads as one
+ * founder mattering more — which is a claim neither of them is making. Karun's
+ * wording is his own and should not be padded to match; trim the other side.
  */
 const FOUNDERS = [
   {
@@ -64,8 +73,12 @@ const FOUNDERS = [
     // Founder seals: the first two serials Koolee ever issued.
     serial: "NYC 000001",
     linkedin: "https://www.linkedin.com/in/karunrathi/",
-    bio: "Karun leads Koolee — driving strategy, finance, partnerships, pricing, and growth. A Kelley School of Business grad and former NCAA tennis player, he's worked in logistics at Fonterra, one of the world's largest dairy cooperatives, automated workflows as a Business Intelligence Analyst at Indiana University, built one of the first collegiate esports clubs in the U.S., and started an airport shuttle business in his college town before Uber Shuttle existed. Now he's putting that experience to work at Koolee, simplifying complex logistical challenges into seamless experiences.",
+    bio: [
+      "Karun leads Koolee — driving strategy, finance, partnerships, pricing, and growth.",
+      "A Kelley School of Business grad and former NCAA tennis player, he's worked in logistics at Fonterra, one of the world's largest dairy cooperatives, automated workflows as a Business Intelligence Analyst at Indiana University, built one of the first collegiate esports clubs in the U.S., and started an airport shuttle business in his college town before Uber Shuttle existed. Now he's putting that experience to work at Koolee, simplifying complex logistical challenges into seamless experiences.",
+    ],
     track: [
+      "Kelley School of Business",
       "Fonterra · logistics",
       "Indiana University · BI analyst",
       "Collegiate esports club",
@@ -79,13 +92,53 @@ const FOUNDERS = [
     photo: "/tarun_dp.jpeg",
     serial: "NYC 000002",
     linkedin: "https://www.linkedin.com/in/tarun-dadlani/",
-    bio: "Tarun leads Koolee's technology — the booking flow that prices your trip, the seal-verification system your agent carries to your door, the live timeline you watch from the couch, and the custody record underneath all of it. A full-stack engineer with a master's in computer science from Stevens Institute of Technology, he's shipped software for healthcare and security companies, where a lost record is a liability rather than an inconvenience. He built Koolee to that standard: every hand-off writes an entry that can be added to but never edited or deleted — so the trail behind your bags is one nobody here can quietly rewrite, including him.",
+    bio: [
+      "Tarun leads Koolee's technology — the booking flow, the app your agent brings to your door, the live timeline, and the custody record beneath all of it.",
+      "This is his second healthcare platform as a founding engineer; before Koolee he built the booking, payments and practice systems behind a dental-care platform, and earlier, security dashboards for the analysts watching for attacks. The instinct never changes: a lost record is not an acceptable outcome. Every hand-off on your trip writes an entry that can be added to, never edited or deleted — including by him.",
+    ],
     track: [
+      "IEEE-published research",
+      "DNIF · SIEM dashboards",
+      "Mindstix · enterprise React",
       "Stevens Institute · MS CS",
-      "Healthcare platforms",
-      "Security systems",
+      "HealthXchange · founding engineer",
       "Koolee",
     ],
+  },
+];
+
+/**
+ * A worked example of the append-only rule, using the same timeline component
+ * the customer's trip page renders.
+ *
+ * The correction entry is the point and is deliberately unflattering: it shows
+ * that when we get something wrong the fix lands NEXT TO the mistake rather
+ * than over it. A tidy example with no correction in it would illustrate
+ * nothing that an ordinary edit log could not also claim.
+ */
+const LEDGER_EXAMPLE: CustodyTimelineItem[] = [
+  {
+    id: "sealed",
+    title: "Bags verified & sealed at your door",
+    description: "2 bags · seals NYC 000481, NYC 000482 · photos attached",
+    meta: "Tue 10:05 AM",
+    state: "complete",
+  },
+  {
+    id: "correction",
+    title: "Correction · seal read again as NYC 000483",
+    badge: <Badge variant="outline">appended</Badge>,
+    description:
+      "The 10:05 entry stays exactly as it was written. This one sits next to it, and you see both.",
+    meta: "Tue 10:11 AM",
+    state: "complete",
+  },
+  {
+    id: "delivered",
+    title: "Delivered to your airline's bag drop",
+    description: "Photographed at the counter",
+    meta: "Tue 11:48 AM",
+    state: "complete",
   },
 ];
 
@@ -179,7 +232,11 @@ export default function AboutPage() {
                     </h3>
                     <p className="text-sm font-medium text-sky-600">{founder.role}</p>
                   </div>
-                  <p className="leading-relaxed text-muted-foreground">{founder.bio}</p>
+                  <div className="flex flex-col gap-3 leading-relaxed text-muted-foreground">
+                    {founder.bio.map((paragraph) => (
+                      <p key={paragraph.slice(0, 32)}>{paragraph}</p>
+                    ))}
+                  </div>
                   <MilestoneTrack label="Track record" items={founder.track} />
                   <a
                     href={founder.linkedin}
@@ -194,6 +251,35 @@ export default function AboutPage() {
               </div>
             </Reveal>
           ))}
+        </div>
+      </Section>
+
+      <Section space="compact" aria-labelledby="record-heading">
+        <div className="grid items-start gap-10 lg:grid-cols-2">
+          <Reveal className="flex flex-col gap-5">
+            <SectionHeader
+              eyebrow="The record"
+              heading={
+                <span id="record-heading">
+                  Nothing about your trip can be quietly edited later.
+                </span>
+              }
+              body="Every hand-off writes one entry: who had your bags, where, when, and the photo taken at the time."
+            />
+            <p className="leading-relaxed text-muted-foreground">
+              Entries can be added. They cannot be changed or removed — not by an
+              agent, not by our operations team, not by us. If we get something
+              wrong, the correction goes onto the record next to the mistake and you
+              see both. The timeline on your trip page is not a summary we prepared
+              for you; it is the same record we work from.
+            </p>
+          </Reveal>
+          <Reveal className="rounded-2xl border border-border bg-white p-6 shadow-lift sm:p-8">
+            <p className="mb-5 text-xs font-semibold tracking-[0.14em] text-muted-foreground uppercase">
+              A correction, on the record
+            </p>
+            <CustodyTimeline items={LEDGER_EXAMPLE} />
+          </Reveal>
         </div>
       </Section>
 
