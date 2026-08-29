@@ -2,10 +2,10 @@ import { PageSkeleton } from "@koolee/ui";
 
 import { AgentMain } from "@/components/shell/agent-main";
 
-export default function AgentLoading() {
+export default function AccountLoading() {
   return (
     <AgentMain>
-      <PageSkeleton cards={3} />
+      <PageSkeleton cards={2} />
     </AgentMain>
   );
 }

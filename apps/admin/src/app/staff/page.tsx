@@ -7,13 +7,13 @@ import {
   CardDescription,
   CardHeader,
   CardTitle,
-  ContentColumn,
   DatabaseNotConfigured,
   EmptyState,
   PageHeader,
 } from "@koolee/ui";
 import { listStaffMembers, type StaffMemberWithIdentity } from "@koolee/core";
 
+import { ConsoleMain } from "@/components/console";
 import { tryGetCore } from "@/lib/core";
 import { getAdminSession } from "@/lib/session";
 
@@ -43,10 +43,14 @@ export default async function StaffPage() {
   }
 
   return (
-    <ContentColumn>
+    <ConsoleMain>
       <PageHeader
         title="Staff"
-        subtitle="Invite agents and admins, and revoke access. Accounts are invite-only."
+        subtitle={
+          unavailable
+            ? "Database not configured."
+            : `${staff.filter((member) => member.active).length} active of ${staff.length} · invite-only. Agents land in the agent app, admins here.`
+        }
       />
 
       <div className="grid gap-6 lg:grid-cols-[2fr_1fr]">
@@ -59,7 +63,7 @@ export default async function StaffPage() {
               description="Invite your first agent or admin with the form."
             />
           ) : (
-            <ul className="flex flex-col gap-3">
+            <ul className="console-rows flex flex-col gap-3">
               {staff.map((member) => (
                 <Card asChild key={member.id}>
                   <li className="flex items-center justify-between gap-4 p-4">
@@ -92,7 +96,7 @@ export default async function StaffPage() {
           )}
         </section>
 
-        <Card className="h-fit">
+        <Card className="h-fit lg:sticky lg:top-20">
           <CardHeader>
             <CardTitle className="text-base">Invite staff</CardTitle>
             <CardDescription>
@@ -105,6 +109,6 @@ export default async function StaffPage() {
           </CardContent>
         </Card>
       </div>
-    </ContentColumn>
+    </ConsoleMain>
   );
 }

@@ -1,7 +1,9 @@
 "use client";
 
 import * as React from "react";
-import { Button, ContentColumn, EmptyState } from "@koolee/ui";
+import { Button, EmptyState } from "@koolee/ui";
+
+import { ConsoleMain } from "@/components/console";
 
 export default function ErrorPage({
   error,
@@ -15,12 +17,12 @@ export default function ErrorPage({
   }, [error]);
 
   return (
-    <ContentColumn>
+    <ConsoleMain width="narrow">
       <EmptyState
         title="Something went wrong"
         description="An unexpected error occurred. Try again, or come back in a moment."
         action={<Button onClick={reset}>Try again</Button>}
       />
-    </ContentColumn>
+    </ConsoleMain>
   );
 }

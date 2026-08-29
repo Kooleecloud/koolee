@@ -99,6 +99,7 @@ export {
 /* Forms */
 export {
   PhoneInput,
+  formatE164ForDisplay,
   formatUsPhone,
   normalizeUsPhone,
   toE164,

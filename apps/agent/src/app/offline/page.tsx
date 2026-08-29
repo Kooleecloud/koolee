@@ -1,29 +1,24 @@
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-  ContentColumn,
-} from "@koolee/ui";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@koolee/ui";
+
+import { AgentMain } from "@/components/shell/agent-main";
 
 export const metadata = { title: "Offline" };
 
 export default function OfflinePage() {
   return (
-    <ContentColumn width="narrow">
+    <AgentMain bare>
       <Card>
         <CardHeader>
           <CardTitle>You&apos;re offline</CardTitle>
           <CardDescription>
-            The agent app needs a connection to load tasks and record custody events.
+            Your jobs and everything you record need a connection.
           </CardDescription>
         </CardHeader>
         <CardContent className="text-sm text-muted-foreground">
-          Anything you were mid-way through has not been submitted. Reconnect and try
-          again.
+          Nothing you were part-way through has been submitted, and nothing is lost. Get
+          signal and open the app again — the step you were on will still be there.
         </CardContent>
       </Card>
-    </ContentColumn>
+    </AgentMain>
   );
 }

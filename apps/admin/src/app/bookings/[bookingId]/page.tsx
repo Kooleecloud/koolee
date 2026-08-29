@@ -10,8 +10,8 @@ import {
   CardDescription,
   CardHeader,
   CardTitle,
-  ContentColumn,
   DatabaseNotConfigured,
+  formatE164ForDisplay,
   PageHeader,
 } from "@koolee/ui";
 import {
@@ -26,8 +26,10 @@ import {
   getBookingDetailForSession,
   listAgentWorkload,
   type AgentWorkload,
+  type PriceBreakdown,
 } from "@koolee/core";
 
+import { ConsoleMain } from "@/components/console";
 import { TransitionControls } from "@/components/transition-controls";
 import { ViewerLocalTime } from "@/components/viewer-local-time";
 import { tryGetCore } from "@/lib/core";
@@ -60,6 +62,42 @@ async function signPhotoUrls(paths: string[]): Promise<Map<string, string>> {
   return map;
 }
 
+const money = (cents: number) =>
+  `${cents < 0 ? "-" : ""}$${Math.abs(cents / 100).toFixed(2)}`;
+
+/** The price snapshot, expanded. Zero-value lines are omitted, not shown as $0.00. */
+function PriceBreakdownLines({ breakdown }: { breakdown: PriceBreakdown }) {
+  const lines: { label: string; value: string }[] = [
+    { label: "Base", value: money(breakdown.baseFeeCents) },
+    { label: "Bags", value: money(breakdown.bagsCents) },
+  ];
+  if (breakdown.distanceCents !== 0) {
+    lines.push({ label: "Distance", value: money(breakdown.distanceCents) });
+  }
+  if (breakdown.leadTimeAdjustmentCents !== 0) {
+    lines.push({
+      // The multiplier is why the number moved, so it rides the label rather
+      // than sitting in a separate row an operator has to correlate.
+      label: `Lead time (\u00d7${breakdown.leadTimeMultiplier})`,
+      value: money(breakdown.leadTimeAdjustmentCents),
+    });
+  }
+  for (const discount of breakdown.discounts) {
+    lines.push({ label: discount.label, value: money(-Math.abs(discount.amountCents)) });
+  }
+
+  return (
+    <span className="flex flex-col gap-0.5 text-xs text-muted-foreground">
+      {lines.map((line) => (
+        <span key={line.label} className="flex justify-between gap-4">
+          <span>{line.label}</span>
+          <span className="tabular-nums">{line.value}</span>
+        </span>
+      ))}
+    </span>
+  );
+}
+
 export default async function BookingDetailPage({
   params,
 }: {
@@ -73,9 +111,9 @@ export default async function BookingDetailPage({
 
   if (!core) {
     return (
-      <ContentColumn>
+      <ConsoleMain>
         <DatabaseNotConfigured />
-      </ContentColumn>
+      </ConsoleMain>
     );
   }
 
@@ -124,7 +162,7 @@ export default async function BookingDetailPage({
   const legal = availableEvents(booking.status);
 
   return (
-    <ContentColumn>
+    <ConsoleMain>
       <PageHeader
         title={`${booking.flightNumber} · ${booking.departureAirport}`}
         subtitle={
@@ -145,101 +183,10 @@ export default async function BookingDetailPage({
         }
       />
 
-      <div className="grid gap-6 lg:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Details</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {/* Every instant here is airport-local, matching the board — the
-                same booking must never read as two different times. */}
-            <dl className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-2 text-sm">
-              <dt className="text-muted-foreground">Passenger</dt>
-              <dd>{booking.paxName}</dd>
-              <dt className="text-muted-foreground">Pickup window</dt>
-              <dd>
-                {booking.pickupWindowStart && booking.pickupWindowEnd ? (
-                  formatWindowInAirportTz(
-                    booking.pickupWindowStart,
-                    booking.pickupWindowEnd,
-                    tz,
-                  )
-                ) : booking.pickupWindowStart ? (
-                  formatInstantInAirportTz(booking.pickupWindowStart, tz)
-                ) : (
-                  <span className="text-muted-foreground">not scheduled</span>
-                )}
-                {/* Secondary, and only when the operator is somewhere else.
-                    The line above is what the customer and agent are both
-                    working from and stays the authoritative one. */}
-                {booking.pickupWindowStart && (
-                  <>
-                    {windowNote && (
-                      <span className="ml-2 text-muted-foreground">({windowNote})</span>
-                    )}
-                    <ViewerLocalTime
-                      instant={booking.pickupWindowStart.toISOString()}
-                      tz={tz}
-                      className="ml-2 text-muted-foreground"
-                    />
-                  </>
-                )}
-              </dd>
-              <dt className="text-muted-foreground">Departs</dt>
-              <dd>
-                {formatInstantInAirportTz(booking.departureAt, tz)}
-                <ViewerLocalTime
-                  instant={booking.departureAt.toISOString()}
-                  tz={tz}
-                  className="ml-2 text-muted-foreground"
-                />
-              </dd>
-              <dt className="text-muted-foreground">Bags</dt>
-              <dd>{booking.bagCount}</dd>
-              <dt className="text-muted-foreground">Price</dt>
-              <dd>
-                ${(booking.priceCents / 100).toFixed(2)} {booking.currency.toUpperCase()}
-              </dd>
-              <dt className="text-muted-foreground">Created</dt>
-              <dd>{formatInstantInAirportTz(booking.createdAt, tz)}</dd>
-            </dl>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Assignment</CardTitle>
-            <CardDescription>
-              One agent covers the verification visit and the pickup run in v1.
-              Reassignment is allowed until the visit completes.
-              {assignment.assigneeEmail
-                ? ` Currently: ${assignment.assigneeEmail} (${assignment.taskStatus ?? "assigned"}).`
-                : " Currently unassigned."}
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-4">
-            <AssignAgentForm
-              bookingId={booking.id}
-              agents={agents.map((agent) => {
-                const name = agent.fullName
-                  ? `${agent.fullName} (${agent.email ?? agent.userId})`
-                  : (agent.email ?? agent.userId);
-                // Load is on the label, not a second column: the operator is
-                // choosing inside this list and cannot see anything else.
-                return {
-                  userId: agent.userId,
-                  label: `${name} — ${agent.openTasks} open`,
-                };
-              })}
-              currentAssignee={assignment.assigneeUserId}
-            />
-            {!assignment.assigneeUserId && booking.status === "paid" && (
-              <AutoAssignButton bookingId={booking.id} />
-            )}
-          </CardContent>
-        </Card>
-      </div>
-
+      {/* The exception banner leads. A booking that has stopped is the only
+          thing on this page an operator has to act on before reading
+          anything else, and it used to sit below the fold under two cards
+          of reference data. */}
       {booking.status === "exception" && (
         <Card className="border-destructive/50">
           <CardHeader>
@@ -255,238 +202,370 @@ export default async function BookingDetailPage({
         </Card>
       )}
 
-      <div className="grid gap-6 lg:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Bags & seals</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {bags.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No bags recorded yet.</p>
-            ) : (
-              /* One card per bag, wrapping — an operator on a dispute is
-                 comparing bags against each other (which seal, which photo),
-                 and a stacked list makes that a scroll instead of a glance. */
-              <ul className="flex flex-wrap gap-3">
-                {bags.map((bag) => (
-                  <Card asChild key={bag.id}>
-                    <li className="flex w-40 flex-col gap-2 p-3">
-                      <div className="flex items-baseline justify-between gap-2">
-                        <span className="font-display text-sm font-semibold text-navy-800">
-                          Bag {bag.ordinal}
+      {/*
+       * Read on the left, act on the right, history underneath.
+       *
+       * The previous arrangement was three `lg:grid-cols-2` rows in source
+       * order, which put the two controls an operator uses (assignment and
+       * the manual override) at opposite ends of the page and left the
+       * identity gate orphaned on a row of its own. Grouping by what the
+       * operator is doing — rather than by what the data is — keeps both
+       * write surfaces in view while they read the record next to them.
+       */}
+      <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+        <div className="flex min-w-0 flex-col gap-6">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Details</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {/* Every instant here is airport-local, matching the board — the
+                  same booking must never read as two different times. */}
+              <dl className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-2 text-sm">
+                <dt className="text-muted-foreground">Passenger</dt>
+                <dd>{booking.paxName}</dd>
+                <dt className="text-muted-foreground">Pickup window</dt>
+                <dd>
+                  {booking.pickupWindowStart && booking.pickupWindowEnd ? (
+                    formatWindowInAirportTz(
+                      booking.pickupWindowStart,
+                      booking.pickupWindowEnd,
+                      tz,
+                    )
+                  ) : booking.pickupWindowStart ? (
+                    formatInstantInAirportTz(booking.pickupWindowStart, tz)
+                  ) : (
+                    <span className="text-muted-foreground">not scheduled</span>
+                  )}
+                  {/* Secondary, and only when the operator is somewhere else.
+                      The line above is what the customer and agent are both
+                      working from and stays the authoritative one. */}
+                  {booking.pickupWindowStart && (
+                    <>
+                      {windowNote && (
+                        <span className="ml-2 text-muted-foreground">({windowNote})</span>
+                      )}
+                      <ViewerLocalTime
+                        instant={booking.pickupWindowStart.toISOString()}
+                        tz={tz}
+                        className="ml-2 text-muted-foreground"
+                      />
+                    </>
+                  )}
+                </dd>
+                <dt className="text-muted-foreground">Departs</dt>
+                <dd>
+                  {formatInstantInAirportTz(booking.departureAt, tz)}
+                  <ViewerLocalTime
+                    instant={booking.departureAt.toISOString()}
+                    tz={tz}
+                    className="ml-2 text-muted-foreground"
+                  />
+                </dd>
+                <dt className="text-muted-foreground">Bags</dt>
+                <dd>{booking.bagCount}</dd>
+                {/* The number ops rings when a customer is not at the door.
+                    It has been on the booking row all along and this page
+                    never rendered it, so finding it meant leaving the
+                    console. `tel:` because half of dispatch is on a phone. */}
+                <dt className="text-muted-foreground">Contact</dt>
+                <dd>
+                  {booking.contactPhone ? (
+                    <a
+                      href={`tel:${booking.contactPhone}`}
+                      className="text-primary underline-offset-4 hover:underline"
+                    >
+                      {formatE164ForDisplay(booking.contactPhone)}
+                    </a>
+                  ) : (
+                    <span className="text-muted-foreground">none on file</span>
+                  )}
+                </dd>
+                <dt className="text-muted-foreground">Price</dt>
+                <dd className="flex flex-col gap-1">
+                  <span>
+                    ${(booking.priceCents / 100).toFixed(2)}{" "}
+                    {booking.currency.toUpperCase()}
+                  </span>
+                  {/* Refund conversations are about the components, never the
+                      total. The snapshot has been stored on every booking
+                      since pricing shipped; the page was printing one number
+                      and dropping the rest. */}
+                  {booking.priceBreakdown && (
+                    <PriceBreakdownLines breakdown={booking.priceBreakdown} />
+                  )}
+                </dd>
+                <dt className="text-muted-foreground">Created</dt>
+                <dd>{formatInstantInAirportTz(booking.createdAt, tz)}</dd>
+              </dl>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Identity gate</CardTitle>
+              <CardDescription>
+                Both must hold before an agent can seal a bag. There is no override — a
+                blocked agent files an exception.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="flex flex-col gap-3 text-sm">
+              <div className="flex flex-col gap-1 rounded-lg border px-3 py-2">
+                <span className="flex items-center justify-between gap-3">
+                  <span className="font-medium">Booking agreement</span>
+                  {agreementState.accepted ? (
+                    <Badge variant="success">accepted</Badge>
+                  ) : (
+                    <Badge variant="warning">outstanding</Badge>
+                  )}
+                </span>
+                <span className="text-xs text-muted-foreground">
+                  {agreementState.accepted && agreementState.acceptance ? (
+                    <>
+                      v{agreementState.acceptedVersion?.version} ·{" "}
+                      {formatInstantInAirportTz(agreementState.acceptance.acceptedAt, tz)}
+                      {" · pinned"}
+                    </>
+                  ) : agreementState.currentVersion === null ? (
+                    "No agreement is published — every visit is blocked until one is."
+                  ) : (
+                    <>
+                      v{agreementState.currentVersion.version} not yet accepted. Only the
+                      customer can do this, from their trip page.
+                    </>
+                  )}
+                </span>
+              </div>
+
+              <div className="flex flex-col gap-1 rounded-lg border px-3 py-2">
+                <span className="flex items-center justify-between gap-3">
+                  <span className="font-medium">Passport</span>
+                  <Badge
+                    variant={
+                      passportRow?.status === "agent_confirmed"
+                        ? "success"
+                        : passportRow?.status === "failed"
+                          ? "warning"
+                          : "secondary"
+                    }
+                  >
+                    {passportRow?.status ?? "pending"}
+                  </Badge>
+                </span>
+                <span className="text-xs text-muted-foreground">
+                  {passportRow?.confirmedAt
+                    ? `Confirmed ${formatInstantInAirportTz(passportRow.confirmedAt, tz)}`
+                    : passportRow?.uploadedAt
+                      ? `Photo on file since ${formatInstantInAirportTz(passportRow.uploadedAt, tz)} — the agent still confirms at the door.`
+                      : "Nothing uploaded. The agent photographs and confirms at the door."}
+                </span>
+                {/* The photo is NOT rendered here, deliberately. Ops has no
+                    reason to look at a customer's passport: the check is the
+                    agent's, at the door, against the person. Least privilege —
+                    every surface that can display it is a surface that can leak
+                    it, and this one earns nothing by having it. The storage path
+                    is in the custody trail if an investigation ever needs it. */}
+              </div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Bags & seals</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {bags.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No bags recorded yet.</p>
+              ) : (
+                /* One card per bag, wrapping — an operator on a dispute is
+                   comparing bags against each other (which seal, which photo),
+                   and a stacked list makes that a scroll instead of a glance. */
+                <ul className="flex flex-wrap gap-3">
+                  {bags.map((bag) => (
+                    <Card asChild key={bag.id}>
+                      <li className="flex w-40 flex-col gap-2 p-3">
+                        <div className="flex items-baseline justify-between gap-2">
+                          <span className="font-display text-sm font-semibold text-navy-800">
+                            Bag {bag.ordinal}
+                          </span>
+                          {bag.weightKg ? (
+                            <span className="text-xs text-muted-foreground">
+                              {bag.weightKg} kg
+                            </span>
+                          ) : null}
+                        </div>
+
+                        {/* The seal id is the identifier a dispute turns on, so it
+                          gets its own line in mono rather than sharing one. */}
+                        <span className="font-mono text-xs break-all">
+                          {bag.sealId ? (
+                            bag.sealId
+                          ) : (
+                            <span className="text-muted-foreground">not sealed</span>
+                          )}
                         </span>
-                        {bag.weightKg ? (
-                          <span className="text-xs text-muted-foreground">
-                            {bag.weightKg} kg
-                          </span>
-                        ) : null}
-                      </div>
 
-                      {/* The seal id is the identifier a dispute turns on, so it
-                        gets its own line in mono rather than sharing one. */}
-                      <span className="font-mono text-xs break-all">
-                        {bag.sealId ? (
-                          bag.sealId
-                        ) : (
-                          <span className="text-muted-foreground">not sealed</span>
-                        )}
-                      </span>
-
-                      {(() => {
-                        const path = bag.photoUrls.find((p) => signedUrls.has(p));
-                        if (path) {
-                          return (
-                            <ImageLightbox
-                              src={signedUrls.get(path)!}
-                              alt={`Bag ${bag.ordinal} evidence photo`}
-                              title={`Bag ${bag.ordinal}`}
-                              description={
-                                bag.sealId
-                                  ? `seal ${bag.sealId}${bag.weightKg ? ` · ${bag.weightKg} kg` : ""}`
-                                  : undefined
-                              }
-                              className="h-28 w-full"
-                            />
-                          );
-                        }
-                        return (
-                          <span className="flex h-28 items-center justify-center rounded-md border border-dashed text-center text-xs text-muted-foreground">
-                            {bag.photoUrls.length > 0
-                              ? "photo (signing unavailable)"
-                              : "no photo"}
-                          </span>
-                        );
-                      })()}
-
-                      {/* Extra photos stay reachable without stretching the card. */}
-                      {bag.photoUrls.filter((p) => signedUrls.has(p)).length > 1 && (
-                        <div className="flex flex-wrap gap-1">
-                          {bag.photoUrls
-                            .filter((p) => signedUrls.has(p))
-                            .slice(1)
-                            .map((path) => (
+                        {(() => {
+                          const path = bag.photoUrls.find((p) => signedUrls.has(p));
+                          if (path) {
+                            return (
                               <ImageLightbox
-                                key={path}
                                 src={signedUrls.get(path)!}
                                 alt={`Bag ${bag.ordinal} evidence photo`}
                                 title={`Bag ${bag.ordinal}`}
-                                className="h-10 w-10"
+                                description={
+                                  bag.sealId
+                                    ? `seal ${bag.sealId}${bag.weightKg ? ` · ${bag.weightKg} kg` : ""}`
+                                    : undefined
+                                }
+                                className="h-28 w-full"
                               />
-                            ))}
-                        </div>
-                      )}
+                            );
+                          }
+                          return (
+                            <span className="flex h-28 items-center justify-center rounded-md border border-dashed text-center text-xs text-muted-foreground">
+                              {bag.photoUrls.length > 0
+                                ? "photo (signing unavailable)"
+                                : "no photo"}
+                            </span>
+                          );
+                        })()}
+
+                        {/* Extra photos stay reachable without stretching the card. */}
+                        {bag.photoUrls.filter((p) => signedUrls.has(p)).length > 1 && (
+                          <div className="flex flex-wrap gap-1">
+                            {bag.photoUrls
+                              .filter((p) => signedUrls.has(p))
+                              .slice(1)
+                              .map((path) => (
+                                <ImageLightbox
+                                  key={path}
+                                  src={signedUrls.get(path)!}
+                                  alt={`Bag ${bag.ordinal} evidence photo`}
+                                  title={`Bag ${bag.ordinal}`}
+                                  className="h-10 w-10"
+                                />
+                              ))}
+                          </div>
+                        )}
+                      </li>
+                    </Card>
+                  ))}
+                </ul>
+              )}
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Payments</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {payments.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No payment recorded.</p>
+              ) : (
+                <ul className="flex flex-col gap-2 text-sm">
+                  {payments.map((payment) => (
+                    <li
+                      key={payment.id}
+                      className="flex items-center justify-between gap-3 rounded-lg border px-3 py-2"
+                    >
+                      <span>
+                        ${(payment.amountCents / 100).toFixed(2)}{" "}
+                        <span className="text-xs uppercase text-muted-foreground">
+                          {payment.provider}
+                        </span>
+                      </span>
+                      <span className="flex items-center gap-2 text-xs">
+                        <Badge
+                          variant={
+                            payment.status === "captured" ||
+                            payment.status === "authorized"
+                              ? "success"
+                              : payment.status === "refunded"
+                                ? "secondary"
+                                : "warning"
+                          }
+                        >
+                          {payment.status}
+                        </Badge>
+                        <span className="font-mono text-muted-foreground">
+                          {payment.providerRef}
+                        </span>
+                      </span>
                     </li>
-                  </Card>
-                ))}
-              </ul>
-            )}
-          </CardContent>
-        </Card>
+                  ))}
+                </ul>
+              )}
+            </CardContent>
+          </Card>
+        </div>
 
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Payments</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {payments.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No payment recorded.</p>
-            ) : (
-              <ul className="flex flex-col gap-2 text-sm">
-                {payments.map((payment) => (
-                  <li
-                    key={payment.id}
-                    className="flex items-center justify-between gap-3 rounded-lg border px-3 py-2"
-                  >
-                    <span>
-                      ${(payment.amountCents / 100).toFixed(2)}{" "}
-                      <span className="text-xs uppercase text-muted-foreground">
-                        {payment.provider}
-                      </span>
-                    </span>
-                    <span className="flex items-center gap-2 text-xs">
-                      <Badge
-                        variant={
-                          payment.status === "captured" || payment.status === "authorized"
-                            ? "success"
-                            : payment.status === "refunded"
-                              ? "secondary"
-                              : "warning"
-                        }
-                      >
-                        {payment.status}
-                      </Badge>
-                      <span className="font-mono text-muted-foreground">
-                        {payment.providerRef}
-                      </span>
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Identity gate</CardTitle>
-            <CardDescription>
-              Both must hold before an agent can seal a bag. There is no override — a
-              blocked agent files an exception.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-3 text-sm">
-            <div className="flex flex-col gap-1 rounded-lg border px-3 py-2">
-              <span className="flex items-center justify-between gap-3">
-                <span className="font-medium">Booking agreement</span>
-                {agreementState.accepted ? (
-                  <Badge variant="success">accepted</Badge>
-                ) : (
-                  <Badge variant="warning">outstanding</Badge>
-                )}
-              </span>
-              <span className="text-xs text-muted-foreground">
-                {agreementState.accepted && agreementState.acceptance ? (
-                  <>
-                    v{agreementState.acceptedVersion?.version} ·{" "}
-                    {formatInstantInAirportTz(agreementState.acceptance.acceptedAt, tz)}
-                    {" · pinned"}
-                  </>
-                ) : agreementState.currentVersion === null ? (
-                  "No agreement is published — every visit is blocked until one is."
-                ) : (
-                  <>
-                    v{agreementState.currentVersion.version} not yet accepted. Only the
-                    customer can do this, from their trip page.
-                  </>
-                )}
-              </span>
-            </div>
-
-            <div className="flex flex-col gap-1 rounded-lg border px-3 py-2">
-              <span className="flex items-center justify-between gap-3">
-                <span className="font-medium">Passport</span>
-                <Badge
-                  variant={
-                    passportRow?.status === "agent_confirmed"
-                      ? "success"
-                      : passportRow?.status === "failed"
-                        ? "warning"
-                        : "secondary"
-                  }
-                >
-                  {passportRow?.status ?? "pending"}
-                </Badge>
-              </span>
-              <span className="text-xs text-muted-foreground">
-                {passportRow?.confirmedAt
-                  ? `Confirmed ${formatInstantInAirportTz(passportRow.confirmedAt, tz)}`
-                  : passportRow?.uploadedAt
-                    ? `Photo on file since ${formatInstantInAirportTz(passportRow.uploadedAt, tz)} — the agent still confirms at the door.`
-                    : "Nothing uploaded. The agent photographs and confirms at the door."}
-              </span>
-              {/* The photo is NOT rendered here, deliberately. Ops has no
-                  reason to look at a customer's passport: the check is the
-                  agent's, at the door, against the person. Least privilege —
-                  every surface that can display it is a surface that can leak
-                  it, and this one earns nothing by having it. The storage path
-                  is in the custody trail if an investigation ever needs it. */}
-            </div>
-          </CardContent>
-        </Card>
+        {/* Sticky: dispatch reassigns while scrolling the custody trail
+            looking for what went wrong. */}
+        <div className="flex min-w-0 flex-col gap-6 lg:sticky lg:top-20">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Assignment</CardTitle>
+              <CardDescription>
+                One agent covers the verification visit and the pickup run in v1.
+                Reassignment is allowed until the visit completes.
+                {assignment.assigneeEmail
+                  ? ` Currently: ${assignment.assigneeEmail} (${assignment.taskStatus ?? "assigned"}).`
+                  : " Currently unassigned."}
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="flex flex-col gap-4">
+              <AssignAgentForm
+                bookingId={booking.id}
+                agents={agents.map((agent) => {
+                  const name = agent.fullName
+                    ? `${agent.fullName} (${agent.email ?? agent.userId})`
+                    : (agent.email ?? agent.userId);
+                  // Load is on the label, not a second column: the operator is
+                  // choosing inside this list and cannot see anything else.
+                  return {
+                    userId: agent.userId,
+                    label: `${name} — ${agent.openTasks} open`,
+                  };
+                })}
+                currentAssignee={assignment.assigneeUserId}
+              />
+              {!assignment.assigneeUserId && booking.status === "paid" && (
+                <AutoAssignButton bookingId={booking.id} />
+              )}
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Manual state override</CardTitle>
+              <CardDescription>
+                Legal moves from <strong>{booking.status}</strong>:{" "}
+                {legal.length > 0 ? legal.join(", ") : "none — this status is terminal"}.
+                Every override is written to the custody log.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <TransitionControls
+                bookingId={booking.id}
+                events={ALL_EVENTS}
+                legalEvents={legal}
+              />
+            </CardContent>
+          </Card>
+        </div>
       </div>
 
-      <div className="grid items-start gap-6 lg:grid-cols-[2fr_3fr]">
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Manual state override</CardTitle>
-            <CardDescription>
-              Legal moves from <strong>{booking.status}</strong>:{" "}
-              {legal.length > 0 ? legal.join(", ") : "none — this status is terminal"}.
-              Every override is written to the custody log.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <TransitionControls
-              bookingId={booking.id}
-              events={ALL_EVENTS}
-              legalEvents={legal}
-            />
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Custody trail</CardTitle>
-            <CardDescription>
-              Append-only. {timeline.length} event{timeline.length === 1 ? "" : "s"} —
-              actor, timestamp, and evidence for every hand-off. Each line is a summary of
-              the stored row; expand <strong>Raw data</strong> for the record itself.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <CustodyTrail events={timeline} signedUrls={signedUrls} tz={tz} />
-          </CardContent>
-        </Card>
-      </div>
-    </ContentColumn>
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Custody trail</CardTitle>
+          <CardDescription>
+            Append-only. {timeline.length} event{timeline.length === 1 ? "" : "s"} —
+            actor, timestamp, and evidence for every hand-off. Each line is a summary of
+            the stored row; expand <strong>Raw data</strong> for the record itself.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <CustodyTrail events={timeline} signedUrls={signedUrls} tz={tz} />
+        </CardContent>
+      </Card>
+    </ConsoleMain>
   );
 }

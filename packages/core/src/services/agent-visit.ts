@@ -1,5 +1,6 @@
 import { and, asc, desc, eq, sql } from "drizzle-orm";
 import {
+  addresses,
   bags,
   bookings,
   custodyEvents,
@@ -78,6 +79,23 @@ export interface VisitContext {
    */
   paymentStatus: Payment["status"] | null;
   /**
+   * The pickup address, resolved.
+   *
+   * The agent app's visit screen used to render neither this nor the contact
+   * number, which meant the one screen a driver looks at while standing on
+   * somebody's doorstep could not tell them which doorstep. `Booking` carries
+   * only `pickupAddressId`, so it has to be joined here.
+   */
+  address: {
+    line1: string;
+    line2: string | null;
+    city: string;
+    state: string | null;
+    zip: string | null;
+    /** Google Place ID when the customer picked from autocomplete. */
+    placeId: string | null;
+  } | null;
+  /**
    * The booking's display zone. The agent app renders every time through this
    * and never through the device or server zone: the agent has to show up for
    * the window the CUSTOMER bought, and the only way to guarantee both screens
@@ -147,7 +165,8 @@ export async function getVisitContext(
   });
   if (!booking) throw new NotFoundError("Booking", task.bookingId);
 
-  const [bagRows, timeline, paymentRows, tz, agreement, passport] = await Promise.all([
+  const [bagRows, timeline, paymentRows, tz, agreement, passport, addressRows] =
+    await Promise.all([
     // By ordinal, never createdAt — see the note on `bags.ordinal`. This is the
     // list the agent seals down, so a shuffling order was visible in the UI.
     db
@@ -174,6 +193,21 @@ export async function getVisitContext(
     // before the answer arrives.
     getBookingAgreementState(db, booking.id, now),
     getPassportVerification(db, booking.id),
+    // The doorstep. Left-joined in spirit: a booking always has an address,
+    // but a missing row must degrade to "no address on file" rather than
+    // failing the whole visit screen a driver is standing in front of.
+    db
+      .select({
+        line1: addresses.line1,
+        line2: addresses.line2,
+        city: addresses.city,
+        state: addresses.state,
+        zip: addresses.zip,
+        placeId: addresses.placeId,
+      })
+      .from(addresses)
+      .where(eq(addresses.id, booking.pickupAddressId))
+      .limit(1),
   ]);
 
   return {
@@ -182,6 +216,7 @@ export async function getVisitContext(
     bags: bagRows,
     timeline,
     paymentStatus: paymentRows[0]?.status ?? null,
+    address: addressRows[0] ?? null,
     tz,
     identityGate: buildIdentityGate(agreement, passport),
   };

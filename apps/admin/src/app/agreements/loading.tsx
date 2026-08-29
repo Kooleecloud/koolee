@@ -2,10 +2,10 @@ import { PageSkeleton } from "@koolee/ui";
 
 import { ConsoleMain } from "@/components/console";
 
-export default function AdminLoading() {
+export default function AgreementsLoading() {
   return (
     <ConsoleMain>
-      <PageSkeleton cards={3} />
+      <PageSkeleton cards={2} />
     </ConsoleMain>
   );
 }

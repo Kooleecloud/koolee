@@ -1,18 +1,20 @@
 import Link from "next/link";
-import { Button, ContentColumn, EmptyState } from "@koolee/ui";
+import { Button, EmptyState } from "@koolee/ui";
+
+import { AgentMain } from "@/components/shell/agent-main";
 
 export default function NotFound() {
   return (
-    <ContentColumn width="narrow">
+    <AgentMain>
       <EmptyState
-        title="Page not found"
-        description="This page doesn't exist or may have moved."
+        title="Not found"
+        description="This job isn't assigned to you, or it has moved."
         action={
-          <Button asChild>
-            <Link href="/">Back to home</Link>
+          <Button asChild size="lg">
+            <Link href="/">Back to today</Link>
           </Button>
         }
       />
-    </ContentColumn>
+    </AgentMain>
   );
 }

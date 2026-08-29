@@ -3,6 +3,7 @@
 import * as React from "react";
 import { useActionState } from "react";
 import { useRouter } from "next/navigation";
+import { Check } from "lucide-react";
 import {
   Badge,
   Button,
@@ -187,6 +188,29 @@ function StepBadge({ done, label }: { done: boolean; label: string }) {
   return <Badge variant={done ? "success" : "secondary"}>{done ? "done" : label}</Badge>;
 }
 
+/**
+ * A finished step, folded to one line.
+ *
+ * Every step used to keep its full card after completion, so by the time an
+ * agent reached the bags they were scrolling past two panels of instructions
+ * they had already followed. On a phone that is the difference between the
+ * next action being on screen and being two thumb-flicks away. What is done
+ * stays visible — a driver needs to see they did it — but it stops competing.
+ */
+function StepDone({ label }: { label: string }) {
+  return (
+    <div className="flex items-center gap-2.5 rounded-lg border border-border bg-card px-4 py-3">
+      <span
+        aria-hidden="true"
+        className="flex size-5 shrink-0 items-center justify-center rounded-full bg-success text-success-foreground"
+      >
+        <Check className="size-3" />
+      </span>
+      <span className="text-sm text-muted-foreground">{label}</span>
+    </div>
+  );
+}
+
 export function VisitFlow({ view }: { view: VisitView }) {
   const coords = useGps();
 
@@ -236,6 +260,8 @@ function ArriveStep({
     {},
   );
 
+  if (view.arrived) return <StepDone label="Arrived — visit started" />;
+
   return (
     <Card>
       <CardHeader>
@@ -254,7 +280,7 @@ function ArriveStep({
             <input type="hidden" name="taskId" value={view.taskId} />
             <GpsFields coords={coords} />
             {state.error && <FormMessage>{state.error}</FormMessage>}
-            <Button type="submit" loading={pending}>
+            <Button type="submit" size="lg" loading={pending} className="w-full">
               I&apos;ve arrived
             </Button>
           </form>
@@ -438,7 +464,7 @@ function IdentityStep({
                 <input type="hidden" name="taskId" value={view.taskId} />
                 <GpsFields coords={coords} />
                 {confirmState.error && <FormMessage>{confirmState.error}</FormMessage>}
-                <Button type="submit" loading={confirming}>
+                <Button type="submit" size="lg" loading={confirming} className="w-full">
                   Confirm passport matches the traveler
                 </Button>
               </form>
@@ -559,7 +585,12 @@ function BagStep({
               </div>
             </div>
             {state.error && <FormMessage>{state.error}</FormMessage>}
-            <Button type="submit" loading={pending || shrinking}>
+            <Button
+              type="submit"
+              size="lg"
+              loading={pending || shrinking}
+              className="w-full"
+            >
               Record seal
             </Button>
           </form>
@@ -602,7 +633,13 @@ function CompleteStep({
           <input type="hidden" name="taskId" value={view.taskId} />
           <GpsFields coords={coords} />
           {state.error && <FormMessage>{state.error}</FormMessage>}
-          <Button type="submit" loading={pending} disabled={!allSealed}>
+          <Button
+            type="submit"
+            size="lg"
+            loading={pending}
+            disabled={!allSealed}
+            className="w-full"
+          >
             {allSealed ? "Complete visit" : "Seal every bag first"}
           </Button>
         </form>
@@ -627,7 +664,13 @@ function ExceptionStep({
 
   if (!open) {
     return (
-      <Button type="button" variant="ghost" onClick={() => setOpen(true)}>
+      <Button
+        type="button"
+        variant="outline"
+        size="lg"
+        className="w-full border-destructive/40 text-destructive"
+        onClick={() => setOpen(true)}
+      >
         Something&apos;s wrong — flag a problem
       </Button>
     );
