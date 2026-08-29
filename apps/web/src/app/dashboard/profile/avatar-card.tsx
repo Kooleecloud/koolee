@@ -1,7 +1,10 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { BUCKETS } from "@koolee/core";
+// Subpath, NOT the package barrel: the barrel reaches `runtime.ts` →
+// `@koolee/db` → the `postgres` driver, which cannot resolve `fs` in a
+// browser bundle. `@koolee/core/uploads` imports nothing.
+import { BUCKETS } from "@koolee/core/uploads";
 import { AvatarUploader, Card, CardContent, CardHeader, CardTitle } from "@koolee/ui";
 
 /**

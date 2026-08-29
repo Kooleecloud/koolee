@@ -1,5 +1,3 @@
-import { MAX_TICKET_UPLOAD_BYTES, TICKET_UPLOAD_MIME_TYPES } from "../extraction/types";
-
 /**
  * Every Supabase Storage bucket this product owns, declared once.
  *
@@ -28,6 +26,35 @@ import { MAX_TICKET_UPLOAD_BYTES, TICKET_UPLOAD_MIME_TYPES } from "../extraction
  * set. Every `bucketMaxBytes` here must stay under whatever that is; it is the
  * one number in this file that is not tracked by this file.
  */
+
+/**
+ * THIS FILE IMPORTS NOTHING, and must stay that way.
+ *
+ * Client components read these limits to size and filter a file picker, so the
+ * module has to be safe in a browser bundle. It used to take the two ticket
+ * constants from `../extraction/types`, which imports `AIRPORT_CODES` from
+ * `@koolee/db` — and `@koolee/db`'s barrel pulls `client.ts`, which pulls the
+ * `postgres` driver, which imports `fs`. The result was a Turbopack build
+ * error ("Can't resolve 'fs'") in every app whose picker referenced a spec.
+ * The constants therefore live HERE and `extraction/types` re-exports them.
+ *
+ * Reached from client code as `@koolee/core/uploads`, never the package
+ * barrel: the barrel re-exports `runtime.ts`, which has the same db chain.
+ */
+
+/** Upload constraints, shared by the route handler and its tests. */
+export const MAX_TICKET_UPLOAD_BYTES = 10 * 1024 * 1024;
+/**
+ * PDF is what airlines email. Images are accepted at the gate for a future
+ * OCR path — the heuristic extractor simply reports "unreadable" for them.
+ */
+export const TICKET_UPLOAD_MIME_TYPES = [
+  "application/pdf",
+  "image/jpeg",
+  "image/png",
+] as const;
+
+export type TicketUploadMimeType = (typeof TICKET_UPLOAD_MIME_TYPES)[number];
 
 export interface BucketSpec {
   /** Bucket id, which is also its name. */

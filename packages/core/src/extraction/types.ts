@@ -15,19 +15,20 @@ import { AIRPORT_CODES } from "@koolee/db";
  * enforced by ESLint exactly like the Stripe boundary.
  */
 
-/** Upload constraints, shared by the route handler and its tests. */
-export const MAX_TICKET_UPLOAD_BYTES = 10 * 1024 * 1024;
 /**
- * PDF is what airlines email. Images are accepted at the gate for a future
- * OCR path — the heuristic extractor simply reports "unreadable" for them.
+ * Upload constraints, re-exported from their real home.
+ *
+ * They live in `../uploads/buckets` because that file declares every bucket's
+ * limits in one place AND is import-free, which is what lets a client
+ * component read them without dragging `@koolee/db` into a browser bundle.
+ * This module imports `AIRPORT_CODES` from `@koolee/db`, so anything that
+ * stayed here would be unreachable from the client.
  */
-export const TICKET_UPLOAD_MIME_TYPES = [
-  "application/pdf",
-  "image/jpeg",
-  "image/png",
-] as const;
-
-export type TicketUploadMimeType = (typeof TICKET_UPLOAD_MIME_TYPES)[number];
+export {
+  MAX_TICKET_UPLOAD_BYTES,
+  TICKET_UPLOAD_MIME_TYPES,
+  type TicketUploadMimeType,
+} from "../uploads/buckets";
 
 /* ------------------------------------------------------------------ */
 /* Extraction result schema                                            */

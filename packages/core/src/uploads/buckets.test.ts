@@ -22,7 +22,8 @@ import { ALL_BUCKETS, BUCKETS, extensionForUpload, type BucketSpec } from "./buc
  * problem.
  */
 
-const drizzleDir = join(dirname(fileURLToPath(import.meta.url)), "../../../db/drizzle");
+const here = dirname(fileURLToPath(import.meta.url));
+const drizzleDir = join(here, "../../../db/drizzle");
 
 interface SqlBucketRow {
   id: string;
@@ -95,6 +96,40 @@ describe("bucket specs", () => {
       }
     },
   );
+});
+
+describe("client safety", () => {
+  it("buckets.ts imports nothing at all", () => {
+    // This is not a style preference. Client components read these limits to
+    // size and filter a file picker, so the module ends up in browser bundles.
+    // It once imported `../extraction/types` for two ticket constants; that
+    // file imports `@koolee/db`, whose barrel pulls `client.ts` → `postgres` →
+    // `fs`, and every app that referenced a spec from a "use client" file died
+    // at build time with "Can't resolve 'fs'". Typecheck and lint both passed.
+    const source = readFileSync(join(here, "buckets.ts"), "utf8");
+    const imports = source
+      .split("\n")
+      .filter((line) => /^\s*import\s/.test(line) || /^\s*export\s.*\sfrom\s/.test(line));
+
+    expect(imports).toEqual([]);
+  });
+
+  it("nothing under uploads/ reaches outside itself", () => {
+    // Import lines only — the prose above explains this chain and would
+    // otherwise fail its own rule.
+    for (const file of ["buckets.ts", "avatar-upload.ts", "index.ts"]) {
+      const specifiers = [
+        ...readFileSync(join(here, file), "utf8").matchAll(
+          /^\s*(?:import|export)\b[^\n]*?\sfrom\s+"([^"]+)"/gm,
+        ),
+      ].map((match) => match[1]!);
+
+      for (const specifier of specifiers) {
+        // Siblings are fine; a parent directory or any package is not.
+        expect(specifier, `${file} imports ${specifier}`).toMatch(/^\.\/[^.]/);
+      }
+    }
+  });
 });
 
 describe("extensionForUpload", () => {
