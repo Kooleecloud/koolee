@@ -20,8 +20,10 @@ import {
   bags,
   bookings,
   custodyEvents,
+  driverShifts,
   pickupTasks,
   staffMembers,
+  trucks,
   users,
   verificationTasks,
   type Booking,
@@ -34,6 +36,7 @@ import type { AdminSession } from "../auth/types";
 import type { CoreConfig } from "../config";
 import { airportLocalDayBounds } from "../slots/cutoff";
 import { applyTransition } from "./bookings";
+import { OPEN_TASK_STATUSES } from "./tasks";
 import { cancelBookingWithRefund } from "./payment-lifecycle";
 import { getActiveStaffRole } from "./staff";
 
@@ -307,6 +310,17 @@ export interface OpsDashboard {
   todayByStatus: Array<{ status: Booking["status"]; count: number }>;
   /** Paid bookings with a window today and no assigned verification task. */
   unassignedToday: number;
+  /**
+   * Sealed bookings with a window today whose bags nobody is coming for —
+   * `verified_sealed` or `awaiting_pickup`, with no pickup task attached to a
+   * driver shift.
+   *
+   * A SEPARATE count from `unassignedToday`, not folded into it. The two are
+   * different failures with different fixes: one needs an agent sent to a
+   * door, the other needs a van. Merging them would make one badge mean two
+   * things and hide whichever is rarer.
+   */
+  awaitingDriverToday: number;
   /** All bookings currently in the exception state. */
   exceptionsOpen: number;
 }
@@ -350,6 +364,19 @@ export async function getOpsDashboard(
       ),
     );
 
+  const [awaitingDriver] = await db
+    .select({ count: count() })
+    .from(bookings)
+    .leftJoin(pickupTasks, eq(pickupTasks.bookingId, bookings.id))
+    .where(
+      and(
+        inArray(bookings.status, [...DRIVER_AWAITED_STATUSES]),
+        gte(bookings.pickupWindowStart, dayStart),
+        lt(bookings.pickupWindowStart, dayEnd),
+        isNull(pickupTasks.driverShiftId),
+      ),
+    );
+
   const [exceptions] = await db
     .select({ count: count() })
     .from(bookings)
@@ -361,6 +388,7 @@ export async function getOpsDashboard(
       count: Number(row.count),
     })),
     unassignedToday: Number(unassigned?.count ?? 0),
+    awaitingDriverToday: Number(awaitingDriver?.count ?? 0),
     exceptionsOpen: Number(exceptions?.count ?? 0),
   };
 }
@@ -383,12 +411,34 @@ export interface BoardRow {
    * one is added, and nothing about the code would look wrong.
    */
   tz: string;
+  /** Which shift holds this booking's pickup, once a driver is chosen. */
+  driverShiftId: string | null;
+  driverName: string | null;
+  truckName: string | null;
+  pickupTaskStatus: string | null;
   /**
-   * Simple derived flag, not a scheduling engine: paid, unassigned, and the
-   * pickup window starts within the next 12 hours (or already started).
+   * Simple derived flag, not a scheduling engine. True for either reason
+   * below; `atRiskReason` says which.
    */
   atRisk: boolean;
+  /**
+   * WHY it is at risk, because the two need different actions:
+   *  - `no_agent`  — paid, nobody assigned to verify, window inside 12 hours.
+   *  - `no_driver` — sealed and waiting, no driver chosen, departure inside 12
+   *    hours. This one used to be invisible: every at-risk surface read
+   *    `verification_tasks` only, so a booking with its bags sealed on a
+   *    doorstep and nobody coming for them looked healthy on the board.
+   */
+  atRiskReason: AtRiskReason | null;
 }
+
+export type AtRiskReason = "no_agent" | "no_driver";
+
+/** Statuses where the bags are sealed and a driver is what is missing. */
+export const DRIVER_AWAITED_STATUSES = [
+  "verified_sealed",
+  "awaiting_pickup",
+] as const satisfies readonly Booking["status"][];
 
 export interface BoardFilter {
   /**
@@ -432,6 +482,19 @@ export interface BoardSort {
 }
 
 const AT_RISK_HORIZON_MS = 12 * 60 * 60 * 1000;
+
+/**
+ * How close to DEPARTURE a sealed booking with no driver becomes at-risk.
+ *
+ * Measured against departure rather than the pickup window, because the
+ * deadline that matters once the bags are sealed is the airline's, not the
+ * customer's. It is a deliberately coarse proxy for the real bag-drop cutoff:
+ * resolving the actual cutoff needs the `airline_cutoffs` table and the
+ * strictest-scope rule, and `cutoffRiskMonitor` is where that lives. Putting a
+ * cutoff resolution inside a 200-row board query would move real deadline
+ * arithmetic into a render path for a flag whose whole job is "look at this".
+ */
+const NO_DRIVER_HORIZON_MS = 12 * 60 * 60 * 1000;
 
 /** Minimum digits before a search term is tried against a phone column. */
 const MIN_PHONE_DIGITS = 3;
@@ -528,6 +591,10 @@ export async function listBookingsBoard(
     );
   }
 
+  // The driver half of the row needs three more joins, all LEFT: a booking
+  // with no pickup task, no shift or no truck must still appear on the board.
+  const driverUser = alias(users, "board_driver");
+
   const rows = await db
     .select({
       booking: bookings,
@@ -537,43 +604,64 @@ export async function listBookingsBoard(
       assigneeName: users.fullName,
       taskStatus: verificationTasks.status,
       tz: airports.tz,
+      driverShiftId: pickupTasks.driverShiftId,
+      pickupTaskStatus: pickupTasks.status,
+      driverName: driverUser.fullName,
+      truckName: trucks.name,
     })
     .from(bookings)
     .leftJoin(verificationTasks, eq(verificationTasks.bookingId, bookings.id))
     .leftJoin(users, eq(users.id, verificationTasks.assigneeUserId))
+    .leftJoin(pickupTasks, eq(pickupTasks.bookingId, bookings.id))
+    .leftJoin(driverShifts, eq(driverShifts.id, pickupTasks.driverShiftId))
+    .leftJoin(driverUser, eq(driverUser.id, driverShifts.staffUserId))
+    .leftJoin(trucks, eq(trucks.id, driverShifts.truckId))
     .innerJoin(airports, eq(airports.code, bookings.departureAirport))
     .where(conditions.length > 0 ? and(...conditions) : undefined)
     .orderBy(...orderFor(filter.sort))
     .limit(filter.limit ?? 200);
 
-  return rows.map((row) => ({
-    booking: row.booking,
-    slotStart: row.slotStart,
-    assigneeUserId: row.assigneeUserId,
-    assigneeEmail: row.assigneeEmail,
-    assigneeName: row.assigneeName,
-    taskStatus: row.taskStatus,
-    tz: row.tz,
-    atRisk:
+  return rows.map((row) => {
+    const noAgent =
       row.booking.status === "paid" &&
       !row.assigneeUserId &&
       row.slotStart !== null &&
-      row.slotStart.getTime() - now.getTime() < AT_RISK_HORIZON_MS,
-  }));
+      row.slotStart.getTime() - now.getTime() < AT_RISK_HORIZON_MS;
+
+    const noDriver =
+      (DRIVER_AWAITED_STATUSES as readonly string[]).includes(row.booking.status) &&
+      row.driverShiftId === null &&
+      row.booking.departureAt.getTime() - now.getTime() < NO_DRIVER_HORIZON_MS;
+
+    // `no_driver` wins the label when both somehow apply: sealed bags nobody
+    // is coming for is the later and worse failure.
+    const atRiskReason: AtRiskReason | null = noDriver
+      ? "no_driver"
+      : noAgent
+        ? "no_agent"
+        : null;
+
+    return {
+      booking: row.booking,
+      slotStart: row.slotStart,
+      assigneeUserId: row.assigneeUserId,
+      assigneeEmail: row.assigneeEmail,
+      assigneeName: row.assigneeName,
+      taskStatus: row.taskStatus,
+      tz: row.tz,
+      driverShiftId: row.driverShiftId,
+      driverName: row.driverName,
+      truckName: row.truckName,
+      pickupTaskStatus: row.pickupTaskStatus,
+      atRisk: atRiskReason !== null,
+      atRiskReason,
+    };
+  });
 }
 
 /* ------------------------------------------------------------------ */
 /* Agent workload                                                       */
 /* ------------------------------------------------------------------ */
-
-/**
- * Task statuses that still represent work an agent has to do.
- *
- * `done` and `failed` are both finished — a failed visit has already been
- * handed to the exception flow, and counting it as load would keep an agent
- * artificially "busy" for the rest of the shift.
- */
-const OPEN_TASK_STATUSES = ["pending", "assigned", "in_progress"] as const;
 
 export interface AgentWorkload extends ActiveAgent {
   /** Open verification + pickup tasks scheduled for the requested day. */

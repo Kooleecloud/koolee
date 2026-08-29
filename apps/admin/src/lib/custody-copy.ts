@@ -106,6 +106,16 @@ const CONSUMED = new Set([
   "source",
   "taskId",
   "weightKg",
+  // Driver / pickup slice.
+  "bagId",
+  "etaMaxMinutes",
+  "etaMinMinutes",
+  "ordinal",
+  "presented",
+  "shiftId",
+  "truckId",
+  "truckName",
+  "overrode",
 ]);
 
 const HEADLINES: Record<string, string> = {
@@ -130,6 +140,18 @@ const HEADLINES: Record<string, string> = {
   "booking.verified_sealed":
     "Verification visit complete — bags sealed and in our custody.",
   "booking.awaiting_pickup": "Marked ready for the pickup run.",
+  // The driver half. Ops voice: shift, truck and driver by name, because
+  // "who has these bags and in what" is the question this console answers.
+  "pickup.driver_selected": "Customer chose a driver.",
+  "pickup.driver_released": "Previous driver released — the customer chose again.",
+  "pickup.travel_started": "Driver set off for the pickup address.",
+  "pickup.seal_scanned": "Seal matched at the door.",
+  "pickup.seal_mismatch":
+    "A seal NOT on this booking was presented at the door — the bag was refused.",
+  "pickup.handover_confirmed": "Airline took the bags at the counter.",
+  "pickup.shift_force_ended":
+    "Shift force-ended from the console — this pickup went back in the pool.",
+  "pickup.reassigned": "Pickup moved to a different driver from the console.",
   "booking.in_transit": "Bags collected — in transit to the airport.",
   "booking.delivered_to_bagdrop": "Bags handed to the airline bag drop.",
   "booking.completed": "Booking completed.",
@@ -200,6 +222,51 @@ function detailsFor(eventType: string, meta: Meta, tz: string): string[] {
     case "booking.verified_sealed": {
       const bags = num(meta, "bagCount");
       if (bags !== undefined) details.push(`${bags} bag${bags === 1 ? "" : "s"} sealed`);
+      break;
+    }
+    case "pickup.driver_selected": {
+      const truck = str(meta, "truckName");
+      const bags = num(meta, "bagCount");
+      const etaMin = num(meta, "etaMinMinutes");
+      const etaMax = num(meta, "etaMaxMinutes");
+      if (truck) details.push(truck);
+      if (bags !== undefined) details.push(`${bags} bag${bags === 1 ? "" : "s"}`);
+      if (etaMin !== undefined && etaMax !== undefined) {
+        details.push(`ETA ${etaMin}–${etaMax} min at the time of choosing`);
+      } else {
+        // A driver with no position yet is a normal state, not a gap.
+        details.push("no driver position when chosen");
+      }
+      break;
+    }
+    case "pickup.seal_scanned": {
+      const seal = str(meta, "sealId");
+      const ordinal = num(meta, "ordinal");
+      if (ordinal !== undefined) details.push(`bag ${ordinal}`);
+      if (seal) details.push(`seal ${seal}`);
+      break;
+    }
+    case "pickup.seal_mismatch": {
+      const presented = str(meta, "presented");
+      if (presented) details.push(`presented ${presented}`);
+      break;
+    }
+    case "pickup.shift_force_ended": {
+      const truck = str(meta, "truckId");
+      if (truck) details.push(`truck ${truck}`);
+      break;
+    }
+    case "pickup.reassigned": {
+      const truck = str(meta, "truckName");
+      if (truck) details.push(truck);
+      // `overrode` is an ARRAY, and the generic fallback below skips objects —
+      // so without this case an ops override would show only in Raw data. That
+      // is the one fact on this event a reader must not have to dig for: it is
+      // why a van may have left over capacity or out of its zone.
+      const overrode = meta["overrode"];
+      if (Array.isArray(overrode) && overrode.length > 0) {
+        details.push(`OVERRIDE: ${overrode.map(String).join(" and ")}`);
+      }
       break;
     }
     default:

@@ -5,14 +5,21 @@ import { z } from "zod";
 import {
   arriveAtVisit,
   completeVerificationVisit,
+  confirmAirlineHandover,
   ConflictError,
   confirmVisitIdentity,
+  deliverToBagdrop,
   getVisitContext,
   NotFoundError,
+  PICKUP_EXCEPTION_REASONS,
   recordAgentCapture,
   recordBagSealed,
+  reportPickupException,
   reportVisitException,
+  scanSealAtPickup,
+  startPickupTravel,
   VISIT_EXCEPTION_REASONS,
+  type PickupExceptionReason,
 } from "@koolee/core";
 
 import { getCore } from "@/lib/core";
@@ -292,5 +299,112 @@ export async function reportExceptionAction(
     return { ok: true };
   } catch (error) {
     return fail(error, "Couldn't report the problem.");
+  }
+}
+
+
+/* ------------------------------------------------------------------ */
+/* The pickup run                                                      */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Every step below is IDEMPOTENT in core, which is what makes an optimistic
+ * UI and a flaky van connection compatible: a driver who taps twice, or whose
+ * first tap timed out after the write landed, gets `ok` both times rather than
+ * an error that looks like the step failed.
+ */
+
+export async function startPickupTravelAction(
+  _prev: VisitActionState,
+  form: FormData,
+): Promise<VisitActionState> {
+  const taskId = String(form.get("taskId") ?? "");
+  try {
+    const { session, core } = await context(taskId);
+    const result = await startPickupTravel(core, session, { taskId, ...gps(form) });
+    if (!result.ok) return { error: result.error };
+    revalidatePath(`/tasks/${taskId}`);
+    return { ok: true };
+  } catch (error) {
+    return fail(error, "Couldn't start the pickup.");
+  }
+}
+
+export async function scanSealAction(
+  _prev: VisitActionState,
+  form: FormData,
+): Promise<VisitActionState> {
+  const taskId = String(form.get("taskId") ?? "");
+  const sealValue = String(form.get("sealValue") ?? "");
+  if (!sealValue.trim()) return { error: "Scan or type the seal id." };
+
+  try {
+    const { session, core } = await context(taskId);
+    await scanSealAtPickup(core, session, { taskId, sealValue, ...gps(form) });
+    revalidatePath(`/tasks/${taskId}`);
+    return { ok: true };
+  } catch (error) {
+    // A mismatch arrives as a ConflictError whose message already tells the
+    // driver not to load the bag. `fail` shows it verbatim.
+    return fail(error, "Couldn't check that seal.");
+  }
+}
+
+export async function deliverToBagdropAction(
+  _prev: VisitActionState,
+  form: FormData,
+): Promise<VisitActionState> {
+  const taskId = String(form.get("taskId") ?? "");
+  try {
+    const { session, core } = await context(taskId);
+    const result = await deliverToBagdrop(core, session, { taskId, ...gps(form) });
+    if (!result.ok) return { error: result.error };
+    revalidatePath(`/tasks/${taskId}`);
+    return { ok: true };
+  } catch (error) {
+    return fail(error, "Couldn't record the drop-off.");
+  }
+}
+
+export async function confirmHandoverAction(
+  _prev: VisitActionState,
+  form: FormData,
+): Promise<VisitActionState> {
+  const taskId = String(form.get("taskId") ?? "");
+  try {
+    const { session, core } = await context(taskId);
+    const result = await confirmAirlineHandover(core, session, { taskId, ...gps(form) });
+    if (!result.ok) return { error: result.error };
+    revalidatePath(`/tasks/${taskId}`);
+    return { ok: true };
+  } catch (error) {
+    return fail(error, "Couldn't close the job out.");
+  }
+}
+
+export async function reportPickupExceptionAction(
+  _prev: VisitActionState,
+  form: FormData,
+): Promise<VisitActionState> {
+  const taskId = String(form.get("taskId") ?? "");
+  const reason = String(form.get("reason") ?? "");
+  if (!PICKUP_EXCEPTION_REASONS.includes(reason as PickupExceptionReason)) {
+    return { error: "Pick a reason." };
+  }
+
+  try {
+    const { session, core } = await context(taskId);
+    const note = String(form.get("note") ?? "").trim();
+    const result = await reportPickupException(core, session, {
+      taskId,
+      reason: reason as PickupExceptionReason,
+      ...(note ? { note } : {}),
+      ...gps(form),
+    });
+    if (!result.ok) return { error: result.error };
+    revalidatePath(`/tasks/${taskId}`);
+    return { ok: true };
+  } catch (error) {
+    return fail(error, "Couldn't file that.");
   }
 }

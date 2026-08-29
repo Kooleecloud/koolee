@@ -13,6 +13,7 @@ import {
 import {
   assignAgent,
   autoAssign,
+  reassignPickup,
   resolveException,
   type DispatchActionState,
 } from "../actions";
@@ -134,6 +135,94 @@ export function ResolveExceptionForm({ bookingId }: { bookingId: string }) {
       {state.ok && <FormMessage variant="success">{state.ok}</FormMessage>}
       <Button type="submit" variant="destructive" loading={pending} className="self-start">
         Resolve exception
+      </Button>
+    </form>
+  );
+}
+
+
+export interface ReassignOptionView {
+  shiftId: string;
+  label: string;
+  inZone: boolean;
+  hasRoom: boolean;
+}
+
+/**
+ * Move a pickup to a different shift.
+ *
+ * Only OPEN shifts are listed — a driver who is not out cannot take a run —
+ * and each option says whether it would need the override, so an operator sees
+ * the cost of a choice before making it rather than after being refused.
+ */
+export function ReassignPickupForm({
+  bookingId,
+  bagCount,
+  currentShiftId,
+  options,
+}: {
+  bookingId: string;
+  bagCount: number;
+  currentShiftId: string | null;
+  options: ReassignOptionView[];
+}) {
+  const [state, formAction, pending] = useActionState<DispatchActionState, FormData>(
+    reassignPickup,
+    {},
+  );
+
+  const selectable = options.filter((option) => option.shiftId !== currentShiftId);
+
+  if (selectable.length === 0) {
+    return (
+      <p className="text-sm text-muted-foreground">
+        {options.length === 0
+          ? "Nobody is on shift. Drivers start their own shift in the field app; the Shifts page shows who is out."
+          : "The only driver on shift already has this pickup."}
+      </p>
+    );
+  }
+
+  return (
+    <form action={formAction} className="flex flex-col gap-3">
+      <input type="hidden" name="bookingId" value={bookingId} />
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor={`shift-${bookingId}`}>Move to</Label>
+        <Select
+          id={`shift-${bookingId}`}
+          name="shiftId"
+          defaultValue={selectable[0]?.shiftId}
+        >
+          {selectable.map((option) => {
+            const flags = [
+              option.inZone ? null : "out of zone",
+              option.hasRoom ? null : `under ${bagCount} bags of room`,
+            ].filter(Boolean);
+            return (
+              <option key={option.shiftId} value={option.shiftId}>
+                {option.label}
+                {flags.length > 0 ? ` — ${flags.join(", ")}` : ""}
+              </option>
+            );
+          })}
+        </Select>
+      </div>
+
+      <label className="flex items-start gap-2 text-sm">
+        <input type="checkbox" name="override" className="mt-0.5" />
+        <span>
+          Override zone and capacity.{" "}
+          <span className="text-muted-foreground">
+            Recorded on the custody trail with the rule it waived.
+          </span>
+        </span>
+      </label>
+
+      {state.error && <FormMessage>{state.error}</FormMessage>}
+      {state.ok && <FormMessage variant="success">{state.ok}</FormMessage>}
+
+      <Button type="submit" variant="outline" loading={pending} className="self-start">
+        Move pickup
       </Button>
     </form>
   );

@@ -112,7 +112,16 @@ export class NotFoundError extends CoreError {
  * belonging to another account, a record (address) that other rows depend on,
  * or a step attempted against a state that has moved past it (seal, passport).
  */
-export type ConflictField = "phone" | "email" | "address" | "seal" | "passport";
+export type ConflictField =
+  | "phone"
+  | "email"
+  | "address"
+  | "seal"
+  | "passport"
+  /** A shift collision: this person, or this truck, is already out. */
+  | "shift"
+  /** Driver selection lost a race, or the chosen driver stopped being eligible. */
+  | "driver";
 
 export class ConflictError extends CoreError {
   readonly code = "CONFLICT" as const;

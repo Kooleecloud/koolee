@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Check, ChevronRight, CircleAlert, MapPin } from "lucide-react";
+import { Check, ChevronRight, CircleAlert, MapPin, Truck } from "lucide-react";
 import { Badge, Card, cn } from "@koolee/ui";
 import { formatHourInAirportTz, formatHourRangeInAirportTz } from "@koolee/core";
 
@@ -57,9 +57,20 @@ function PhaseRow({ phase, isNext }: { phase: JobPhase; isNext: boolean }) {
         {state.done ? <Check className="size-3" /> : state.bad ? "!" : ""}
       </span>
       <span className={cn("flex-1", isNext && "font-semibold text-navy-800")}>
-        {PHASE_LABEL[phase.kind]}
+        {/* The two halves of a job read differently on purpose: the pickup
+            phase carries the truck icon and its own vocabulary, so a driver
+            scanning a queue can tell "stand at a door" from "drive to JFK"
+            without reading the words. */}
+        <span className="inline-flex items-center gap-1.5">
+          {phase.kind === "pickup" ? (
+            <Truck aria-hidden="true" className="size-3.5 shrink-0 text-navy-400" />
+          ) : null}
+          {PHASE_LABEL[phase.kind]}
+        </span>
         <span className="ml-1.5 text-xs font-normal text-muted-foreground">
-          {PHASE_WHERE[phase.kind]}
+          {phase.awaitingDriverChoice
+            ? "waiting on the customer to choose a driver"
+            : PHASE_WHERE[phase.kind]}
         </span>
       </span>
       <span

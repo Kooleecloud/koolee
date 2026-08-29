@@ -2,13 +2,25 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { ArrowRight, CalendarDays } from "lucide-react";
 import { Button, Card, DatabaseNotConfigured, EmptyState } from "@koolee/ui";
-import { airportLocalDayBounds, listAssignedTasks } from "@koolee/core";
+import {
+  airportLocalDayBounds,
+  formatTimeInAirportTz,
+  getActiveShift,
+  listAssignedTasks,
+  listTruckOptions,
+} from "@koolee/core";
 
 import { JobCard } from "@/components/job/job-card";
 import { AgentMain } from "@/components/shell/agent-main";
+import { GpsPinger } from "@/components/shift/gps-pinger";
+import {
+  ShiftBar,
+  type ActiveShiftView,
+  type TruckOptionView,
+} from "@/components/shift/shift-bar";
 import { groupJobs, type Job } from "@/lib/job";
 import { tryGetCore } from "@/lib/core";
-import { getAgentSession } from "@/lib/session";
+import { getAgentIdentity } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
 
@@ -25,12 +37,15 @@ export const dynamic = "force-dynamic";
  * either driving to a door or standing at one.
  */
 export default async function AgentHomePage() {
-  const session = await getAgentSession();
-  if (!session) redirect("/login");
+  const identity = await getAgentIdentity();
+  if (!identity) redirect("/login");
+  const { session } = identity;
 
   const core = tryGetCore();
   let jobs: Job[] = [];
   let unavailable = core === null;
+  let activeShift: ActiveShiftView | null = null;
+  let trucks: TruckOptionView[] = [];
 
   if (core) {
     try {
@@ -39,6 +54,47 @@ export default async function AgentHomePage() {
       unavailable = true;
     }
   }
+
+  // The shift block is only ever fetched for staff cleared to drive, so an
+  // agent who never drives pays nothing for it.
+  if (core && identity.canDrive && !unavailable) {
+    try {
+      const [shift, truckRows] = await Promise.all([
+        getActiveShift(core.db, session.userId),
+        listTruckOptions(core.db),
+      ]);
+      trucks = truckRows.map((truck) => ({
+        id: truck.id,
+        name: truck.name,
+        bagCapacity: truck.bagCapacity,
+        unavailable: truck.heldByUserId !== null && truck.heldByUserId !== session.userId,
+      }));
+      if (shift) {
+        // The shift's own start renders in the zone of the work, like every
+        // other time in this app — the driver's phone zone is never used.
+        const tz = jobs[0]?.tz ?? "America/New_York";
+        activeShift = {
+          truckName: shift.truck.name,
+          bagCapacity: shift.truck.bagCapacity,
+          bagsOnBoard: shift.bagsOnBoard,
+          startedAtLabel: formatTimeInAirportTz(shift.shift.startedAt, tz),
+        };
+      }
+    } catch {
+      // A shift block that cannot load must not take the day's work with it.
+      activeShift = null;
+      trucks = [];
+    }
+  }
+
+  // Pings run while a pickup is genuinely under way. `in_progress` on a pickup
+  // phase means exactly that: `startPickupTravel` sets it, and
+  // `confirmAirlineHandover` closes it.
+  const pickupUnderWay =
+    activeShift !== null &&
+    jobs.some((job) =>
+      job.phases.some((phase) => phase.kind === "pickup" && phase.status === "in_progress"),
+    );
 
   const now = new Date();
   // "Today" is today AT THE AIRPORT, per job. A UTC server would otherwise
@@ -76,6 +132,13 @@ export default async function AgentHomePage() {
         <h1 className="font-display text-3xl font-semibold text-navy-800">Today</h1>
         <p className="text-sm text-muted-foreground">{summary}</p>
       </header>
+
+      {identity.canDrive && !unavailable ? (
+        <>
+          <ShiftBar active={activeShift} trucks={trucks} />
+          <GpsPinger active={pickupUnderWay} />
+        </>
+      ) : null}
 
       {unavailable ? (
         <DatabaseNotConfigured />

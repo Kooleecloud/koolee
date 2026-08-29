@@ -35,6 +35,20 @@ import { BoardFilters } from "./board-filters";
 export const metadata = { title: "Bookings" };
 export const dynamic = "force-dynamic";
 
+/**
+ * The two ways a booking is at risk, named rather than merged.
+ *
+ * Before the driver slice there was one flag and one word ("at risk"), and it
+ * only ever meant "paid, nobody assigned to verify". A booking whose bags were
+ * sealed on a doorstep with nobody coming for them was not flagged at all —
+ * every at-risk surface read `verification_tasks` only. Distinct labels because
+ * the fix is different: one needs an agent sent to a door, the other a van.
+ */
+const AT_RISK_LABEL = {
+  no_agent: "needs an agent",
+  no_driver: "needs a driver",
+} as const;
+
 
 const STATUSES: BookingStatus[] = [
   "draft",
@@ -200,6 +214,7 @@ export default async function BookingsPage({
   }
 
   const atRiskCount = rows.filter((r) => r.atRisk).length;
+  const noDriverCount = rows.filter((r) => r.atRiskReason === "no_driver").length;
   const filtered =
     statuses.length > 0 || airports.length > 0 || today || search !== "";
 
@@ -223,7 +238,9 @@ export default async function BookingsPage({
         subtitle={
           unavailable
             ? "Database not configured."
-            : `${rows.length} shown${atRiskCount > 0 ? ` · ${atRiskCount} at risk` : ""}`
+            : `${rows.length} shown${atRiskCount > 0 ? ` · ${atRiskCount} at risk` : ""}${
+                noDriverCount > 0 ? ` (${noDriverCount} with no driver)` : ""
+              }`
         }
       />
 
@@ -304,6 +321,10 @@ export default async function BookingsPage({
                   direction={sortDir}
                   href={sortHref("agent")}
                 />
+                {/* Not sortable, deliberately: a driver is chosen by the
+                    customer minutes before the run, so ordering a whole board
+                    by it would sort mostly-empty against mostly-empty. */}
+                <th className="px-4 py-2 font-medium whitespace-nowrap">Driver</th>
                 {/* Pinned. Nine columns of a dispatch board do not fit a
                     laptop, and the one that fell off the right edge was the
                     booking's state — the value an operator scans the board
@@ -320,7 +341,17 @@ export default async function BookingsPage({
               </tr>
             </thead>
             <tbody className="divide-y">
-              {rows.map(({ booking, slotStart, assigneeEmail, assigneeName, atRisk, tz }) => {
+              {rows.map(({
+                booking,
+                slotStart,
+                assigneeEmail,
+                assigneeName,
+                atRisk,
+                atRiskReason,
+                driverName,
+                truckName,
+                tz,
+              }) => {
                 const windowEnd = booking.pickupWindowEnd;
                 // "Today" is evaluated in THIS booking's zone, which stays
                 // well-defined even when the board spans several — unlike a
@@ -355,12 +386,16 @@ export default async function BookingsPage({
                           date={formatDayInAirportTz(slotStart, tz)}
                         >
                           {isToday && <Badge variant="outline">today</Badge>}
-                          {atRisk && <Badge variant="warning">at risk</Badge>}
+                          {atRisk && (
+                            <Badge variant="warning">{AT_RISK_LABEL[atRiskReason!]}</Badge>
+                          )}
                         </TimeCell>
                       ) : (
                         <span className="flex items-center gap-2 text-muted-foreground">
                           —
-                          {atRisk && <Badge variant="warning">at risk</Badge>}
+                          {atRisk && (
+                            <Badge variant="warning">{AT_RISK_LABEL[atRiskReason!]}</Badge>
+                          )}
                         </span>
                       )}
                     </td>
@@ -407,9 +442,27 @@ export default async function BookingsPage({
                         <span className="text-muted-foreground">unassigned</span>
                       )}
                     </td>
+                    <td className="px-4 py-2">
+                      {driverName || truckName ? (
+                        <div className="flex flex-col leading-tight">
+                          <span className="whitespace-nowrap">
+                            {driverName ?? "Driver"}
+                          </span>
+                          {truckName && (
+                            <span className="text-xs whitespace-nowrap text-muted-foreground">
+                              {truckName}
+                            </span>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="text-muted-foreground">
+                          {atRiskReason === "no_driver" ? "none yet" : "—"}
+                        </span>
+                      )}
+                    </td>
                     {/* Opaque on purpose: a translucent pinned cell shows the
                         columns scrolling underneath it. The at-risk tint stays
-                        on the rest of the row, and the "at risk" badge rides
+                        on the rest of the row, and the at-risk badge rides
                         the pickup-window cell, so no signal is lost. */}
                     <td className="sticky right-0 z-10 border-l border-border bg-card shadow-[-6px_0_8px_-6px_rgba(11,37,69,0.12)] px-4 py-2 whitespace-nowrap">
                       <BookingStatusBadge status={booking.status} />

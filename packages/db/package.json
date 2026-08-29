@@ -5,7 +5,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./schema": "./src/schema/index.ts",
-    "./coverage-zips": "./src/coverage-zips.ts"
+    "./coverage-zips": "./src/coverage-zips.ts",
+    "./zip-centroids": "./src/zip-centroids.ts"
   },
   "scripts": {
     "db:generate": "drizzle-kit generate",

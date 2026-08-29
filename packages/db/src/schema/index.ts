@@ -2,6 +2,7 @@ export * from "./enums";
 export * from "./columns";
 export * from "./identity";
 export * from "./zones";
+export * from "./geo";
 export * from "./airports";
 export * from "./slots";
 export * from "./slot-blocks";

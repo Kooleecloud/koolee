@@ -75,53 +75,19 @@ export const addresses = pgTable(
   ],
 );
 
-/** A Koolee check-in agent: verifies ID, weighs, seals, photographs. */
-export const agents = pgTable(
-  "agents",
-  {
-    id: primaryId(),
-    userId: uuid("user_id")
-      .notNull()
-      .references(() => users.id, { onDelete: "restrict" }),
-    active: boolean("active").notNull().default(true),
-    phone: varchar("phone", { length: 20 }),
-    createdAt: createdAt(),
-  },
-  (t) => [
-    uniqueIndex("agents_user_id_key").on(t.userId),
-    index("agents_active_idx").on(t.active),
-  ],
-);
-
-/** A driver who delivers sealed bags to the airline's bag drop. */
-export const drivers = pgTable(
-  "drivers",
-  {
-    id: primaryId(),
-    userId: uuid("user_id")
-      .notNull()
-      .references(() => users.id, { onDelete: "restrict" }),
-    active: boolean("active").notNull().default(true),
-    phone: varchar("phone", { length: 20 }),
-    vehicleMake: text("vehicle_make"),
-    vehicleModel: text("vehicle_model"),
-    vehicleColor: text("vehicle_color"),
-    vehiclePlate: varchar("vehicle_plate", { length: 16 }),
-    /** How many bags this vehicle can carry in one run. */
-    vehicleCapacityBags: doublePrecision("vehicle_capacity_bags"),
-    createdAt: createdAt(),
-  },
-  (t) => [
-    uniqueIndex("drivers_user_id_key").on(t.userId),
-    index("drivers_active_idx").on(t.active),
-  ],
-);
+/**
+ * There is no `agents` table and no `drivers` table. Both existed as empty
+ * scaffolding from 0000 until migration 0029 dropped them: zero rows, zero
+ * reads, zero writes, in any app, ever.
+ *
+ * Staff identity is `users` + an active `staff_members` row, and that is the
+ * whole of it. Role comes from `staff_members.role`, the ability to drive from
+ * `staff_members.can_drive`, territory from `agent_zones`, and the vehicle from
+ * `driver_shifts` → `trucks`. Nothing resolves an "agent id" or a "driver id",
+ * which is why `AgentSession` no longer carries either.
+ */
 
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
 export type Address = typeof addresses.$inferSelect;
 export type NewAddress = typeof addresses.$inferInsert;
-export type Agent = typeof agents.$inferSelect;
-export type NewAgent = typeof agents.$inferInsert;
-export type Driver = typeof drivers.$inferSelect;
-export type NewDriver = typeof drivers.$inferInsert;

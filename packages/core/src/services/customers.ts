@@ -3,6 +3,7 @@ import {
   addresses,
   bookings,
   users,
+  zipCentroids,
   type Address,
   type Database,
   type User,
@@ -262,6 +263,16 @@ export interface AddressInput {
  * Deduplicating on the full address keeps repeat bookings from accumulating a
  * row per booking. Coverage is asserted here so an out-of-area address never
  * reaches the database.
+ *
+ * COORDINATES. When the caller supplies none — which is every caller today,
+ * because the funnel has no Places autocomplete — the ZIP's centroid is used
+ * instead, read from `zip_centroids` rather than from the TS module so a
+ * dataset refresh lands without a deploy. Coarse on purpose: it answers
+ * "roughly how far is the driver", never "which door". A caller that DOES
+ * supply coordinates always wins, so the day autocomplete ships this becomes
+ * the fallback with no change here. A ZIP with no centroid leaves both
+ * columns NULL, and the ETA seam renders "ETA on the way" rather than
+ * inventing a position.
  */
 export async function ensureAddress(
   db: Database,
@@ -285,6 +296,20 @@ export async function ensureAddress(
   const found = existing[0];
   if (found) return found;
 
+  let lat = input.lat ?? null;
+  let lng = input.lng ?? null;
+  if (lat === null || lng === null) {
+    const [centroid] = await db
+      .select({ lat: zipCentroids.lat, lng: zipCentroids.lng })
+      .from(zipCentroids)
+      .where(eq(zipCentroids.zip, zip.slice(0, 5)))
+      .limit(1);
+    if (centroid) {
+      lat = centroid.lat;
+      lng = centroid.lng;
+    }
+  }
+
   const [created] = await db
     .insert(addresses)
     .values({
@@ -294,8 +319,8 @@ export async function ensureAddress(
       city: input.city,
       state: input.state.toUpperCase(),
       zip,
-      lat: input.lat ?? null,
-      lng: input.lng ?? null,
+      lat,
+      lng,
       placeId: input.placeId ?? null,
     })
     .returning();

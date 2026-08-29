@@ -292,3 +292,173 @@ export function buildOpsExceptionEmail(input: OpsExceptionEmailInput): EmailMess
     html,
   };
 }
+
+export interface DriverSelectedEmailInput {
+  to: string;
+  /** `KOO-XXXXX` — what the customer quotes to support. */
+  bookingRef: string;
+  paxName: string;
+  /** First name only. Null when the driver has no name on file. */
+  driverGivenName: string | null;
+  bagCount: number;
+  tripUrl?: string;
+}
+
+/**
+ * "Your driver is booked" — sent when the customer picks one.
+ *
+ * Deliberately carries NO ETA. The estimate is live, it moves, and an email is
+ * a snapshot: a message saying "20-30 minutes" that arrives while the customer
+ * reads it an hour later is worse than one that points at the page where the
+ * real number is.
+ */
+export function buildDriverSelectedEmail(input: DriverSelectedEmailInput): EmailMessage {
+  const bags = `${input.bagCount} ${input.bagCount === 1 ? "bag" : "bags"}`;
+  const driver = input.driverGivenName ?? "Your driver";
+  const body = [
+    `Hi ${input.paxName},`,
+    ``,
+    `${driver} is on your pickup.`,
+    ``,
+    `Booking reference: ${input.bookingRef}`,
+    ``,
+    `${driver} will collect your ${bags} and deliver them to your airline's bag drop. ` +
+      `Your trip page shows where they are and how long they'll be.`,
+    ...(input.tripUrl ? [``, `Track your trip: ${input.tripUrl}`] : []),
+  ].join("\n");
+
+  const html = layout(
+    `${driver} is on your pickup`,
+    `<p>Hi ${escapeHtml(input.paxName)},</p>` +
+      `<p><strong>${escapeHtml(driver)}</strong> is on your pickup.</p>` +
+      `<p>Booking reference: <strong>${escapeHtml(input.bookingRef)}</strong></p>` +
+      `<p>${escapeHtml(driver)} will collect your ${escapeHtml(bags)} and deliver them to ` +
+      `your airline's bag drop. Your trip page shows where they are and how long ` +
+      `they'll be.</p>`,
+    input.tripUrl ? { label: "Track your trip", url: input.tripUrl } : undefined,
+  );
+
+  return {
+    to: input.to,
+    subject: `Driver on the way — ${input.bookingRef}`,
+    body,
+    html,
+  };
+}
+
+export interface BagdropDeliveredEmailInput {
+  to: string;
+  bookingRef: string;
+  paxName: string;
+  flightNumber: string;
+  departureAirport: string;
+  bagCount: number;
+  tripUrl?: string;
+}
+
+/**
+ * "Your bags are at the bag drop."
+ *
+ * The copy rule bites hardest here: this email says the bags reached the
+ * AIRLINE'S BAG DROP. It must never say checked in, checked through, or
+ * anything implying Koolee dealt with the airline on the customer's behalf.
+ */
+export function buildBagdropDeliveredEmail(
+  input: BagdropDeliveredEmailInput,
+): EmailMessage {
+  const bags = `${input.bagCount} ${input.bagCount === 1 ? "bag" : "bags"}`;
+  const body = [
+    `Hi ${input.paxName},`,
+    ``,
+    `Your ${bags} reached the bag drop for ${input.flightNumber} at ` +
+      `${input.departureAirport}.`,
+    ``,
+    `Booking reference: ${input.bookingRef}`,
+    ``,
+    `Your seal numbers and the photo from every hand-off are on your trip page.`,
+    ...(input.tripUrl ? [``, `See your trip: ${input.tripUrl}`] : []),
+  ].join("\n");
+
+  const html = layout(
+    "Delivered to your airline's bag drop",
+    `<p>Hi ${escapeHtml(input.paxName)},</p>` +
+      `<p>Your ${escapeHtml(bags)} reached the bag drop for ` +
+      `<strong>${escapeHtml(input.flightNumber)}</strong> at ` +
+      `${escapeHtml(input.departureAirport)}.</p>` +
+      `<p>Booking reference: <strong>${escapeHtml(input.bookingRef)}</strong></p>` +
+      `<p>Your seal numbers and the photo from every hand-off are on your trip page.</p>`,
+    input.tripUrl ? { label: "See your trip", url: input.tripUrl } : undefined,
+  );
+
+  return {
+    to: input.to,
+    subject: `Bags delivered — ${input.bookingRef} · ${input.flightNumber}`,
+    body,
+    html,
+  };
+}
+
+export interface OpsDriverPoolEmptyEmailInput {
+  to: string;
+  bookingId: string;
+  bookingRef?: string | undefined;
+  /** ZIP the pickup is in — the first thing ops looks at. */
+  zip?: string | undefined;
+  bagCount?: number | undefined;
+  /** Preformatted, airport-local with abbreviation. */
+  departureLabel?: string | undefined;
+}
+
+/**
+ * Internal ops alert: a sealed booking was shown to a customer and there was
+ * nobody to offer.
+ *
+ * The customer is not told the pool is empty — they are told a driver is being
+ * assigned, which is true only if somebody acts on THIS email. Plain and
+ * factual, no CTA (and therefore no orange).
+ */
+export function buildOpsDriverPoolEmptyEmail(
+  input: OpsDriverPoolEmptyEmailInput,
+): EmailMessage {
+  const label = input.bookingRef
+    ? `${input.bookingRef} (${input.bookingId})`
+    : input.bookingId;
+  const body = [
+    `No driver could be offered for booking ${label}.`,
+    ``,
+    `The bags are sealed and the customer has been told a driver is being assigned.`,
+    ``,
+    ...(input.zip ? [`Pickup ZIP: ${input.zip}`] : []),
+    ...(input.bagCount !== undefined ? [`Bags: ${input.bagCount}`] : []),
+    ...(input.departureLabel ? [`Flight departs: ${input.departureLabel}`] : []),
+    ``,
+    `Nobody on shift covers that ZIP with room for these bags. Start a shift, ` +
+      `free capacity, or assign the pickup by hand from the console.`,
+  ].join("\n");
+
+  const html = layout(
+    "No driver available",
+    `<p>No driver could be offered for booking <strong>${escapeHtml(label)}</strong>.</p>` +
+      `<p>The bags are sealed and the customer has been told a driver is being assigned.</p>` +
+      `<p>` +
+      [
+        input.zip ? `Pickup ZIP: ${escapeHtml(input.zip)}` : null,
+        input.bagCount !== undefined ? `Bags: ${input.bagCount}` : null,
+        input.departureLabel
+          ? `Flight departs: ${escapeHtml(input.departureLabel)}`
+          : null,
+      ]
+        .filter(Boolean)
+        .join("<br/>") +
+      `</p>` +
+      `<p>Nobody on shift covers that ZIP with room for these bags. Start a shift, ` +
+      `free capacity, or assign the pickup by hand from the console.</p>`,
+  );
+
+  return {
+    to: input.to,
+    subject: `No driver available — booking ${input.bookingRef ?? input.bookingId}`,
+    body,
+    html,
+  };
+}

@@ -17,5 +17,7 @@
 | [RUN-REPORT-4.md](RUN-REPORT-4.md)                           | Validation close-out — core exception emitter, `KOO-XXXXX` refs, job tests                                           |
 | [RUN-REPORT-5.md](RUN-REPORT-5.md)                           | Tier 3 — versioned agreements + passport verification (its re-acceptance model is **superseded**; see report 6 §6)   |
 | [RUN-REPORT-6.md](RUN-REPORT-6.md)                           | Three parallel sessions merged: ticket extraction, design/brand, agreements editor + **version pinning**             |
+| [REPORT-tier4-preflight.md](REPORT-tier4-preflight.md)       | Read-only survey before Tier 4 — what actually existed, and the five facts that reshaped the design                  |
+| [RUN-REPORT-7.md](RUN-REPORT-7.md)                           | Tier 4 — driver role, shifts, customer driver selection, the pickup run, ETA + tracking; three dead tables dropped   |
 | [VALIDATION-REPORT-tier1-2.md](VALIDATION-REPORT-tier1-2.md) | Independent validation pass over the Tier 1–2 work                                                                   |
 | [MIGRATION-NOTES.md](MIGRATION-NOTES.md)                     | The 10-phase dependency migration (Next 16 / Tailwind 4 / Stripe 22 / …)                                             |

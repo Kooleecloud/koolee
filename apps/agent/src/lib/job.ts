@@ -22,6 +22,16 @@ export interface JobPhase {
   status: string;
   scheduledStart: Date | null;
   scheduledEnd: Date | null;
+  /**
+   * Pickup phases only: the customer has not chosen a driver yet.
+   *
+   * The on-paid auto-assign hands the pickup task to the SAME person as the
+   * verification visit, so it appears in their queue before anyone has picked
+   * a driver — which is correct (one person does both in v1, and somebody has
+   * to be responsible if nobody is chosen) but it must not read as settled.
+   * The card says "waiting on the customer" until a shift owns it.
+   */
+  awaitingDriverChoice?: boolean;
 }
 
 /** What each phase asks of the driver, in the driver's words. */
@@ -68,6 +78,9 @@ export function groupJobs(tasks: AssignedTasks): Job[] {
         status: task.status,
         scheduledStart: task.scheduledStart,
         scheduledEnd: task.scheduledEnd,
+        ...(kind === "pickup" && "driverShiftId" in task && task.driverShiftId === null
+          ? { awaitingDriverChoice: true }
+          : {}),
       };
       if (existing) {
         existing.phases.push(phase);

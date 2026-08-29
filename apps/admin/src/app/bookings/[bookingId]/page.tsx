@@ -23,6 +23,8 @@ import {
   formatInstantInAirportTz,
   formatWindowInAirportTz,
   getBookingAssignment,
+  getSelectedDriver,
+  listReassignOptions,
   getBookingDetailForSession,
   listAgentWorkload,
   type AgentWorkload,
@@ -39,6 +41,7 @@ import { getSupabaseAdminClient } from "@/lib/supabase/admin";
 import { CustodyTrail } from "./custody-trail";
 import {
   AssignAgentForm,
+  ReassignPickupForm,
   AutoAssignButton,
   ResolveExceptionForm,
 } from "./dispatch-forms";
@@ -154,6 +157,14 @@ export default async function BookingDetailPage({
   // The identity gate's two halves, read for display only. Ops cannot satisfy
   // either of them from here by design: the acceptance is the customer's act,
   // and the passport confirmation is the assigned agent's.
+  // The pickup half. Both degrade to null/[] rather than failing the page: an
+  // operator opening a booking to fix something must not be blocked by the
+  // panel that shows what is wrong with it.
+  const [selectedDriver, reassignOptions] = await Promise.all([
+    getSelectedDriver(core.db, booking.id).catch(() => null),
+    listReassignOptions(core.db, booking.id).catch(() => []),
+  ]);
+
   const [agreementState, passportRow] = await Promise.all([
     getBookingAgreementState(core.db, booking.id, new Date()),
     getPassportVerification(core.db, booking.id),
@@ -531,6 +542,41 @@ export default async function BookingDetailPage({
               {!assignment.assigneeUserId && booking.status === "paid" && (
                 <AutoAssignButton bookingId={booking.id} />
               )}
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Pickup run</CardTitle>
+              <CardDescription>
+                {selectedDriver
+                  ? `${selectedDriver.givenName ?? "A driver"} in ${selectedDriver.truckName} — ${
+                      // `travelStartedAt` stays set after the run finishes, so
+                      // it only means "on the way" while the task is still open.
+                      selectedDriver.taskStatus === "done"
+                        ? "run complete"
+                        : selectedDriver.taskStatus === "failed"
+                          ? "run failed, handed to ops"
+                          : selectedDriver.travelStartedAt
+                            ? "on the way"
+                            : "not set off yet"
+                    }.`
+                  : "No driver on this booking. The customer picks one once the bags are sealed; reassign here if they cannot, or if the one they picked fell through."}
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <ReassignPickupForm
+                bookingId={booking.id}
+                bagCount={booking.bagCount}
+                currentShiftId={selectedDriver?.shiftId ?? null}
+                options={reassignOptions.map((option) => ({
+                  shiftId: option.shiftId,
+                  label: `${option.driverName ?? "Unnamed driver"} — ${option.truckName} (${
+                    option.bagCapacity - option.bagsOnBoard
+                  } free)`,
+                  inZone: option.inZone,
+                  hasRoom: option.hasRoom,
+                }))}
+              />
             </CardContent>
           </Card>
           <Card>

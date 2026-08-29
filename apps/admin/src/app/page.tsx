@@ -172,6 +172,19 @@ export default async function AdminHomePage() {
             />
 
             <StatCard
+              value={dashboard.awaitingDriverToday}
+              caption="sealed today, no driver on it"
+              tone={dashboard.awaitingDriverToday > 0 ? "warning" : undefined}
+              action={
+                dashboard.awaitingDriverToday > 0 ? (
+                  <Button asChild size="sm" variant="outline">
+                    <Link href="/shifts">Shifts</Link>
+                  </Button>
+                ) : undefined
+              }
+            />
+
+            <StatCard
               value={dashboard.exceptionsOpen}
               caption="exceptions open"
               tone={dashboard.exceptionsOpen > 0 ? "destructive" : undefined}

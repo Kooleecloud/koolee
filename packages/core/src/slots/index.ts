@@ -17,6 +17,7 @@ export {
   formatWindowInAirportTz,
   minutesUntilCutoff,
   resolveCutoffMinutes,
+  resolveStrictestCutoffMinutes,
   zoneAbbrev,
   type CutoffLookup,
   type LatestPickupStartInput,

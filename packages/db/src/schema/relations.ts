@@ -7,8 +7,8 @@ import { bookingDrafts } from "./drafts";
 import { custodyEvents } from "./custody";
 import { agreementAcceptances, agreementVersions } from "./agreements";
 import { passportVerifications } from "./passport";
-import { addresses, agents, drivers, users } from "./identity";
-import { routes } from "./ops";
+import { addresses, users } from "./identity";
+import { driverPositions, driverShifts, trucks } from "./ops";
 import { slots } from "./slots";
 import { slotBlocks } from "./slot-blocks";
 import { staffMembers } from "./staff";
@@ -23,9 +23,9 @@ export const usersRelations = relations(users, ({ many, one }) => ({
   addresses: many(addresses),
   bookings: many(bookings),
   bookingDraft: one(bookingDrafts),
-  agent: one(agents),
-  driver: one(drivers),
   staffMember: one(staffMembers),
+  driverShifts: many(driverShifts),
+  driverPosition: one(driverPositions),
 }));
 
 export const staffMembersRelations = relations(staffMembers, ({ one }) => ({
@@ -45,20 +45,10 @@ export const addressesRelations = relations(addresses, ({ one, many }) => ({
   bookings: many(bookings),
 }));
 
-export const agentsRelations = relations(agents, ({ one }) => ({
-  user: one(users, { fields: [agents.userId], references: [users.id] }),
-}));
-
-export const driversRelations = relations(drivers, ({ one, many }) => ({
-  user: one(users, { fields: [drivers.userId], references: [users.id] }),
-  routes: many(routes),
-}));
-
 export const airportsRelations = relations(airports, ({ many }) => ({
   cutoffs: many(airlineCutoffs),
   slots: many(slots),
   slotBlocks: many(slotBlocks),
-  routes: many(routes),
   departures: many(bookings),
 }));
 
@@ -184,13 +174,29 @@ export const pickupTasksRelations = relations(pickupTasks, ({ one }) => ({
     fields: [pickupTasks.assigneeUserId],
     references: [users.id],
   }),
+  driverShift: one(driverShifts, {
+    fields: [pickupTasks.driverShiftId],
+    references: [driverShifts.id],
+  }),
 }));
 
-export const routesRelations = relations(routes, ({ one }) => ({
-  driver: one(drivers, { fields: [routes.driverId], references: [drivers.id] }),
-  airport: one(airports, {
-    fields: [routes.airportCode],
-    references: [airports.code],
+export const trucksRelations = relations(trucks, ({ many }) => ({
+  shifts: many(driverShifts),
+}));
+
+export const driverShiftsRelations = relations(driverShifts, ({ one, many }) => ({
+  staffUser: one(users, {
+    fields: [driverShifts.staffUserId],
+    references: [users.id],
+  }),
+  truck: one(trucks, { fields: [driverShifts.truckId], references: [trucks.id] }),
+  pickupTasks: many(pickupTasks),
+}));
+
+export const driverPositionsRelations = relations(driverPositions, ({ one }) => ({
+  staffUser: one(users, {
+    fields: [driverPositions.staffUserId],
+    references: [users.id],
   }),
 }));
 

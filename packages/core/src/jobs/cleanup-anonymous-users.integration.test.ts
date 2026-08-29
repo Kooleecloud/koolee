@@ -16,6 +16,7 @@ import {
   users,
   type Database,
 } from "@koolee/db";
+import { TEST_AIRPORTS } from "../test-utils/airport-fixtures";
 
 import { cleanupAnonymousUsers } from "./cleanup-anonymous-users";
 import { generateBookingRef } from "../booking/ref";
@@ -130,11 +131,7 @@ describeIntegration("cleanupAnonymousUsers (integration)", () => {
   it("refuses to touch a stale anonymous user who somehow owns a booking", async () => {
     const staleWithBooking = await insertAnon(30);
 
-    await db.insert(airports).values({
-      code: "JFK",
-      name: "John F. Kennedy International",
-      tz: "America/New_York",
-    });
+    await db.insert(airports).values(TEST_AIRPORTS.JFK);
     const [address] = await db
       .insert(addresses)
       .values({

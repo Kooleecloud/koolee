@@ -130,6 +130,44 @@ export function resolveCutoffMinutes(
   return winner.cutoffMinutesBeforeDeparture;
 }
 
+/**
+ * The strictest cutoff on record for an airline/airport, across BOTH scopes.
+ *
+ * Bookings do not store domestic vs international — the ticket extractor
+ * derives a scope at quote time and nothing persists it — so a booking read
+ * back later matches cutoff rows for both. Guessing one is the bug this
+ * function exists to remove: `cutoffRiskMonitor` assumed `domestic` for every
+ * booking, which is the LOOSER of the two at Koolee's seeded values (45 vs 60
+ * minutes) and therefore quietly under-alerted on exactly the flights whose
+ * bags are hardest to re-cut.
+ *
+ * Strictest means the LARGEST minutes-before-departure: a deadline that runs
+ * early costs the customer nothing, one that runs late puts bags on the wrong
+ * side of the counter. Same rule, same words, as `getBookingDetail`.
+ *
+ * Throws `CutoffUnknownError` when neither scope has a row, for the same
+ * reason `resolveCutoffMinutes` does.
+ */
+export function resolveStrictestCutoffMinutes(
+  cutoffs: readonly AirlineCutoff[],
+  lookup: Omit<CutoffLookup, "scope">,
+  now: Date = new Date(),
+): number {
+  const minutes = cutoffs
+    .filter(
+      (c) =>
+        c.airlineIata.toUpperCase() === lookup.airlineIata.toUpperCase() &&
+        c.airportCode === lookup.airportCode &&
+        c.effectiveFrom.getTime() <= now.getTime(),
+    )
+    .map((c) => c.cutoffMinutesBeforeDeparture);
+
+  if (minutes.length === 0) {
+    throw new CutoffUnknownError(lookup.airlineIata, lookup.airportCode, "any scope");
+  }
+  return Math.max(...minutes);
+}
+
 /* ------------------------------------------------------------------ */
 /* Display                                                             */
 /* ------------------------------------------------------------------ */

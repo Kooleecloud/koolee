@@ -142,7 +142,8 @@ one file per concern, re-exported through `index.ts`:
 
 | File             | Tables                                                |
 | ---------------- | ----------------------------------------------------- |
-| `identity.ts`    | `users`, `addresses`, `agents`, `drivers`             |
+| `identity.ts`    | `users`, `addresses`                                  |
+| `geo.ts`         | `zip_centroids`                                       |
 | `airports.ts`    | `airports`, `airline_cutoffs`                         |
 | `bookings.ts`    | `bookings`, `bags`                                    |
 | `slots.ts`       | `slots` _(legacy — see below)_                        |
@@ -154,16 +155,33 @@ one file per concern, re-exported through `index.ts`:
 | `uploads.ts`     | `ticket_uploads`                                      |
 | `staff.ts`       | `staff_members`                                       |
 | `otp.ts`         | `otp_send_log`                                        |
-| `ops.ts`         | `routes`                                              |
+| `ops.ts`         | `trucks`, `driver_shifts`, `driver_positions`         |
 | `agreements.ts`  | `agreement_versions`, `agreement_acceptances`         |
 | `passport.ts`    | `passport_verifications`                              |
 | `waitlist.ts`    | `waitlist_signups`                                    |
 
-One non-table module lives beside them: `coverage-zips.ts` — the service-area
-ZIP data as pure constants, imported by core's coverage logic AND the seed via
-the `@koolee/db/coverage-zips` subpath (pure data, no driver, so client
-bundles that reach it through core stay clean). Data here, semantics in core:
-the seed needs the list and core depends on db, never the reverse.
+**Three tables were dropped, not renamed.** `agents`, `drivers` and `routes`
+shipped in `0000_init` and were never used by anything — zero rows in every
+environment, zero reads and zero writes outside `schema/` and `relations.ts`,
+and `routes` never even gained a route↔booking link. Migration `0029` removed
+them and `identity.ts` carries a note where they were. Staff identity is
+`users` + an active `staff_members` row; nothing resolves an "agent id" or a
+"driver id", which is why `AgentSession` no longer carries either.
+
+Two non-table modules live beside the schema, both pure data with zero imports
+and both reached through their own package subpath so a client bundle that
+touches them never pulls the Postgres driver in behind it:
+
+- `coverage-zips.ts` (`@koolee/db/coverage-zips`) — the service area, imported
+  by core's coverage logic AND the seed. Data here, semantics in core: the seed
+  needs the list and core depends on db, never the reverse.
+- `zip-centroids.ts` (`@koolee/db/zip-centroids`) — 837 ZIP → coordinate rows
+  from the **US Census 2023 ZCTA gazetteer**, the payload the seed loads into
+  `zip_centroids`. RUNTIME READS THE TABLE, not the file; the file is what the
+  seed reconciles the table to, and migration `0028` carries a snapshot of it so
+  its address backfill has something to join against before any seed runs. It
+  covers a WIDER area than coverage does on purpose, so an out-of-zone driver
+  still resolves to a position.
 
 **The legacy table.** `slots` predates virtual pickup windows. Nothing sells
 from it; new bookings leave `slot_id` NULL and carry
@@ -194,6 +212,25 @@ booking_id`, migration `0025`): the version a booking accepts pins for the
   and for the same reason: it is evidence that a named person agreed to
   specific terms at a specific instant, and there is no such thing as
   correcting that. A change of terms is a new version and a new acceptance.
+- `driver_shifts` carries TWO partial unique indexes (`WHERE ended_at IS NULL`)
+  — one open shift per person, one per truck. They are the only thing between
+  two taps on "Start shift" and two people dispatched to the same van;
+  `startShift` catches `23505` and re-reads to say WHICH half collided, because
+  "you already have a shift" and "that van is out with Nina" want different
+  actions from a driver.
+- `driver_positions` is the first HIGH-WRITE, MUTABLE, NON-EVIDENTIARY table in
+  the schema, and it looks enough like custody data to be mistaken for it. One
+  row per driver, overwritten every ~45 seconds, no history. `custody_events`
+  is the evidence; this answers "how far away is my driver right now" and
+  nothing else. Its header says so — leave that there.
+- `pickup_tasks` has two assignment columns and they must never disagree.
+  `driver_shift_id` is the real target; `assignee_user_id` is kept because six
+  readers key on it (`getAssignedTask`, `listAssignedTasks`,
+  `agentHasTaskForBooking`, `listAgentBookingIds`, the auto-assign load count,
+  `listAgentWorkload`). Every write sets both, in the same statement.
+- `staff_members.role` is still CHECK-constrained to `agent | admin`, and the
+  `user_role` enum still contains an unused `driver`. That is deliberate:
+  driving is `can_drive`, a capability alongside the role. See PROJECT-STATUS §7.
 - `passport_verifications` carries no field describing the passport. This is a
   hard rule, and an integration test asserts it against `information_schema`
   rather than against the TypeScript type — the catalog is what actually
@@ -254,10 +291,15 @@ CONTENT HASHES rather than row counts. See
 [PROJECT-STATUS §3.1](../PROJECT-STATUS.md).
 
 **The seed** ([seed.ts](../packages/db/src/seed.ts)) is idempotent reference
-data only — airports, airline cutoffs, one pricing rule, and one booking
-agreement version (v1, placeholder copy) so the identity gate can resolve. It
-seeds no bookings and, since windows went virtual, no inventory. There is
-nothing in it that can go stale with the calendar.
+data only — airports (now with coordinates), 837 ZIP centroids, airline
+cutoffs, one pricing rule, two dev trucks, and one booking agreement version
+(v1, placeholder copy) so the identity gate can resolve. It seeds no bookings
+and, since windows went virtual, no inventory. There is nothing in it that can
+go stale with the calendar.
+
+It also seeds **no shifts**, deliberately: an open shift asserts "somebody is
+out driving right now", and seeding one puts phantom drivers in front of
+customers on a machine nobody is driving from.
 
 ---
 
@@ -377,6 +419,7 @@ product runs and tests without a single third-party credential.
 | Email             | `Notifier`               | `ResendNotifier` (REST, injectable fetch) | `ConsoleNotifier` (logs)               |
 | SMS dispatch      | `NotificationDispatcher` | _(unbuilt — Twilio later)_                | `NoopDispatcher` (logs)                |
 | Ops alerts        | `OpsAlerter`             | _(unbuilt)_                               | `ConsoleOpsAlerter`                    |
+| Drive-time ETA    | `EtaEstimator`           | _(unbuilt — a routing provider later)_    | `HaversineEtaEstimator` (ZIP centroids) |
 | Clock             | `Clock`                  | `systemClock`                             | `fixedClock(instant)` for tests        |
 | Sessions          | `SessionReader`          | Supabase per app                          | injected per request                   |
 | Staff roles       | `assertRole`             | `requireStaffRole`                        | injected                               |
@@ -398,10 +441,24 @@ the richest seam: `authorize`, `getAuth`, `updateAuthAmount`, `capture`,
 `refund`, `cancelAuth`, and webhook verification. `getAuth` exists because a
 client-side success signal is never trusted — see Chapter 8.
 
+**The ETA seam** ([geo/](../packages/core/src/geo/)) is the newest and the most
+opinionated. `estimate({from, to})` returns a RANGE — `{minMinutes, maxMinutes}`
+— never a point, because an estimate built from ZIP centroids and an average
+city speed is not accurate to the minute and must not be rendered as though it
+were. The one implementation is `haversine × 1.5 ÷ 18 km/h`, floored at 5
+minutes, ±30% widened to whole 5-minute steps. Its constants are named static
+fields and its header documents a known bias: no notion of a highway, so long
+airport runs over-state. That is kept, because it points the safe way for both
+consumers — a customer card only ever shows a driver already in zone, and
+`cutoffRiskMonitor` wants an alert that fires early. `geo/eta.test.ts` pins both
+halves so the trade-off cannot drift silently.
+
 **Services** ([services/](../packages/core/src/services/)) are the app-facing
 API: `create-booking`, `windows` (window listing + blackout CRUD), `quote`,
 `bookings` (transitions + session-scoped reads), `dispatch`, `payment-intent`,
-`payment-lifecycle`, `agent-visit`, `customers`, `addresses`,
+`payment-lifecycle`, `agent-visit`, `pickup` (the driver's run),
+`shifts` (clock on/off, the fleet, force-end), `driver-selection` (the
+customer's shortlist, the assignment, GPS upsert), `customers`, `addresses`,
 `booking-drafts`, `ticket-uploads`, `avatars`, `staff`, `tasks`, `webhooks`. Two more
 modules sit beside `services/`: `waitlist/` (`recordWaitlistSignup` — the
 idempotent (email, zip) upsert behind both capture surfaces — and
@@ -415,8 +472,8 @@ A service is where ownership is enforced. Session-scoped reads are
 404-shaped on a foreign id — existence is itself a disclosure — and the
 `…ForSession` suffix marks the functions that carry that guarantee.
 
-**Jobs** are eight Inngest functions, all served from apps/web
-([api/inngest/route.ts](../apps/web/src/app/api/inngest/route.ts)) — six in
+**Jobs** are eleven Inngest functions, all served from apps/web
+([api/inngest/route.ts](../apps/web/src/app/api/inngest/route.ts)) — nine in
 [jobs/functions.ts](../packages/core/src/jobs/functions.ts) plus two defined in
 [apps/web/src/lib/inngest.ts](../apps/web/src/lib/inngest.ts):
 
@@ -430,6 +487,19 @@ A service is where ownership is enforced. Session-scoped reads are
 | `exception-ops-alert-email`  | event `booking/exception_raised`    | yes — to `OPS_ALERT_EMAIL`, now required in prod |
 | `waitlist-zone-opened-sweep` | daily 10:00 ET                      | yes — the waitlist's promised email              |
 | `agent-no-show-check`        | event `booking/agent_no_show_check` | **never fires** — that event is still unsent     |
+| `driver-selected-email`      | event `booking/driver_selected`     | yes — "your driver is on it", no ETA on purpose  |
+| `bagdrop-delivered-email`    | event `booking/delivered_to_bagdrop`| yes — the bags reached the airline's bag drop    |
+| `driver-pool-empty-ops-alert`| event `booking/driver_pool_empty`   | yes — to `OPS_ALERT_EMAIL`, one per booking/hour |
+
+The three driver functions are registered in **core's** shared factory, not in
+the app that raises them. The agent app's Inngest client is send-only by design
+(it serves no `/api/inngest` route), so a function added there would silently
+never run.
+
+`booking/driver_pool_empty` is raised from a RENDER — the trip page raises it
+whenever it has nothing to offer — and its throttle is the **event id**,
+bucketed by UTC hour. Inngest drops a repeated id, so that is the entire rate
+limit: no table, no cleanup, nothing to get out of sync.
 
 **Where the events come from.** `booking/confirmed` is emitted by apps/web
 from [lib/booking-events.ts](../apps/web/src/lib/booking-events.ts): every
@@ -530,6 +600,31 @@ a greyed-out graveyard only raises questions the customer cannot act on.
 the verify gate behind the CTA. The price is never hidden behind auth. The hard
 gates live in the server actions (`confirmBooking`, `preparePayment`), never in
 the page.
+
+### After the sale — the trip page
+
+[trips/[bookingId]](../apps/web/src/app/trips/) is `force-dynamic` and is where
+everything after payment surfaces: the agreement and passport actions, the
+pickup card, the chain of custody, the bags and the payment.
+
+Since the driver slice it also carries the **driver section**, which has three
+states in the order a customer meets them: a shortlist of up to four drivers to
+choose from; "we're assigning your driver" when there is nobody to offer (which
+also pages ops behind the scenes — it deliberately does NOT say "no drivers
+available", a staffing problem described to the customer as theirs); and, once
+chosen, the driver, their distance, an updating ETA and a five-step progress
+track.
+
+**Live tracking is a 30-second `router.refresh()`**, and that is the whole
+mechanism — the page is `force-dynamic`, so a refresh re-runs the server
+component and brings back a fresh position. No socket, no subscription, no
+client fetch. `CutoffCountdown` set the precedent for an interval on this page;
+the difference is that one re-renders a known instant and this one re-fetches.
+
+**There is deliberately no map.** A map means a third-party tile host inside a
+page that renders a private address, a library in the bundle, and a person's
+live position drawn at street resolution. A distance and an updating ETA answer
+the actual question — "how long until somebody knocks" — with none of that.
 
 ---
 
@@ -652,6 +747,27 @@ is a sequence of appended custody events, not a form submit: arrive → verify
 identity → seal each bag → complete. Completing the visit moves the booking to
 `verified_sealed`.
 
+**The pickup run** ([pickup.ts](../packages/core/src/services/pickup.ts)) is the
+other half, and it is what finally gives the last four state-machine
+transitions a production caller: set off (`mark_awaiting_pickup`) → scan every
+seal at the door → `start_transit` on the LAST bag, never earlier → at the bag
+drop (`deliver_to_bagdrop`) → the airline has them (`complete`). Same
+task-scoped authorization, same append-only custody, same refusal to touch
+money.
+
+Two things about it are worth remembering. **Which bags have been scanned is
+DERIVED from `custody_events`, not stored in a column** — the scan IS the
+evidence, and a second place to record it would be a second thing to keep in
+step. And **every step is idempotent**: the agent app is an offline-prone PWA on
+a phone in a van, a tap that times out gets tapped again, and the second tap
+must return the current state rather than an error.
+
+**Shifts** ([shifts.ts](../packages/core/src/services/shifts.ts)) gate all of
+it. A driver clocks on from the top of Today (not a fourth tab — see the nav's
+own comment), picking a truck; they cannot clock off while a pickup on the
+shift is still open, and the refusal names the bookings. `driver_shifts`'
+partial unique indexes are what make that safe under concurrency.
+
 **Completing does _not_ take the money.** This app holds no Stripe credentials
 by design; capture is a sweep (`captureDueBookings`) run from `apps/web`, which
 is the app that has them. See
@@ -677,6 +793,15 @@ console. The agent never edits history — corrections are new events.
 booking's pickup window at assignment time. They are a snapshot for the
 agent's list, not a live join.
 
+**GPS** is foreground-only and deliberately disposable: `GpsPinger` posts
+`navigator.geolocation` to `POST /api/driver-position` every ~45 s while a
+pickup is between "set off" and "delivered", and `driver_positions` keeps one
+mutable row per driver. A route handler rather than a server action, because a
+server action would revalidate the page on every ping. Permission denied is not
+an error — a non-blocking banner says the customer will not see them coming,
+the pings stop, and everything else works. Nothing written here is chain of
+custody.
+
 **The task list carries its bookings** (2026-08-16). `listAssignedTasks`
 returns `{ task, tz, booking }` — the `booking` half is a `TaskBookingContext`
 (pax, flight, airport, departure, bag count, pickup street/city) joined in the
@@ -691,14 +816,16 @@ Detail: [verification-visit.md](../apps/agent/docs/verification-visit.md).
 
 ## Chapter 10 — Admin ops console
 
-**Five pages**, each a server component + a `actions.ts` + a client form file:
+**Pages**, each a server component + an `actions.ts` + a client form file:
 
 | Route         | What it does                                                                                                                                                                                                                                                                        |
 | ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `/`           | Dashboard: today's bookings by status, unassigned count, open exceptions — all real queries                                                                                                                                                                                         |
+| `/`           | Dashboard: today's bookings by status, unassigned count, **sealed-with-no-driver count**, open exceptions — all real queries                                                                                                                                                        |
 | `/bookings`   | Dispatch board: filter by status/airport/day, assign an agent, see at-risk bookings. Since 2026-08-23 assignment is automatic on `paid` (`autoAssignOnPaid`); the board's Assign button is the manual override, and an uncovered ZIP still falls through to it via the at-risk flag |
+| `/shifts`     | Who is out driving, in what, with how many bags; force-end with a required reason; grant or revoke `can_drive`                                                                                                                                                                       |
 | `/blocks`     | Window blackouts — the ops lever over what customers can book                                                                                                                                                                                                                       |
 | `/exceptions` | Bookings in `exception`, with the three legal resolutions                                                                                                                                                                                                                           |
+| `/trucks`     | The fleet: name, bag capacity, active toggle. `reserved_spaces` is editable and labelled **not yet enforced**                                                                                                                                                                        |
 | `/staff`      | Invite / list / deactivate agents and admins                                                                                                                                                                                                                                        |
 
 **Manual actions never edit history.** Every resolution is a state-machine
@@ -712,6 +839,23 @@ inventory to withhold, so `slot_blocks` is the _only_ way ops can stop selling
 a span of hours. A block hides every window it overlaps at that airport;
 existing bookings inside the span are untouched, because a block stops new
 sales, it does not cancel work.
+
+**At-risk says WHICH now.** Until the driver slice there was one flag and one
+word, and it only ever meant "paid, nobody assigned to verify" — every at-risk
+surface read `verification_tasks` only, so a booking with its bags sealed on a
+doorstep and nobody coming for them looked healthy. `BoardRow.atRiskReason` is
+`no_agent | no_driver | null`, and `OpsDashboard.awaitingDriverToday` is a
+SEPARATE count from `unassignedToday` because one needs an agent sent to a door
+and the other needs a van.
+
+**Reassigning a pickup reuses the customer's own path.** `adminReassignPickup`
+runs the same transaction, the same single advisory lock and the same capacity
+recount as `selectDriver` — they are one operation with two actors, and letting
+them drift into two concurrency stories is how a van ends up overloaded. What
+differs is written down at the function: no ownership check, a relaxed
+started-travel guard (ops may move a run that has set off; a customer may not),
+and a zone/capacity override that is RECORDED on the custody event with the
+rule it waived.
 
 **The board reads the booking, not a join.** Day filters and ordering use
 `bookings.pickup_window_start` directly.

@@ -20,6 +20,7 @@ import {
   users,
   type Database,
 } from "@koolee/db";
+import { TEST_AIRPORTS } from "../test-utils/airport-fixtures";
 
 import { createCoreConfig, type CoreConfig } from "../config";
 import { OutOfCoverageError, SlotNotSellableError } from "../errors";
@@ -137,11 +138,7 @@ describeIntegration("createBooking (integration)", () => {
       SET session_replication_role = DEFAULT;
     `);
 
-    await db.insert(airports).values({
-      code: "JFK",
-      name: "John F. Kennedy International",
-      tz: "America/New_York",
-    });
+    await db.insert(airports).values(TEST_AIRPORTS.JFK);
 
     await db.insert(airlineCutoffs).values({
       airlineIata: "DL",
@@ -533,7 +530,7 @@ describeIntegration("custody_events append-only trigger", () => {
 
     await db
       .insert(airports)
-      .values({ code: "JFK", name: "JFK", tz: "America/New_York" });
+      .values(TEST_AIRPORTS.JFK);
     const [user] = await db.insert(users).values({ phone: "+15551110000" }).returning();
     const [address] = await db
       .insert(addresses)

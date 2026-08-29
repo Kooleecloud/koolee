@@ -16,6 +16,7 @@
 | [agent-visit.md](agent-visit.md)                         | Field PWA: task list, arrival, identity check, bag sealing, transit                      | `agent_assigned` → `in_transit` |
 | [agreements-and-passport.md](agreements-and-passport.md) | Versioned booking agreements, manual passport verification, the visit identity gate      | `paid` → `verified_sealed`      |
 | [storage-and-avatars.md](storage-and-avatars.md)         | Bucket declaration and limits, storage RLS, profile pictures across all three apps       | cross-cutting                   |
+| [driver-and-pickup-hosted-setup.md](driver-and-pickup-hosted-setup.md) | Trucks, shifts, `can_drive`, driver selection, the pickup run — and what TD must do by hand | `verified_sealed` → `completed` |
 | [ops-console.md](ops-console.md)                         | Dispatch board, assignment, exceptions, blackouts, staff, zones                          | oversight                       |
 | [jobs-and-notifications.md](jobs-and-notifications.md)   | Inngest jobs, cron routes, the notification seam                                         | background                      |
 
