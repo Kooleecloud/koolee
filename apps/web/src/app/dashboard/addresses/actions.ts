@@ -21,6 +21,15 @@ import { customerSessionFromAuthUser } from "@/lib/session";
  * translates typed errors into copy.
  */
 
+/**
+ * Everything these actions mutate is rendered by `/dashboard/profile` —
+ * saved addresses included, since `/dashboard/addresses` is now a redirect
+ * onto it. Without this the action returns `ok`, the form says "saved", and
+ * the page keeps showing the old value out of the client Router Cache: the
+ * server component never re-ran. Matches what every admin action already does.
+ */
+const PROFILE_PATH = "/dashboard/profile";
+
 export interface AddressActionState {
   error?: string;
   ok?: boolean;
@@ -84,7 +93,7 @@ export async function createAddress(
     return { error: "Something went wrong saving the address." };
   }
 
-  revalidatePath("/dashboard/profile");
+  revalidatePath(PROFILE_PATH);
   return { ok: true };
 }
 
@@ -126,7 +135,7 @@ export async function updateAddress(
     return { error: "Something went wrong saving the address." };
   }
 
-  revalidatePath("/dashboard/profile");
+  revalidatePath(PROFILE_PATH);
   return { ok: true };
 }
 
@@ -156,6 +165,6 @@ export async function deleteAddress(
     return { error: "Something went wrong deleting the address." };
   }
 
-  revalidatePath("/dashboard/profile");
+  revalidatePath(PROFILE_PATH);
   return { ok: true };
 }
