@@ -194,6 +194,13 @@ export async function getBookingForSession(
 export interface AssignedAgent {
   givenName: string | null;
   taskStatus: TaskStatus;
+  /**
+   * Key in the PRIVATE `avatars` bucket, or null. The customer is not staff,
+   * so their session cannot sign this under 0027's read policy — the web app
+   * signs it service-role, which is safe precisely because it only ever
+   * reaches here for an agent this booking is assigned to.
+   */
+  avatarStoragePath: string | null;
 }
 
 export interface BookingDetail {
@@ -252,7 +259,11 @@ export async function getBookingDetailForSession(
         .orderBy(asc(payments.createdAt)),
       db.query.addresses.findFirst({ where: eq(addresses.id, booking.pickupAddressId) }),
       db
-        .select({ fullName: users.fullName, taskStatus: verificationTasks.status })
+        .select({
+          fullName: users.fullName,
+          avatarStoragePath: users.avatarStoragePath,
+          taskStatus: verificationTasks.status,
+        })
         .from(verificationTasks)
         .innerJoin(users, eq(users.id, verificationTasks.assigneeUserId))
         .where(eq(verificationTasks.bookingId, bookingId))
@@ -294,6 +305,7 @@ export async function getBookingDetailForSession(
       ? {
           givenName: assignee.fullName?.trim().split(/\s+/)[0] ?? null,
           taskStatus: assignee.taskStatus,
+          avatarStoragePath: assignee.avatarStoragePath,
         }
       : null,
     // The booking's own snapshot first — that column exists precisely so a

@@ -11,6 +11,7 @@ import {
 } from "@/components/console";
 import { EnvStatus } from "@/components/env-status";
 import { isDev } from "@/env";
+import { signAvatarUrl } from "@/lib/avatars";
 import { getConsoleDashboard } from "@/lib/console-dashboard";
 import { getAdminIdentity } from "@/lib/session";
 
@@ -54,6 +55,10 @@ export default async function RootLayout({
   // the query.
   const dashboard = identity ? await getConsoleDashboard() : null;
 
+  // An admin is active staff, so their own session signs this under 0027's
+  // read policy — no service-role client involved.
+  const avatarUrl = identity ? await signAvatarUrl(identity.avatarStoragePath) : null;
+
   return (
     <html lang="en" suppressHydrationWarning>
       <body
@@ -64,6 +69,8 @@ export default async function RootLayout({
         {identity ? (
           <ConsoleChrome
             email={identity.email}
+            fullName={identity.fullName}
+            avatarUrl={avatarUrl}
             counts={{
               unassignedToday: dashboard?.unassignedToday ?? 0,
               exceptionsOpen: dashboard?.exceptionsOpen ?? 0,

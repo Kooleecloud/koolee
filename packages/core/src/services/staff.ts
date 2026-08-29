@@ -72,6 +72,8 @@ export async function requireStaffRole(
 export interface StaffMemberWithIdentity extends StaffMember {
   email: string | null;
   fullName: string | null;
+  /** Key in the PRIVATE `avatars` bucket, or null. Signed by the caller. */
+  avatarStoragePath: string | null;
 }
 
 /** All staff rows (active and deactivated), newest first, with identity. */
@@ -83,11 +85,43 @@ export async function listStaffMembers(
       member: staffMembers,
       email: users.email,
       fullName: users.fullName,
+      avatarStoragePath: users.avatarStoragePath,
     })
     .from(staffMembers)
     .innerJoin(users, eq(users.id, staffMembers.userId))
     .orderBy(staffMembers.createdAt);
-  return rows.map((r) => ({ ...r.member, email: r.email, fullName: r.fullName }));
+  return rows.map((r) => ({
+    ...r.member,
+    email: r.email,
+    fullName: r.fullName,
+    avatarStoragePath: r.avatarStoragePath,
+  }));
+}
+
+export interface StaffIdentity {
+  fullName: string | null;
+  email: string | null;
+  /** Key in the PRIVATE `avatars` bucket, or null. */
+  avatarStoragePath: string | null;
+}
+
+/**
+ * Display identity for one staff account — the name and face the agent app
+ * puts on its own Account tab.
+ *
+ * Deliberately NOT `getCustomerById`: that reads the same table, but a staff
+ * app reaching for a function named after customers is how a boundary stops
+ * meaning anything. This returns only what a header renders.
+ */
+export async function getStaffIdentity(
+  db: Database,
+  userId: string,
+): Promise<StaffIdentity | null> {
+  const row = await db.query.users.findFirst({
+    where: eq(users.id, userId),
+    columns: { fullName: true, email: true, avatarStoragePath: true },
+  });
+  return row ?? null;
 }
 
 export interface CreateStaffMemberInput {

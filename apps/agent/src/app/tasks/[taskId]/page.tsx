@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { ArrowLeft, MapPin, Navigation, Phone, TriangleAlert } from "lucide-react";
 import {
+  Avatar,
   Badge,
   Button,
   Card,
@@ -25,6 +26,7 @@ import {
 
 import { AgentMain } from "@/components/shell/agent-main";
 import { tryGetCore } from "@/lib/core";
+import { signAvatarUrl } from "@/lib/avatars";
 import { signPassportPhotoUrl } from "@/lib/passport-photos";
 import { getAgentSession } from "@/lib/session";
 
@@ -53,8 +55,15 @@ function BackToToday() {
  * address they were driving to or the number of the person they were meeting.
  * Both are now the first thing on the screen, each one tap from acting on it.
  */
-function DoorstepCard({ context }: { context: VisitContext }) {
-  const { booking, task, address, tz } = context;
+function DoorstepCard({
+  context,
+  customerAvatarUrl,
+}: {
+  context: VisitContext;
+  /** Signed as this agent — staff read any folder under 0027's policy. */
+  customerAvatarUrl: string | null;
+}) {
+  const { booking, task, address, customer, tz } = context;
   const windowNote = task.scheduledStart
     ? dstTransitionNote(task.scheduledStart, tz)
     : null;
@@ -88,7 +97,18 @@ function DoorstepCard({ context }: { context: VisitContext }) {
               : formatInstantInAirportTz(task.scheduledStart, tz)
             : "Unscheduled"}
         </span>
-        <span className="text-base font-medium">{booking.paxName}</span>
+        {/* The face goes next to the name, not above the window: the driver
+            reads this card in the van to check they are on time, and again at
+            the door to check they have the right person. Same card, two jobs. */}
+        <span className="flex items-center gap-2">
+          <Avatar
+            size="sm"
+            name={customer?.fullName ?? booking.paxName}
+            src={customerAvatarUrl}
+            alt=""
+          />
+          <span className="text-base font-medium">{booking.paxName}</span>
+        </span>
         {windowNote ? (
           <span className="text-xs text-muted-foreground">{windowNote}</span>
         ) : null}
@@ -224,6 +244,12 @@ export default async function TaskDetailPage({
     ? await signPassportPhotoUrl(gate.passport.photoStoragePath)
     : null;
 
+  // Same mechanism, far lower stakes: an avatar is not evidence, so it gets
+  // the long TTL. Readable here because an agent is active staff.
+  const customerAvatarUrl = await signAvatarUrl(
+    context.customer?.avatarStoragePath ?? null,
+  );
+
   const view: VisitView = {
     taskId: task.id,
     paxName: booking.paxName,
@@ -266,7 +292,7 @@ export default async function TaskDetailPage({
         Verify and seal for {booking.paxName}, booking {booking.ref}
       </h1>
 
-      <DoorstepCard context={context} />
+      <DoorstepCard context={context} customerAvatarUrl={customerAvatarUrl} />
 
       {/* A payment that has not cleared is a reason to stop before touching
           anyone's luggage, so it is a banner rather than a chip inside a

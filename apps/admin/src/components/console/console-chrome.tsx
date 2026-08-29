@@ -12,6 +12,10 @@ import type { ConsoleBadgeCounts } from "./nav";
 
 export interface ConsoleChromeProps {
   email: string | null;
+  /** Display name, preferred over the email wherever both would fit. */
+  fullName: string | null;
+  /** Signed avatar URL, or null for the initials fallback. */
+  avatarUrl: string | null;
   counts: ConsoleBadgeCounts;
   /** Shown outside production only. */
   environmentLabel?: string;
@@ -39,6 +43,8 @@ export interface ConsoleChromeProps {
  */
 function ConsoleFrame({
   email,
+  fullName,
+  avatarUrl,
   counts,
   environmentLabel,
   diagnostics,
@@ -71,6 +77,8 @@ function ConsoleFrame({
       >
         <ConsoleTopbar
           email={email}
+          fullName={fullName}
+          avatarUrl={avatarUrl}
           environmentLabel={environmentLabel}
           onOpenDrawer={() => setDrawerOpen(true)}
           onOpenSettings={() => setSettingsOpen(true)}
@@ -82,6 +90,8 @@ function ConsoleFrame({
         open={settingsOpen}
         onOpenChange={setSettingsOpen}
         email={email}
+        fullName={fullName}
+        avatarUrl={avatarUrl}
         diagnostics={diagnostics}
       />
     </>

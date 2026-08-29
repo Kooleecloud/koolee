@@ -21,6 +21,13 @@ export {
 export { Label } from "./components/label";
 export { Badge, badgeVariants, type BadgeProps } from "./components/badge";
 export {
+  Avatar,
+  avatarVariants,
+  initialsFor,
+  type AvatarProps,
+} from "./components/avatar";
+export { AvatarUploader, type AvatarUploaderProps } from "./components/avatar-uploader";
+export {
   VerifiedIndicator,
   type VerifiedIndicatorProps,
 } from "./components/verified-indicator";

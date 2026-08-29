@@ -183,6 +183,20 @@
       "when": 1788006727859,
       "tag": "0025_pin_agreement_version_per_booking",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1788028400909,
+      "tag": "0026_bucket_config",
+      "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1788028436443,
+      "tag": "0027_avatars_bucket",
+      "breakpoints": true
     }
   ]
 }

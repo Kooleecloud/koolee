@@ -389,7 +389,7 @@ client-side success signal is never trusted — see Chapter 8.
 API: `create-booking`, `windows` (window listing + blackout CRUD), `quote`,
 `bookings` (transitions + session-scoped reads), `dispatch`, `payment-intent`,
 `payment-lifecycle`, `agent-visit`, `customers`, `addresses`,
-`booking-drafts`, `ticket-uploads`, `staff`, `tasks`, `webhooks`. Two more
+`booking-drafts`, `ticket-uploads`, `avatars`, `staff`, `tasks`, `webhooks`. Two more
 modules sit beside `services/`: `waitlist/` (`recordWaitlistSignup` — the
 idempotent (email, zip) upsert behind both capture surfaces — and
 `notifyNewlyCoveredWaitlist`, the zone-opened sweep's engine) and
