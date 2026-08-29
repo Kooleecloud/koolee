@@ -1,13 +1,20 @@
 import { createHash } from "node:crypto";
 
 import {
+  deriveScope,
   hasExtractedFields,
   MAX_TICKET_UPLOAD_BYTES,
   TICKET_UPLOAD_MIME_TYPES,
+  type ExtractedSegment,
+  type TicketExtractionDiagnostics,
   type TicketExtractor,
 } from "@koolee/core";
 
-import type { TicketPrefill } from "@/lib/booking-draft-schema";
+import {
+  AIRPORT_CODES,
+  type PrefillAlternative,
+  type TicketPrefill,
+} from "@/lib/booking-draft-schema";
 
 /**
  * The ticket-upload pipeline, separated from the Next.js route handler so it
@@ -54,8 +61,18 @@ export interface TicketUploadDeps {
 }
 
 export type TicketUploadOutcome =
-  | { ok: true; uploadId: string; prefill: TicketPrefill }
-  | { ok: false; status: number; error: string };
+  | {
+      ok: true;
+      uploadId: string;
+      prefill: TicketPrefill;
+      diagnostics?: TicketExtractionDiagnostics;
+    }
+  | {
+      ok: false;
+      status: number;
+      error: string;
+      diagnostics?: TicketExtractionDiagnostics;
+    };
 
 export async function handleTicketUpload(
   deps: TicketUploadDeps,
@@ -109,9 +126,33 @@ export async function handleTicketUpload(
     return { ok: false, status: 200, error: UPLOAD_COPY.unreadable };
   }
 
+  const diagnostics = outcome.diagnostics;
+  // One structured line per upload, always — the flag below only controls
+  // what reaches the BROWSER, never whether we can see this in the logs.
+  console.info(
+    "[ticket-upload] extraction",
+    JSON.stringify({
+      uploadId: row.id,
+      status: outcome.status,
+      extractor: deps.extractor.name,
+      models: diagnostics?.attempts.map((a) => a.model),
+      latencyMs: diagnostics?.attempts.map((a) => a.latencyMs),
+      segments: diagnostics?.segments.length,
+      chosenIndex: diagnostics?.chosenIndex,
+      selectionReason: diagnostics?.selectionReason,
+      dropped: diagnostics?.droppedFields.map((d) => d.field),
+      ...(outcome.status === "unreadable" ? { reason: outcome.reason } : {}),
+    }),
+  );
+
   if (outcome.status === "unreadable" || !hasExtractedFields(outcome.result)) {
     await deps.setUploadStatus({ id: row.id, status: "unreadable" });
-    return { ok: false, status: 200, error: UPLOAD_COPY.unreadable };
+    return {
+      ok: false,
+      status: 200,
+      error: UPLOAD_COPY.unreadable,
+      ...(diagnostics ? { diagnostics } : {}),
+    };
   }
 
   await deps.setUploadStatus({ id: row.id, status: "extracted" });
@@ -122,10 +163,45 @@ export async function handleTicketUpload(
     ...(result.airlineIata ? { airlineIata: result.airlineIata } : {}),
     ...(result.departureAirport ? { departureAirport: result.departureAirport } : {}),
     ...(result.departureAtLocal ? { departureAtLocal: result.departureAtLocal } : {}),
+    ...(result.destinationAirport ? { destinationAirport: result.destinationAirport } : {}),
     ...(result.paxName ? { paxName: result.paxName } : {}),
     ...(result.scope ? { scope: result.scope } : {}),
+    ...(result.documentKind ? { documentKind: result.documentKind } : {}),
+    ...(result.selectionReason ? { selectionReason: result.selectionReason } : {}),
+    ...(result.nonServicedOrigin ? { nonServicedOrigin: result.nonServicedOrigin } : {}),
+    ...(alternativesFor(result.alternativeSegments).length > 0
+      ? { alternatives: alternativesFor(result.alternativeSegments) }
+      : {}),
     confidence: result.confidence,
     uploadId: row.id,
   };
-  return { ok: true, uploadId: row.id, prefill };
+  return { ok: true, uploadId: row.id, prefill, ...(diagnostics ? { diagnostics } : {}) };
+}
+
+/**
+ * The other NYC-departing legs, trimmed to what the swap offer needs.
+ *
+ * Capped at two and stripped to four fields on purpose: the whole draft rides
+ * in a 4 KB cookie, and a third alternative has never been a real itinerary.
+ */
+function alternativesFor(segments: ExtractedSegment[] | undefined): PrefillAlternative[] {
+  const serviced = AIRPORT_CODES as readonly string[];
+  return (segments ?? [])
+    .filter((segment) => segment.originAirport && serviced.includes(segment.originAirport))
+    .slice(0, 2)
+    .map((segment) => {
+      // Derived from THIS segment's destination country, by the same helper
+      // the chosen leg uses — so a swap carries a scope we actually read
+      // rather than inheriting the other leg's or falling back to domestic.
+      const scope = deriveScope(segment);
+      return {
+        departureAirport: segment.originAirport as (typeof AIRPORT_CODES)[number],
+        ...(segment.destinationAirport
+          ? { destinationAirport: segment.destinationAirport }
+          : {}),
+        ...(segment.flightNumber ? { flightNumber: segment.flightNumber } : {}),
+        ...(segment.departureAtLocal ? { departureAtLocal: segment.departureAtLocal } : {}),
+        ...(scope ? { scope } : {}),
+      };
+    });
 }

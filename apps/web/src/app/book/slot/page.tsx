@@ -108,9 +108,8 @@ export default async function SlotStepPage() {
         title="Pickup window"
         subtitle={
           <>
-            We pick up between 30 and 6 hours before your flight — the last 6 hours
-            are for getting your bags to {draft.departureAirport}. Earlier windows
-            cost less.
+            We pick up between 30 and 6 hours before your flight — the last 6 hours are
+            for getting your bags to {draft.departureAirport}. Earlier windows cost less.
           </>
         }
       />
@@ -133,9 +132,7 @@ export default async function SlotStepPage() {
               repeating "EDT" is noise, and every window on this page shares the
               airport's zone by construction.
             */}
-            <p className="text-sm text-muted-foreground">
-              All times are in local time.
-            </p>
+            <p className="text-sm text-muted-foreground">All times are in local time.</p>
             {[...byDay.entries()].map(([day, dayWindows]) => (
               <div key={day} className="flex flex-col gap-3">
                 <h3 className="text-sm font-medium text-muted-foreground">
@@ -143,33 +140,32 @@ export default async function SlotStepPage() {
                 </h3>
                 <div className="grid grid-cols-2 gap-3">
                   {dayWindows.map((window) => (
-                    <label
-                      key={window.windowStart.toISOString()}
-                      className="flex cursor-pointer flex-col items-center gap-0.5 rounded-lg border border-border bg-white p-3 text-center shadow-lift transition-all duration-300 hover:-translate-y-0.5 hover:border-sky-300 hover:shadow-lift-lg has-checked:border-primary has-checked:bg-primary/5 has-checked:shadow-lift-lg has-checked:ring-1 has-checked:ring-primary has-focus-visible:ring-2 has-focus-visible:ring-ring has-focus-visible:ring-offset-2 motion-reduce:transition-none motion-reduce:hover:translate-y-0"
-                    >
-                      <input
-                        type="radio"
-                        name="windowStart"
-                        value={window.windowStart.toISOString()}
-                        defaultChecked={
-                          draft.windowStart === window.windowStart.toISOString()
-                        }
-                        className="sr-only"
-                        required
-                      />
-                      {/*
+                    <Card asChild interactive key={window.windowStart.toISOString()}>
+                      <label className="flex cursor-pointer flex-col items-center gap-0.5 p-3 text-center has-checked:border-primary has-checked:bg-primary/5 has-checked:shadow-lift-lg has-checked:ring-1 has-checked:ring-primary has-focus-visible:ring-2 has-focus-visible:ring-ring has-focus-visible:ring-offset-2">
+                        <input
+                          type="radio"
+                          name="windowStart"
+                          value={window.windowStart.toISOString()}
+                          defaultChecked={
+                            draft.windowStart === window.windowStart.toISOString()
+                          }
+                          className="sr-only"
+                          required
+                        />
+                        {/*
                         Same family and weight for both lines — the customer is
                         trading time against price, so neither should read as a
                         caption of the other. The time is a step larger only
                         because it is what they scan the grid for.
                       */}
-                      <span className="font-display text-base font-semibold text-navy-800">
-                        {formatHourInAirportTz(window.windowStart, tz)}
-                      </span>
-                      <span className="font-display text-sm font-semibold text-navy-800">
-                        {dollars(window.totalCents)}
-                      </span>
-                    </label>
+                        <span className="font-display text-base font-semibold text-navy-800">
+                          {formatHourInAirportTz(window.windowStart, tz)}
+                        </span>
+                        <span className="font-display text-sm font-semibold text-navy-800">
+                          {dollars(window.totalCents)}
+                        </span>
+                      </label>
+                    </Card>
                   ))}
                 </div>
               </div>
@@ -213,9 +209,9 @@ function NoWindows() {
       <CardHeader>
         <CardTitle className="text-base">No windows can make that flight</CardTitle>
         <CardDescription>
-          Pickups need to finish 6 hours before departure and start at least 2 hours
-          from now — for this flight, no window fits both. We will not sell a pickup
-          that cannot make it.
+          Pickups need to finish 6 hours before departure and start at least 2 hours from
+          now — for this flight, no window fits both. We will not sell a pickup that
+          cannot make it.
         </CardDescription>
       </CardHeader>
       <CardContent>

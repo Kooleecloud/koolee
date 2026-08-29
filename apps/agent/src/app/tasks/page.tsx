@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import {
   Badge,
+  Card,
   ContentColumn,
   DatabaseNotConfigured,
   EmptyState,
@@ -126,9 +127,7 @@ export default async function TasksPage() {
         <div className="flex flex-col gap-6">
           {days.map((day) => (
             <section key={day.key} className="flex flex-col gap-2">
-              <h2 className="text-sm font-medium text-muted-foreground">
-                {day.heading}
-              </h2>
+              <h2 className="text-sm font-medium text-muted-foreground">{day.heading}</h2>
               {/* One task per row: these rows carry an address and a name, and
                   a multi-column grid squeezes both into ellipses on the phone
                   this app actually runs on. */}
@@ -137,51 +136,53 @@ export default async function TasksPage() {
                   const meta = KIND[kind];
                   return (
                     <li key={`${kind}-${task.id}`}>
-                      <Link
-                        href={`/tasks/${task.id}?kind=${kind}`}
-                        className="flex flex-col gap-2 rounded-lg border bg-white p-4 shadow-lift transition-all duration-300 hover:-translate-y-0.5 hover:border-sky-300 hover:shadow-lift-lg focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:outline-none motion-reduce:transition-none motion-reduce:hover:translate-y-0"
-                      >
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span
-                            className={`rounded-full px-2 py-0.5 text-xs font-medium ${meta.chip}`}
-                          >
-                            {meta.label}
-                          </span>
-                          <span className="text-xs text-muted-foreground">
-                            {meta.hint}
-                          </span>
-                          <Badge
-                            variant={statusVariant(task.status)}
-                            className="ml-auto"
-                          >
-                            {task.status.replace("_", " ")}
-                          </Badge>
-                        </div>
+                      <Card asChild interactive>
+                        <Link
+                          href={`/tasks/${task.id}?kind=${kind}`}
+                          className="flex flex-col gap-2 p-4"
+                        >
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span
+                              className={`rounded-full px-2 py-0.5 text-xs font-medium ${meta.chip}`}
+                            >
+                              {meta.label}
+                            </span>
+                            <span className="text-xs text-muted-foreground">
+                              {meta.hint}
+                            </span>
+                            <Badge
+                              variant={statusVariant(task.status)}
+                              className="ml-auto"
+                            >
+                              {task.status.replace("_", " ")}
+                            </Badge>
+                          </div>
 
-                        {/* The window leads: an agent plans by clock first,
+                          {/* The window leads: an agent plans by clock first,
                             then decides which of the day's stops this is. */}
-                        <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-                          <span className="font-display text-base font-semibold text-navy-800">
-                            {task.scheduledStart
-                              ? formatHourInAirportTz(task.scheduledStart, tz)
-                              : "Unscheduled"}
-                          </span>
-                          <span className="text-sm font-medium">{booking.paxName}</span>
-                          <span className="text-sm text-muted-foreground">
-                            · {booking.bagCount} bag{booking.bagCount === 1 ? "" : "s"}
-                          </span>
-                        </div>
+                          <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+                            <span className="font-display text-base font-semibold text-navy-800">
+                              {task.scheduledStart
+                                ? formatHourInAirportTz(task.scheduledStart, tz)
+                                : "Unscheduled"}
+                            </span>
+                            <span className="text-sm font-medium">{booking.paxName}</span>
+                            <span className="text-sm text-muted-foreground">
+                              · {booking.bagCount} bag{booking.bagCount === 1 ? "" : "s"}
+                            </span>
+                          </div>
 
-                        <div className="flex flex-col gap-0.5 text-xs text-muted-foreground">
-                          <span>
-                            {booking.addressLine1}, {booking.addressCity}
-                          </span>
-                          <span>
-                            <span className="font-mono">{booking.ref}</span> ·{" "}
-                            {booking.flightNumber} · {booking.departureAirport}
-                          </span>
-                        </div>
-                      </Link>
+                          <div className="flex flex-col gap-0.5 text-xs text-muted-foreground">
+                            <span>
+                              {booking.addressLine1}, {booking.addressCity}
+                            </span>
+                            <span>
+                              <span className="font-mono">{booking.ref}</span> ·{" "}
+                              {booking.flightNumber} · {booking.departureAirport}
+                            </span>
+                          </div>
+                        </Link>
+                      </Card>
                     </li>
                   );
                 })}

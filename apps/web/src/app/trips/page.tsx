@@ -114,39 +114,38 @@ export default async function TripsPage() {
                   : "Not scheduled yet";
             return (
               <li key={booking.id}>
-                <Link
-                  href={`/trips/${booking.id}`}
-                  className="flex flex-col gap-4 rounded-xl border border-border bg-white p-5 shadow-xs transition-all hover:-translate-y-0.5 hover:shadow-lift focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
-                >
-                  <span className="flex items-start justify-between gap-4">
-                    <span className="flex flex-col gap-1">
-                      <span className="font-display font-semibold text-navy-800">
-                        {booking.flightNumber} · {booking.departureAirport}
+                <Card asChild interactive>
+                  <Link href={`/trips/${booking.id}`} className="flex flex-col gap-4 p-5">
+                    <span className="flex items-start justify-between gap-4">
+                      <span className="flex flex-col gap-1">
+                        <span className="font-display font-semibold text-navy-800">
+                          {booking.flightNumber} · {booking.departureAirport}
+                        </span>
+                        <span className="flex items-center gap-1.5 text-sm text-muted-foreground">
+                          <Plane aria-hidden className="size-3.5 shrink-0 text-sky-700" />
+                          {formatInstantInAirportTz(booking.departureAt, tz)}
+                        </span>
                       </span>
-                      <span className="flex items-center gap-1.5 text-sm text-muted-foreground">
-                        <Plane aria-hidden className="size-3.5 shrink-0 text-sky-700" />
-                        {formatInstantInAirportTz(booking.departureAt, tz)}
-                      </span>
+                      <BookingStatusBadge status={booking.status} />
                     </span>
-                    <BookingStatusBadge status={booking.status} />
-                  </span>
 
-                  <dl className="grid grid-cols-2 gap-x-4 gap-y-3 border-t border-border pt-4 text-sm sm:grid-cols-3">
-                    <TripFact label="Pickup window" value={window} />
-                    <TripFact label="Passenger" value={booking.paxName} />
-                    <TripFact
-                      label="Bags"
-                      value={`${booking.bagCount} ${booking.bagCount === 1 ? "bag" : "bags"}`}
-                    />
-                    {/* "Total", not "Paid" — a booking can sit unpaid, and
+                    <dl className="grid grid-cols-2 gap-x-4 gap-y-3 border-t border-border pt-4 text-sm sm:grid-cols-3">
+                      <TripFact label="Pickup window" value={window} />
+                      <TripFact label="Passenger" value={booking.paxName} />
+                      <TripFact
+                        label="Bags"
+                        value={`${booking.bagCount} ${booking.bagCount === 1 ? "bag" : "bags"}`}
+                      />
+                      {/* "Total", not "Paid" — a booking can sit unpaid, and
                         `priceCents` is the quote either way. */}
-                    <TripFact
-                      label="Total"
-                      value={`$${(booking.priceCents / 100).toFixed(2)} ${booking.currency.toUpperCase()}`}
-                    />
-                    <TripFact label="Reference" value={booking.ref} />
-                  </dl>
-                </Link>
+                      <TripFact
+                        label="Total"
+                        value={`$${(booking.priceCents / 100).toFixed(2)} ${booking.currency.toUpperCase()}`}
+                      />
+                      <TripFact label="Reference" value={booking.ref} />
+                    </dl>
+                  </Link>
+                </Card>
               </li>
             );
           })}
@@ -189,7 +188,10 @@ function DraftCard({
         <CardTitle className="text-base">
           Booking in progress
           {draft.flightNumber && draft.departureAirport && (
-            <> — {draft.flightNumber} from {draft.departureAirport}</>
+            <>
+              {" "}
+              — {draft.flightNumber} from {draft.departureAirport}
+            </>
           )}
         </CardTitle>
         <CardDescription>
@@ -200,8 +202,7 @@ function DraftCard({
           {updatedAt && (
             <> · last edited {formatDistanceToNow(updatedAt, { addSuffix: true })}</>
           )}
-          .
-          Drafts are kept for 7 days.
+          . Drafts are kept for 7 days.
         </CardDescription>
       </CardHeader>
       <CardContent className="flex items-center gap-2">

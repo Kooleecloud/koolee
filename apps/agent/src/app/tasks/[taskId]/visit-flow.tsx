@@ -33,7 +33,7 @@ import {
 
 /**
  * The guided verification visit. Screen order (a deliberate design call —
- * logged in RUN-REPORT.md): arrive → identity gate → per-bag seal loop →
+ * logged in docs/run-reports/RUN-REPORT.md): arrive → identity gate → per-bag seal loop →
  * completion. Every submit hits a server action that appends the custody
  * event; this component only renders progress derived from server state.
  *
@@ -62,8 +62,6 @@ export interface VisitAgreementView {
   version: number | null;
   /** Preformatted in the BOOKING's zone, never the device's. */
   acceptedAtLabel: string | null;
-  /** Accepted an earlier version; the terms have changed since. */
-  superseded: boolean;
 }
 
 export interface VisitPassportView {
@@ -356,9 +354,7 @@ function IdentityStep({
               <p className="text-xs text-muted-foreground">
                 {view.agreement.version === null
                   ? "No agreement is published — call ops, this booking can't proceed."
-                  : view.agreement.superseded
-                    ? "Our agreement changed since they accepted. Ask the customer to open their trip page and accept the new version."
-                    : "Ask the customer to open their trip page and accept the agreement. You can't do this for them."}
+                  : "Ask the customer to open their trip page and accept the agreement. You can't do this for them."}
               </p>
               <Button
                 type="button"

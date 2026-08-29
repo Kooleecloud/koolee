@@ -12,6 +12,11 @@ import {
   FormMessage,
 } from "@koolee/ui";
 
+import {
+  TICKET_DEBUG_EVENT,
+  TICKET_DEBUG_KEY,
+} from "@/components/ticket-extraction-debug";
+
 /**
  * Ticket upload → /api/ticket-uploads (server-side storage + extraction).
  *
@@ -19,6 +24,17 @@ import {
  * always reviews, edits, and confirms there before anything is persisted.
  * On failure the message points at manual entry and nothing else changes.
  */
+/** Hands the raw diagnostics to the on-page debug panel, or clears them. */
+function publishDebug(debug: unknown): void {
+  try {
+    if (debug === undefined) sessionStorage.removeItem(TICKET_DEBUG_KEY);
+    else sessionStorage.setItem(TICKET_DEBUG_KEY, JSON.stringify(debug, null, 2));
+    window.dispatchEvent(new Event(TICKET_DEBUG_EVENT));
+  } catch {
+    // Storage is unavailable (private mode); the panel simply stays empty.
+  }
+}
+
 export function TicketUpload() {
   const router = useRouter();
   const inputRef = React.useRef<HTMLInputElement>(null);
@@ -38,7 +54,13 @@ export function TicketUpload() {
       const payload = (await response.json().catch(() => ({}))) as {
         ok?: boolean;
         error?: string;
+        debug?: unknown;
       };
+
+      // Present only when TICKET_EXTRACTION_DEBUG is set server-side. Parked
+      // in sessionStorage so it survives the navigation below and never rides
+      // along in the draft cookie.
+      publishDebug(payload.debug);
 
       if (payload.ok) {
         // The extraction landed in the quarantined prefill; re-render the
@@ -52,6 +74,7 @@ export function TicketUpload() {
           "We couldn't read this — please enter your flight details manually.",
       );
     } catch {
+      publishDebug(undefined);
       setError("Upload failed — please enter your flight details manually.");
     } finally {
       setPhase("idle");
@@ -64,8 +87,8 @@ export function TicketUpload() {
       <CardHeader>
         <CardTitle className="text-base">Upload your e-ticket</CardTitle>
         <CardDescription>
-          We&apos;ll read your flight details off the PDF and fill in the form above for
-          you to review.
+          PDF or a photo — we&apos;ll read your flight details off it and fill in the form
+          above for you to review.
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
@@ -83,7 +106,7 @@ export function TicketUpload() {
           loading={phase === "uploading"}
           onClick={() => inputRef.current?.click()}
         >
-          {phase === "uploading" ? "Reading your ticket…" : "Upload ticket PDF"}
+          {phase === "uploading" ? "Reading your ticket…" : "Upload ticket"}
         </Button>
 
         {error && <FormMessage variant="error">{error}</FormMessage>}

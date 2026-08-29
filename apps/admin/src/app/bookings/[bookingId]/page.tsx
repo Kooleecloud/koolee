@@ -269,75 +269,74 @@ export default async function BookingDetailPage({
                  and a stacked list makes that a scroll instead of a glance. */
               <ul className="flex flex-wrap gap-3">
                 {bags.map((bag) => (
-                  <li
-                    key={bag.id}
-                    className="flex w-40 flex-col gap-2 rounded-lg border bg-white p-3 shadow-lift"
-                  >
-                    <div className="flex items-baseline justify-between gap-2">
-                      <span className="font-display text-sm font-semibold text-navy-800">
-                        Bag {bag.ordinal}
-                      </span>
-                      {bag.weightKg ? (
-                        <span className="text-xs text-muted-foreground">
-                          {bag.weightKg} kg
+                  <Card asChild key={bag.id}>
+                    <li className="flex w-40 flex-col gap-2 p-3">
+                      <div className="flex items-baseline justify-between gap-2">
+                        <span className="font-display text-sm font-semibold text-navy-800">
+                          Bag {bag.ordinal}
                         </span>
-                      ) : null}
-                    </div>
+                        {bag.weightKg ? (
+                          <span className="text-xs text-muted-foreground">
+                            {bag.weightKg} kg
+                          </span>
+                        ) : null}
+                      </div>
 
-                    {/* The seal id is the identifier a dispute turns on, so it
+                      {/* The seal id is the identifier a dispute turns on, so it
                         gets its own line in mono rather than sharing one. */}
-                    <span className="font-mono text-xs break-all">
-                      {bag.sealId ? (
-                        bag.sealId
-                      ) : (
-                        <span className="text-muted-foreground">not sealed</span>
-                      )}
-                    </span>
+                      <span className="font-mono text-xs break-all">
+                        {bag.sealId ? (
+                          bag.sealId
+                        ) : (
+                          <span className="text-muted-foreground">not sealed</span>
+                        )}
+                      </span>
 
-                    {(() => {
-                      const path = bag.photoUrls.find((p) => signedUrls.has(p));
-                      if (path) {
-                        return (
-                          <ImageLightbox
-                            src={signedUrls.get(path)!}
-                            alt={`Bag ${bag.ordinal} evidence photo`}
-                            title={`Bag ${bag.ordinal}`}
-                            description={
-                              bag.sealId
-                                ? `seal ${bag.sealId}${bag.weightKg ? ` · ${bag.weightKg} kg` : ""}`
-                                : undefined
-                            }
-                            className="h-28 w-full"
-                          />
-                        );
-                      }
-                      return (
-                        <span className="flex h-28 items-center justify-center rounded-md border border-dashed text-center text-xs text-muted-foreground">
-                          {bag.photoUrls.length > 0
-                            ? "photo (signing unavailable)"
-                            : "no photo"}
-                        </span>
-                      );
-                    })()}
-
-                    {/* Extra photos stay reachable without stretching the card. */}
-                    {bag.photoUrls.filter((p) => signedUrls.has(p)).length > 1 && (
-                      <div className="flex flex-wrap gap-1">
-                        {bag.photoUrls
-                          .filter((p) => signedUrls.has(p))
-                          .slice(1)
-                          .map((path) => (
+                      {(() => {
+                        const path = bag.photoUrls.find((p) => signedUrls.has(p));
+                        if (path) {
+                          return (
                             <ImageLightbox
-                              key={path}
                               src={signedUrls.get(path)!}
                               alt={`Bag ${bag.ordinal} evidence photo`}
                               title={`Bag ${bag.ordinal}`}
-                              className="h-10 w-10"
+                              description={
+                                bag.sealId
+                                  ? `seal ${bag.sealId}${bag.weightKg ? ` · ${bag.weightKg} kg` : ""}`
+                                  : undefined
+                              }
+                              className="h-28 w-full"
                             />
-                          ))}
-                      </div>
-                    )}
-                  </li>
+                          );
+                        }
+                        return (
+                          <span className="flex h-28 items-center justify-center rounded-md border border-dashed text-center text-xs text-muted-foreground">
+                            {bag.photoUrls.length > 0
+                              ? "photo (signing unavailable)"
+                              : "no photo"}
+                          </span>
+                        );
+                      })()}
+
+                      {/* Extra photos stay reachable without stretching the card. */}
+                      {bag.photoUrls.filter((p) => signedUrls.has(p)).length > 1 && (
+                        <div className="flex flex-wrap gap-1">
+                          {bag.photoUrls
+                            .filter((p) => signedUrls.has(p))
+                            .slice(1)
+                            .map((path) => (
+                              <ImageLightbox
+                                key={path}
+                                src={signedUrls.get(path)!}
+                                alt={`Bag ${bag.ordinal} evidence photo`}
+                                title={`Bag ${bag.ordinal}`}
+                                className="h-10 w-10"
+                              />
+                            ))}
+                        </div>
+                      )}
+                    </li>
+                  </Card>
                 ))}
               </ul>
             )}
@@ -407,16 +406,12 @@ export default async function BookingDetailPage({
               <span className="text-xs text-muted-foreground">
                 {agreementState.accepted && agreementState.acceptance ? (
                   <>
-                    v{agreementState.currentVersion?.version} ·{" "}
+                    v{agreementState.acceptedVersion?.version} ·{" "}
                     {formatInstantInAirportTz(agreementState.acceptance.acceptedAt, tz)}
+                    {" · pinned"}
                   </>
                 ) : agreementState.currentVersion === null ? (
                   "No agreement is published — every visit is blocked until one is."
-                ) : agreementState.supersededAcceptance ? (
-                  <>
-                    Accepted an earlier version; v{agreementState.currentVersion.version}{" "}
-                    needs re-accepting on the customer&apos;s trip page.
-                  </>
                 ) : (
                   <>
                     v{agreementState.currentVersion.version} not yet accepted. Only the

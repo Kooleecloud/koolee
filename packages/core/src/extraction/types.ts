@@ -52,6 +52,61 @@ const servicedOrigin = z.enum(AIRPORT_CODES);
 export const CONFIDENCE_LEVELS = ["high", "low"] as const;
 export type ExtractionConfidence = (typeof CONFIDENCE_LEVELS)[number];
 
+export const TICKET_SCOPES = ["domestic", "international"] as const;
+export type TicketExtractionScope = (typeof TICKET_SCOPES)[number];
+
+/** What kind of document this is — a round trip has a leg we must choose. */
+export const DOCUMENT_KINDS = ["one_way", "round_trip", "multi_city", "unclear"] as const;
+export type TicketDocumentKind = (typeof DOCUMENT_KINDS)[number];
+
+/**
+ * ONE flight segment as printed on the document — every leg, unfiltered.
+ *
+ * Extractors report the whole itinerary and `selectSegment` decides which leg
+ * the pickup is for. Asking a model to pre-filter to a single answer is what
+ * made a round trip come back as the leg that ARRIVES in New York; see
+ * `select-segment.ts`.
+ *
+ * Airport codes here are ANY IATA code, not only the serviced ones — the
+ * origin we cannot serve is exactly what the review form needs in order to
+ * explain itself.
+ */
+export const extractedSegmentSchema = z.object({
+  originAirport: airportCode.optional(),
+  destinationAirport: airportCode.optional(),
+  flightNumber: flightNumber.optional(),
+  airlineIata: airlineIata.optional(),
+  /** Local wall-clock at the ORIGIN airport, `YYYY-MM-DDTHH:mm`. */
+  departureAtLocal: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/)
+    .optional(),
+  /** ISO-3166 alpha-2 — what `scope` is derived from, rather than guessed. */
+  originCountry: z.string().length(2).optional(),
+  destinationCountry: z.string().length(2).optional(),
+  /** The model's own doubts about this leg, surfaced in diagnostics. */
+  notes: z.string().max(500).optional(),
+});
+
+export type ExtractedSegment = z.infer<typeof extractedSegmentSchema>;
+
+/** Why `selectSegment` chose the leg it chose — rendered for the customer. */
+export const SEGMENT_SELECTION_REASONS = [
+  /** Exactly one leg departs an airport we serve. */
+  "single_serviced_origin",
+  /** Several did; this is the only one that has not already flown. */
+  "earliest_upcoming_serviced_origin",
+  /** Several upcoming legs depart airports we serve — a real ambiguity. */
+  "ambiguous_serviced_origins",
+  /** Every serviced departure on this ticket is in the past. */
+  "all_serviced_departures_past",
+  /** The itinerary was read, but it departs somewhere we do not serve. */
+  "no_serviced_origin",
+  /** No flight segments could be read at all. */
+  "no_segments",
+] as const;
+export type SegmentSelectionReason = (typeof SEGMENT_SELECTION_REASONS)[number];
+
 /**
  * What an extractor may return. Every field optional — extraction is partial
  * by nature — and every value is a CANDIDATE, not a fact. The confirm step
@@ -76,7 +131,21 @@ export const ticketExtractionSchema = z.object({
   /** Destination airport, informational (drives the domestic/intl guess). */
   destinationAirport: airportCode.optional(),
   paxName: z.string().min(1).max(120).optional(),
-  scope: z.enum(["domestic", "international"]).optional(),
+  scope: z.enum(TICKET_SCOPES).optional(),
+  /** One-way vs round trip — drives the "did you mean the other leg?" offer. */
+  documentKind: z.enum(DOCUMENT_KINDS).optional(),
+  /** Why this leg was chosen. Absent from extractors that read one leg only. */
+  selectionReason: z.enum(SEGMENT_SELECTION_REASONS).optional(),
+  /**
+   * The origin we read but cannot serve (e.g. SFO). Present ONLY when
+   * `departureAirport` is absent — the honest reason the dropdown is blank.
+   */
+  nonServicedOrigin: airportCode.optional(),
+  /**
+   * Other legs on the ticket that also depart a serviced airport, offered on
+   * the review form as a one-click swap. Never includes the chosen leg.
+   */
+  alternativeSegments: z.array(extractedSegmentSchema).max(3).optional(),
   /**
    * Overall confidence. "low" means the review form flags every prefilled
    * field for the customer's attention (e.g. an ambiguous multi-segment
@@ -103,9 +172,50 @@ export interface TicketFileInput {
  * model response, or an API failure all resolve to `unreadable`, which the
  * UI renders as the manual-entry fallback.
  */
+/**
+ * Everything needed to answer "why did it read my ticket that way?" — one
+ * model call's raw output, the segments it found, and the choice made from
+ * them.
+ *
+ * Carried on BOTH outcome branches on purpose: an `unreadable` result is
+ * exactly when someone needs to see what came back. It is developer-facing
+ * and may contain the customer's itinerary, so the app layer only forwards it
+ * to the browser behind an explicit debug flag (never in production) and
+ * never writes it to the booking draft cookie.
+ */
+export interface TicketExtractionAttempt {
+  model: string;
+  latencyMs: number;
+  usage?: { inputTokens: number; outputTokens: number };
+  /** Exactly what the model returned, before any coercion of ours. */
+  rawToolInput?: unknown;
+  /** Set instead when the model answered with prose rather than the tool. */
+  rawText?: string;
+  error?: string;
+  /** Set when this call was a retry on the stronger model, with the trigger. */
+  escalatedBecause?: string;
+}
+
+export interface TicketExtractionDiagnostics {
+  extractor: string;
+  attempts: TicketExtractionAttempt[];
+  /** Every leg read off the document, after coercion. */
+  segments: ExtractedSegment[];
+  chosenIndex: number | null;
+  selectionReason: SegmentSelectionReason;
+  /** Values the model returned that failed their shape check and were dropped. */
+  droppedFields: Array<{ field: string; value: unknown; reason: string }>;
+  /** The model's free-text account of what was hard to read. */
+  readingNotes?: string;
+}
+
 export type TicketExtractionOutcome =
-  | { status: "extracted"; result: TicketExtractionResult }
-  | { status: "unreadable"; reason: string };
+  | {
+      status: "extracted";
+      result: TicketExtractionResult;
+      diagnostics?: TicketExtractionDiagnostics;
+    }
+  | { status: "unreadable"; reason: string; diagnostics?: TicketExtractionDiagnostics };
 
 export interface TicketExtractor {
   /** "fake" | "heuristic" | "claude" — recorded for observability. */
@@ -117,9 +227,9 @@ export interface TicketExtractor {
 export function hasExtractedFields(result: TicketExtractionResult): boolean {
   return Boolean(
     result.flightNumber ??
-      result.airlineIata ??
-      result.departureAtLocal ??
-      result.departureAirport ??
-      result.paxName,
+    result.airlineIata ??
+    result.departureAtLocal ??
+    result.departureAirport ??
+    result.paxName,
   );
 }

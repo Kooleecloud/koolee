@@ -25,12 +25,14 @@ import { FakePaymentProvider } from "../payments/fake";
 import { errorChainMessage, pgErrorCode } from "../test-utils/db-errors";
 import {
   acceptAgreement,
-  bookingHasCurrentAcceptance,
-  countBookingsNeedingReacceptance,
+  bookingHasAcceptedAgreement,
   getBookingAgreementState,
+  getAgreementVersionById,
   getCurrentAgreementVersion,
+  isAgreementVersionEditable,
   listAgreementVersions,
   publishAgreementVersion,
+  updateScheduledAgreementVersion,
 } from "./agreements";
 import { createBooking } from "./create-booking";
 import { ensureAddress } from "./customers";
@@ -304,7 +306,7 @@ describeIntegration("booking agreements (integration)", () => {
       await expect(
         acceptAgreement(config, { bookingId: booking.id, userId: customerId }),
       ).rejects.toBeInstanceOf(NotFoundError);
-      expect(await bookingHasCurrentAcceptance(db, booking.id, now)).toBe(false);
+      expect(await bookingHasAcceptedAgreement(db, booking.id)).toBe(false);
     });
 
     it("accepts the CURRENT version even when a stale one exists", async () => {
@@ -322,12 +324,18 @@ describeIntegration("booking agreements (integration)", () => {
     });
   });
 
-  describe("the gate and the re-accept model", () => {
-    it("goes false when a newer version publishes, and true again on re-accept", async () => {
-      await seedVersion(1, new Date("2025-01-01T00:00:00Z"));
+  /**
+   * VERSION PINNING. The version a booking accepts governs it for life.
+   * Publishing a newer one never disturbs a booking already agreed — which is
+   * the opposite of the re-acceptance model this replaced, so these tests are
+   * the specification of that decision.
+   */
+  describe("version pinning", () => {
+    it("stays accepted when a newer version publishes, and stays pinned to the OLD one", async () => {
+      const v1 = await seedVersion(1, new Date("2025-01-01T00:00:00Z"));
       const booking = await paidBooking();
       await acceptAgreement(config, { bookingId: booking.id, userId: customerId });
-      expect(await bookingHasCurrentAcceptance(db, booking.id, now)).toBe(true);
+      expect(await bookingHasAcceptedAgreement(db, booking.id)).toBe(true);
 
       await publishAgreementVersion(config, {
         title: "v2",
@@ -335,26 +343,102 @@ describeIntegration("booking agreements (integration)", () => {
         publishedBy: adminId,
       });
 
-      // Un-gated: this customer has never seen the terms now in force.
-      expect(await bookingHasCurrentAcceptance(db, booking.id, now)).toBe(false);
+      // The gate does not budge. Nobody is asked again.
+      expect(await bookingHasAcceptedAgreement(db, booking.id)).toBe(true);
 
+      // …and every surface still shows the terms this booking is bound by,
+      // not the ones now on sale.
       const state = await getBookingAgreementState(db, booking.id, now);
-      expect(state.accepted).toBe(false);
-      // …and the UI can say "our agreement was updated" rather than the much
-      // worse "you have not accepted", which is false to someone who did.
-      expect(state.supersededAcceptance).toBe(true);
-      expect(state.currentVersion!.version).toBe(2);
+      expect(state.accepted).toBe(true);
+      expect(state.acceptedVersion!.id).toBe(v1.id);
+      expect(state.acceptedVersion!.version).toBe(1);
+      expect(state.currentVersion!.version).toBe(1);
+    });
 
-      await acceptAgreement(config, { bookingId: booking.id, userId: customerId });
-      expect(await bookingHasCurrentAcceptance(db, booking.id, now)).toBe(true);
+    it("re-accepting after a publish is a no-op that does NOT re-pin the booking", async () => {
+      const v1 = await seedVersion(1, new Date("2025-01-01T00:00:00Z"));
+      const booking = await paidBooking();
+      const first = await acceptAgreement(config, {
+        bookingId: booking.id,
+        userId: customerId,
+      });
 
-      // Both acceptances survive: the v1 one is still the evidence for what
-      // was agreed while v1 was in force.
+      const v2 = await publishAgreementVersion(config, {
+        title: "v2",
+        bodyMd: "Revised terms.",
+        publishedBy: adminId,
+      });
+
+      // A stray second call — a retry, a stale tab, a future code path — must
+      // not silently move this booking onto terms it never agreed to.
+      const again = await acceptAgreement(config, {
+        bookingId: booking.id,
+        userId: customerId,
+      });
+      expect(again.created).toBe(false);
+      expect(again.acceptance.id).toBe(first.acceptance.id);
+      expect(again.version.id).toBe(v1.id);
+      expect(again.version.id).not.toBe(v2.id);
+
+      // One acceptance per booking, ever.
       const rows = await db
         .select()
         .from(agreementAcceptances)
         .where(eq(agreementAcceptances.bookingId, booking.id));
-      expect(rows).toHaveLength(2);
+      expect(rows).toHaveLength(1);
+      expect(rows[0]!.agreementVersionId).toBe(v1.id);
+    });
+
+    it("a booking made AFTER the publish pins to the newer version", async () => {
+      await seedVersion(1, new Date("2025-01-01T00:00:00Z"));
+      const older = await paidBooking();
+      await acceptAgreement(config, { bookingId: older.id, userId: customerId });
+
+      const v2 = await publishAgreementVersion(config, {
+        title: "v2",
+        bodyMd: "Revised terms.",
+        publishedBy: adminId,
+      });
+
+      const newer = await paidBooking();
+      const accepted = await acceptAgreement(config, {
+        bookingId: newer.id,
+        userId: customerId,
+      });
+      expect(accepted.version.id).toBe(v2.id);
+
+      // Two bookings, two different pinned versions, both correct.
+      const olderState = await getBookingAgreementState(db, older.id, now);
+      expect(olderState.acceptedVersion!.version).toBe(1);
+      const newerState = await getBookingAgreementState(db, newer.id, now);
+      expect(newerState.acceptedVersion!.version).toBe(2);
+    });
+
+    it("the database refuses a second acceptance for the same booking", async () => {
+      const v1 = await seedVersion(1, new Date("2025-01-01T00:00:00Z"));
+      const v2 = await seedVersion(2, new Date("2025-06-01T00:00:00Z"));
+      const booking = await paidBooking();
+      await db.insert(agreementAcceptances).values({
+        bookingId: booking.id,
+        agreementVersionId: v1.id,
+        acceptedByUserId: customerId,
+      });
+
+      // The service is what returns a friendly no-op; THIS is what makes a
+      // concurrent double-insert impossible (migration 0025).
+      const clash = await db
+        .insert(agreementAcceptances)
+        .values({
+          bookingId: booking.id,
+          agreementVersionId: v2.id,
+          acceptedByUserId: customerId,
+        })
+        .then(
+          () => null,
+          (error: unknown) => error,
+        );
+      expect(clash).not.toBeNull();
+      expect(pgErrorCode(clash)).toBe("23505");
     });
   });
 
@@ -424,20 +508,142 @@ describeIntegration("booking agreements (integration)", () => {
         }),
       ).rejects.toBeInstanceOf(InvalidInputError);
     });
+  });
 
-    it("counts the in-flight bookings a publish would ask to re-accept", async () => {
-      await seedVersion(1, new Date("2025-01-01T00:00:00Z"));
-      const a = await paidBooking();
-      const b = await paidBooking();
-      expect(await countBookingsNeedingReacceptance(db)).toBe(2);
+  /**
+   * A version freezes the moment it takes effect. Before that it is safe to
+   * edit — it is not current, so `acceptAgreement` cannot have pointed at it,
+   * so no acceptance can be rewritten. That is what makes scheduling double as
+   * the draft mechanism.
+   */
+  describe("editing a scheduled version", () => {
+    /**
+     * These tests run on the SYSTEM clock, not the fixed one the rest of the
+     * file uses. The freeze rule is enforced by a database trigger reading
+     * `now()`, so "scheduled" has to mean scheduled in real time — a fixed
+     * 2025 clock would schedule a version the database considers long past,
+     * which is a property of the fixture, not of the code.
+     */
+    let liveConfig: CoreConfig;
+    const realNow = () => new Date();
 
-      // A booking past the visit is not asked again — nothing is pending for it.
-      await db
-        .update(bookings)
-        .set({ status: "verified_sealed" })
-        .where(eq(bookings.id, b.id));
-      expect(await countBookingsNeedingReacceptance(db)).toBe(1);
-      expect(a.id).not.toBe(b.id);
+    beforeEach(() => {
+      liveConfig = createCoreConfig({ db, payments: new FakePaymentProvider() });
+    });
+
+    it("edits title, body and effective date while it is still in the future", async () => {
+      const later = new Date(realNow().getTime() + 48 * HOUR);
+      const scheduled = await publishAgreementVersion(liveConfig, {
+        title: "Scheduled",
+        bodyMd: "Draft terms.",
+        effectiveFrom: later,
+        publishedBy: adminId,
+      });
+      expect(isAgreementVersionEditable(scheduled, realNow())).toBe(true);
+
+      const evenLater = new Date(realNow().getTime() + 96 * HOUR);
+      const result = await updateScheduledAgreementVersion(liveConfig, {
+        id: scheduled.id,
+        title: "Scheduled, revised",
+        bodyMd: "Revised draft terms.",
+        effectiveFrom: evenLater,
+      });
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      expect(result.version.title).toBe("Scheduled, revised");
+      expect(result.version.bodyMd).toBe("Revised draft terms.");
+      expect(result.version.effectiveFrom).toEqual(evenLater);
+      // The version NUMBER never moves — editing is not republishing.
+      expect(result.version.version).toBe(scheduled.version);
+    });
+
+    it("refuses once the version is in effect, and says so usefully", async () => {
+      const live = await seedVersion(1, new Date("2025-01-01T00:00:00Z"));
+      expect(isAgreementVersionEditable(live, realNow())).toBe(false);
+
+      const result = await updateScheduledAgreementVersion(liveConfig, {
+        id: live.id,
+        title: "Sneaky edit",
+        bodyMd: "Different terms.",
+      });
+      expect(result.ok).toBe(false);
+      if (result.ok) return;
+      expect(result.error).toMatch(/can no longer be edited/i);
+
+      // The stored document is untouched — the guard refused, it did not warn.
+      const after = await getAgreementVersionById(db, live.id);
+      expect(after!.title).toBe("v1");
+      expect(after!.bodyMd).toBe("Terms 1.");
+    });
+
+    it("refuses to backdate a scheduled version into the past", async () => {
+      const scheduled = await publishAgreementVersion(liveConfig, {
+        title: "Scheduled",
+        bodyMd: "Terms.",
+        effectiveFrom: new Date(realNow().getTime() + 48 * HOUR),
+        publishedBy: adminId,
+      });
+
+      await expect(
+        updateScheduledAgreementVersion(liveConfig, {
+          id: scheduled.id,
+          title: "Scheduled",
+          bodyMd: "Terms.",
+          effectiveFrom: new Date(realNow().getTime() - 24 * HOUR),
+        }),
+      ).rejects.toBeInstanceOf(InvalidInputError);
+    });
+
+    it("the database refuses too, not just the service", async () => {
+      // The guard has to hold for psql and for any future second write path,
+      // exactly like the custody and acceptance triggers.
+      const live = await seedVersion(1, new Date("2025-01-01T00:00:00Z"));
+      const direct = await db
+        .update(agreementVersions)
+        .set({ bodyMd: "rewritten behind the service" })
+        .where(eq(agreementVersions.id, live.id))
+        .then(
+          () => null,
+          (error: unknown) => error,
+        );
+      expect(direct).not.toBeNull();
+      expect(errorChainMessage(direct)).toMatch(/frozen/i);
+      expect(pgErrorCode(direct)).toBe("23001");
+
+      const deletion = await db
+        .delete(agreementVersions)
+        .where(eq(agreementVersions.id, live.id))
+        .then(
+          () => null,
+          (error: unknown) => error,
+        );
+      expect(deletion).not.toBeNull();
+      expect(errorChainMessage(deletion)).toMatch(/cannot be deleted/i);
+    });
+
+    it("a scheduled version that has been accepted cannot be edited", async () => {
+      // Unreachable through the app today (only the current version can be
+      // accepted), which is exactly why the guard is asserted rather than
+      // assumed — it is what protects a future second acceptance path.
+      const scheduled = await publishAgreementVersion(liveConfig, {
+        title: "Scheduled",
+        bodyMd: "Terms.",
+        effectiveFrom: new Date(realNow().getTime() + 48 * HOUR),
+        publishedBy: adminId,
+      });
+      const booking = await paidBooking();
+      await db.insert(agreementAcceptances).values({
+        bookingId: booking.id,
+        agreementVersionId: scheduled.id,
+        acceptedByUserId: customerId,
+      });
+
+      const result = await updateScheduledAgreementVersion(liveConfig, {
+        id: scheduled.id,
+        title: "Changed after acceptance",
+        bodyMd: "Changed.",
+      });
+      expect(result.ok).toBe(false);
     });
   });
 

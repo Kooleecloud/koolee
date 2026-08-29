@@ -1,6 +1,7 @@
 export {
   airportLocalDay,
   airportLocalDayBounds,
+  airportLocalDateTime,
   airportLocalInstant,
   computeBagDropCutoffAt,
   computeLatestPickupStart,

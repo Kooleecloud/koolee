@@ -7,7 +7,7 @@ import {
 } from "@koolee/core";
 
 import { ensureDraftId, writeDraft } from "@/lib/booking-draft";
-import { tryGetCore } from "@/lib/core";
+import { ticketExtractionDebugEnabled, tryGetCore } from "@/lib/core";
 import { getSupabaseAdminClient } from "@/lib/supabase/admin";
 import {
   handleTicketUpload,
@@ -26,6 +26,11 @@ export const runtime = "nodejs";
  * extracted values land ONLY in the quarantined `ticketPrefill` cookie key —
  * the flight review form's editable defaults. See
  * `@/lib/ticket-upload-handler` for the pipeline and its tests.
+ *
+ * With TICKET_EXTRACTION_DEBUG set, the response also carries the raw
+ * extraction diagnostics so the upload page can show exactly what the model
+ * returned. That payload never touches the draft cookie and is never included
+ * unless the flag is explicitly on.
  */
 export async function POST(request: Request) {
   const core = tryGetCore();
@@ -86,8 +91,13 @@ export async function POST(request: Request) {
     file,
   );
 
+  const debug = ticketExtractionDebugEnabled() ? outcome.diagnostics : undefined;
+
   if (!outcome.ok) {
-    return NextResponse.json({ error: outcome.error }, { status: outcome.status });
+    return NextResponse.json(
+      { error: outcome.error, ...(debug ? { debug } : {}) },
+      { status: outcome.status },
+    );
   }
 
   // Quarantined prefill: read only by the flight review form as defaults.
@@ -97,5 +107,6 @@ export async function POST(request: Request) {
     ok: true,
     uploadId: outcome.uploadId,
     confidence: outcome.prefill.confidence,
+    ...(debug ? { debug } : {}),
   });
 }

@@ -61,35 +61,32 @@ export default async function StaffPage() {
           ) : (
             <ul className="flex flex-col gap-3">
               {staff.map((member) => (
-                <li
-                  key={member.id}
-                  className="flex items-center justify-between gap-4 rounded-xl border border-border bg-white p-4 shadow-xs"
-                >
-                  <div className="flex flex-col gap-0.5">
-                    <span className="font-medium">
-                      {member.email ?? member.userId}
-                    </span>
-                    <span className="text-xs text-muted-foreground">
-                      {/* Relative: a staff record belongs to no booking, so there is
+                <Card asChild key={member.id}>
+                  <li className="flex items-center justify-between gap-4 p-4">
+                    <div className="flex flex-col gap-0.5">
+                      <span className="font-medium">{member.email ?? member.userId}</span>
+                      <span className="text-xs text-muted-foreground">
+                        {/* Relative: a staff record belongs to no booking, so there is
                           no airport zone to render it in. */}
-                      Added {formatDistanceToNow(member.createdAt, { addSuffix: true })}
-                      {member.fullName ? ` · ${member.fullName}` : ""}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <Badge variant={member.role === "admin" ? "default" : "secondary"}>
-                      {member.role}
-                    </Badge>
-                    {member.active ? (
-                      <Badge variant="success">active</Badge>
-                    ) : (
-                      <Badge variant="warning">deactivated</Badge>
-                    )}
-                    {member.active ? (
-                      <DeactivateStaffButton userId={member.userId} />
-                    ) : null}
-                  </div>
-                </li>
+                        Added {formatDistanceToNow(member.createdAt, { addSuffix: true })}
+                        {member.fullName ? ` · ${member.fullName}` : ""}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <Badge variant={member.role === "admin" ? "default" : "secondary"}>
+                        {member.role}
+                      </Badge>
+                      {member.active ? (
+                        <Badge variant="success">active</Badge>
+                      ) : (
+                        <Badge variant="warning">deactivated</Badge>
+                      )}
+                      {member.active ? (
+                        <DeactivateStaffButton userId={member.userId} />
+                      ) : null}
+                    </div>
+                  </li>
+                </Card>
               ))}
             </ul>
           )}

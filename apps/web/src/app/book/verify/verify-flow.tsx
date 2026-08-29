@@ -218,7 +218,7 @@ export function VerifyFlow({
                     autoComplete="email"
                     autoFocus
                     disabled={busy}
-                    className="h-12 rounded-lg bg-white px-3.5 text-base"
+                    className="h-12 rounded-lg bg-card px-3.5 text-base"
                   />
                 </div>
               )}

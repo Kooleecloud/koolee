@@ -125,11 +125,13 @@ export default async function TaskDetailPage({
     identityPassed: gate.passed,
     agreement: {
       accepted: gate.agreement.accepted,
-      version: gate.agreement.currentVersion?.version ?? null,
+      version:
+        gate.agreement.acceptedVersion?.version ??
+        gate.agreement.currentVersion?.version ??
+        null,
       acceptedAtLabel: gate.agreement.acceptance
         ? formatInstantInAirportTz(gate.agreement.acceptance.acceptedAt, context.tz)
         : null,
-      superseded: gate.agreement.supersededAcceptance,
     },
     passport: {
       status: gate.passport?.status ?? "pending",

@@ -1,26 +1,26 @@
 import * as React from "react";
 
+import {
+  parseAgreementMarkdown,
+  type Block,
+  type TextRun,
+} from "../lib/agreement-markdown";
 import { cn } from "../lib/utils";
 
 /**
- * A deliberately small Markdown renderer for operator-authored prose — today,
- * the booking agreement body.
+ * The customer-facing view of an agreement document.
  *
- * WHY NOT A LIBRARY. The one document this renders is written by an admin at
- * `/agreements` and read by customers and agents. Every general-purpose
- * renderer's escape hatch is raw HTML, and the safe way to use one is to turn
- * that off — at which point what remains is roughly this. Nothing here can
- * inject markup: it emits React elements only, never `dangerouslySetInnerHTML`,
- * so the worst a malformed document can do is look wrong.
+ * It renders the SAME `Block[]` AST the admin editor is built on
+ * (`lib/agreement-markdown.ts`), which is the whole point: the editor cannot
+ * offer a construct this cannot draw, because both are consumers of one
+ * definition rather than two implementations kept in step by discipline.
  *
- * WHAT IT SUPPORTS: `##`/`###` headings, `---` rules, `-`/`*` bullet lists,
- * blank-line-separated paragraphs, and inline `**bold**` / `_italic_`.
- * Everything else renders as literal text — including links, which are
- * omitted on purpose: an agreement that can point somewhere else is an
- * agreement whose terms live somewhere we do not version.
- *
- * Line breaks inside a paragraph are soft (the seeded body is hard-wrapped at
- * 80 columns and must not render as one line per source line).
+ * Nothing here can inject markup. There is no `dangerouslySetInnerHTML` and
+ * no HTML string anywhere in the pipeline — an operator who types a `<script>`
+ * tag into the editor gets those characters on screen, as text. That property
+ * is worth more than the convenience of a general-purpose renderer, which is
+ * why this is hand-written rather than a library whose escape hatch is raw
+ * HTML.
  */
 
 export interface MarkdownProps {
@@ -28,104 +28,74 @@ export interface MarkdownProps {
   className?: string;
 }
 
-type Token =
-  | { kind: "heading"; level: 2 | 3; text: string }
-  | { kind: "rule" }
-  | { kind: "list"; items: string[] }
-  | { kind: "paragraph"; text: string };
-
-function tokenize(source: string): Token[] {
-  const tokens: Token[] = [];
-  // Normalize CRLF so a Windows-pasted document does not leave stray \r in
-  // every heading and list marker.
-  const blocks = source.replace(/\r\n/g, "\n").split(/\n{2,}/);
-
-  for (const raw of blocks) {
-    const block = raw.trim();
-    if (!block) continue;
-
-    if (/^-{3,}$/.test(block)) {
-      tokens.push({ kind: "rule" });
-      continue;
-    }
-
-    const heading = /^(#{2,3})\s+(.*)$/.exec(block);
-    if (heading) {
-      tokens.push({
-        kind: "heading",
-        level: heading[1]!.length === 2 ? 2 : 3,
-        text: heading[2]!.trim(),
-      });
-      continue;
-    }
-
-    const lines = block.split("\n");
-    if (lines.every((line) => /^\s*[-*]\s+/.test(line))) {
-      tokens.push({
-        kind: "list",
-        items: lines.map((line) => line.replace(/^\s*[-*]\s+/, "").trim()),
-      });
-      continue;
-    }
-
-    tokens.push({ kind: "paragraph", text: lines.join(" ") });
-  }
-  return tokens;
+function Runs({ runs, keyPrefix }: { runs: TextRun[]; keyPrefix: string }) {
+  return (
+    <>
+      {runs.map((run, i) => {
+        let node: React.ReactNode = run.text;
+        // Innermost first, so the nesting matches the serializer's order.
+        if (run.italic) node = <em>{node}</em>;
+        if (run.bold) node = <strong>{node}</strong>;
+        if (run.strike) node = <s>{node}</s>;
+        return <React.Fragment key={`${keyPrefix}-${i}`}>{node}</React.Fragment>;
+      })}
+    </>
+  );
 }
 
-/** `**bold**` and `_italic_`, as elements. Unmatched markers stay literal. */
-function inline(text: string, keyPrefix: string): React.ReactNode[] {
-  const nodes: React.ReactNode[] = [];
-  const pattern = /\*\*([^*]+)\*\*|_([^_]+)_/g;
-  let lastIndex = 0;
-  let match: RegExpExecArray | null;
-  let index = 0;
-
-  while ((match = pattern.exec(text)) !== null) {
-    if (match.index > lastIndex) nodes.push(text.slice(lastIndex, match.index));
-    if (match[1] !== undefined) {
-      nodes.push(<strong key={`${keyPrefix}-b${index}`}>{match[1]}</strong>);
-    } else {
-      nodes.push(<em key={`${keyPrefix}-i${index}`}>{match[2]}</em>);
+function BlockView({ block, index }: { block: Block; index: number }) {
+  switch (block.kind) {
+    case "rule":
+      return <hr className="border-border" />;
+    case "heading":
+      return block.level === 2 ? (
+        <h2 className="font-display text-base font-semibold">
+          <Runs runs={block.content} keyPrefix={`h${index}`} />
+        </h2>
+      ) : (
+        <h3 className="font-display text-sm font-semibold">
+          <Runs runs={block.content} keyPrefix={`h${index}`} />
+        </h3>
+      );
+    case "paragraph":
+      return (
+        <p>
+          <Runs runs={block.content} keyPrefix={`p${index}`} />
+        </p>
+      );
+    case "blockquote":
+      return (
+        <blockquote className="border-l-2 border-border pl-4 text-muted-foreground">
+          {block.content.map((line, j) => (
+            <p key={j}>
+              <Runs runs={line} keyPrefix={`q${index}-${j}`} />
+            </p>
+          ))}
+        </blockquote>
+      );
+    case "list": {
+      const items = block.items.map((item, j) => (
+        <li key={j}>
+          <Runs runs={item} keyPrefix={`l${index}-${j}`} />
+        </li>
+      ));
+      return block.list === "bullet" ? (
+        <ul className="flex list-disc flex-col gap-1 pl-5">{items}</ul>
+      ) : (
+        <ol className="flex list-decimal flex-col gap-1 pl-5">{items}</ol>
+      );
     }
-    lastIndex = match.index + match[0].length;
-    index += 1;
   }
-  if (lastIndex < text.length) nodes.push(text.slice(lastIndex));
-  return nodes;
 }
 
 export function Markdown({ children, className }: MarkdownProps) {
-  const tokens = React.useMemo(() => tokenize(children), [children]);
+  const blocks = React.useMemo(() => parseAgreementMarkdown(children), [children]);
 
   return (
     <div className={cn("flex flex-col gap-3 text-sm leading-relaxed", className)}>
-      {tokens.map((token, i) => {
-        switch (token.kind) {
-          case "rule":
-            return <hr key={i} className="border-border" />;
-          case "heading":
-            return token.level === 2 ? (
-              <h2 key={i} className="font-display text-base font-semibold">
-                {inline(token.text, `h${i}`)}
-              </h2>
-            ) : (
-              <h3 key={i} className="font-display text-sm font-semibold">
-                {inline(token.text, `h${i}`)}
-              </h3>
-            );
-          case "list":
-            return (
-              <ul key={i} className="flex list-disc flex-col gap-1 pl-5">
-                {token.items.map((item, j) => (
-                  <li key={j}>{inline(item, `l${i}-${j}`)}</li>
-                ))}
-              </ul>
-            );
-          case "paragraph":
-            return <p key={i}>{inline(token.text, `p${i}`)}</p>;
-        }
-      })}
+      {blocks.map((block, i) => (
+        <BlockView key={i} block={block} index={i} />
+      ))}
     </div>
   );
 }

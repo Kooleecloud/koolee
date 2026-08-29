@@ -74,8 +74,17 @@ export type NewAgreementVersion = typeof agreementVersions.$inferInsert;
  * A withdrawn agreement is not an edit: it is a new version published and a
  * new acceptance (or its absence) against that version.
  *
- * UNIQUE (booking_id, agreement_version_id) makes re-accepting the same
- * version a no-op rather than a second row — accept is idempotent on the key.
+ * UNIQUE (booking_id) — ONE acceptance per booking, ever.
+ *
+ * That is the version-pinning rule as a constraint. The version a booking
+ * accepts governs it for life, so a second acceptance row is not "accepting
+ * an update", it is a booking bound to two different documents at once. The
+ * key also makes accept idempotent: a double-submit or a retry conflicts and
+ * returns the row that already exists.
+ *
+ * It replaced UNIQUE (booking_id, agreement_version_id), which permitted one
+ * row per version and was the shape of the re-acceptance model this
+ * deliberately abandoned (migration 0025).
  */
 export const agreementAcceptances = pgTable(
   "agreement_acceptances",
@@ -101,11 +110,8 @@ export const agreementAcceptances = pgTable(
     createdAt: createdAt(),
   },
   (t) => [
-    uniqueIndex("agreement_acceptances_booking_version_key").on(
-      t.bookingId,
-      t.agreementVersionId,
-    ),
-    index("agreement_acceptances_booking_id_idx").on(t.bookingId),
+    uniqueIndex("agreement_acceptances_booking_key").on(t.bookingId),
+    index("agreement_acceptances_version_idx").on(t.agreementVersionId),
   ],
 );
 

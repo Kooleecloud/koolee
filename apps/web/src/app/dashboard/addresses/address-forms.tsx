@@ -169,11 +169,11 @@ export function DeleteAddressButton({ addressId }: { addressId: string }) {
   return (
     <form action={formAction} className="flex flex-col items-end gap-1">
       <input type="hidden" name="addressId" value={addressId} />
-      <Button type="submit" variant="ghost" size="sm" disabled={pending}>
+      <Button type="submit" variant="ghost" size="sm" loading={pending}>
         Delete
       </Button>
       {state.error ? (
-        <span className="text-xs text-destructive">{state.error}</span>
+        <FormMessage className="px-2 py-1 text-xs">{state.error}</FormMessage>
       ) : null}
     </form>
   );

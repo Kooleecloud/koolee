@@ -3,6 +3,8 @@ export { cn } from "./lib/utils";
 export { Button, buttonVariants, type ButtonProps } from "./components/button";
 export {
   Card,
+  cardVariants,
+  type CardProps,
   CardHeader,
   CardFooter,
   CardTitle,
@@ -172,6 +174,7 @@ export {
 
 /* Prose */
 export { Markdown, type MarkdownProps } from "./components/markdown";
+export { RichTextEditor, type RichTextEditorProps } from "./components/rich-text-editor";
 
 /* Motion */
 export { Reveal, type RevealProps } from "./components/reveal";

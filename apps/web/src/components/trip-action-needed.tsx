@@ -43,8 +43,6 @@ export interface TripAgreementView {
   accepted: boolean;
   /** Preformatted acceptance instant, booking's zone. */
   acceptedAtLabel: string | null;
-  /** Accepted an EARLIER version, and the terms have since changed. */
-  superseded: boolean;
 }
 
 export interface TripPassportView {
@@ -129,16 +127,13 @@ function AgreementCard({
         </CardTitle>
         <CardDescription>
           {agreement.accepted ? (
+            // Version pinning: this is the document the booking is bound by,
+            // and it stays this one however many versions publish later.
             <>
               You accepted version {agreement.version}
-              {agreement.acceptedAtLabel ? ` on ${agreement.acceptedAtLabel}` : ""}.
-            </>
-          ) : agreement.superseded ? (
-            // Materially different from "you have not accepted", which would
-            // be false to someone who remembers accepting.
-            <>
-              Our agreement was updated — please review version {agreement.version} and
-              accept again.
+              {agreement.acceptedAtLabel ? ` on ${agreement.acceptedAtLabel}` : ""}. These
+              are the terms for this trip — a later update won&apos;t change them or ask
+              you again.
             </>
           ) : (
             <>

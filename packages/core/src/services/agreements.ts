@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, lte, sql } from "drizzle-orm";
+import { and, desc, eq, gt, lte, notExists, sql } from "drizzle-orm";
 import {
   agreementAcceptances,
   agreementVersions,
@@ -26,14 +26,35 @@ import { InvalidInputError, NotAuthorizedError, NotFoundError } from "../errors"
  * was to make the invariant impossible to violate rather than to remember to
  * maintain it.
  *
- * THE RE-ACCEPT MODEL, stated plainly because it looks like a bug otherwise:
- * the gate asks whether a booking has an acceptance of the version that is
- * current RIGHT NOW. So publishing v2 un-gates every booking that only ever
- * accepted v1, and those customers are asked to accept again. That is
- * intended — an agreement the customer never saw is not one they agreed to.
- * It is also why `publishAgreementVersion` refuses a retroactive
- * `effective_from`: backdating would flip in-flight bookings to "not
- * accepted" retroactively, potentially while an agent is standing at the door.
+ * VERSION PINNING — the rule that governs everything below.
+ *
+ *   Every booking needs one acceptance, before the visit. That acceptance
+ *   PINS the version, and that version governs the booking for its whole
+ *   life. A new version never disturbs a booking already in flight. A new
+ *   booking accepts whatever is current at that moment.
+ *
+ * Per BOOKING, not per customer: a repeat customer accepts again on their next
+ * booking. Pinning a customer to their first version would leave people
+ * shipping under years-old terms while the operation runs on the newest.
+ *
+ * WHY, beyond convenience. A booking is a contract for one shipment, formed at
+ * acceptance; carriage, shipping and insurance all bind the terms in force at
+ * purchase, and a carrier generally cannot rewrite terms mid-shipment anyway.
+ * The decisive point is that re-acceptance does not achieve what it appears
+ * to: consent tapped at a doorstep with an agent waiting and bags packed is
+ * consent under duress, which is the weakest kind there is.
+ *
+ * This REPLACED a re-acceptance model where the gate asked for an acceptance
+ * of the version current right now, so publishing v2 un-gated every booking
+ * that had only accepted v1. That model was also internally inconsistent: it
+ * blocked a pickup tomorrow morning over a terms change, but left a booking
+ * already in transit alone — which is not a principle, it is an artifact of
+ * where the gate sat.
+ *
+ * `publishAgreementVersion` still refuses a retroactive `effective_from`. It
+ * no longer protects in-flight acceptances (nothing can disturb those now) but
+ * it still decides which version NEW bookings pin to, and backdating that
+ * silently rewrites which terms a booking made an hour ago was sold under.
  */
 
 /** Custody event names this module appends. Free-form text by design. */
@@ -65,7 +86,7 @@ export const AGREEMENT_ACCEPTABLE_STATUSES: readonly BookingStatus[] = [
  *
  * Null means no agreement has ever been published (a fresh database with no
  * seed). Callers must treat that as "cannot gate" rather than "gate passes" —
- * see `bookingHasCurrentAcceptance`.
+ * see `bookingHasAcceptedAgreement`.
  */
 export async function getCurrentAgreementVersion(
   db: Database,
@@ -102,16 +123,19 @@ export type AcceptAgreementResult = {
 /**
  * Records that this customer accepted the CURRENT version for this booking.
  *
- * Idempotent on `(booking_id, agreement_version_id)`: a double-submit, a
- * refresh, or a retry after a dropped response is a no-op success rather than
- * a second row or an error the customer cannot act on. The uniqueness is the
- * database's — `onConflictDoNothing` plus a re-read, not a check-then-insert,
- * because the latter races with itself.
+ * Idempotent on `booking_id`: a double-submit, a refresh, or a retry after a
+ * dropped response returns the acceptance that already exists. Critically,
+ * that is also what makes pinning hold — a booking that accepted v1 and calls
+ * this again while v2 is current does NOT get re-pinned to v2. It keeps v1,
+ * because v1 is what it is bound by.
  *
- * Deliberately accepts only the version current at call time. A client that
- * rendered v1 and submits after v2 goes live must not be able to name the
- * stale version and satisfy the gate; the version is resolved server-side and
- * the client does not get to choose it.
+ * The uniqueness is the database's (`onConflictDoNothing` plus a re-read, not
+ * a check-then-insert), because check-then-insert races with itself: two
+ * concurrent submits could otherwise pin one booking to two versions.
+ *
+ * A first acceptance always binds to the version current at call time. The
+ * client never names one — a page that rendered v1 and submits after v2 goes
+ * live must not be able to pin the stale document by asking for it.
  */
 export async function acceptAgreement(
   config: CoreConfig,
@@ -134,6 +158,22 @@ export async function acceptAgreement(
     );
   }
 
+  // Already pinned? Return it untouched. Resolving the current version first
+  // and inserting against it is exactly what would silently re-pin an accepted
+  // booking to newer terms.
+  const [alreadyPinned] = await db
+    .select()
+    .from(agreementAcceptances)
+    .where(eq(agreementAcceptances.bookingId, booking.id))
+    .limit(1);
+  if (alreadyPinned) {
+    const pinned = await getAgreementVersionById(db, alreadyPinned.agreementVersionId);
+    if (!pinned) {
+      throw new NotFoundError("Agreement version", alreadyPinned.agreementVersionId);
+    }
+    return { acceptance: alreadyPinned, version: pinned, created: false };
+  }
+
   const version = await getCurrentAgreementVersion(db, now);
   if (!version) {
     throw new NotFoundError("Current agreement version", "none published");
@@ -149,9 +189,7 @@ export async function acceptAgreement(
         acceptedByUserId: input.userId,
         ...(input.evidence === undefined ? {} : { evidence: input.evidence }),
       })
-      .onConflictDoNothing({
-        target: [agreementAcceptances.bookingId, agreementAcceptances.agreementVersionId],
-      })
+      .onConflictDoNothing({ target: agreementAcceptances.bookingId })
       .returning();
 
     // Only the acceptance that actually happened gets a custody event. A
@@ -174,98 +212,110 @@ export async function acceptAgreement(
 
   if (inserted) return { acceptance: inserted, version, created: true };
 
-  // Lost the conflict: the row already existed (or a concurrent request won).
+  // Lost the race: a concurrent request pinned this booking first. Return
+  // THEIR row and the version it actually pinned — which may not be the one we
+  // resolved a moment ago, and reporting ours would misstate what the booking
+  // is bound by.
   const [existing] = await db
     .select()
     .from(agreementAcceptances)
-    .where(
-      and(
-        eq(agreementAcceptances.bookingId, booking.id),
-        eq(agreementAcceptances.agreementVersionId, version.id),
-      ),
-    )
+    .where(eq(agreementAcceptances.bookingId, booking.id))
     .limit(1);
   if (!existing) {
     // Unreachable short of the row being deleted between the two statements,
     // which the append-only trigger forbids.
     throw new NotFoundError("Agreement acceptance", booking.id);
   }
-  return { acceptance: existing, version, created: false };
+  const raced =
+    existing.agreementVersionId === version.id
+      ? version
+      : await getAgreementVersionById(db, existing.agreementVersionId);
+  return { acceptance: existing, version: raced ?? version, created: false };
 }
 
 /**
- * The gate predicate: has this booking accepted the version in force now?
+ * The gate predicate: has this booking accepted an agreement at all?
  *
- * False when nothing has ever been published, on purpose. "No agreement
- * exists" is a misconfiguration, and a misconfiguration must fail CLOSED — an
- * empty table quietly satisfying the gate would mean a database that lost its
- * agreement rows silently stops requiring agreements, which is the worst
- * possible way for that to be discovered.
+ * Deliberately NOT "…the version current right now". Under pinning, whichever
+ * version this booking accepted is the one that governs it, so publishing a
+ * newer one cannot un-gate a booking that is already agreed. There is exactly
+ * one acceptance per booking (UNIQUE `booking_id`, migration 0025), so this is
+ * a single existence check.
+ *
+ * It still fails CLOSED on a booking that has never accepted — including when
+ * nothing has ever been published, because then no booking can have an
+ * acceptance row. A misconfiguration must block visits loudly rather than
+ * quietly stop requiring agreements.
  */
-export async function bookingHasCurrentAcceptance(
+export async function bookingHasAcceptedAgreement(
   db: Database,
   bookingId: string,
-  now: Date,
 ): Promise<boolean> {
-  const version = await getCurrentAgreementVersion(db, now);
-  if (!version) return false;
-
   const [row] = await db
     .select({ id: agreementAcceptances.id })
     .from(agreementAcceptances)
-    .where(
-      and(
-        eq(agreementAcceptances.bookingId, bookingId),
-        eq(agreementAcceptances.agreementVersionId, version.id),
-      ),
-    )
+    .where(eq(agreementAcceptances.bookingId, bookingId))
     .limit(1);
   return row !== undefined;
 }
 
 /** What a booking's agreement state looks like to a UI. */
 export interface BookingAgreementState {
-  /** Null only when nothing has ever been published. */
-  currentVersion: AgreementVersion | null;
-  /** The acceptance of the CURRENT version, if there is one. */
+  /**
+   * The version this booking is BOUND to — the one it accepted. Null until it
+   * accepts. Once set it never changes, whatever gets published afterwards,
+   * and it is the document every surface should show for this booking.
+   */
+  acceptedVersion: AgreementVersion | null;
+  /** The acceptance itself: who, when, and the evidence captured. */
   acceptance: AgreementAcceptance | null;
   /**
-   * True when this booking accepted an EARLIER version and the terms have
-   * since changed. The UI says "our agreement was updated" rather than
-   * "you have not accepted", which is a materially different sentence for
-   * someone who remembers accepting.
+   * What a NEW acceptance would pin to. Only meaningful while `accepted` is
+   * false — after that it is what future bookings get, not this one. Null when
+   * nothing has ever been published.
    */
-  supersededAcceptance: boolean;
-  /** `acceptance !== null` — the same answer `bookingHasCurrentAcceptance` gives. */
+  currentVersion: AgreementVersion | null;
+  /** `acceptance !== null`. */
   accepted: boolean;
 }
 
 /**
- * Everything a trip page or an agent screen needs about one booking's
- * agreement, in two queries rather than three round trips per surface.
+ * Everything a trip page, an agent screen or the ops console needs about one
+ * booking's agreement.
+ *
+ * Returns the PINNED version when there is one, and only then falls back to
+ * asking what is current. A booking that accepted v1 keeps showing v1 after v2
+ * publishes — to the customer, to the agent at the door, and to ops — because
+ * v1 is what it is actually bound by.
  */
 export async function getBookingAgreementState(
   db: Database,
   bookingId: string,
   now: Date,
 ): Promise<BookingAgreementState> {
-  const currentVersion = await getCurrentAgreementVersion(db, now);
-  const rows = await db
+  const [acceptance] = await db
     .select()
     .from(agreementAcceptances)
-    .where(eq(agreementAcceptances.bookingId, bookingId));
+    .where(eq(agreementAcceptances.bookingId, bookingId))
+    .limit(1);
 
-  const acceptance =
-    currentVersion === null
-      ? null
-      : (rows.find((r) => r.agreementVersionId === currentVersion.id) ?? null);
+  if (acceptance) {
+    const acceptedVersion = await getAgreementVersionById(
+      db,
+      acceptance.agreementVersionId,
+    );
+    return {
+      acceptedVersion,
+      acceptance,
+      // Not fetched: nothing on an accepted booking depends on it, and the
+      // query would only invite a surface to render the wrong document.
+      currentVersion: acceptedVersion,
+      accepted: true,
+    };
+  }
 
-  return {
-    currentVersion,
-    acceptance,
-    supersededAcceptance: acceptance === null && rows.length > 0,
-    accepted: acceptance !== null,
-  };
+  const currentVersion = await getCurrentAgreementVersion(db, now);
+  return { acceptedVersion: null, acceptance: null, currentVersion, accepted: false };
 }
 
 export interface PublishAgreementVersionInput {
@@ -336,6 +386,136 @@ export async function publishAgreementVersion(
   });
 }
 
+/**
+ * SQLSTATE 23001 (`restrict_violation`) anywhere on the cause chain — the code
+ * the append-only and freeze triggers raise with. drizzle wraps driver errors,
+ * so the top-level message is only ever `Failed query: …`.
+ */
+function isRestrictViolation(error: unknown): boolean {
+  let cursor: unknown = error;
+  while (cursor) {
+    if ((cursor as { code?: unknown }).code === "23001") return true;
+    cursor = (cursor as { cause?: unknown }).cause;
+  }
+  return false;
+}
+
+export interface UpdateScheduledAgreementVersionInput {
+  id: string;
+  title: string;
+  bodyMd: string;
+  /** Must stay now-or-later. Omitted → left as it is. */
+  effectiveFrom?: Date;
+}
+
+export type UpdateScheduledAgreementVersionResult =
+  { ok: true; version: AgreementVersion } | { ok: false; error: string };
+
+/**
+ * Edits a version that has not taken effect yet.
+ *
+ * A scheduled version is safe to edit precisely because it is not current:
+ * `acceptAgreement` only ever resolves the CURRENT version, so a row with a
+ * future `effective_from` provably has no acceptances, and changing it cannot
+ * rewrite what anybody agreed to. That is also why this product needs no
+ * separate draft state — schedule it, keep working on it, and it freezes when
+ * it goes live.
+ *
+ * THE RACE THIS CLOSES. An operator opens a version scheduled for tomorrow,
+ * leaves the tab open overnight, it goes live, a customer accepts it, and then
+ * the operator saves. A read-then-write would silently rewrite accepted terms.
+ * So the guard is in the WHERE clause — `effective_from > now()` AND no
+ * acceptance row exists — and zero rows updated means the world moved, which
+ * is reported rather than swallowed. Migration 0024 enforces the same rule
+ * with a trigger, so it also holds for anything that never comes through here.
+ *
+ * Returns a Result rather than throwing on the lost race: "someone accepted it
+ * while you were typing" is an expected outcome the UI must explain, not an
+ * exception.
+ */
+export async function updateScheduledAgreementVersion(
+  config: CoreConfig,
+  input: UpdateScheduledAgreementVersionInput,
+): Promise<UpdateScheduledAgreementVersionResult> {
+  const now = config.clock.now();
+  const title = input.title.trim();
+  const bodyMd = input.bodyMd.trim();
+  if (!title) throw new InvalidInputError("title", "Give the agreement a title.");
+  if (!bodyMd) throw new InvalidInputError("bodyMd", "The agreement body is empty.");
+
+  if (
+    input.effectiveFrom !== undefined &&
+    input.effectiveFrom.getTime() < now.getTime() - PUBLISH_CLOCK_SKEW_MS
+  ) {
+    throw new InvalidInputError(
+      "effectiveFrom",
+      "An agreement version cannot take effect in the past — it would retroactively " +
+        "invalidate acceptances on bookings that are already in flight.",
+    );
+  }
+
+  let row: AgreementVersion | undefined;
+  try {
+    [row] = await config.db
+      .update(agreementVersions)
+      .set({
+        title,
+        bodyMd,
+        ...(input.effectiveFrom === undefined
+          ? {}
+          : { effectiveFrom: input.effectiveFrom }),
+      })
+      .where(
+        and(
+          eq(agreementVersions.id, input.id),
+          // Not yet in effect…
+          gt(agreementVersions.effectiveFrom, now),
+          // …and nobody has accepted it. Belt and braces: the first condition
+          // implies the second today, and would stop implying it the moment
+          // anyone adds a way to accept a non-current version.
+          notExists(
+            config.db
+              .select({ one: sql`1` })
+              .from(agreementAcceptances)
+              .where(eq(agreementAcceptances.agreementVersionId, input.id)),
+          ),
+        ),
+      )
+      .returning();
+  } catch (error) {
+    // The WHERE clause above is evaluated against `config.clock`, the trigger
+    // (0024) against the DATABASE's clock. They are the same in production
+    // give or take skew — but when they disagree, the app can believe a
+    // version is still schedulable while the database has already frozen it,
+    // and the trigger raises. That is the guard working, so it must surface as
+    // the same expected outcome as losing the WHERE-clause race, not as an
+    // unhandled driver error at the operator.
+    if (!isRestrictViolation(error)) throw error;
+    row = undefined;
+  }
+
+  if (!row) {
+    const existing = await getAgreementVersionById(config.db, input.id);
+    if (!existing) return { ok: false, error: "That version no longer exists." };
+    return {
+      ok: false,
+      error:
+        `Version ${existing.version} took effect at ${existing.effectiveFrom.toISOString()} ` +
+        `and can no longer be edited. Publish a new version instead — your text is still ` +
+        `in the editor.`,
+    };
+  }
+  return { ok: true, version: row };
+}
+
+/** True when this version can still be edited: scheduled, and unaccepted. */
+export function isAgreementVersionEditable(
+  version: AgreementVersion,
+  now: Date,
+): boolean {
+  return version.effectiveFrom.getTime() > now.getTime();
+}
+
 /** Every version, newest first — the admin list. */
 export async function listAgreementVersions(db: Database): Promise<AgreementVersion[]> {
   return db.select().from(agreementVersions).orderBy(desc(agreementVersions.version));
@@ -351,24 +531,4 @@ export async function getAgreementVersionById(
     .where(eq(agreementVersions.id, id))
     .limit(1);
   return row ?? null;
-}
-
-/**
- * How many in-flight bookings would have to re-accept if a new version were
- * published now — the number the publish confirmation puts in front of the
- * operator before they commit.
- *
- * It is every booking in a pre-visit status, with no join to acceptances,
- * and that is exact rather than approximate: a version that does not exist
- * yet has no acceptances at all, so ALL of them are affected. There is no
- * subset to subtract. The count exists so publishing a new version is a
- * decision with a visible cost ("847 customers will be asked again") rather
- * than a form submit.
- */
-export async function countBookingsNeedingReacceptance(db: Database): Promise<number> {
-  const [row] = await db
-    .select({ n: sql<number>`count(*)::int` })
-    .from(bookings)
-    .where(inArray(bookings.status, [...AGREEMENT_ACCEPTABLE_STATUSES]));
-  return row?.n ?? 0;
 }

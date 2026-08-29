@@ -260,12 +260,20 @@ async function main(): Promise<void> {
  * booking is permanently blocked at the agent's identity step, which reads as
  * a bug rather than as missing data.
  *
- * IDEMPOTENT ON `version`, and deliberately NOT on the body: re-running the
- * seed refreshes v1's title/body/effective_from in place instead of
- * publishing a v2. Inserting a new version on every seed would silently
- * invalidate every acceptance in the local database (the gate is
- * version-specific by design), so a developer would watch accepted bookings
- * un-accept themselves for no visible reason.
+ * IDEMPOTENT BY DOING NOTHING when v1 already exists — not by refreshing it.
+ *
+ * Two rules meet here and both point the same way. A version in effect is
+ * FROZEN (migration 0024): the seed physically cannot update it, because
+ * `agreement_acceptances` references it by id and rewriting `body_md` would
+ * change what past acceptors agreed to. And inserting a NEW version on every
+ * run would publish a v2, v3, v4… on each seed, which under the current gate
+ * un-accepts every booking in the local database and makes accepted bookings
+ * appear to un-accept themselves for no visible reason.
+ *
+ * So: insert once, then leave it alone. A developer who wants different terms
+ * publishes a new version at admin `/agreements`, exactly as production would.
+ * Changing the text below therefore only affects databases that have never
+ * been seeded — which is the same immutability guarantee customers get.
  *
  * `effective_from` is a fixed past date so the derivation
  * (`max(version) WHERE effective_from <= now()`) resolves it immediately.
@@ -286,8 +294,15 @@ async function main(): Promise<void> {
  */
 const AGREEMENT_V1_TITLE = "Koolee booking agreement";
 
-/** Fixed, past, and readable. See the note above. */
-const AGREEMENT_V1_EFFECTIVE_FROM = new Date("2026-01-01T00:00:00Z");
+/**
+ * Fixed, past, and readable. See the note above.
+ *
+ * 05:00Z is midnight in New York, which is the zone every seeded booking
+ * renders in — a bare `00:00Z` displayed to a customer as "in effect from Wed
+ * 31 Dec, 7:00 PM EST", which reads like an off-by-one bug on a version
+ * labelled v1.
+ */
+const AGREEMENT_V1_EFFECTIVE_FROM = new Date("2026-01-01T05:00:00Z");
 
 const AGREEMENT_V1_BODY_MD = `## What you are booking
 
@@ -333,7 +348,7 @@ agreements page with the legally reviewed text before taking real bookings._
 
 async function seedAgreementV1(db: ReturnType<typeof createDb>): Promise<void> {
   console.log("Seeding booking agreement v1…");
-  await db
+  const inserted = await db
     .insert(agreementVersions)
     .values({
       version: 1,
@@ -341,15 +356,13 @@ async function seedAgreementV1(db: ReturnType<typeof createDb>): Promise<void> {
       bodyMd: AGREEMENT_V1_BODY_MD,
       effectiveFrom: AGREEMENT_V1_EFFECTIVE_FROM,
     })
-    .onConflictDoUpdate({
-      target: agreementVersions.version,
-      set: {
-        title: AGREEMENT_V1_TITLE,
-        bodyMd: AGREEMENT_V1_BODY_MD,
-        effectiveFrom: AGREEMENT_V1_EFFECTIVE_FROM,
-      },
-    });
-  console.log("  agreement v1 present");
+    .onConflictDoNothing({ target: agreementVersions.version })
+    .returning({ id: agreementVersions.id });
+  console.log(
+    inserted.length > 0
+      ? "  agreement v1 inserted"
+      : "  agreement v1 already present — left untouched (published versions are frozen)",
+  );
 }
 
 /**

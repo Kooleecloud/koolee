@@ -117,21 +117,25 @@ export default async function TripPage({
     getPassportVerification(core.db, booking.id),
   ]);
 
+  const agreementVersion =
+    agreementState.acceptedVersion ?? agreementState.currentVersion;
+
   // Every time in the booking's zone, never the viewer's (docs/TIME.md) — an
   // agreement's effective date is exactly the kind of value that reads wrong
   // when it silently follows the device.
   const agreementView: TripAgreementView = {
-    version: agreementState.currentVersion?.version ?? null,
-    title: agreementState.currentVersion?.title ?? "Booking agreement",
-    bodyMd: agreementState.currentVersion?.bodyMd ?? "",
-    effectiveLabel: agreementState.currentVersion
-      ? formatInstantInAirportTz(agreementState.currentVersion.effectiveFrom, tz)
+    // The version this booking is BOUND by once accepted, and only otherwise
+    // what a new acceptance would pin to.
+    version: agreementVersion?.version ?? null,
+    title: agreementVersion?.title ?? "Booking agreement",
+    bodyMd: agreementVersion?.bodyMd ?? "",
+    effectiveLabel: agreementVersion
+      ? formatInstantInAirportTz(agreementVersion.effectiveFrom, tz)
       : null,
     accepted: agreementState.accepted,
     acceptedAtLabel: agreementState.acceptance
       ? formatInstantInAirportTz(agreementState.acceptance.acceptedAt, tz)
       : null,
-    superseded: agreementState.supersededAcceptance,
   };
 
   // Signed here, after the booking has already passed the ownership check in

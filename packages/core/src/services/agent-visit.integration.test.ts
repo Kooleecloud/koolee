@@ -585,16 +585,19 @@ describeIntegration("agent verification visit (integration)", () => {
       expect(sealed.bags[0]!.sealId).toBe("GATE-2");
     });
 
-    it("publishing a newer agreement version re-closes the gate on an in-flight booking", async () => {
-      const { booking, task } = await assignedBooking(1);
+    it("publishing a newer agreement version leaves an in-flight visit alone", async () => {
+      const { task } = await assignedBooking(1);
       await arriveAtVisit(config, agentSession, { taskId: task.id });
       await confirmVisitIdentity(config, agentSession, { taskId: task.id });
       expect((await getVisitContext(db, agentSession, task.id)).identityGate.passed).toBe(
         true,
       );
 
-      // v2 goes live. The booking accepted v1, so it is no longer current —
-      // this is the intended re-accept model, not a bug.
+      // v2 goes live while the agent is mid-visit. Under version pinning this
+      // must change NOTHING: the booking is bound by the version it accepted,
+      // and re-asking at a doorstep with the bags packed would be consent
+      // under duress anyway. The re-acceptance model this replaced re-closed
+      // the gate here and blocked the agent.
       await db.insert(agreementVersions).values({
         version: 2,
         title: "Test agreement v2",
@@ -602,15 +605,11 @@ describeIntegration("agent verification visit (integration)", () => {
         effectiveFrom: new Date(0),
       });
 
-      const reclosed = await getVisitContext(db, agentSession, task.id);
-      expect(reclosed.identityGate.passed).toBe(false);
-      expect(reclosed.identityGate.agreement.supersededAcceptance).toBe(true);
-
-      // Accepting again — this time v2 — re-opens it.
-      await acceptAgreement(config, { bookingId: booking.id, userId: customerId });
-      expect((await getVisitContext(db, agentSession, task.id)).identityGate.passed).toBe(
-        true,
-      );
+      const after = await getVisitContext(db, agentSession, task.id);
+      expect(after.identityGate.passed).toBe(true);
+      expect(after.identityGate.blockers).toEqual([]);
+      // Still showing the document this booking is actually bound by.
+      expect(after.identityGate.agreement.acceptedVersion!.version).toBe(1);
     });
 
     it("confirms from a customer pre-upload, recording the confirming agent", async () => {

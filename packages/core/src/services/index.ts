@@ -74,17 +74,20 @@ export {
   acceptAgreement,
   AGREEMENT_ACCEPTABLE_STATUSES,
   AGREEMENT_EVENT_TYPES,
-  bookingHasCurrentAcceptance,
-  countBookingsNeedingReacceptance,
+  bookingHasAcceptedAgreement,
   getAgreementVersionById,
   getBookingAgreementState,
   getCurrentAgreementVersion,
+  isAgreementVersionEditable,
   listAgreementVersions,
   publishAgreementVersion,
+  updateScheduledAgreementVersion,
   type AcceptAgreementInput,
   type AcceptAgreementResult,
   type BookingAgreementState,
   type PublishAgreementVersionInput,
+  type UpdateScheduledAgreementVersionInput,
+  type UpdateScheduledAgreementVersionResult,
 } from "./agreements";
 
 export {

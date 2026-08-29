@@ -106,6 +106,18 @@ const schema = z.object({
   AEROAPI_KEY: optionalString,
   GOOGLE_MAPS_API_KEY: optionalString,
   ANTHROPIC_API_KEY: optionalString,
+  /**
+   * Set to "1" to return the RAW ticket-extraction diagnostics to the browser
+   * — every segment the model read, which leg was chosen and why, both model
+   * attempts with their token usage.
+   *
+   * Off unless explicitly set, and it must NEVER be set on the production
+   * project: the payload contains the customer's full itinerary and is meant
+   * for a developer looking at their own upload. It is deliberately gated on
+   * this flag alone rather than on NODE_ENV, so it can be switched on for a
+   * preview deployment (which builds as production) while debugging a ticket.
+   */
+  TICKET_EXTRACTION_DEBUG: optionalString,
 
   // --- Observability -----------------------------------------------------
   SENTRY_DSN: optionalString,
@@ -152,6 +164,7 @@ const raw = {
   AEROAPI_KEY: process.env.AEROAPI_KEY,
   GOOGLE_MAPS_API_KEY: process.env.GOOGLE_MAPS_API_KEY,
   ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
+  TICKET_EXTRACTION_DEBUG: process.env.TICKET_EXTRACTION_DEBUG,
 
   SENTRY_DSN: process.env.SENTRY_DSN,
 };

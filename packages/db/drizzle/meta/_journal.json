@@ -169,6 +169,20 @@
       "when": 1787969997905,
       "tag": "0023_passport_photos_staff_check",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1787977668277,
+      "tag": "0024_freeze_effective_agreement_versions",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1788006727859,
+      "tag": "0025_pin_agreement_version_per_booking",
+      "breakpoints": true
     }
   ]
 }
