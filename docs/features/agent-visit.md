@@ -137,7 +137,7 @@ Phone cameras hand us 3–8 MB JPEGs. Server Actions cap the request body at
 **1 MB** by default, so an untouched capture `413`s **before the action ever
 runs** — no error boundary, no custody event, nothing to debug from.
 
-[photo.ts](../../apps/agent/src/lib/photo.ts) resizes on the client before
+[photo.ts](../../packages/ui/src/lib/photo.ts) resizes on the client before
 upload: longest edge `1600px`, target `700 KB`, JPEG quality stepped down
 `0.8 → 0.6 → 0.45` until it fits. `createImageBitmap(..., { imageOrientation: "from-image" })`
 applies EXIF orientation so portrait captures don't come out sideways once the

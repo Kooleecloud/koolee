@@ -79,18 +79,19 @@ edit, it is usually policy.**
 The largest and most important package. Everything here is framework-free and
 directly unit-testable.
 
-| Directory        | Holds                                                                                             |
-| ---------------- | ------------------------------------------------------------------------------------------------- |
-| `booking/`       | **`state-machine.ts`** — the 10×11 status/event matrix. The single authority on legal transitions |
-| `slots/`         | `cutoff.ts` (airline bag-drop deadlines), `windows.ts` (the 24 virtual pickup windows)            |
-| `pricing/`       | `engine.ts` — base + bags + distance + lead-time multiplier − discounts, in integer cents         |
-| `services/`      | The app-facing API. One file per concern; everything an app calls lives here                      |
-| `auth/`          | OTP throttle, claim reconciliation, upgrade guard, role requirements                              |
-| `payments/`      | Provider seam: `fake.ts` and `stripe/`, chosen by `factory.ts`                                    |
-| `notifications/` | `NotificationDispatcher` seam — interfaces + console fallback                                     |
-| `jobs/`          | Inngest function definitions                                                                      |
-| `extraction/`    | Ticket-PDF parsing: `heuristic/`, `claude/`, `fake.ts` behind `factory.ts`                        |
-| `coverage/`      | NYC ZIP service area                                                                              |
+| Directory        | Holds                                                                                                                                                                                                                                                      |
+| ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `booking/`       | **`state-machine.ts`** — the 10×11 status/event matrix. The single authority on legal transitions                                                                                                                                                          |
+| `slots/`         | `cutoff.ts` (airline bag-drop deadlines), `windows.ts` (the 24 virtual pickup windows)                                                                                                                                                                     |
+| `pricing/`       | `engine.ts` — base + bags + distance + lead-time multiplier − discounts, in integer cents                                                                                                                                                                  |
+| `services/`      | The app-facing API. One file per concern; everything an app calls lives here                                                                                                                                                                               |
+| `auth/`          | OTP throttle, claim reconciliation, upgrade guard, role requirements                                                                                                                                                                                       |
+| `payments/`      | Provider seam: `fake.ts` and `stripe/`, chosen by `factory.ts`                                                                                                                                                                                             |
+| `notifications/` | `NotificationDispatcher` seam — interfaces + console fallback                                                                                                                                                                                              |
+| `jobs/`          | Inngest function definitions                                                                                                                                                                                                                               |
+| `extraction/`    | Ticket-PDF parsing: `heuristic/`, `claude/`, `fake.ts` behind `factory.ts`                                                                                                                                                                                 |
+| `coverage/`      | NYC ZIP service area                                                                                                                                                                                                                                       |
+| `uploads/`       | Every storage bucket's limits and MIME types, declared once, plus the avatar upload pipeline. Imports NOTHING, so client components can read the limits — see [storage-and-avatars §1](features/storage-and-avatars.md#1-buckets-are-declared-not-created) |
 
 ### 3.1 — The seam pattern
 
@@ -173,21 +174,21 @@ refactor cannot quietly break them.
 
 ## 6. External services
 
-| Service                    | Used for                                                                     | Absent →                         |
-| -------------------------- | ---------------------------------------------------------------------------- | -------------------------------- |
-| **Supabase Postgres**      | All persistence, via Drizzle                                                 | Pages render empty states        |
-| **Supabase Auth (GoTrue)** | Customer phone/email OTP; staff email/password                               | Sign-in unavailable              |
-| **Supabase Realtime**      | Live custody timeline                                                        | Falls back to server-side fetch  |
-| **Supabase Storage**       | Private `bag-photos` bucket                                                  | Photo capture stays local        |
-| **Stripe**                 | Payment intents, capture, refunds, webhooks                                  | `FakePaymentProvider`            |
-| **Inngest**                | Background jobs / crons                                                      | Works against `pnpm dev:inngest` |
-| **Twilio Verify**          | OTP SMS delivery — **via Supabase, credentials dashboard-only**              | Supabase-side config             |
-| **Cloudflare Turnstile**   | Bot protection — token forwarded to Supabase, **app never calls siteverify** | CAPTCHA silently off             |
-| **Resend**                 | Transactional email                                                          | Notifier logs to console         |
-| **FlightAware AeroAPI**    | Flight lookup                                                                | **Stubbed**                      |
-| **Google Maps**            | Drive time / ETA                                                             | Fixed estimate                   |
-| **Anthropic**              | Ticket-PDF extraction                                                        | Heuristic/fake extractor         |
-| **Sentry**                 | Error reporting                                                              | Logs to console                  |
+| Service                    | Used for                                                                                                                                           | Absent →                         |
+| -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------- |
+| **Supabase Postgres**      | All persistence, via Drizzle                                                                                                                       | Pages render empty states        |
+| **Supabase Auth (GoTrue)** | Customer phone/email OTP; staff email/password                                                                                                     | Sign-in unavailable              |
+| **Supabase Realtime**      | Live custody timeline                                                                                                                              | Falls back to server-side fetch  |
+| **Supabase Storage**       | Four PRIVATE buckets — `ticket-uploads`, `bag-photos`, `passport-photos`, `avatars` — created and limited by migration 0026/0027, never at runtime | Photo capture stays local        |
+| **Stripe**                 | Payment intents, capture, refunds, webhooks                                                                                                        | `FakePaymentProvider`            |
+| **Inngest**                | Background jobs / crons                                                                                                                            | Works against `pnpm dev:inngest` |
+| **Twilio Verify**          | OTP SMS delivery — **via Supabase, credentials dashboard-only**                                                                                    | Supabase-side config             |
+| **Cloudflare Turnstile**   | Bot protection — token forwarded to Supabase, **app never calls siteverify**                                                                       | CAPTCHA silently off             |
+| **Resend**                 | Transactional email                                                                                                                                | Notifier logs to console         |
+| **FlightAware AeroAPI**    | Flight lookup                                                                                                                                      | **Stubbed**                      |
+| **Google Maps**            | Drive time / ETA                                                                                                                                   | Fixed estimate                   |
+| **Anthropic**              | Ticket-PDF extraction                                                                                                                              | Heuristic/fake extractor         |
+| **Sentry**                 | Error reporting                                                                                                                                    | Logs to console                  |
 
 🧭 Note how many of these are still **stubbed or seam-only**: AeroAPI, Maps,
 custody-event SMS. The seams exist and are typed; the integrations do not. That
@@ -230,7 +231,7 @@ koolee/
 │
 ├── packages/
 │   ├── core/    booking/ slots/ pricing/ services/ auth/ payments/
-│   │            notifications/ jobs/ extraction/ coverage/ test-utils/
+│   │            notifications/ jobs/ extraction/ coverage/ uploads/ test-utils/
 │   ├── db/      src/schema/ (21 files) · drizzle/ (26 migrations)
 │   │            src/{client,migrate,status,seed,seed-local,custody}.ts
 │   ├── ui/      src/components/ · src/lib/ · fonts.ts · DESIGN.md · Storybook

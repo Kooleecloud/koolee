@@ -203,6 +203,19 @@ booking_id`, migration `0025`): the version a booking accepts pins for the
   `EXISTS (… staff_members …)`: the subquery is evaluated as `authenticated`,
   which has no privilege on that table, and raises `permission denied`. Got
   wrong twice now — `0008` (fixed by `0009`) and `0022` (fixed by `0023`).
+- Storage buckets are **declared, never created at runtime**. All four live in
+  `BUCKETS` ([uploads/buckets.ts](../packages/core/src/uploads/buckets.ts)) and
+  migration `0026` upserts them with `ON CONFLICT DO UPDATE`, so re-applying
+  converges instead of no-op'ing. Every one is `public = false`, re-asserted on
+  every apply. A test parses the SQL and fails on drift, and enforces the rule
+  that a bucket's `file_size_limit` is never BELOW the app's own check — the
+  inverse makes Storage reject a file the app accepted, and the customer reads
+  a generic error instead of a size message. See
+  [storage-and-avatars](features/storage-and-avatars.md).
+- `uploads/buckets.ts` imports **nothing**, on purpose. Client components read
+  those limits to size a file picker, and the module's one import used to reach
+  `@koolee/db` → `postgres` → `fs`, which broke every app's build. Client code
+  reaches it as `@koolee/core/uploads`, never the package barrel.
 - `payments (provider, provider_ref)` is unique — the idempotency key that
   makes webhook redelivery a no-op.
 - `bags.seal_id` is unique **partially** (`WHERE seal_id IS NOT NULL`,
@@ -501,8 +514,9 @@ draft, which re-locks the pay step and routes the customer back through the
 window step. Nothing else in the funnel has an ordering constraint.
 
 **Ticket upload** is a side path: `/api/ticket-uploads` stores the PDF in a
-private bucket, runs extraction, and writes the result into a _quarantined_
-`ticketPrefill` key. Only the flight review form reads it, as editable
+private bucket — created by migration `0026` like every other bucket, no
+longer by the route itself — runs extraction, and writes the result into a
+_quarantined_ `ticketPrefill` key. Only the flight review form reads it, as editable
 defaults. Confirming that form is what promotes user-confirmed values into
 real draft keys — extracted values never reach a booking field unseen.
 
@@ -650,7 +664,7 @@ override; an agent who cannot weigh or photograph files an exception instead.
 [agent-visit §3.2–3.3](features/agent-visit.md#32--sealing-takes-all-three-or-it-does-not-happen).
 
 **Photos are downscaled in the browser** before upload
-([src/lib/photo.ts](../apps/agent/src/lib/photo.ts)): 3–8 MB phone captures blew
+([@koolee/ui/lib/photo](../packages/ui/src/lib/photo.ts)): 3–8 MB phone captures blew
 the 1 MB Server Action body limit and `413`'d before the action ran. Resize to
 1600px / ~700 KB client-side, best-effort, with `serverActions.bodySizeLimit`
 raised to `4mb` purely as a safety net.
