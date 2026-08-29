@@ -6,10 +6,6 @@ import {
   Badge,
   Button,
   Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
   DatabaseNotConfigured,
   formatE164ForDisplay,
 } from "@koolee/ui";
@@ -17,7 +13,7 @@ import {
   dstTransitionNote,
   formatHourRangeInAirportTz,
   formatInstantInAirportTz,
-  getAssignedTask,
+  getPickupContext,
   getVisitContext,
   VISIT_EVENT_TYPES,
   type TaskKind,
@@ -30,6 +26,7 @@ import { signAvatarUrl } from "@/lib/avatars";
 import { signPassportPhotoUrl } from "@/lib/passport-photos";
 import { getAgentSession } from "@/lib/session";
 
+import { PickupFlow, type PickupView } from "./pickup-flow";
 import { VisitFlow, type VisitView } from "./visit-flow";
 
 export const dynamic = "force-dynamic";
@@ -55,11 +52,32 @@ function BackToToday() {
  * address they were driving to or the number of the person they were meeting.
  * Both are now the first thing on the screen, each one tap from acting on it.
  */
+/**
+ * The fields the doorstep header reads. Both `VisitContext` and
+ * `PickupContext` satisfy it — the same person drives to the same door for
+ * both halves of the job, so the header is one component rather than two that
+ * drift.
+ */
+interface DoorstepContext {
+  booking: VisitContext["booking"];
+  task: { scheduledStart: Date | null; scheduledEnd: Date | null };
+  address: {
+    line1: string;
+    line2: string | null;
+    city: string;
+    state: string | null;
+    zip: string | null;
+    placeId: string | null;
+  } | null;
+  customer: { fullName: string | null; avatarStoragePath: string | null } | null;
+  tz: string;
+}
+
 function DoorstepCard({
   context,
   customerAvatarUrl,
 }: {
-  context: VisitContext;
+  context: DoorstepContext;
   /** Signed as this agent — staff read any folder under 0027's policy. */
   customerAvatarUrl: string | null;
 }) {
@@ -188,14 +206,32 @@ export default async function TaskDetailPage({
     );
   }
 
-  /* --- collect & deliver: not built yet, and says so like a product ----- */
+  /* --- collect & deliver: the guided pickup run ------------------------- */
   if (kind === "pickup") {
-    const assigned = await getAssignedTask(core.db, {
-      taskId,
-      kind,
-      assigneeUserId: session.userId,
-    }).catch(() => null);
-    if (!assigned) notFound();
+    const pickup = await getPickupContext(core.db, session, taskId).catch(() => null);
+    if (!pickup) notFound();
+
+    const pickupAvatarUrl = await signAvatarUrl(
+      pickup.customer?.avatarStoragePath ?? null,
+    );
+
+    const pickupView: PickupView = {
+      taskId: pickup.task.id,
+      paxName: pickup.booking.paxName,
+      bookingRef: pickup.booking.ref,
+      bookingStatus: pickup.booking.status,
+      departureAirport: pickup.booking.departureAirport,
+      truckName: pickup.shift?.truckName ?? null,
+      travelStarted: pickup.task.startedAt !== null,
+      bags: pickup.bags.map((bag) => ({
+        id: bag.id,
+        ordinal: bag.ordinal,
+        sealId: bag.sealId,
+        scanned: pickup.scannedBagIds.includes(bag.id),
+      })),
+      done: pickup.task.status === "done",
+      exception: pickup.booking.status === "exception" || pickup.task.status === "failed",
+    };
 
     return (
       <AgentMain>
@@ -203,28 +239,11 @@ export default async function TaskDetailPage({
         <h1 className="font-display text-2xl font-semibold text-navy-800">
           Collect &amp; deliver
         </h1>
-        {/*
-         * Deliberately a placeholder, and written as one. The previous version
-         * showed the driver a TODO naming `applyTransitionForSession` and two
-         * event types — a note for whoever builds this, printed on the screen
-         * of the person who cannot. What a driver needs from an unbuilt screen
-         * is what to do instead.
-         */}
-        <Card className="border-dashed">
-          <CardHeader>
-            <CardTitle className="text-base">Not in the app yet</CardTitle>
-            <CardDescription>
-              Collect the sealed bags and take them to the airline&apos;s bag drop as
-              normal. Ops moves this booking along manually for now — message them when
-              you have dropped the bags, and they will close it out.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Button asChild variant="outline" size="lg" className="w-full">
-              <Link href="/">Back to today</Link>
-            </Button>
-          </CardContent>
-        </Card>
+        {/* The same doorstep card as the verification visit — address, phone,
+            flight — because a driver arriving for the pickup needs exactly the
+            information a driver arriving for the visit needed. */}
+        <DoorstepCard context={pickup} customerAvatarUrl={pickupAvatarUrl} />
+        <PickupFlow view={pickupView} />
       </AgentMain>
     );
   }

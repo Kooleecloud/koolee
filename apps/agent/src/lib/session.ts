@@ -36,6 +36,14 @@ export interface AgentIdentity {
   fullName: string | null;
   /** Key in the PRIVATE `avatars` bucket, or null. Signed where it renders. */
   avatarStoragePath: string | null;
+  /**
+   * Cleared to drive — the shift bar and the pickup flow mount on this.
+   *
+   * A capability, not a role: the same person verifies at the door and drives
+   * the van (see `staff_members`). Re-read per request with the role, so a
+   * revoked grant takes effect on the next navigation.
+   */
+  canDrive: boolean;
 }
 
 /**
@@ -70,6 +78,7 @@ const loadAgentIdentity = cache(async (): Promise<AgentIdentity> => {
     email: user.email ?? identity?.email ?? null,
     fullName: identity?.fullName ?? null,
     avatarStoragePath: identity?.avatarStoragePath ?? null,
+    canDrive: identity?.canDrive ?? false,
   };
 });
 
