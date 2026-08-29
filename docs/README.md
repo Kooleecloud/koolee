@@ -50,20 +50,21 @@
 
 ### Build a feature
 
-| I want to…                                  | Go to                                                                                                                                                       |
-| ------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Know **where** my change belongs            | [ARCHITECTURE §2 boundaries](ARCHITECTURE.md#2-the-two-boundaries-that-matter)                                                                              |
-| Add a booking status or transition          | [Learning §1.5](learning/01-product-and-nouns.md#15--the-lifecycle-ten-statuses-one-authority) · [MIGRATIONS §2](MIGRATIONS.md#2-when-you-need-a-migration) |
-| Change the funnel steps                     | [Funnel §2](features/booking-funnel.md#2-the-funnel-four-steps)                                                                                             |
-| Change pricing                              | [Funnel §5](features/booking-funnel.md#5-pricing)                                                                                                           |
-| Change pickup-window rules                  | [Funnel §4](features/booking-funnel.md#4-pickup-windows--computed-never-stocked)                                                                            |
-| Add an integration with an external service | [ARCHITECTURE §3.1 the seam pattern](ARCHITECTURE.md#31--the-seam-pattern)                                                                                  |
-| Add an authorization check                  | [MIGRATIONS §6](MIGRATIONS.md#6-the-authorization-model--read-before-adding-an-rls-policy) — **not** an RLS policy                                          |
-| Add a background job                        | [Jobs §1 where jobs live](features/jobs-and-notifications.md#1-where-jobs-live)                                                                             |
-| Send a customer notification                | [Jobs §5 the notification seam](features/jobs-and-notifications.md#5-the-notification-seam)                                                                 |
-| Work on a shared component                  | [SCRIPTS §5](SCRIPTS.md#5-per-package-scripts) (Storybook) · [../packages/ui/DESIGN.md](../packages/ui/DESIGN.md)                                           |
-| Write customer-facing copy                  | [Learning §1.1 the claim](learning/01-product-and-nouns.md#11--the-claim-and-why-it-is-a-hard-boundary) · [../brand/BRAND.md](../brand/BRAND.md)            |
-| Render a date or time correctly             | [TIME.md](TIME.md)                                                                                                                                          |
+| I want to…                                      | Go to                                                                                                                                                                |
+| ----------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Know **where** my change belongs                | [ARCHITECTURE §2 boundaries](ARCHITECTURE.md#2-the-two-boundaries-that-matter)                                                                                       |
+| Add a booking status or transition              | [Learning §1.5](learning/01-product-and-nouns.md#15--the-lifecycle-ten-statuses-one-authority) · [MIGRATIONS §2](MIGRATIONS.md#2-when-you-need-a-migration)          |
+| Change the funnel steps                         | [Funnel §2](features/booking-funnel.md#2-the-funnel-four-steps)                                                                                                      |
+| Change pricing                                  | [Funnel §5](features/booking-funnel.md#5-pricing)                                                                                                                    |
+| Change pickup-window rules                      | [Funnel §4](features/booking-funnel.md#4-pickup-windows--computed-never-stocked)                                                                                     |
+| Add an integration with an external service     | [ARCHITECTURE §3.1 the seam pattern](ARCHITECTURE.md#31--the-seam-pattern)                                                                                           |
+| Add a storage bucket, or change an upload limit | [Storage & avatars §1](features/storage-and-avatars.md#1-buckets-are-declared-not-created) — edit `BUCKETS`, then write the migration; a test fails if they disagree |
+| Add an authorization check                      | [MIGRATIONS §6](MIGRATIONS.md#6-the-authorization-model--read-before-adding-an-rls-policy) — **not** an RLS policy                                                   |
+| Add a background job                            | [Jobs §1 where jobs live](features/jobs-and-notifications.md#1-where-jobs-live)                                                                                      |
+| Send a customer notification                    | [Jobs §5 the notification seam](features/jobs-and-notifications.md#5-the-notification-seam)                                                                          |
+| Work on a shared component                      | [SCRIPTS §5](SCRIPTS.md#5-per-package-scripts) (Storybook) · [../packages/ui/DESIGN.md](../packages/ui/DESIGN.md)                                                    |
+| Write customer-facing copy                      | [Learning §1.1 the claim](learning/01-product-and-nouns.md#11--the-claim-and-why-it-is-a-hard-boundary) · [../brand/BRAND.md](../brand/BRAND.md)                     |
+| Render a date or time correctly                 | [TIME.md](TIME.md)                                                                                                                                                   |
 
 ### Database
 
@@ -254,6 +255,13 @@
 - [7. Payment statuses](features/payments.md#7-payment-statuses)
 - [8. Production checklist](features/payments.md#8-production-checklist)
 
+### [Feature — Storage & avatars](features/storage-and-avatars.md)
+
+- [1. Buckets are declared, not created](features/storage-and-avatars.md#1-buckets-are-declared-not-created)
+- [2. Who may read and write](features/storage-and-avatars.md#2-who-may-read-and-write)
+- [3. Profile pictures, end to end](features/storage-and-avatars.md#3-profile-pictures-end-to-end)
+- [4. Applying this to a hosted environment](features/storage-and-avatars.md#4-applying-this-to-a-hosted-environment)
+
 ### [Feature — Agent visit](features/agent-visit.md)
 
 - [1. Routes](features/agent-visit.md#1-routes)
@@ -335,6 +343,7 @@
 | OTP throttle                          | [Auth §2.3–2.4](features/auth.md#23--the-upgrade-send-guard-)                                                                                                                   |
 | `OTP_LOG_HMAC_KEY`                    | [ENVIRONMENT §4.1](ENVIRONMENT.md#41--otp_log_hmac_key-validated-at-import)                                                                                                     |
 | Pooled vs direct connection           | [MIGRATIONS §3](MIGRATIONS.md#3-the-two-connection-rule)                                                                                                                        |
+| Profile pictures / avatars            | [Storage & avatars §3](features/storage-and-avatars.md#3-profile-pictures-end-to-end)                                                                                           |
 | Pricing engine                        | [Funnel §5](features/booking-funnel.md#5-pricing)                                                                                                                               |
 | RLS (what it is/isn't for)            | [MIGRATIONS §6](MIGRATIONS.md#6-the-authorization-model--read-before-adding-an-rls-policy) · [ARCHITECTURE §4.1](ARCHITECTURE.md#41--authorization-is-in-core-not-the-database) |
 | Seal ID                               | [Learning §1.2](learning/01-product-and-nouns.md#12--the-nouns-and-the-tables-they-live-in) · [Agent §3.1](features/agent-visit.md#31--bags)                                    |
@@ -342,7 +351,8 @@
 | Service-role key (why agent has none) | [Auth §3.1](features/auth.md#31--the-agent-app-holds-no-service-role-key) · [Agent §4](features/agent-visit.md#4-photo-evidence)                                                |
 | State machine                         | [Learning §1.5–1.6](learning/01-product-and-nouns.md#15--the-lifecycle-ten-statuses-one-authority)                                                                              |
 | Signed URLs (evidence photos)         | [Agent §4.2](features/agent-visit.md#42--viewing-evidence) · [Ops console — evidence photos](../apps/admin/docs/ops-console.md#evidence-photos)                                 |
-| Storage (`bag-photos`)                | [Agent §4](features/agent-visit.md#4-photo-evidence)                                                                                                                            |
+| Storage buckets (all four)            | [Storage & avatars §1](features/storage-and-avatars.md#1-buckets-are-declared-not-created) · [Agent §4](features/agent-visit.md#4-photo-evidence)                               |
+| Storage RLS (who reads/writes what)   | [Storage & avatars §2](features/storage-and-avatars.md#2-who-may-read-and-write)                                                                                                |
 | STRANDED migrations                   | [MIGRATIONS §5](MIGRATIONS.md#5-pnpm-dbstatus--the-drift-report)                                                                                                                |
 | Task list (what a row shows)          | [Agent §6](features/agent-visit.md#6-assignment) · [CODEBASE-MAP Ch.9](CODEBASE-MAP.md#chapter-9--agent-pwa)                                                                    |
 | Task tables (why two)                 | [Agent §7](features/agent-visit.md#7-why-two-task-tables)                                                                                                                       |

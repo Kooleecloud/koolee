@@ -172,6 +172,19 @@ roles that browser-side `supabase-js` uses for **Realtime and Storage**.
   SECURITY DEFINER function `public.is_active_staff(uuid)`, because granting
   `authenticated` a direct `SELECT` on `staff_members` would expose the roster
   through PostgREST.
+- `0022`/`0023` — the same for `passport-photos`, and `0023` is `0009` all over
+  again: `0022` copied the original inline `EXISTS (… staff_members …)` and had
+  to be corrected to `public.is_active_staff`. Second time; check any new
+  storage policy against this.
+- `0027` — `avatars`, and the **first storage policy here that is not
+  staff-only**. Writes are admitted by folder ownership,
+  `(storage.foldername(name))[1] = auth.uid()::text`, so any signed-in user —
+  a customer included — writes their own folder and no other. Reads add
+  `OR public.is_active_staff(auth.uid())`. All three apps upload over the ANON
+  key so RLS is genuinely the gate, rather than something only the agent app is
+  subject to. Verified against a live database in both directions, including
+  the refusals: see
+  [storage-and-avatars §2](features/storage-and-avatars.md#2-who-may-read-and-write).
 - `0016` — uniform RLS baseline. Hosted had RLS on for 20 policy-less tables
   (applied out-of-band, likely a Supabase security-advisor remediation) while
   local had it **off** — meaning local was the _less_ safe environment and no
@@ -272,8 +285,7 @@ manual procedure below remains for first-time project setup, for anything the
 ordering caveat in §9.5 rules out, and for recovery.
 
 1. `pnpm db:status` against the target — **confirm the `Target host:` line**.
-2. Apply over a **stable-session** connection (`DIRECT_DATABASE_URL`, port
-   5432) — the session pooler (`aws-0-<region>.pooler.supabase.com:5432`)
+2. Apply over a **stable-session** connection (`DIRECT_DATABASE_URL`, port 5432) — the session pooler (`aws-0-<region>.pooler.supabase.com:5432`)
    counts; see §3's IPv6 gotcha. Through the **transaction** pooler (6543)
    you get `prepared statement does not exist` errors in production that
    will not reproduce locally.
@@ -296,10 +308,10 @@ every push to `dev` or `main` that touches `packages/db/drizzle/**` (or the
 migrator/status scripts), and applies pending migrations to **that branch's
 database**:
 
-| Branch | Database                     | Secret                     |
-| ------ | ---------------------------- | --------------------------- |
-| `main` | production Supabase project  | `PROD_DIRECT_DATABASE_URL` |
-| `dev`  | dev/hosted Supabase project  | `DEV_DIRECT_DATABASE_URL`  |
+| Branch | Database                    | Secret                     |
+| ------ | --------------------------- | -------------------------- |
+| `main` | production Supabase project | `PROD_DIRECT_DATABASE_URL` |
+| `dev`  | dev/hosted Supabase project | `DEV_DIRECT_DATABASE_URL`  |
 
 After applying, the workflow runs `db:status`: the applied set must match the
 checkout **by content hash**, so drift fails the run red instead of hiding.
@@ -315,7 +327,7 @@ checkout **by content hash**, so drift fails the run red instead of hiding.
 - **Where they live:** GitHub **repository** secrets work on every plan.
   **Organization** secrets also work — same `${{ secrets.NAME }}` lookup, a
   repo-level secret of the same name wins — but check two things: the org
-  secret's *repository access policy* must include this repo, and on the
+  secret's _repository access policy_ must include this repo, and on the
   GitHub **Free** org plan, org secrets are only visible to **public**
   repositories.
 - A missing/invisible secret is a **hard failure** ("No DIRECT_DATABASE_URL

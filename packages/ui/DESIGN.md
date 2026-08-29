@@ -146,6 +146,14 @@ produces the static build. Stories are `src/**/*.stories.tsx`.
 Coverage is currently `Primitives/Button`, `Primitives/CTAButton`,
 `Primitives/ImageLightbox`, `Primitives/LinkedTableRow`, `Primitives/MultiSelect`,
 `Patterns/CustodyTimeline`, `Shell`, and `Feedback`. That is still a gap, not
+`Avatar` and `AvatarUploader` are the newest additions — a person at five
+sizes, with name-derived initials as the fallback (most people have no photo,
+so the fallback IS the design) and the same fallback on load failure, since a
+signed avatar URL expires after an hour. Both are `"use client"`: they call
+hooks, and `client-directive.test.ts` now asserts that every component here that
+calls a hook says so — a missing directive crashes any page that
+server-renders it, and no build catches it.
+
 the standard: new component → new story in the same PR, and the marketing,
 form, and motion components listed above are owed one.
 
