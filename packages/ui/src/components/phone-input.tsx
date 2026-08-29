@@ -23,6 +23,26 @@ export function formatUsPhone(digits: string): string {
   return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`;
 }
 
+/**
+ * A stored E.164 number, rendered the way a person reads it aloud.
+ *
+ * The inverse of `toE164`, and the counterpart to `formatUsPhone` for values
+ * that come back OUT of the database rather than in from a field. Promoted
+ * here on 2026-08-29 when the agent app needed it too — admin's booking page
+ * had the only copy, and a second one would have drifted.
+ *
+ * Anything that is not an unambiguous US number is returned untouched. That
+ * matters more than it looks: without the `+` guard, a truncated
+ * "+1212555010" formats as "(121) 255-5010", a plausible number that is not
+ * the customer's — on screens whose whole purpose is that somebody dials it.
+ */
+export function formatE164ForDisplay(value: string): string {
+  const digits = value.replace(/\D/g, "");
+  if (value.startsWith("+1") && digits.length === 11) return formatUsPhone(digits.slice(1));
+  if (!value.startsWith("+") && digits.length === 10) return formatUsPhone(digits);
+  return value;
+}
+
 /** E.164 for a complete US number, else null. */
 export function toE164(digits: string): string | null {
   return digits.length === 10 ? `+1${digits}` : null;

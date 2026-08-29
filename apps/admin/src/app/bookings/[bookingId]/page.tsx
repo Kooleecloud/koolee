@@ -11,7 +11,7 @@ import {
   CardHeader,
   CardTitle,
   DatabaseNotConfigured,
-  formatUsPhone,
+  formatE164ForDisplay,
   PageHeader,
 } from "@koolee/ui";
 import {
@@ -64,22 +64,6 @@ async function signPhotoUrls(paths: string[]): Promise<Map<string, string>> {
 
 const money = (cents: number) =>
   `${cents < 0 ? "-" : ""}$${Math.abs(cents / 100).toFixed(2)}`;
-
-/**
- * Stored E.164 (`+12125550100`) rendered the way an operator reads a number
- * aloud. Falls back to the raw value for anything non-US rather than
- * mangling it — `formatUsPhone` only knows the ten-digit shape.
- */
-function formatPhoneForDisplay(e164: string): string {
-  const digits = e164.replace(/\D/g, "");
-  if (e164.startsWith("+1") && digits.length === 11) return formatUsPhone(digits.slice(1));
-  // Only a value with no country code may be read as ten national digits.
-  // Without the `+` guard, a truncated "+1212555010" formats as
-  // "(121) 255-5010" — a plausible number that is not the customer's, on a
-  // page whose whole point is that somebody dials it.
-  if (!e164.startsWith("+") && digits.length === 10) return formatUsPhone(digits);
-  return e164;
-}
 
 /** The price snapshot, expanded. Zero-value lines are omitted, not shown as $0.00. */
 function PriceBreakdownLines({ breakdown }: { breakdown: PriceBreakdown }) {
@@ -291,7 +275,7 @@ export default async function BookingDetailPage({
                       href={`tel:${booking.contactPhone}`}
                       className="text-primary underline-offset-4 hover:underline"
                     >
-                      {formatPhoneForDisplay(booking.contactPhone)}
+                      {formatE164ForDisplay(booking.contactPhone)}
                     </a>
                   ) : (
                     <span className="text-muted-foreground">none on file</span>

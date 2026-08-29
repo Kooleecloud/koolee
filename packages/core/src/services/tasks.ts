@@ -86,9 +86,23 @@ export interface TaskBookingContext {
   departureAt: Date;
   bagCount: number;
   status: string;
-  /** Street line, for recognising the stop. Full address is on the detail. */
+  /** Street line, for recognising the stop. */
   addressLine1: string;
   addressCity: string;
+  addressState: string | null;
+  addressZip: string | null;
+  /**
+   * Google Place ID, when the address was picked from autocomplete. The agent
+   * app prefers it for the "Navigate" link: a place id resolves to the exact
+   * pin the customer chose, where a free-text query can land on the wrong end
+   * of a long street.
+   */
+  addressPlaceId: string | null;
+  /**
+   * The door contact. On the list, not just the visit detail — a driver
+   * running late calls before opening the job.
+   */
+  contactPhone: string | null;
 }
 
 export interface AssignedTasks {
@@ -120,6 +134,10 @@ export async function listAssignedTasks(
     status: bookings.status,
     addressLine1: addresses.line1,
     addressCity: addresses.city,
+    addressState: addresses.state,
+    addressZip: addresses.zip,
+    addressPlaceId: addresses.placeId,
+    contactPhone: bookings.contactPhone,
   };
 
   const [verification, pickup] = await Promise.all([

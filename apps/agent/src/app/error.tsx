@@ -1,7 +1,9 @@
 "use client";
 
 import * as React from "react";
-import { Button, ContentColumn, EmptyState } from "@koolee/ui";
+import { Button, EmptyState } from "@koolee/ui";
+
+import { AgentMain } from "@/components/shell/agent-main";
 
 export default function ErrorPage({
   error,
@@ -15,12 +17,16 @@ export default function ErrorPage({
   }, [error]);
 
   return (
-    <ContentColumn width="narrow">
+    <AgentMain>
       <EmptyState
         title="Something went wrong"
-        description="An unexpected error occurred. Try again, or come back in a moment."
-        action={<Button onClick={reset}>Try again</Button>}
+        description="Your work is not lost — nothing was submitted. Try again, or check your signal."
+        action={
+          <Button size="lg" onClick={reset}>
+            Try again
+          </Button>
+        }
       />
-    </ContentColumn>
+    </AgentMain>
   );
 }
