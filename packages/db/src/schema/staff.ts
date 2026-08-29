@@ -19,8 +19,13 @@ import { users } from "./identity";
  * not. Rows are never deleted so the assignment history stays attributable
  * (who was invited by whom, and when).
  *
- * `role` is constrained to agent/admin — customers never get a row, and
- * `driver` joins the enum's allowed set only when the dispatch model ships.
+ * `role` is constrained to agent/admin — customers never get a row. The
+ * `user_role` enum also carries `driver`, and the CHECK deliberately still
+ * excludes it: DRIVING IS A CAPABILITY, NOT A THIRD ROLE. One person doing
+ * both jobs is the stated v1 reality, and a third role would have forced every
+ * authorization site (`STAFF_ROLES`, `getActiveStaffRole`, both app session
+ * readers) to learn about a person who is an agent on Tuesday and a driver on
+ * Thursday. `can_drive` says the same thing without splitting the roster.
  */
 export const staffMembers = pgTable(
   "staff_members",
@@ -31,6 +36,14 @@ export const staffMembers = pgTable(
       .references(() => users.id, { onDelete: "cascade" }),
     role: userRoleEnum("role").notNull(),
     active: boolean("active").notNull().default(true),
+    /**
+     * May open a `driver_shifts` row and be offered to customers as a driver.
+     *
+     * A capability alongside the role, not a role of its own — see the note
+     * above. Defaults false: an existing agent does not silently become
+     * selectable as a driver the moment this column lands.
+     */
+    canDrive: boolean("can_drive").notNull().default(false),
     /** The admin whose invite created this row. Null for seeded accounts. */
     invitedByUserId: uuid("invited_by_user_id").references(() => users.id, {
       onDelete: "set null",
@@ -41,6 +54,7 @@ export const staffMembers = pgTable(
   (t) => [
     uniqueIndex("staff_members_user_id_key").on(t.userId),
     index("staff_members_role_active_idx").on(t.role, t.active),
+    index("staff_members_can_drive_idx").on(t.canDrive, t.active),
     check("staff_members_role_check", sql`${t.role} in ('agent', 'admin')`),
   ],
 );

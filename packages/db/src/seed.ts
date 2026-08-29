@@ -1,5 +1,5 @@
 import { config as loadEnv } from "dotenv";
-import { eq, inArray } from "drizzle-orm";
+import { eq, inArray, sql } from "drizzle-orm";
 
 // Shell-first, same rule as migrate.ts/status.ts. dotenv never overrides an
 // exported variable, but capturing before loadEnv keeps the three db tools
@@ -9,6 +9,7 @@ const shellDatabaseUrl = process.env.DATABASE_URL;
 
 import { createDb } from "./client";
 import { ALL_COVERAGE_ZIPS } from "./coverage-zips";
+import { ZIP_CENTROIDS } from "./zip-centroids";
 import {
   agentZones,
   agreementVersions,
@@ -16,7 +17,9 @@ import {
   airports,
   pricingRules,
   staffMembers,
+  trucks,
   users,
+  zipCentroids,
   type AirportCode,
   type DiscountRuleJson,
   type LeadTimeMultiplierJson,
@@ -47,17 +50,33 @@ const LEAD_TIME_CURVE: LeadTimeMultiplierJson[] = [
  * stay consistent.
  */
 
+/**
+ * Coordinates are the PASSENGER TERMINAL complex, not the airport's official
+ * reference point (which sits on the airfield and would flatter every ETA by a
+ * kilometre or two). Hardcoded rather than geocoded: three airports that do
+ * not move are data, not a lookup.
+ */
 const AIRPORTS = [
   {
     code: "JFK" as AirportCode,
     name: "John F. Kennedy International",
     tz: "America/New_York",
+    lat: 40.6446,
+    lng: -73.7797,
   },
-  { code: "LGA" as AirportCode, name: "LaGuardia", tz: "America/New_York" },
+  {
+    code: "LGA" as AirportCode,
+    name: "LaGuardia",
+    tz: "America/New_York",
+    lat: 40.7743,
+    lng: -73.8722,
+  },
   {
     code: "EWR" as AirportCode,
     name: "Newark Liberty International",
     tz: "America/New_York",
+    lat: 40.6895,
+    lng: -74.1787,
   },
 ];
 
@@ -166,6 +185,18 @@ const CUTOFFS: NewAirlineCutoff[] = (
   ]),
 );
 
+/**
+ * Two trucks so capacity is testable in both directions: a run that fits and
+ * a run that does not. The names carry their capacity because that is what a
+ * dispatcher reads on the selection screen.
+ *
+ * `reserved_spaces` is left at 0 — the column is unwired (see `ops.ts`).
+ */
+const DEV_TRUCKS = [
+  { name: "DEV Truck A — 30 bags", bagCapacity: 30 },
+  { name: "DEV Truck B — 12 bags", bagCapacity: 12 },
+];
+
 async function main(): Promise<void> {
   const connectionString = shellDatabaseUrl ?? process.env.DATABASE_URL;
   const db = createDb(connectionString ? { url: connectionString } : {});
@@ -183,7 +214,24 @@ async function main(): Promise<void> {
       .values(airport)
       .onConflictDoUpdate({
         target: airports.code,
-        set: { name: airport.name, tz: airport.tz },
+        set: { name: airport.name, tz: airport.tz, lat: airport.lat, lng: airport.lng },
+      });
+  }
+
+  // Reference data, reconciled to `zip-centroids.ts` on every run. Migration
+  // 0028 carries the same snapshot so its address backfill has something to
+  // join against; this block is what keeps the table current afterwards.
+  // Chunked because a single 800-row multi-VALUES insert is one long
+  // statement for no benefit at this size.
+  console.log(`Seeding ZIP centroids (${ZIP_CENTROIDS.length})…`);
+  const CENTROID_CHUNK = 200;
+  for (let i = 0; i < ZIP_CENTROIDS.length; i += CENTROID_CHUNK) {
+    await db
+      .insert(zipCentroids)
+      .values(ZIP_CENTROIDS.slice(i, i + CENTROID_CHUNK).map((c) => ({ ...c })))
+      .onConflictDoUpdate({
+        target: zipCentroids.zip,
+        set: { lat: sql`excluded.lat`, lng: sql`excluded.lng` },
       });
   }
 
@@ -240,6 +288,24 @@ async function main(): Promise<void> {
     await db.insert(pricingRules).values({ ...LAUNCH_RULE, active: true });
     console.log("  launch-v1 inserted — the single active rule");
   }
+
+  console.log("Seeding dev trucks…");
+  for (const truck of DEV_TRUCKS) {
+    await db
+      .insert(trucks)
+      .values(truck)
+      .onConflictDoUpdate({
+        target: trucks.name,
+        // `active` is deliberately NOT reset: an operator who deactivated a
+        // truck should not find it back on the road after a re-seed.
+        set: { bagCapacity: truck.bagCapacity },
+      });
+    console.log(`  ${truck.name}`);
+  }
+
+  // No shifts are seeded. An open shift means "somebody is out driving right
+  // now", and a seed asserting that on a machine nobody is driving from would
+  // put phantom drivers in front of customers.
 
   // Pickup windows are virtual (computed per flight from the pricing rule and
   // slot_blocks) — there is no slot inventory to seed anymore.
@@ -534,15 +600,22 @@ async function seedLocalStaff(db: ReturnType<typeof createDb>): Promise<void> {
           isAnonymous: false,
         },
       });
+    // Every seeded FIELD agent can drive. Driving is a capability, not a
+    // role (see `staff_members`), and the dev operation is one person doing
+    // both jobs — which is also the v1 reality. Admins get `false`: an
+    // operator with a console is not a person with a van.
+    const canDrive = account.role === "agent";
     await db
       .insert(staffMembers)
-      .values({ userId, role: account.role, active: true })
+      .values({ userId, role: account.role, active: true, canDrive })
       .onConflictDoUpdate({
         target: staffMembers.userId,
-        set: { role: account.role, active: true },
+        set: { role: account.role, active: true, canDrive },
       });
     if (account.role === "agent") agentUserIds.push(userId);
-    console.log(`  ${account.email} → ${account.role} (password documented in seed.ts)`);
+    console.log(
+      `  ${account.email} → ${account.role}${canDrive ? " (can drive)" : ""} (password documented in seed.ts)`,
+    );
   }
 
   // Dev zone coverage: every covered ZIP gets exactly one of the seeded

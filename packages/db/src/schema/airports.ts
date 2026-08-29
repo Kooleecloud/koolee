@@ -1,6 +1,7 @@
 import { sql } from "drizzle-orm";
 import {
   check,
+  doublePrecision,
   index,
   integer,
   pgTable,
@@ -27,6 +28,17 @@ export const airports = pgTable(
     name: text("name").notNull(),
     /** IANA timezone, e.g. "America/New_York". */
     tz: text("tz").notNull(),
+    /**
+     * Terminal-area coordinates, NOT NULL because there are three airports and
+     * they do not move — a nullable column here would push a `?? null` into
+     * every ETA call site for a value that is always known.
+     *
+     * The point is the passenger terminal complex, which is where a driver
+     * actually arrives; the field's own reference point sits a kilometre or
+     * two away and would flatter every estimate.
+     */
+    lat: doublePrecision("lat").notNull(),
+    lng: doublePrecision("lng").notNull(),
     createdAt: createdAt(),
   },
   (t) => [
@@ -36,6 +48,8 @@ export const airports = pgTable(
       "airports_code_check",
       sql`${t.code} in (${sql.raw(AIRPORT_CODES.map((c) => `'${c}'`).join(", "))})`,
     ),
+    check("airports_lat_range_check", sql`${t.lat} between -90 and 90`),
+    check("airports_lng_range_check", sql`${t.lng} between -180 and 180`),
   ],
 );
 
