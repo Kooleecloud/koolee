@@ -1,5 +1,15 @@
 # Run report 5 — Tier 3: booking agreements (versioned) + passport verification
 
+> ⚠️ **Partly superseded.** The re-acceptance model described below — where
+> publishing a new agreement version un-gates every in-flight booking and asks
+> those customers to accept again — was reversed on 2026-08-29 in favour of
+> **version pinning**: the version a booking accepts governs it for life.
+> See [RUN-REPORT-6.md §6](RUN-REPORT-6.md) and
+> [docs/features/agreements-and-passport.md](../features/agreements-and-passport.md).
+> Everything else here (schema, passport verification, the visit gate) still
+> stands. This report is left as written — it is the record of what was decided
+> at the time.
+
 **Branch:** `feat/agreements-and-passport` (cut from `origin/dev` @ `2094264`,
 `--no-track`, `branch.merge` verified empty, `git status -sb` shows no upstream).
 

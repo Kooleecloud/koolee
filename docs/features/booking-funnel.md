@@ -258,12 +258,25 @@ See [payments.md](payments.md).
 
 ---
 
-## 9. Ticket upload (partial)
+## 9. Ticket upload
 
-`/api/ticket-uploads` + `ticket-upload.tsx` accept a ticket PDF; extraction is
-seamed in [packages/core/src/extraction/](../../packages/core/src/extraction/)
-with `heuristic/`, `claude/`, and `fake.ts` behind a factory.
+`/api/ticket-uploads` + `ticket-upload.tsx` accept a ticket PDF or a photo;
+extraction is seamed in
+[packages/core/src/extraction/](../../packages/core/src/extraction/) with
+`heuristic/`, `claude/` and `fake.ts` behind a factory, selected by one env var.
 
-Status: the seam is real, the Claude integration is **not wired for production**
-(`ANTHROPIC_API_KEY` is documented as out of scope for the scaffold). See
+**Both adapters are live.** With `ANTHROPIC_API_KEY` set the Claude adapter
+transcribes every segment through a forced tool call and `select-segment.ts`
+chooses the leg in code, with a recorded reason; without a key the in-process
+heuristic runs and costs nothing. Either way the output is a review-form
+PREFILL and never a booking field — pressing Continue is the confirm step.
+
+The flight step therefore has two shapes: entered by hand, or "Review your
+flight details" after an upload, which adds a summary sentence, an attention
+ring on extracted fields, a one-click **swap** when the ticket has another
+NYC-departing leg, and a placeholder-plus-explanation when the origin is one we
+do not serve. The form is REMOUNTED on a seed key when the prefill changes —
+uncontrolled inputs keep their old `defaultValue` otherwise.
+
+Full pipeline, selection rules and the debug panel:
 [ticket-extraction.md](../../apps/web/docs/ticket-extraction.md).

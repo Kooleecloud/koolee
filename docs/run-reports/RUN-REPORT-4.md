@@ -23,12 +23,12 @@ custody event, and told nobody.
 
 A `EventEmitter` seam in core, mirroring the `Notifier`/`createNotifier` pattern:
 
-| File | What |
-|---|---|
-| `packages/core/src/events/emitter.ts` | `DomainEvent` / `EventEmitter` + `NoopEmitter` (default), `ConsoleEmitter`, `RecordingEmitter` (test double, same place as `RecordingNotifier`) |
-| `packages/core/src/events/factory.ts` | `createEventEmitter` — the two credential-free choices. Deliberately no `{kind:"inngest"}`: that adapter needs an event key, which is environment |
-| `packages/core/src/events/booking-events.ts` | `emitExceptionRaised` — shapes the event in ONE place, never throws |
-| `packages/core/src/events/index.ts` | barrel, re-exported from `src/index.ts` |
+| File                                         | What                                                                                                                                              |
+| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `packages/core/src/events/emitter.ts`        | `DomainEvent` / `EventEmitter` + `NoopEmitter` (default), `ConsoleEmitter`, `RecordingEmitter` (test double, same place as `RecordingNotifier`)   |
+| `packages/core/src/events/factory.ts`        | `createEventEmitter` — the two credential-free choices. Deliberately no `{kind:"inngest"}`: that adapter needs an event key, which is environment |
+| `packages/core/src/events/booking-events.ts` | `emitExceptionRaised` — shapes the event in ONE place, never throws                                                                               |
+| `packages/core/src/events/index.ts`          | barrel, re-exported from `src/index.ts`                                                                                                           |
 
 `DomainEvent` carries an optional `id` (idempotency key) on top of the `{name, data}`
 the slice prompt sketched. It is needed for dedup and it is not Inngest-specific —
@@ -64,25 +64,25 @@ Reason text is derived from the custody metadata the existing call sites already
 (`booking/state-machine.ts:53-81`). Every one of them now emits, because all seven are
 reached through the two choke points above:
 
-| # | Source state | Reached by | Emits |
-|---|---|---|---|
-| 1 | `draft` | admin override (`admin/app/bookings/actions.ts:53` → `applyTransitionForSession`) | ✅ |
-| 2 | `paid` | admin override; Stripe `payment.cancelled` (`webhooks.ts:112`) | ✅ |
-| 3 | `agent_assigned` | **`reportVisitException`** (`agent-visit.ts:386`) — the operational path, silent before this slice; admin override | ✅ |
-| 4 | `verified_sealed` | capture failure (`payment-lifecycle.ts:92`); admin override | ✅ |
-| 5 | `awaiting_pickup` | capture failure; admin override | ✅ |
-| 6 | `in_transit` | capture failure; Stripe `payment.cancelled` mid-custody; admin override | ✅ |
-| 7 | `delivered_to_bagdrop` | capture failure; admin override | ✅ |
+| #   | Source state           | Reached by                                                                                                         | Emits |
+| --- | ---------------------- | ------------------------------------------------------------------------------------------------------------------ | ----- |
+| 1   | `draft`                | admin override (`admin/app/bookings/actions.ts:53` → `applyTransitionForSession`)                                  | ✅    |
+| 2   | `paid`                 | admin override; Stripe `payment.cancelled` (`webhooks.ts:112`)                                                     | ✅    |
+| 3   | `agent_assigned`       | **`reportVisitException`** (`agent-visit.ts:386`) — the operational path, silent before this slice; admin override | ✅    |
+| 4   | `verified_sealed`      | capture failure (`payment-lifecycle.ts:92`); admin override                                                        | ✅    |
+| 5   | `awaiting_pickup`      | capture failure; admin override                                                                                    | ✅    |
+| 6   | `in_transit`           | capture failure; Stripe `payment.cancelled` mid-custody; admin override                                            | ✅    |
+| 7   | `delivered_to_bagdrop` | capture failure; admin override                                                                                    | ✅    |
 
 Every code path that transitions to `exception`, and its wiring:
 
-| Call site | Route | Wired |
-|---|---|---|
-| `services/agent-visit.ts:386` `reportVisitException` | `applyTransition` | ✅ |
-| `services/payment-lifecycle.ts:92` capture failure | `applyTransition` | ✅ |
-| `services/webhooks.ts:112` `payment.cancelled` in custody | `moveBooking` (own emit) | ✅ |
-| `apps/admin/.../bookings/actions.ts:53` ops override | `applyTransitionForSession` → `applyTransition` | ✅ |
-| `payment-intent.ts:351`, `dispatch.ts:199,292`, `agent-visit.ts:337`, `payment-lifecycle.ts:227` | `applyTransition` with non-exception events | n/a — never lands on `exception` |
+| Call site                                                                                        | Route                                           | Wired                            |
+| ------------------------------------------------------------------------------------------------ | ----------------------------------------------- | -------------------------------- |
+| `services/agent-visit.ts:386` `reportVisitException`                                             | `applyTransition`                               | ✅                               |
+| `services/payment-lifecycle.ts:92` capture failure                                               | `applyTransition`                               | ✅                               |
+| `services/webhooks.ts:112` `payment.cancelled` in custody                                        | `moveBooking` (own emit)                        | ✅                               |
+| `apps/admin/.../bookings/actions.ts:53` ops override                                             | `applyTransitionForSession` → `applyTransition` | ✅                               |
+| `payment-intent.ts:351`, `dispatch.ts:199,292`, `agent-visit.ts:337`, `payment-lifecycle.ts:227` | `applyTransition` with non-exception events     | n/a — never lands on `exception` |
 
 ### App runtimes
 
@@ -126,12 +126,12 @@ the existing Inngest function is untouched.
 
 ### Gate
 
-| Gate | Result |
-|---|---|
-| `pnpm turbo typecheck` | **6 successful, 6 total** |
-| `pnpm turbo lint` | **6 successful, 6 total** |
-| `pnpm turbo test` (unit) | core **250** (was 244), web **64**, admin **19**, agent **6** |
-| `pnpm --filter @koolee/core test:integration` | **15 files passed, 1 skipped · 92 passed, 3 skipped** |
+| Gate                                          | Result                                                        |
+| --------------------------------------------- | ------------------------------------------------------------- |
+| `pnpm turbo typecheck`                        | **6 successful, 6 total**                                     |
+| `pnpm turbo lint`                             | **6 successful, 6 total**                                     |
+| `pnpm turbo test` (unit)                      | core **250** (was 244), web **64**, admin **19**, agent **6** |
+| `pnpm --filter @koolee/core test:integration` | **15 files passed, 1 skipped · 92 passed, 3 skipped**         |
 
 ### Files changed — Phase 1
 
@@ -236,12 +236,12 @@ it for a credential.
 Drizzle generated a single `ADD COLUMN "ref" varchar(9) NOT NULL`, which fails outright on
 a table that already has rows. Rewritten by hand as the §3.1 three-step:
 
-| # | Statement | Lock / cost |
-|---|---|---|
-| 1 | `ALTER TABLE bookings ADD COLUMN ref varchar(9)` (nullable) | catalog-only in PG11+, instant, no rewrite |
-| 2 | `DO $$ … $$` backfill, Crockford base32, bounded at 20 attempts/row, `RAISE`s rather than looping | row-by-row inside the transaction, so the collision check sees rows written moments earlier; linear in row count |
-| 3 | `ALTER COLUMN ref SET NOT NULL` | ACCESS EXCLUSIVE + one full scan to verify — the statement to watch if `bookings` ever gets big |
-| 4 | `CREATE UNIQUE INDEX bookings_ref_key` | SHARE lock; not `CONCURRENTLY`, same reasoning as 0017/0019/0020 (the migrator runs in one transaction) |
+| #   | Statement                                                                                         | Lock / cost                                                                                                      |
+| --- | ------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| 1   | `ALTER TABLE bookings ADD COLUMN ref varchar(9)` (nullable)                                       | catalog-only in PG11+, instant, no rewrite                                                                       |
+| 2   | `DO $$ … $$` backfill, Crockford base32, bounded at 20 attempts/row, `RAISE`s rather than looping | row-by-row inside the transaction, so the collision check sees rows written moments earlier; linear in row count |
+| 3   | `ALTER COLUMN ref SET NOT NULL`                                                                   | ACCESS EXCLUSIVE + one full scan to verify — the statement to watch if `bookings` ever gets big                  |
+| 4   | `CREATE UNIQUE INDEX bookings_ref_key`                                                            | SHARE lock; not `CONCURRENTLY`, same reasoning as 0017/0019/0020 (the migrator runs in one transaction)          |
 
 Applied locally after TD's explicit OK. `Target host: 127.0.0.1` confirmed before running.
 
@@ -273,18 +273,18 @@ has committed when the retry runs.
 
 ### Where it surfaces
 
-| Surface | Change |
-|---|---|
-| Confirmation email | `Booking reference: KOO-XXXXX` line + HTML table row; subject now leads with the ref |
-| Reminder email | same line + row; subject leads with the ref |
-| Ops exception email | `KOO-XXXXX (uuid)` in body and heading, ref in the subject. Looked up from the row — the event payload shape is fixed and a missing row must not stop the alert |
-| Customer trip list | `Reference` fact now reads the column (was `KL-` + hex) |
-| Customer trip detail | ref added to the header subtitle |
-| Admin bookings list | ref column now reads the column (was bare hex) |
-| Admin booking detail | `KOO-XXXXX · <uuid>` |
-| Admin exceptions board | ref added — the alert email names the booking by ref, so it has to be scannable where ops triages |
-| Agent task list | ref added (had none) |
-| Agent visit view | ref added (had none) |
+| Surface                | Change                                                                                                                                                          |
+| ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Confirmation email     | `Booking reference: KOO-XXXXX` line + HTML table row; subject now leads with the ref                                                                            |
+| Reminder email         | same line + row; subject leads with the ref                                                                                                                     |
+| Ops exception email    | `KOO-XXXXX (uuid)` in body and heading, ref in the subject. Looked up from the row — the event payload shape is fixed and a missing row must not stop the alert |
+| Customer trip list     | `Reference` fact now reads the column (was `KL-` + hex)                                                                                                         |
+| Customer trip detail   | ref added to the header subtitle                                                                                                                                |
+| Admin bookings list    | ref column now reads the column (was bare hex)                                                                                                                  |
+| Admin booking detail   | `KOO-XXXXX · <uuid>`                                                                                                                                            |
+| Admin exceptions board | ref added — the alert email names the booking by ref, so it has to be scannable where ops triages                                                               |
+| Agent task list        | ref added (had none)                                                                                                                                            |
+| Agent visit view       | ref added (had none)                                                                                                                                            |
 
 `jobs/functions.ts:85`'s doc comment no longer lies — it names `bookings.ref` explicitly.
 `TaskBookingContext` gained `ref` so the agent list can render it.
@@ -294,7 +294,7 @@ has committed when the retry runs.
 - `packages/core/src/booking/ref.test.ts` (11): format over 500 draws, **no I/L/O/U** in
   2,500 characters, all 32 alphabet characters reachable, 1,000 draws with no repeat;
   conflict detection recognises a wrapped 23505 on `bookings_ref_key` and rejects one on a
-  *different* index; retry mints a **new** ref each attempt, is bounded, and does **not**
+  _different_ index; retry mints a **new** ref each attempt, is bounded, and does **not**
   retry unrelated failures.
 - `create-booking.integration.test.ts` +2: a created booking's ref is well-formed, unique
   and stored (not derived from the id); a duplicate ref insert is rejected by the index.
@@ -351,7 +351,7 @@ against faked deps — no Inngest dev server, no database, no network.
 `packages/core/src/jobs/test-doubles.ts` supplies:
 
 - **`RecordingInngest`** — a client whose `createFunction` captures `{id, crons, events,
-  handler}` instead of registering. That turns each function into a plain async function
+handler}` instead of registering. That turns each function into a plain async function
   you can call.
 - **`FakeStep`** — runs every `step.run` inline and **records** `sleepUntil` targets
   rather than sleeping. This is the only way the reminder's schedule is testable: a real
@@ -365,16 +365,16 @@ against faked deps — no Inngest dev server, no database, no network.
 
 ### Coverage — 28 tests
 
-| Function | Pinned |
-|---|---|
-| registration | all six ids present; both cron expressions exact |
-| **confirmation** | sends exactly one email carrying the ref, breakdown, trip link, and the `airline's bag drop` copy rule **at the point of send**; a **thrown send is caught** → `{sent:false, reason:"send_failed"}`, warning alert, no throw; cancelled booking skipped; no-email customer skipped with a log line |
-| **reminder** | `sleepUntil` target is **exactly** `pickup_window_start − 2h`; a window already inside the lead sends immediately with **no** sleep; SMS + email both sent when worthy; **`REMINDER_WORTHY` guard** skips `cancelled`/`exception`/`verified_sealed`/`completed` at send time and still sends for `paid`/`agent_assigned`; deleted booking skipped; a **thrown email is caught** → warning alert |
-| **exception alert** | emails `OPS_ALERT_EMAIL`, subject names the ref; **unset address → logged skip, `{sent:false, reason:"no_ops_email"}`, no throw**; a failed send escalates to `critical` rather than throwing |
-| **cutoff-risk monitor** (`*/5`) | quiet with nothing in transit; alerts on an in-transit booking with no cutoff on record |
-| **agent no-show** | waits the exact 15-minute grace deadline; escalates `critical` when no task started; silent when the agent checked in |
-| **waitlist sweep** (daily) | clean and **silent** with an empty queue (it runs every day forever); emails a covered signup and stamps `notifiedAt`; a failed send leaves the row **unstamped** so the next sweep retries |
-| module contract | importing `jobs/functions` with no credentials does not throw |
+| Function                        | Pinned                                                                                                                                                                                                                                                                                                                                                                                          |
+| ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| registration                    | all six ids present; both cron expressions exact                                                                                                                                                                                                                                                                                                                                                |
+| **confirmation**                | sends exactly one email carrying the ref, breakdown, trip link, and the `airline's bag drop` copy rule **at the point of send**; a **thrown send is caught** → `{sent:false, reason:"send_failed"}`, warning alert, no throw; cancelled booking skipped; no-email customer skipped with a log line                                                                                              |
+| **reminder**                    | `sleepUntil` target is **exactly** `pickup_window_start − 2h`; a window already inside the lead sends immediately with **no** sleep; SMS + email both sent when worthy; **`REMINDER_WORTHY` guard** skips `cancelled`/`exception`/`verified_sealed`/`completed` at send time and still sends for `paid`/`agent_assigned`; deleted booking skipped; a **thrown email is caught** → warning alert |
+| **exception alert**             | emails `OPS_ALERT_EMAIL`, subject names the ref; **unset address → logged skip, `{sent:false, reason:"no_ops_email"}`, no throw**; a failed send escalates to `critical` rather than throwing                                                                                                                                                                                                   |
+| **cutoff-risk monitor** (`*/5`) | quiet with nothing in transit; alerts on an in-transit booking with no cutoff on record                                                                                                                                                                                                                                                                                                         |
+| **agent no-show**               | waits the exact 15-minute grace deadline; escalates `critical` when no task started; silent when the agent checked in                                                                                                                                                                                                                                                                           |
+| **waitlist sweep** (daily)      | clean and **silent** with an empty queue (it runs every day forever); emails a covered signup and stamps `notifiedAt`; a failed send leaves the row **unstamped** so the next sweep retries                                                                                                                                                                                                     |
+| module contract                 | importing `jobs/functions` with no credentials does not throw                                                                                                                                                                                                                                                                                                                                   |
 
 The throwing-notifier double follows the `FlakyNotifier` pattern from
 `waitlist/notify-covered.integration.test.ts`.
@@ -430,7 +430,7 @@ schema/code mismatch would have produced.
 
 **Stated precisely, since the slice asked for a booking smoke:** the live consoles all
 require a session, so a curl smoke returns the login page and cannot show a rendered ref.
-The booking smoke that *did* run is `create-booking.integration.test.ts` against real
+The booking smoke that _did_ run is `create-booking.integration.test.ts` against real
 Postgres, which exercises the real `createBooking` and asserts the minted ref. A live
 authenticated render of the ref was **not** performed and is not claimed.
 
@@ -438,15 +438,15 @@ authenticated render of the ref was **not** performed and is not claimed.
 
 `docs/CODEBASE-MAP.md`:
 
-| Was | Now |
-|---|---|
-| deploy checklist: *"Migration `0012` … applied locally but **not** yet hosted"* — false, and the exact prose-migration-claim §3.1 exists to forbid | points at `pnpm db:status` against the target, with a note that this file itself has been wrong about migration state |
-| *"open items … and the Inngest jobs' side effects"* | records them as **shipped**; every function in the table does real work |
-| `exception-ops-alert-email` row: *"unset = skip"* | *"now required in prod"* |
-| *"`packages/core` reads no environment variables"* | *"takes its credentials as values"*, naming the one exception (`auth/hash-destination.ts` / `OTP_LOG_HMAC_KEY`) — the N4 correction, consistent with the factory comments |
-| Inngest section: events emitted from `apps/web/src/lib/booking-events.ts` | rewritten — `booking/exception_raised` is emitted by **core** from the two choke points; documents the `EventEmitter` seam, the send-only agent/admin wiring, and why emission never throws |
+| Was                                                                                                                                                | Now                                                                                                                                                                                         |
+| -------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| deploy checklist: _"Migration `0012` … applied locally but **not** yet hosted"_ — false, and the exact prose-migration-claim §3.1 exists to forbid | points at `pnpm db:status` against the target, with a note that this file itself has been wrong about migration state                                                                       |
+| _"open items … and the Inngest jobs' side effects"_                                                                                                | records them as **shipped**; every function in the table does real work                                                                                                                     |
+| `exception-ops-alert-email` row: _"unset = skip"_                                                                                                  | _"now required in prod"_                                                                                                                                                                    |
+| _"`packages/core` reads no environment variables"_                                                                                                 | _"takes its credentials as values"_, naming the one exception (`auth/hash-destination.ts` / `OTP_LOG_HMAC_KEY`) — the N4 correction, consistent with the factory comments                   |
+| Inngest section: events emitted from `apps/web/src/lib/booking-events.ts`                                                                          | rewritten — `booking/exception_raised` is emitted by **core** from the two choke points; documents the `EventEmitter` seam, the send-only agent/admin wiring, and why emission never throws |
 
-`RUN-REPORT-3.md:296`: *"7 registered functions"* → **8**, with the correction dated and
+`RUN-REPORT-3.md:296`: _"7 registered functions"_ → **8**, with the correction dated and
 the arithmetic spelled out (6 from `createKooleeFunctions` + 2 in `apps/web/src/lib/inngest.ts`).
 
 `PROJECT-STATUS.md`: new snapshot bullet leading §3; tracker rows **58–62** for B2, N5, D1,
@@ -457,10 +457,10 @@ or lookup credential).
 
 ### Stale claims found but deliberately NOT changed
 
-- PROJECT-STATUS §3 says the confirmation email was *"verified live end-to-end locally (real
-  Resend delivery)"*. The validation run verified the **console** path only (it blanked
+- PROJECT-STATUS §3 says the confirmation email was _"verified live end-to-end locally (real
+  Resend delivery)"_. The validation run verified the **console** path only (it blanked
   `RESEND_API_KEY` so no mail left the machine). Per the report's own reading this claim is
-  *not contradicted, just not re-proven*, so it is left standing rather than silently
+  _not contradicted, just not re-proven_, so it is left standing rather than silently
   weakened on no evidence. Flagging it here so TD can decide.
 - `DIRECT_DATABASE_URL` still exists in each app's `env.ts` **schema** (and in agent's
   `HINTS`), now dead. Removing it is outside this slice's stated scope (which named the
@@ -472,16 +472,16 @@ The full gate caught `ref.test.ts > does not repeat itself` failing. Not a fluke
 had written on wrong reasoning. The birthday bound over 32^5:
 
 | refs minted | P(at least one collision ever) |
-|---|---|
-| 1,000 | 1.5% |
-| 5,000 | 31.1% |
-| 7,000 | **51.8%** |
-| 10,000 | 77.5% |
+| ----------- | ------------------------------ |
+| 1,000       | 1.5%                           |
+| 5,000       | 31.1%                          |
+| 7,000       | **51.8%**                      |
+| 10,000      | 77.5%                          |
 
 So `expect(refs.size).toBe(1000)` was a test that fails about once every 67 runs, and my
 comment in `ref.ts` claiming a collision is "1-in-astronomical" was **wrong**.
 
-The *design* is fine, and this actually vindicates it: what stays negligible is the
+The _design_ is fine, and this actually vindicates it: what stays negligible is the
 **per-insert** case, which is the one the retry loop faces — at 10,000 existing rows a
 single attempt collides with probability ~3e-4, so five consecutive collisions is ~2e-18.
 But the retry loop is **load-bearing rather than insurance**, and both the comment and the
@@ -515,17 +515,17 @@ M  packages/core/src/booking/ref.test.ts   (flaky uniqueness assertion → entro
 
 ### Final gate — everything, from a clean state
 
-| Gate | Command | Result |
-|---|---|---|
-| Typecheck | `pnpm turbo typecheck` | **6 successful, 6 total** |
-| Lint | `pnpm turbo lint` | **6 successful, 6 total** |
-| Prod builds | `pnpm turbo build` | **3 successful, 3 total** (web, agent, admin) |
-| Unit — core | `pnpm turbo test` | **19 files / 289 tests** (baseline 244) |
-| Unit — web | " | **7 files / 62 tests** |
-| Unit — admin | " | **2 files / 19 tests** |
-| Unit — agent | " | **1 file / 6 tests** |
-| Integration — core | `pnpm --filter @koolee/core test:integration` | **15 files passed, 1 skipped · 96 passed, 3 skipped** |
-| Migrations | `pnpm db:status` | `Target host: 127.0.0.1` · **22 of 22 (matched by content hash)** · In sync |
+| Gate               | Command                                       | Result                                                                      |
+| ------------------ | --------------------------------------------- | --------------------------------------------------------------------------- |
+| Typecheck          | `pnpm turbo typecheck`                        | **6 successful, 6 total**                                                   |
+| Lint               | `pnpm turbo lint`                             | **6 successful, 6 total**                                                   |
+| Prod builds        | `pnpm turbo build`                            | **3 successful, 3 total** (web, agent, admin)                               |
+| Unit — core        | `pnpm turbo test`                             | **19 files / 289 tests** (baseline 244)                                     |
+| Unit — web         | "                                             | **7 files / 62 tests**                                                      |
+| Unit — admin       | "                                             | **2 files / 19 tests**                                                      |
+| Unit — agent       | "                                             | **1 file / 6 tests**                                                        |
+| Integration — core | `pnpm --filter @koolee/core test:integration` | **15 files passed, 1 skipped · 96 passed, 3 skipped**                       |
+| Migrations         | `pnpm db:status`                              | `Target host: 127.0.0.1` · **22 of 22 (matched by content hash)** · In sync |
 
 Test movement, accounted for: core **244 → 289** (+6 emitter, +11 ref, +28 jobs);
 web **64 → 62** (+3 env boot gate, −5 from the deleted `booking-reference.test.ts`).
@@ -579,12 +579,12 @@ Coming-soon deploys and Preview are unaffected. Optional locally.
 
 Updated production env checklist for apps/web:
 
-| Var | Status |
-|---|---|
-| `RESEND_API_KEY` | required (existing gate) |
-| `OPS_ALERT_EMAIL` | **required — new in this slice** |
-| `RESEND_FROM` | optional; sandbox default only delivers to the Resend account's own address |
-| `NEXT_PUBLIC_APP_URL` | optional but emails ship with no CTA without it |
+| Var                   | Status                                                                      |
+| --------------------- | --------------------------------------------------------------------------- |
+| `RESEND_API_KEY`      | required (existing gate)                                                    |
+| `OPS_ALERT_EMAIL`     | **required — new in this slice**                                            |
+| `RESEND_FROM`         | optional; sandbox default only delivers to the Resend account's own address |
+| `NEXT_PUBLIC_APP_URL` | optional but emails ship with no CTA without it                             |
 
 ### 3. `INNGEST_EVENT_KEY` for apps/agent and apps/admin (production only)
 
@@ -605,63 +605,63 @@ in step 1 clear it as a side effect. Read the `Target host:` line every time.
 `raise_exception → exception` is legal from seven states. All seven emit, because all seven
 route through one of the two choke points.
 
-| # | Source state | How it is reached | Wired |
-|---|---|---|---|
-| 1 | `draft` | admin override | ✅ `applyTransition` |
-| 2 | `paid` | admin override; Stripe `payment.cancelled` | ✅ both choke points |
-| 3 | `agent_assigned` | **`reportVisitException`** — the operational path, **silent before this slice**; admin override | ✅ `applyTransition` |
-| 4 | `verified_sealed` | capture failure; admin override | ✅ `applyTransition` |
-| 5 | `awaiting_pickup` | capture failure; admin override | ✅ `applyTransition` |
-| 6 | `in_transit` | capture failure; Stripe `payment.cancelled` mid-custody; admin override | ✅ both choke points |
-| 7 | `delivered_to_bagdrop` | capture failure; admin override | ✅ `applyTransition` |
+| #   | Source state           | How it is reached                                                                               | Wired                |
+| --- | ---------------------- | ----------------------------------------------------------------------------------------------- | -------------------- |
+| 1   | `draft`                | admin override                                                                                  | ✅ `applyTransition` |
+| 2   | `paid`                 | admin override; Stripe `payment.cancelled`                                                      | ✅ both choke points |
+| 3   | `agent_assigned`       | **`reportVisitException`** — the operational path, **silent before this slice**; admin override | ✅ `applyTransition` |
+| 4   | `verified_sealed`      | capture failure; admin override                                                                 | ✅ `applyTransition` |
+| 5   | `awaiting_pickup`      | capture failure; admin override                                                                 | ✅ `applyTransition` |
+| 6   | `in_transit`           | capture failure; Stripe `payment.cancelled` mid-custody; admin override                         | ✅ both choke points |
+| 7   | `delivered_to_bagdrop` | capture failure; admin override                                                                 | ✅ `applyTransition` |
 
 Every code path that lands a booking in `exception`:
 
-| Call site | Route to the emit | Wired |
-|---|---|---|
-| `services/agent-visit.ts:386` `reportVisitException` | `applyTransition` | ✅ |
-| `services/payment-lifecycle.ts:92` capture failure | `applyTransition` | ✅ |
-| `services/webhooks.ts:112` `payment.cancelled` in custody | `moveBooking` (own emit) | ✅ |
-| `apps/admin/.../bookings/actions.ts:53` ops override | `applyTransitionForSession` → `applyTransition` | ✅ |
-| `payment-intent.ts:351`, `dispatch.ts:199,292`, `agent-visit.ts:337`, `payment-lifecycle.ts:227` | `applyTransition` with non-exception events | n/a — never lands on `exception` |
+| Call site                                                                                        | Route to the emit                               | Wired                            |
+| ------------------------------------------------------------------------------------------------ | ----------------------------------------------- | -------------------------------- |
+| `services/agent-visit.ts:386` `reportVisitException`                                             | `applyTransition`                               | ✅                               |
+| `services/payment-lifecycle.ts:92` capture failure                                               | `applyTransition`                               | ✅                               |
+| `services/webhooks.ts:112` `payment.cancelled` in custody                                        | `moveBooking` (own emit)                        | ✅                               |
+| `apps/admin/.../bookings/actions.ts:53` ops override                                             | `applyTransitionForSession` → `applyTransition` | ✅                               |
+| `payment-intent.ts:351`, `dispatch.ts:199,292`, `agent-visit.ts:337`, `payment-lifecycle.ts:227` | `applyTransition` with non-exception events     | n/a — never lands on `exception` |
 
 Per-app emitter wiring:
 
-| App | Emitter | Serves `/api/inngest`? |
-|---|---|---|
-| web | `InngestEmitter` via `lib/inngest-client.ts` | **yes** — owns the registry (8 functions) |
-| agent | `InngestEmitter`, send-only | no — a second serve endpoint would double-register |
-| admin | `InngestEmitter`, send-only | no — same reason |
+| App   | Emitter                                      | Serves `/api/inngest`?                             |
+| ----- | -------------------------------------------- | -------------------------------------------------- |
+| web   | `InngestEmitter` via `lib/inngest-client.ts` | **yes** — owns the registry (8 functions)          |
+| agent | `InngestEmitter`, send-only                  | no — a second serve endpoint would double-register |
+| admin | `InngestEmitter`, send-only                  | no — same reason                                   |
 
 ---
 
 ## Deferred, with reasons
 
-| Item | Why |
-|---|---|
-| **B1** — hosted migration state unverified | Requires hosted credentials and TD's own shell. Command given above; it is the one item that must clear before rollout. |
-| **N2** — probe residue in the local dev DB | Explicitly out of scope; TD runs `pnpm local:reset`. Untouched. |
-| **N3** — no ESLint boundary for the Resend adapter | Explicitly out of scope (hardening backlog). Still moot today: `ResendNotifier` uses REST with an injectable fetch and no `resend` package exists to restrict. |
-| **N4** beyond the comment fix | Explicitly out of scope. `auth/hash-destination.ts` still reads `OTP_LOG_HMAC_KEY`; the three doc comments that denied it (both factories + CODEBASE-MAP) and PROJECT-STATUS §7 now name it. The HMAC read is unchanged. |
-| `DIRECT_DATABASE_URL` in each app's `env.ts` **schema** | Now dead config. Outside the slice's stated scope, which named the `.env.local`/`.env.example` files only. Small, separate cleanup. |
-| PROJECT-STATUS §3's *"verified live … (real Resend delivery)"* | Not contradicted by the validation run, only not re-proven (it deliberately blanked the key). Left standing rather than weakened on no evidence. TD's call. |
-| Live authenticated render of the ref in the consoles | Requires a browser session; not scriptable here. Booking creation + ref is proven by integration test against real Postgres, and the dev servers boot and serve every affected route with no errors. |
+| Item                                                           | Why                                                                                                                                                                                                                      |
+| -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **B1** — hosted migration state unverified                     | Requires hosted credentials and TD's own shell. Command given above; it is the one item that must clear before rollout.                                                                                                  |
+| **N2** — probe residue in the local dev DB                     | Explicitly out of scope; TD runs `pnpm local:reset`. Untouched.                                                                                                                                                          |
+| **N3** — no ESLint boundary for the Resend adapter             | Explicitly out of scope (hardening backlog). Still moot today: `ResendNotifier` uses REST with an injectable fetch and no `resend` package exists to restrict.                                                           |
+| **N4** beyond the comment fix                                  | Explicitly out of scope. `auth/hash-destination.ts` still reads `OTP_LOG_HMAC_KEY`; the three doc comments that denied it (both factories + CODEBASE-MAP) and PROJECT-STATUS §7 now name it. The HMAC read is unchanged. |
+| `DIRECT_DATABASE_URL` in each app's `env.ts` **schema**        | Now dead config. Outside the slice's stated scope, which named the `.env.local`/`.env.example` files only. Small, separate cleanup.                                                                                      |
+| PROJECT-STATUS §3's _"verified live … (real Resend delivery)"_ | Not contradicted by the validation run, only not re-proven (it deliberately blanked the key). Left standing rather than weakened on no evidence. TD's call.                                                              |
+| Live authenticated render of the ref in the consoles           | Requires a browser session; not scriptable here. Booking creation + ref is proven by integration test against real Postgres, and the dev servers boot and serve every affected route with no errors.                     |
 
 ---
 
 ## Findings closed
 
-| Finding | Status |
-|---|---|
-| **B2** exception alert covers 1 of 7 paths | ✅ closed — all seven, via a core-level seam |
-| **N1** hosted DDL credential in app `.env.local` | ✅ closed |
-| **N5** `OPS_ALERT_EMAIL` has no prod boot gate | ✅ closed |
-| **N6** `jobs/functions.ts` has zero tests | ✅ closed — 28 tests |
-| **N7** stale docs | ✅ closed |
-| **D1** confirmation email promises a ref that does not exist | ✅ closed — `bookings.ref` |
-| **N4** "core reads zero env" is false | ◐ comment-corrected in 4 places; the read itself deliberately unchanged |
-| **B1** hosted migration state unverified | ⬜ **OPEN — TD's manual check** |
-| **N2**, **N3** | ⬜ deferred by instruction |
+| Finding                                                      | Status                                                                  |
+| ------------------------------------------------------------ | ----------------------------------------------------------------------- |
+| **B2** exception alert covers 1 of 7 paths                   | ✅ closed — all seven, via a core-level seam                            |
+| **N1** hosted DDL credential in app `.env.local`             | ✅ closed                                                               |
+| **N5** `OPS_ALERT_EMAIL` has no prod boot gate               | ✅ closed                                                               |
+| **N6** `jobs/functions.ts` has zero tests                    | ✅ closed — 28 tests                                                    |
+| **N7** stale docs                                            | ✅ closed                                                               |
+| **D1** confirmation email promises a ref that does not exist | ✅ closed — `bookings.ref`                                              |
+| **N4** "core reads zero env" is false                        | ◐ comment-corrected in 4 places; the read itself deliberately unchanged |
+| **B1** hosted migration state unverified                     | ⬜ **OPEN — TD's manual check**                                         |
+| **N2**, **N3**                                               | ⬜ deferred by instruction                                              |
 
 ### One defect found during close-out verification
 
@@ -670,7 +670,7 @@ turned up a real gap in Phase 1's own work: the admin manual override writes
 `metadata: { source: "admin_manual_override", note }` — a **`note`, never a `reason`**. The
 first version of `exceptionReasonFrom` only promoted `note` when a `reason` was already
 present, so an ops override would have alerted with the generic
-*"Booking moved to exception by raise_exception."* and thrown away the one sentence the
+_"Booking moved to exception by raise_exception."_ and thrown away the one sentence the
 operator actually typed.
 
 Fixed: with no `reason`, the `note` becomes the reason; the generic sentence is the last

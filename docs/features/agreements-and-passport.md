@@ -46,20 +46,43 @@ drift the first time anything writes one without the other — which is the
 pricing-rule leakage (#41/#51) restated. Here it is not "enforced", it is
 impossible: there is no column to get wrong.
 
+### Version pinning
+
+> Every booking needs one acceptance, before the visit. That acceptance PINS
+> the version, and that version governs the booking for its whole life. A new
+> version never disturbs a booking already in flight. A new booking accepts
+> whatever is current at that moment.
+
+Per **booking**, not per customer — a repeat customer accepts again next time.
+Pinning a customer to their first version would leave people shipping under
+years-old terms while the operation runs on the newest.
+
+Why, beyond convenience: a booking is a contract for one shipment, formed at
+acceptance, and carriage/shipping/insurance all bind the terms in force at
+purchase. The decisive point is that re-acceptance does not achieve what it
+appears to — consent tapped at a doorstep with an agent waiting and the bags
+packed is consent under duress.
+
+This replaced a re-acceptance model where the gate asked for an acceptance of
+the version current _right now_. That model was internally inconsistent: it
+blocked a pickup tomorrow morning over a wording change while leaving a booking
+already in transit alone — not a principle, an artifact of where the gate sat.
+`UNIQUE (booking_id)` on `agreement_acceptances` (0025) makes a second
+acceptance impossible, which is also what stops two concurrent submits pinning
+one booking to two versions.
+
 Consequences that look like bugs and are not:
 
-- **Publishing v2 un-gates every booking that only accepted v1.** Those
-  customers are asked again. An agreement the customer never saw is not one
-  they agreed to. The trip page says _"our agreement was updated"_ rather than
-  _"you have not accepted"_, which is a different sentence to someone who
-  remembers accepting (`supersededAcceptance`).
-- **A retroactive `effective_from` is refused.** Backdating would flip
-  in-flight bookings to "not accepted" retroactively — possibly while an agent
-  is standing at a door. A 60-second tolerance exists only to absorb clock
-  skew, not to permit backdating.
+- **A retroactive `effective_from` is still refused.** It no longer protects
+  in-flight acceptances (nothing can disturb those now), but it decides which
+  version NEW bookings pin to, and backdating silently rewrites which terms a
+  booking sold an hour ago was sold under. A 60-second tolerance absorbs clock
+  skew only.
 - **Nothing published ⇒ the gate is CLOSED.** An empty `agreement_versions`
   satisfying the gate would mean a database that lost its agreement rows
   silently stops requiring agreements.
+- **Every surface shows the PINNED version**, not the newest — customer, agent
+  and ops alike, because that is the document the booking is bound by.
 
 `agreement_acceptances` is **append-only at the database** (trigger, migration 0022) for the same reason `custody_events` is: it is evidence that a named
 person agreed to specific terms at a specific instant. There is no correcting

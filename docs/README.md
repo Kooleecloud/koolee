@@ -116,7 +116,7 @@
 | [TIME.md](TIME.md)                 | Instants, timezones, DST                                                        | —           |
 | [CODEBASE-MAP.md](CODEBASE-MAP.md) | The dense 13-chapter narrative reference                                        | 13 chapters |
 
-**Elsewhere:** [../README.md](../README.md) (entry point) · [../PROJECT-STATUS.md](../PROJECT-STATUS.md) (**what shipped / what's next**) · [../MIGRATION-NOTES.md](../MIGRATION-NOTES.md) · [../brand/BRAND.md](../brand/BRAND.md) · [../packages/db/README.md](../packages/db/README.md) · [../packages/ui/DESIGN.md](../packages/ui/DESIGN.md) · [../packages/core/docs/local-test-env.md](../packages/core/docs/local-test-env.md) · [../apps/web/docs/](../apps/web/docs/) · [../apps/admin/docs/](../apps/admin/docs/) · [../apps/agent/docs/](../apps/agent/docs/)
+**Elsewhere:** [../README.md](../README.md) (entry point) · [../PROJECT-STATUS.md](../PROJECT-STATUS.md) (**what shipped / what's next**) · [run-reports/](run-reports/) (build logs, validation + migration notes) · [../brand/BRAND.md](../brand/BRAND.md) · [../packages/db/README.md](../packages/db/README.md) · [../packages/ui/DESIGN.md](../packages/ui/DESIGN.md) · [../packages/core/docs/local-test-env.md](../packages/core/docs/local-test-env.md) · [../apps/web/docs/](../apps/web/docs/) · [../apps/admin/docs/](../apps/admin/docs/) · [../apps/agent/docs/](../apps/agent/docs/)
 
 ---
 

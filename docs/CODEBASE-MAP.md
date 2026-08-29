@@ -176,6 +176,20 @@ keep their foreign key. Do not add to it — see Chapter 4.
   rejects `UPDATE` / `DELETE` / `TRUNCATE`. Corrections are new rows. This is
   the evidentiary spine of the product; if it were mutable it would be
   worthless in a dispute.
+- **Reuse before you build.** Check `packages/ui` before writing any input,
+  control or layout piece, and lift one there as soon as a second app needs it.
+  `DateTimeField` and `@koolee/ui/lib/photo` are the worked examples; see
+  PROJECT-STATUS §7.
+- `agreement_versions` rows are IMMUTABLE once `effective_from` has passed
+  (trigger, migration `0024`). A future-dated version is editable because it
+  cannot have been accepted — `acceptAgreement` only ever resolves the current
+  version — which is why scheduling doubles as the draft mechanism.
+- `agreement_acceptances` holds at most ONE row per booking (`UNIQUE
+booking_id`, migration `0025`): the version a booking accepts pins for the
+  life of that booking, so a second row would mean a booking bound to two
+  documents. 0025 REFUSES to migrate if duplicates exist rather than deleting
+  them — they are append-only evidence, and which acceptance governs is a
+  human decision.
 - `agreement_acceptances` is append-only too, by the same trigger mechanism
   and for the same reason: it is evidence that a named person agreed to
   specific terms at a specific instant, and there is no such thing as
