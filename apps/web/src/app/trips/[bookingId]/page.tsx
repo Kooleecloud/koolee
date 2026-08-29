@@ -15,11 +15,17 @@ import {
   PageHeader,
 } from "@koolee/ui";
 import {
+  DRIVER_SELECTABLE_STATUSES,
+  formatEtaRange,
   formatInstantInAirportTz,
   formatWindowInAirportTz,
   getBookingAgreementState,
   getBookingDetailForSession,
   getPassportVerification,
+  getSelectedDriver,
+  haversineKm,
+  listCandidateDrivers,
+  reportEmptyDriverPool,
   type AssignedAgent,
 } from "@koolee/core";
 
@@ -30,7 +36,14 @@ import {
   type TripAgreementView,
   type TripPassportView,
 } from "@/components/trip-action-needed";
+import {
+  DriverChoice,
+  DriverTracking,
+  type DriverCandidateView,
+  type SelectedDriverView,
+} from "@/components/trip-driver";
 import { signAvatarUrlForViewer } from "@/lib/avatars";
+import { pickupStepIndexFor } from "@/lib/pickup-progress";
 import { signBagPhotoUrls } from "@/lib/bag-photos";
 import { tryGetCore } from "@/lib/core";
 import { signPassportPhotoUrl } from "@/lib/passport-photos";
@@ -158,6 +171,81 @@ export default async function TripPage({
       : null,
   };
 
+  /* --- the driver ---------------------------------------------------
+   *
+   * Everything below runs only once the bags are sealed. Before that there is
+   * no driver to choose and nothing to track, and asking for a shortlist would
+   * be a query per render for a card that does not exist yet.
+   */
+  const selectedDriver = await getSelectedDriver(core.db, booking.id);
+  const canChooseDriver =
+    (DRIVER_SELECTABLE_STATUSES as readonly string[]).includes(booking.status) &&
+    selectedDriver === null;
+
+  const candidates = canChooseDriver
+    ? await listCandidateDrivers(core, { bookingId: booking.id }).catch(() => [])
+    : [];
+
+  // A sealed booking with nobody to offer pages ops. Raising it from a render
+  // is safe because the event id is bucketed by the hour (see
+  // `emitDriverPoolEmpty`), so a customer refreshing an anxious page does not
+  // page anybody twice. It never throws.
+  if (canChooseDriver && candidates.length === 0) {
+    await reportEmptyDriverPool(core, { bookingId: booking.id });
+  }
+
+  const candidateViews: DriverCandidateView[] = await Promise.all(
+    candidates.map(async (candidate) => ({
+      shiftId: candidate.shiftId,
+      givenName: candidate.givenName,
+      avatarUrl: await signAvatarUrlForViewer(candidate.avatarStoragePath),
+      truckName: candidate.truckName,
+      availableCapacity: candidate.availableCapacity - booking.bagCount,
+      outOfZone: candidate.outOfZone,
+      etaLabel: formatEtaRange(candidate.eta),
+      hasEta: candidate.eta !== null,
+    })),
+  );
+
+  const driverView: SelectedDriverView | null = selectedDriver
+    ? {
+        givenName: selectedDriver.givenName,
+        avatarUrl: await signAvatarUrlForViewer(selectedDriver.avatarStoragePath),
+        truckName: selectedDriver.truckName,
+        etaLabel: formatEtaRange(
+          selectedDriver.position && pickupAddress?.lat != null && pickupAddress.lng != null
+            ? core.etaEstimator.estimate({
+                from: selectedDriver.position,
+                to: { lat: pickupAddress.lat, lng: pickupAddress.lng },
+              })
+            : null,
+        ),
+        distanceLabel:
+          selectedDriver.position && pickupAddress?.lat != null && pickupAddress.lng != null
+            ? `${haversineKm(selectedDriver.position, {
+                lat: pickupAddress.lat,
+                lng: pickupAddress.lng,
+              }).toFixed(1)} km away`
+            : null,
+        lastSeenLabel: selectedDriver.positionRecordedAt
+          ? formatInstantInAirportTz(selectedDriver.positionRecordedAt, tz)
+          : null,
+        stepIndex: pickupStepIndexFor(
+          booking.status,
+          selectedDriver.travelStartedAt !== null,
+        ),
+      }
+    : null;
+
+  const driverSection = driverView ? (
+    <DriverTracking
+      driver={driverView}
+      live={booking.status !== "delivered_to_bagdrop" && booking.status !== "completed"}
+    />
+  ) : canChooseDriver ? (
+    <DriverChoice bookingId={booking.id} candidates={candidateViews} />
+  ) : null;
+
   // Bag and custody photos live in a private bucket and are stored as paths;
   // they need signing before any <img> can load them. Safe to sign here: the
   // booking has already passed the ownership check above.
@@ -268,6 +356,8 @@ export default async function TripPage({
           </dl>
         </CardContent>
       </Card>
+
+      {driverSection}
 
       <div className="grid items-start gap-6 lg:grid-cols-[3fr_2fr]">
         <Card>

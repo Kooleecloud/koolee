@@ -28,7 +28,16 @@ import { formatInstantInAirportTz, type CustodyEvent } from "@koolee/core";
 const LABELS: Record<string, string> = {
   "booking.created": "Booking created",
   "booking.payment_authorized": "Payment authorized",
+  // Found unlabelled during the driver slice's browser pass: five money and
+  // dispatch events were rendering as raw tokens ("booking.payment_captured")
+  // on a customer's own timeline, next to labelled ones. Nothing to do with
+  // drivers — just visible for the first time on a page being read closely.
+  "booking.payment_captured": "Payment taken",
+  "booking.payment_refunded": "Payment refunded",
+  "booking.payment_auth_cancelled": "Card hold released",
+  "booking.payment_unwind_failed": "Refund needs a human — we're on it",
   "booking.agent_assigned": "Agent assigned",
+  "booking.agent_reassigned": "A different agent took your pickup",
   // Adjacent one-liners: these three were already rendering as raw event
   // names ("visit.arrived") on the customer's own timeline, and the new
   // passport rows made that sit right next to labelled ones.
@@ -40,6 +49,17 @@ const LABELS: Record<string, string> = {
   "passport.agent_captured": "Your agent photographed your passport",
   "passport.agent_confirmed": "Your agent confirmed your passport",
   "booking.verified_sealed": "ID verified, bags sealed",
+  // The driver half of the run. Customer voice throughout: "your driver",
+  // never a shift id or a truck name — those are ops vocabulary and they are
+  // in the event metadata for the console to render.
+  "pickup.driver_selected": "You chose your driver",
+  "pickup.driver_released": "You changed driver",
+  "pickup.travel_started": "Your driver is on the way",
+  "pickup.seal_scanned": "Seal checked at your door",
+  "pickup.seal_mismatch": "A seal didn't match — ops is on it",
+  "pickup.shift_force_ended": "Reassigning your driver",
+  "pickup.reassigned": "Your driver changed",
+  "pickup.handover_confirmed": "Your airline took your bags",
   "booking.awaiting_pickup": "Ready for pickup",
   "booking.in_transit": "Driver collected your bags",
   "booking.delivered_to_bagdrop": "Delivered to your airline's bag drop",
