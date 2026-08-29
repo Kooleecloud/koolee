@@ -2,7 +2,7 @@ import { PageSkeleton } from "@koolee/ui";
 
 import { ConsoleMain } from "@/components/console";
 
-export default function AdminLoading() {
+export default function ExceptionsLoading() {
   return (
     <ConsoleMain>
       <PageSkeleton cards={3} />

@@ -4,7 +4,7 @@ import {
   Badge,
   BookingStatusBadge,
   Button,
-  ContentColumn,
+  cn,
   DatabaseNotConfigured,
   EmptyState,
   LinkedTableRow,
@@ -25,6 +25,7 @@ import {
   type BookingStatus,
 } from "@koolee/core";
 
+import { ConsoleMain } from "@/components/console";
 import { OPS_CONSOLE_TZ } from "@/lib/airport-tz";
 import { tryGetCore } from "@/lib/core";
 import { getAdminSession } from "@/lib/session";
@@ -70,17 +71,19 @@ function SortableHeader({
   activeKey,
   direction,
   href,
+  className,
 }: {
   label: string;
   sortKey: BoardSortKey;
   activeKey: BoardSortKey;
   direction: "asc" | "desc";
   href: string;
+  className?: string;
 }) {
   const active = sortKey === activeKey;
   return (
     <th
-      className="px-4 py-2 font-medium whitespace-nowrap"
+      className={cn("px-4 py-2 font-medium whitespace-nowrap", className)}
       aria-sort={active ? (direction === "asc" ? "ascending" : "descending") : "none"}
     >
       <Link
@@ -214,7 +217,7 @@ export default async function BookingsPage({
   };
 
   return (
-    <ContentColumn width="full">
+    <ConsoleMain width="wide">
       <PageHeader
         title="Bookings"
         subtitle={
@@ -254,9 +257,15 @@ export default async function BookingsPage({
           }
         />
       ) : (
-        <div className="overflow-x-auto rounded-lg border">
-          <table className="w-full text-sm">
-            <thead className="border-b bg-muted/50 text-left">
+        /* The board scrolls inside its own region rather than with the page,
+           which is what lets `thead` stay put: `overflow-x-auto` alone makes
+           this element the scroll container for BOTH axes, so a sticky header
+           inside it would have nothing to stick against. Ops reads a
+           twenty-row board by column, and a header that scrolls away turns
+           every glance into a re-count of table cells. */
+        <div className="max-h-[calc(100dvh-15rem)] min-h-80 overflow-auto rounded-lg border bg-card">
+          <table className="console-table w-full text-sm">
+            <thead className="sticky top-0 z-10 bg-muted text-left [&_th]:border-b [&_th]:border-border">
               <tr>
                 <th className="px-4 py-2 font-medium whitespace-nowrap">Ref</th>
                 <SortableHeader
@@ -290,12 +299,18 @@ export default async function BookingsPage({
                   direction={sortDir}
                   href={sortHref("agent")}
                 />
+                {/* Pinned. Nine columns of a dispatch board do not fit a
+                    laptop, and the one that fell off the right edge was the
+                    booking's state — the value an operator scans the board
+                    FOR. `z-20` so the corner cell stays above both the sticky
+                    header row and the sticky column. */}
                 <SortableHeader
                   label="Status"
                   sortKey="status"
                   activeKey={sortKey}
                   direction={sortDir}
                   href={sortHref("status")}
+                  className="sticky right-0 z-20 border-l border-border bg-muted shadow-[-6px_0_8px_-6px_rgba(11,37,69,0.12)]"
                 />
               </tr>
             </thead>
@@ -387,7 +402,11 @@ export default async function BookingsPage({
                         <span className="text-muted-foreground">unassigned</span>
                       )}
                     </td>
-                    <td className="px-4 py-2 whitespace-nowrap">
+                    {/* Opaque on purpose: a translucent pinned cell shows the
+                        columns scrolling underneath it. The at-risk tint stays
+                        on the rest of the row, and the "at risk" badge rides
+                        the pickup-window cell, so no signal is lost. */}
+                    <td className="sticky right-0 z-10 border-l border-border bg-card shadow-[-6px_0_8px_-6px_rgba(11,37,69,0.12)] px-4 py-2 whitespace-nowrap">
                       <BookingStatusBadge status={booking.status} />
                     </td>
                   </LinkedTableRow>
@@ -397,6 +416,6 @@ export default async function BookingsPage({
           </table>
         </div>
       )}
-    </ContentColumn>
+    </ConsoleMain>
   );
 }

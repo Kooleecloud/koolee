@@ -1,10 +1,18 @@
 import type { Metadata, Viewport } from "next";
+import { cookies } from "next/headers";
 import Link from "next/link";
-import { AppHeader, Button, Toaster } from "@koolee/ui";
+import { AppHeader, Toaster } from "@koolee/ui";
 import { brandFontClassName } from "@koolee/ui/fonts";
 
-import { signOutStaff } from "@/actions/auth";
-import { getAdminSession } from "@/lib/session";
+import { ConsoleChrome } from "@/components/console";
+import {
+  CONSOLE_PREFERENCES_COOKIE,
+  parseConsolePreferences,
+} from "@/components/console";
+import { EnvStatus } from "@/components/env-status";
+import { isDev } from "@/env";
+import { getConsoleDashboard } from "@/lib/console-dashboard";
+import { getAdminIdentity } from "@/lib/session";
 
 import "./globals.css";
 
@@ -20,42 +28,58 @@ export const viewport: Viewport = {
   themeColor: "#0B2545",
 };
 
-const NAV = [
-  { href: "/", label: "Overview" },
-  { href: "/bookings", label: "Bookings" },
-  { href: "/blocks", label: "Blocks" },
-  { href: "/zones", label: "Zones" },
-  { href: "/agreements", label: "Agreements" },
-  { href: "/exceptions", label: "Exceptions" },
-  { href: "/staff", label: "Staff" },
-] as const;
-
+/**
+ * Two frames, chosen by session.
+ *
+ * Signed in, the console gets its own chrome: a collapsible rail, a top bar,
+ * and a settings sheet (`components/console`). Signed out — the login, reset
+ * and set-password screens — it keeps the shared `AppHeader` with no links,
+ * which is exactly what the agent app shows on the same screens. So the two
+ * staff consoles still look like siblings at the door, and only the surface
+ * with seven sections to navigate grows a rail.
+ *
+ * Preferences are read here rather than after hydration so `data-density` is
+ * already on `<body>` for the first paint. A board that renders comfortable
+ * and then re-lays-out compact is the whole page moving under the operator.
+ */
 export default async function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
-  // Session-aware chrome: the sign-out control lives in the header (folds
-  // into the hamburger on mobile), not buried in a page body. Null on the
-  // login/reset screens, so no button shows there.
-  const session = await getAdminSession();
+  const [identity, cookieStore] = await Promise.all([getAdminIdentity(), cookies()]);
+  const preferences = parseConsolePreferences(
+    cookieStore.get(CONSOLE_PREFERENCES_COOKIE)?.value,
+  );
+
+  // Only signed-in chrome shows counts, so signed-out requests never pay for
+  // the query.
+  const dashboard = identity ? await getConsoleDashboard() : null;
 
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className={`${brandFontClassName} min-h-dvh`}>
-        <AppHeader
-          linkComponent={Link}
-          links={[...NAV]}
-          tag="ops"
-          actions={
-            session ? (
-              <form action={signOutStaff}>
-                <Button type="submit" variant="ghost" size="sm">
-                  Sign out
-                </Button>
-              </form>
-            ) : undefined
-          }
-        />
-        {children}
+      <body
+        className={`${brandFontClassName} min-h-dvh`}
+        data-density={preferences.density}
+        data-console-rail={preferences.railCollapsed ? "collapsed" : "expanded"}
+      >
+        {identity ? (
+          <ConsoleChrome
+            email={identity.email}
+            counts={{
+              unassignedToday: dashboard?.unassignedToday ?? 0,
+              exceptionsOpen: dashboard?.exceptionsOpen ?? 0,
+            }}
+            environmentLabel={isDev ? "local" : undefined}
+            diagnostics={<EnvStatus appName="admin" />}
+            preferences={preferences}
+          >
+            {children}
+          </ConsoleChrome>
+        ) : (
+          <div className="min-h-dvh">
+            <AppHeader linkComponent={Link} tag="ops" />
+            {children}
+          </div>
+        )}
         <Toaster />
       </body>
     </html>

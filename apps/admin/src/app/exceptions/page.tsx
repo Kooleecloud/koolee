@@ -1,13 +1,13 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import {
+  Badge,
   Button,
   Card,
   CardContent,
   CardDescription,
   CardHeader,
   CardTitle,
-  ContentColumn,
   DatabaseNotConfigured,
   EmptyState,
   PageHeader,
@@ -20,6 +20,7 @@ import {
   type Booking,
 } from "@koolee/core";
 
+import { ConsoleMain } from "@/components/console";
 import { tryGetCore } from "@/lib/core";
 import { getAdminSession } from "@/lib/session";
 
@@ -61,8 +62,17 @@ export default async function ExceptionsPage() {
   }
 
   return (
-    <ContentColumn>
-      <PageHeader title="Exceptions" subtitle="Bookings that need a human." />
+    <ConsoleMain>
+      <PageHeader
+        title="Exceptions"
+        subtitle={
+          unavailable
+            ? "Database not configured."
+            : exceptions.length === 0
+              ? "Bookings that need a human. Nothing is stuck right now."
+              : `${exceptions.length} booking${exceptions.length === 1 ? "" : "s"} stopped on the way to the airport.`
+        }
+      />
 
       {unavailable ? (
         <DatabaseNotConfigured />
@@ -72,34 +82,48 @@ export default async function ExceptionsPage() {
           description="Every booking is on its normal path."
         />
       ) : (
-        <ul className="flex flex-col gap-3">
+        /* `Card asChild interactive` rather than a hand-rolled
+           `rounded-lg border bg-…`: DESIGN.md's rule is that every raised
+           surface in every app is a Card, and the copies that grew around it
+           had already drifted on elevation. The warning tint is the one thing
+           this row overrides — it is the queue's whole signal. */
+        <ul className="console-rows flex flex-col gap-3">
           {exceptions.map((booking) => (
             <li key={booking.id}>
-              <Link
-                href={`/bookings/${booking.id}`}
-                className="flex items-center justify-between gap-4 rounded-lg border border-warning/40 bg-warning/5 p-4 transition-colors hover:bg-warning/10"
-              >
-                <span className="flex flex-col gap-1">
-                  <span className="font-medium">
-                    {/* The ops alert email names the booking by its ref, so
-                        that is what has to be scannable on this board. */}
-                    <span className="font-mono">{booking.ref}</span> ·{" "}
-                    {booking.flightNumber} · {booking.departureAirport}
+              {/* Card on the Link, not on the li: `interactive` carries the
+                  focus ring, and the ring has to sit on the element that
+                  actually takes focus. */}
+              <Card asChild interactive className="border-warning/40 bg-warning/5">
+                <Link
+                  href={`/bookings/${booking.id}`}
+                  className="flex items-center justify-between gap-4 p-4"
+                >
+                  <span className="flex min-w-0 flex-col gap-1">
+                    <span className="flex flex-wrap items-center gap-2 font-medium">
+                      {/* The ops alert email names the booking by its ref, so
+                          that is what has to be scannable on this board. */}
+                      <span className="font-mono">{booking.ref}</span>
+                      <span aria-hidden="true" className="text-muted-foreground">
+                        ·
+                      </span>
+                      {booking.flightNumber}
+                      <Badge variant="secondary">{booking.departureAirport}</Badge>
+                    </span>
+                    <span className="text-sm text-muted-foreground">
+                      Departs{" "}
+                      {formatInstantInAirportTz(
+                        booking.departureAt,
+                        zoneFor(zones, booking.departureAirport),
+                      )}{" "}
+                      · {booking.paxName} · {booking.bagCount} bag
+                      {booking.bagCount === 1 ? "" : "s"}
+                    </span>
                   </span>
-                  <span className="text-sm text-muted-foreground">
-                    Departs{" "}
-                    {formatInstantInAirportTz(
-                      booking.departureAt,
-                      zoneFor(zones, booking.departureAirport),
-                    )}{" "}
-                    ·{" "}
-                    {booking.paxName}
-                  </span>
-                </span>
-                <Button variant="outline" size="sm" asChild>
-                  <span>Open</span>
-                </Button>
-              </Link>
+                  <Button variant="outline" size="sm" asChild>
+                    <span>Open</span>
+                  </Button>
+                </Link>
+              </Card>
             </li>
           ))}
         </ul>
@@ -118,6 +142,6 @@ export default async function ExceptionsPage() {
           See the TODO(exceptions) note in this file.
         </CardContent>
       </Card>
-    </ContentColumn>
+    </ConsoleMain>
   );
 }

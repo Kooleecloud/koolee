@@ -6,7 +6,6 @@ import {
   CardDescription,
   CardHeader,
   CardTitle,
-  ContentColumn,
   DatabaseNotConfigured,
   EmptyState,
   PageHeader,
@@ -19,6 +18,7 @@ import {
   type SlotBlock,
 } from "@koolee/core";
 
+import { ConsoleMain } from "@/components/console";
 import { tryGetCore } from "@/lib/core";
 import { getAdminSession } from "@/lib/session";
 
@@ -56,10 +56,14 @@ export default async function BlocksPage() {
   }
 
   return (
-    <ContentColumn>
+    <ConsoleMain>
       <PageHeader
         title="Window blocks"
-        subtitle="Hide pickup windows from customers — weather, driver shortage, holidays. Existing bookings in a blocked span are not affected."
+        subtitle={
+          unavailable
+            ? "Database not configured."
+            : `${blocks.length} upcoming block${blocks.length === 1 ? "" : "s"}. Hiding a window is how ops closes the shop — weather, driver shortage, holidays. Existing bookings in a blocked span are not affected.`
+        }
       />
 
       <div className="grid gap-6 lg:grid-cols-[2fr_1fr]">
@@ -72,7 +76,7 @@ export default async function BlocksPage() {
               description="Every pickup window is currently bookable. Add a block with the form."
             />
           ) : (
-            <ul className="flex flex-col gap-3">
+            <ul className="console-rows flex flex-col gap-3">
               {blocks.map((block) => (
                 <Card asChild key={block.id}>
                   <li className="flex items-center justify-between gap-4 p-4">
@@ -101,7 +105,7 @@ export default async function BlocksPage() {
           )}
         </section>
 
-        <Card className="h-fit">
+        <Card className="h-fit lg:sticky lg:top-20">
           <CardHeader>
             <CardTitle className="text-base">Block windows</CardTitle>
             <CardDescription>
@@ -114,6 +118,6 @@ export default async function BlocksPage() {
           </CardContent>
         </Card>
       </div>
-    </ContentColumn>
+    </ConsoleMain>
   );
 }

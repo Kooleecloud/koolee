@@ -2,10 +2,10 @@ import { PageSkeleton } from "@koolee/ui";
 
 import { ConsoleMain } from "@/components/console";
 
-export default function AdminLoading() {
+export default function BookingDetailLoading() {
   return (
     <ConsoleMain>
-      <PageSkeleton cards={3} />
+      <PageSkeleton cards={4} />
     </ConsoleMain>
   );
 }

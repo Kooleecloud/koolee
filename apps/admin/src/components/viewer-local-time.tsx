@@ -2,6 +2,8 @@
 
 import { useSyncExternalStore } from "react";
 
+import { useConsolePreferences } from "@/components/console";
+
 /**
  * True only after hydration. `useSyncExternalStore` gives us a client/server
  * split with no effect and no setState — the operator's zone is unknowable on
@@ -34,6 +36,11 @@ function useIsClient(): boolean {
  *     booking's, which is the common case and where a second time would be
  *     pure noise.
  *
+ * A third rule since the console shell landed: an operator who does not want
+ * the second reading can turn it off in Settings. The airport time is
+ * unaffected — the preference gates only this line, never the authoritative
+ * one beside it.
+ *
  * Client-only by necessity: the server cannot know the operator's zone, and
  * guessing it from a header would be worse than not showing it. Rendering
  * after mount also keeps it out of the SSR output, so there is no hydration
@@ -51,7 +58,8 @@ export function ViewerLocalTime({
   className?: string;
 }) {
   const isClient = useIsClient();
-  if (!isClient) return null;
+  const { preferences } = useConsolePreferences();
+  if (!isClient || !preferences.viewerTime) return null;
 
   const viewerTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
   if (!viewerTz || viewerTz === tz) return null;

@@ -1,9 +1,11 @@
 import Link from "next/link";
-import { Button, ContentColumn, EmptyState } from "@koolee/ui";
+import { Button, EmptyState } from "@koolee/ui";
+
+import { ConsoleMain } from "@/components/console";
 
 export default function NotFound() {
   return (
-    <ContentColumn>
+    <ConsoleMain width="narrow">
       <EmptyState
         title="Page not found"
         description="This page doesn't exist or may have moved."
@@ -13,6 +15,6 @@ export default function NotFound() {
           </Button>
         }
       />
-    </ContentColumn>
+    </ConsoleMain>
   );
 }

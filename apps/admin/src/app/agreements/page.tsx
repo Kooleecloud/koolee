@@ -1,11 +1,12 @@
 import { redirect } from "next/navigation";
-import { ContentColumn, DatabaseNotConfigured, PageHeader } from "@koolee/ui";
+import { DatabaseNotConfigured, PageHeader } from "@koolee/ui";
 import {
   getCurrentAgreementVersion,
   isAgreementVersionEditable,
   listAgreementVersions,
 } from "@koolee/core";
 
+import { ConsoleMain } from "@/components/console";
 import { tryGetCore } from "@/lib/core";
 import { getAdminSession } from "@/lib/session";
 
@@ -60,7 +61,7 @@ export default async function AgreementsPage() {
   }
 
   return (
-    <ContentColumn>
+    <ConsoleMain>
       <PageHeader
         title="Booking agreements"
         subtitle={
@@ -75,6 +76,6 @@ export default async function AgreementsPage() {
       ) : (
         <AgreementsWorkbench versions={versions} />
       )}
-    </ContentColumn>
+    </ConsoleMain>
   );
 }

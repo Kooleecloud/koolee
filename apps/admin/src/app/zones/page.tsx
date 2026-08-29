@@ -5,7 +5,6 @@ import {
   CardDescription,
   CardHeader,
   CardTitle,
-  ContentColumn,
   DatabaseNotConfigured,
   EmptyState,
   PageHeader,
@@ -17,6 +16,7 @@ import {
   type AgentZoneCoverage,
 } from "@koolee/core";
 
+import { ConsoleMain } from "@/components/console";
 import { tryGetCore } from "@/lib/core";
 import { getAdminSession } from "@/lib/session";
 
@@ -61,7 +61,7 @@ export default async function ZonesPage() {
   const covered = new Set(coverage.flatMap((row) => row.zips));
 
   return (
-    <ContentColumn>
+    <ConsoleMain>
       <PageHeader
         title="Agent zones"
         subtitle={
@@ -81,7 +81,7 @@ export default async function ZonesPage() {
               description="Invite an agent on the Staff page, then give them ZIPs here."
             />
           ) : (
-            <ul className="flex flex-col gap-3">
+            <ul className="console-rows flex flex-col gap-3">
               {rows.map((agent) => (
                 <Card asChild key={agent.userId}>
                   <li className="flex flex-col gap-2 p-4">
@@ -117,7 +117,7 @@ export default async function ZonesPage() {
           )}
         </section>
 
-        <Card className="h-fit">
+        <Card className="h-fit lg:sticky lg:top-20">
           <CardHeader>
             <CardTitle className="text-base">Assign ZIPs</CardTitle>
             <CardDescription>
@@ -137,6 +137,6 @@ export default async function ZonesPage() {
           </CardContent>
         </Card>
       </div>
-    </ContentColumn>
+    </ConsoleMain>
   );
 }
