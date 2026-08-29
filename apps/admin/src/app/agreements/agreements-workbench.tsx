@@ -152,7 +152,15 @@ export function AgreementsWorkbench({ versions }: { versions: AgreementVersionVi
   }, []);
 
   return (
-    <div className="grid items-start gap-6 lg:grid-cols-[4fr_1fr]">
+    /*
+     * 2fr / 1fr, the same split the booking detail uses, so the console has
+     * one ratio rather than one per page. History was on `4fr_1fr`, which left
+     * it about 300px: every version title wrapped to two lines and the
+     * effective-date stamp — the thing you scan this list FOR — wrapped under
+     * it. The editor does not need the width it was taking; prose is read at a
+     * measure, not at whatever the viewport allows.
+     */
+    <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
       <AgreementEditorPanel
         key={
           // Remount on mode change so the editor, the title and the date all
@@ -316,7 +324,10 @@ function VersionHistory({
   const selectedId = mode.kind === "new" ? null : mode.version.id;
 
   return (
-    <Card className="lg:sticky lg:top-6">
+    /* `top-20`, not `top-6`: the console's top bar is a sticky `h-14`, so a
+       24px offset parks this card underneath it. Same offset as the other
+       sticky panels in the console. */
+    <Card className="lg:sticky lg:top-20">
       <CardHeader>
         <CardTitle className="text-base">History</CardTitle>
         <CardDescription>
