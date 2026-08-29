@@ -293,7 +293,10 @@ failures next sweep. 3 integration tests + copy-rule tests.
    the key.
 5. **Local dev check** (optional): `pnpm dev:inngest` + a fake-provider
    booking → confirmation email prints on the dev-server console; the
-   Inngest dev UI lists 7 registered functions.
+   Inngest dev UI lists 8 registered functions. (Corrected 2026-08-28 from
+   "7" — six come from `createKooleeFunctions`, plus `cleanup-anonymous-users`
+   and `capture-due-bookings` defined in `apps/web/src/lib/inngest.ts`. Unit
+   3's own section in this file already said 8.)
 
 ## Unit 3 — waitlist zone-opened notification (`feat/waitlist-zone-notify`)
 

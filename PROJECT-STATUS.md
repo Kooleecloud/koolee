@@ -55,6 +55,16 @@ package-specific in `packages/<pkg>/docs/`. Nothing new accumulates at the root.
 
 ## 3. Snapshot — where we are right now
 
+- **Validation close-out (2026-08-28, `fix/validation-close-out`).** Every
+  actionable finding from `VALIDATION-REPORT-tier1-2.md` closed except B1.
+  The exception ops alert now covers all seven states that can raise one
+  (it covered one); `OPS_ALERT_EMAIL` is a production boot requirement;
+  bookings carry a real `KOO-XXXXX` ref (migration 0021 — **local only, the
+  hosted apply is a manual step**); `jobs/functions.ts` went from zero tests
+  to 28. **B1 remains OPEN** — hosted migration state is documented as done
+  but has never been verified from a shell; run `DIRECT_DATABASE_URL='<hosted
+  direct 5432 url>' pnpm db:status` against each hosted project and read the
+  `Target host:` line. Do not treat this file's prose as proof (§3.1).
 - **Dispatch debt closed + email live (2026-08-22,
   `feat/dispatch-close-out-and-email`).** One task pair per booking enforced
   (0019), on-paid auto-assign fires from every payment path with the race
@@ -304,6 +314,11 @@ the linked row is the current behaviour)
 | 55 | Demo-completeness data: full NYC coverage + airline cutoff matrix for all three airports (2026-08-20) | ✅ | Launch-demo requirement: the funnel must never dead-end on a plausible input. (a) `nyc-zips.ts` widened from ~110 to ~190 ZIPs — ALL five boroughs (Bronx + Staten Island are new `CoverageArea` values) + full Hudson County NJ (Bayonne→Secaucus, was JC/Hoboken only); boundary comment now says the widening is demo-driven and drive-times must be re-verified before real sales. (b) `seed.ts` CUTOFFS rewritten from 6 hand rows (DL/AA/UA × JFK only — LGA and EWR flights ALWAYS dead-ended, contradicting the marketing) to a generated `AIRLINES_BY_AIRPORT` matrix: 30 carriers at JFK, 9 at LGA (perimeter-rule set incl. WN/NK/F9/PD/AC), 25 at EWR (UA hub + Star internationals), × both scopes = 128 rows at uniform placeholder 45/60 min, every `source` tagged VERIFY-before-production (rosters researched via airport airline directories 2026-08). (c) Eight coverage-copy spots updated (hero, airports page incl. `COVERAGE_AREAS` card grid, FAQ, flight-step helper, out-of-area card, OG description untouched—check). Verified live end-to-end on the local stack: Bronx ZIP 10451 + `WN2201` @ LGA domestic → full window grid with lead-time-varied prices ($68/$74.80/$81.60); core 229 unit green (coverage tests updated: Bronx/SI now IN, Westchester/Nassau/Bergen still out), web 57 green, both packages typecheck. Local dev DB re-seeded via `seed:local` (128 cutoffs confirmed). HOSTED still owes: `pnpm seed` re-run (cutoff matrix) — coverage + copy reach it via commit + Vercel deploy. NOTE: local dev server had to be restarted for `/book` (stale next-server, the known #51 pattern) |
 | 56 | Waitlist persistence: `waitlist_signups` table, both capture surfaces wired (2026-08-22) | ✅ | `feat/waitlist-persistence`: migration **0018** — new `waitlist_signups` (unique **(email, zip)** pair: one row per person-per-zone so `GROUP BY zip` demand counts stay honest; `source` enum `waitlist_page`/`booking_out_of_area`; nullable `notified_at` = landing pad for the future "your zone opened" Resend email; RLS auto via 0016's event trigger; applied local 2026-08-22 and hosted 2026-08-23). Core seam `recordWaitlistSignup(db, {email, zip, source})`: lowercases email, validates, idempotent `ON CONFLICT DO NOTHING` — resubmit returns success, never "already registered" (no list-membership leak). Both stubs replaced: `/waitlist` action (ZIP now **required** — a row without a zone is no demand signal; covered ZIP still bounces to /book) and funnel `captureOutOfAreaEmail` (gains ZIP validation). DB-down now returns an honest error instead of the old fake success. Deliberately NOT stored: zip-covered / email-has-account flags — live questions, derived at read time. 5 integration tests (upsert semantics vs `koolee_test`). Deferred: the notify-on-coverage email itself (→ #15 Resend work; **closed by row 57**) |
 | 57 | Waitlist zone-opened email: the promised "you're covered" message (2026-08-23) | ✅ | `feat/waitlist-zone-notify`: coverage lives in code, so "a zone opened" is a DEPLOY — hence a daily reconciling sweep (`waitlist-zone-opened-sweep`, 10:00 ET cron), not a trigger: scan `notified_at IS NULL`, email rows whose ZIP is covered NOW (`buildZoneOpenedEmail` — copy-rule tested, orange only on the CTA, "the only waitlist email we send"), stamp on success. Idempotent by construction: the NULL stamp is the work queue; failed sends stay queued (per-row isolation); still-uncovered rows wait for their deploy. Batch-capped at 200/run. One email per (email, zip) row on purpose — two zones are two facts. 3 integration tests (stamp/skip/retry). Ships via the existing `createKooleeFunctions` registration — 8 functions total |
+| 58 | Validation close-out: core-level exception emitter (B2) | ✅ | `fix/validation-close-out` (2026-08-28): `EventEmitter` seam in `packages/core/src/events/`; `booking/exception_raised` now emitted from `applyTransition` + webhooks' `moveBooking`, covering all SEVEN states that can raise one — it previously came only from the Stripe webhook route, so an agent flagging a problem at the door was silent. apps/agent and apps/admin gained send-only Inngest wiring. Stripe route migrated onto the seam; event name and payload shape unchanged |
+| 59 | `OPS_ALERT_EMAIL` required by the production boot gate (N5) | ✅ | `fix/validation-close-out` (2026-08-28): same mechanism and exemptions as `RESEND_API_KEY` in `apps/web/src/env.ts`. It failed SILENTLY before — the alert function logged a skip and returned. Runtime skip-and-log kept as defense in depth; dev unchanged |
+| 60 | Human-readable booking reference `KOO-XXXXX` (D1) | ✅ | `fix/validation-close-out` (2026-08-28): `bookings.ref`, migration 0021 (nullable → backfill → NOT NULL + unique). Crockford base32, no I/L/O/U. Replaces TWO derived substitutes (`KL-`+hex in web, bare hex in admin) that disagreed with each other and appeared in no email. Display/support only — never an auth or lookup credential; trip URLs stay UUID-based. **Hosted migration is a manual step** |
+| 61 | Tests for `jobs/functions.ts` (N6) | ✅ | `fix/validation-close-out` (2026-08-28): all six Inngest functions, 28 unit tests via `jobs/test-doubles.ts` (recording client + fake step). Pins the reminder's `sleepUntil` target and `REMINDER_WORTHY` guard, both confirmation/reminder `try/catch` guards, and the exception alert's unset-address skip. Was zero |
+| 62 | Env footgun + stale docs (N1, N7) | ✅ | `fix/validation-close-out` (2026-08-28): `DIRECT_DATABASE_URL` (a HOSTED DDL credential) removed from all three apps' `.env.local`, now a commented note in each `.env.example`. CODEBASE-MAP's false `0012`-not-hosted claim replaced with "run `pnpm db:status`"; shipped Inngest side effects no longer listed as open; RUN-REPORT-3's "7 registered functions" corrected to 8 |
 
 ---
 
@@ -378,7 +393,18 @@ user-confirmed values persist. `ANTHROPIC_API_KEY` present = Claude
 - Upgrade sends go through ONE guard (`guardUpgradeOtpSend`): throttle +
   reconciliation in a single transaction, user lock before destination lock.
   Never split them back into separate transactions.
-- `packages/core` reads no env; everything injected via `createRuntime()`.
+- `packages/core` takes credentials as VALUES, injected via `createRuntime()` —
+  payments, notifications, extraction and the event emitter are all seams.
+  Exactly one exception, and it is not a bug to "fix" casually:
+  `auth/hash-destination.ts` reads `OTP_LOG_HMAC_KEY` and throws when unset.
+- `booking/exception_raised` is emitted by CORE, from `applyTransition` and
+  the webhook handler's `moveBooking` — the two choke points a booking row can
+  reach `exception` through. Never re-add an emit at a call site or in an app
+  route; that is how six of seven paths went silent for a whole slice. Emission
+  never throws: the transition already committed.
+- `bookings.ref` (`KOO-XXXXX`) is DISPLAY AND SUPPORT ONLY. Never authenticate,
+  authorize or look a booking up by it on a public route — 32^5 is fine for
+  uniqueness and hopeless as a secret. Trip URLs stay UUID-addressed.
 - Never revert a migration-journal entry on an assumption about DB state —
   verify against the DB or write a corrective migration.
 - Migration state is established by CONTENT HASH, never by row count, and never
