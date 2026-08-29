@@ -31,6 +31,13 @@ const schema = z.object({
   SUPABASE_SERVICE_ROLE_KEY: optionalString,
 
   STRIPE_SECRET_KEY: optionalString,
+  /**
+   * Event key for the shared Inngest app. This app SENDS domain events (an
+   * ops override moving a booking to exception) but serves no functions —
+   * the registry and the signing key live in apps/web. Unset is fine
+   * locally: the dev server accepts unauthenticated sends.
+   */
+  INNGEST_EVENT_KEY: optionalString,
   SENTRY_DSN: optionalString,
 });
 
@@ -51,6 +58,7 @@ const raw = {
   SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY,
 
   STRIPE_SECRET_KEY: process.env.STRIPE_SECRET_KEY,
+  INNGEST_EVENT_KEY: process.env.INNGEST_EVENT_KEY,
   SENTRY_DSN: process.env.SENTRY_DSN,
 };
 

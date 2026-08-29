@@ -10,6 +10,7 @@ import {
 } from "@koolee/core";
 
 import { env, optionalEnv } from "@/env";
+import { inngestEmitter } from "@/lib/event-emitter";
 
 /**
  * Builds the injected `CoreConfig` from this app's validated environment.
@@ -80,6 +81,10 @@ export function getCore(): CoreConfig {
     payments: resolvePaymentConfig(),
     extraction: resolveExtractionConfig(),
     notifications: resolveNotifierConfig(),
+    // Core raises `booking/exception_raised` from the transition itself; this
+    // is the adapter that puts it on the queue. Without it the emit is a noop
+    // and no ops alert is sent.
+    emitter: inngestEmitter,
   });
 }
 
@@ -93,5 +98,6 @@ export function tryGetCore(): CoreConfig | null {
     payments: resolvePaymentConfig(),
     extraction: resolveExtractionConfig(),
     notifications: resolveNotifierConfig(),
+    emitter: inngestEmitter,
   });
 }

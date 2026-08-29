@@ -27,6 +27,13 @@ const schema = z.object({
   NEXT_PUBLIC_SUPABASE_ANON_KEY: optionalString,
 
   GOOGLE_MAPS_API_KEY: optionalString,
+  /**
+   * Event key for the shared Inngest app. This app SENDS domain events (a
+   * booking raising an exception) but serves no functions — the registry and
+   * the signing key live in apps/web. Unset is fine locally: the dev server
+   * accepts unauthenticated sends.
+   */
+  INNGEST_EVENT_KEY: optionalString,
   SENTRY_DSN: optionalString,
 });
 
@@ -45,6 +52,7 @@ const raw = {
   NEXT_PUBLIC_SUPABASE_ANON_KEY: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
 
   GOOGLE_MAPS_API_KEY: process.env.GOOGLE_MAPS_API_KEY,
+  INNGEST_EVENT_KEY: process.env.INNGEST_EVENT_KEY,
   SENTRY_DSN: process.env.SENTRY_DSN,
 };
 

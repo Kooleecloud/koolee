@@ -12,6 +12,7 @@ export * from "./coverage";
 export * from "./waitlist";
 export * from "./services";
 export * from "./notifications";
+export * from "./events";
 
 /**
  * Row types, re-exported so apps get them without importing @koolee/db —

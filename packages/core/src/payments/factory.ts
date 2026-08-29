@@ -4,8 +4,14 @@ import type { PaymentProvider } from "./types";
 
 /**
  * Which provider to use, injected rather than read from the environment —
- * packages/core never touches `process.env`. Apps resolve this from their own
- * validated `env.ts` and pass it in.
+ * apps resolve this from their own validated `env.ts` and pass it in.
+ *
+ * The rule this serves is "core takes credentials as values, never from the
+ * process environment". It holds everywhere except ONE known site:
+ * `auth/hash-destination.ts` reads `OTP_LOG_HMAC_KEY` directly and throws
+ * when it is unset. That read is deliberate and predates this comment; it is
+ * named here so the rule reads as a rule with an exception rather than as a
+ * claim that is quietly false.
  */
 export type PaymentProviderConfig =
   | { kind: "fake"; currency?: string }

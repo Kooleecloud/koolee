@@ -8,6 +8,7 @@ import {
 } from "@koolee/core";
 
 import { env, optionalEnv } from "@/env";
+import { inngestEmitter } from "@/lib/event-emitter";
 
 /**
  * Builds the injected `CoreConfig` from this app's validated environment.
@@ -28,6 +29,10 @@ export function getCore(): CoreConfig {
   return createRuntime({
     databaseUrl: env.DATABASE_URL,
     payments: resolvePaymentConfig(),
+    // An ops override can move a booking to `exception` too; core emits from
+    // the transition, so the console needs the same adapter the other apps
+    // have.
+    emitter: inngestEmitter,
   });
 }
 
@@ -36,5 +41,6 @@ export function tryGetCore(): CoreConfig | null {
   return tryCreateRuntime({
     databaseUrl: env.DATABASE_URL,
     payments: resolvePaymentConfig(),
+    emitter: inngestEmitter,
   });
 }
