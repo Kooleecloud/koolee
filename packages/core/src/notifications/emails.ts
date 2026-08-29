@@ -59,6 +59,8 @@ export interface PriceLine {
 
 export interface BookingConfirmationEmailInput {
   to: string;
+  /** `KOO-XXXXX` — what the customer quotes to support. */
+  bookingRef: string;
   paxName: string;
   flightNumber: string;
   departureAirport: string;
@@ -88,6 +90,7 @@ export function buildBookingConfirmationEmail(
     ``,
     `Your Koolee pickup is confirmed for flight ${input.flightNumber} from ${input.departureAirport}.`,
     ``,
+    `Booking reference: ${input.bookingRef}`,
     `Pickup window: ${input.windowLabel}`,
     `Flight departs: ${input.departureLabel}`,
     `Pickup address: ${input.addressLine}`,
@@ -116,6 +119,7 @@ export function buildBookingConfirmationEmail(
       `<p>Your Koolee pickup is confirmed for flight <strong>${escapeHtml(input.flightNumber)}</strong> ` +
       `from <strong>${escapeHtml(input.departureAirport)}</strong>.</p>` +
       `<table style="border-collapse:collapse;margin:16px 0;">` +
+      `<tr><td style="padding:2px 12px 2px 0;">Booking reference</td><td><strong>${escapeHtml(input.bookingRef)}</strong></td></tr>` +
       `<tr><td style="padding:2px 12px 2px 0;">Pickup window</td><td>${escapeHtml(input.windowLabel)}</td></tr>` +
       `<tr><td style="padding:2px 12px 2px 0;">Flight departs</td><td>${escapeHtml(input.departureLabel)}</td></tr>` +
       `<tr><td style="padding:2px 12px 2px 0;">Pickup address</td><td>${escapeHtml(input.addressLine)}</td></tr>` +
@@ -129,7 +133,9 @@ export function buildBookingConfirmationEmail(
 
   return {
     to: input.to,
-    subject: `Pickup confirmed — ${input.flightNumber} from ${input.departureAirport}`,
+    // The ref leads: it is the one token in this email a support agent can
+    // act on, and a customer searching their inbox for it should hit here.
+    subject: `Pickup confirmed — ${input.bookingRef} · ${input.flightNumber} from ${input.departureAirport}`,
     body,
     html,
   };
@@ -137,6 +143,8 @@ export function buildBookingConfirmationEmail(
 
 export interface PickupReminderEmailInput {
   to: string;
+  /** `KOO-XXXXX` — what the customer quotes to support. */
+  bookingRef: string;
   paxName: string;
   /** Preformatted, airport-local with zone abbreviation. */
   windowLabel: string;
@@ -151,6 +159,8 @@ export function buildPickupReminderEmail(input: PickupReminderEmailInput): Email
     ``,
     `Your Koolee pickup window is coming up: ${input.windowLabel}.`,
     ``,
+    `Booking reference: ${input.bookingRef}`,
+    ``,
     `Please have your ${bags} packed and your photo ID ready. We'll seal your ` +
       `bags in front of you and deliver them to your airline's bag drop.`,
     ...(input.tripUrl ? [``, `Track your trip: ${input.tripUrl}`] : []),
@@ -160,12 +170,18 @@ export function buildPickupReminderEmail(input: PickupReminderEmailInput): Email
     "Your pickup window is coming up",
     `<p>Hi ${escapeHtml(input.paxName)},</p>` +
       `<p>Your Koolee pickup window is coming up: <strong>${escapeHtml(input.windowLabel)}</strong>.</p>` +
+      `<p>Booking reference: <strong>${escapeHtml(input.bookingRef)}</strong></p>` +
       `<p>Please have your ${escapeHtml(bags)} packed and your photo ID ready. We'll seal your ` +
       `bags in front of you and deliver them to your airline's bag drop.</p>`,
     input.tripUrl ? { label: "Track your trip", url: input.tripUrl } : undefined,
   );
 
-  return { to: input.to, subject: `Pickup reminder — ${input.windowLabel}`, body, html };
+  return {
+    to: input.to,
+    subject: `Pickup reminder — ${input.bookingRef} · ${input.windowLabel}`,
+    body,
+    html,
+  };
 }
 
 export interface ZoneOpenedEmailInput {
@@ -214,14 +230,21 @@ export function buildZoneOpenedEmail(input: ZoneOpenedEmailInput): EmailMessage 
 export interface OpsExceptionEmailInput {
   to: string;
   bookingId: string;
+  /**
+   * `KOO-XXXXX`, when the alert path could resolve one. Optional because this
+   * email is built from an event payload rather than a row — an alert that
+   * reaches ops without a ref is far better than one that does not reach them.
+   */
+  bookingRef?: string | undefined;
   reason: string;
   raisedByUserId?: string | undefined;
 }
 
 /** Internal ops alert — plain and factual, no CTA (and therefore no orange). */
 export function buildOpsExceptionEmail(input: OpsExceptionEmailInput): EmailMessage {
+  const label = input.bookingRef ? `${input.bookingRef} (${input.bookingId})` : input.bookingId;
   const body = [
-    `Booking ${input.bookingId} entered the exception state.`,
+    `Booking ${label} entered the exception state.`,
     ``,
     `Reason: ${input.reason}`,
     ...(input.raisedByUserId ? [`Raised by: ${input.raisedByUserId}`] : [`Raised by: system`]),
@@ -231,7 +254,7 @@ export function buildOpsExceptionEmail(input: OpsExceptionEmailInput): EmailMess
 
   const html = layout(
     "Booking exception",
-    `<p>Booking <strong>${escapeHtml(input.bookingId)}</strong> entered the exception state.</p>` +
+    `<p>Booking <strong>${escapeHtml(label)}</strong> entered the exception state.</p>` +
       `<p>Reason: ${escapeHtml(input.reason)}<br/>` +
       `Raised by: ${escapeHtml(input.raisedByUserId ?? "system")}</p>` +
       `<p>Resolve it from the admin console's exceptions queue.</p>`,
@@ -239,7 +262,7 @@ export function buildOpsExceptionEmail(input: OpsExceptionEmailInput): EmailMess
 
   return {
     to: input.to,
-    subject: `Exception — booking ${input.bookingId}`,
+    subject: `Exception — booking ${input.bookingRef ?? input.bookingId}`,
     body,
     html,
   };

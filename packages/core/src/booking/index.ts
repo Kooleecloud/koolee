@@ -18,3 +18,13 @@ export {
   type TransitionSuccess,
   type TransitionTable,
 } from "./state-machine";
+
+export {
+  BOOKING_REF_MAX_ATTEMPTS,
+  BOOKING_REF_PATTERN,
+  BOOKING_REF_PREFIX,
+  BookingRefExhaustedError,
+  generateBookingRef,
+  isBookingRefConflict,
+  withBookingRef,
+} from "./ref";

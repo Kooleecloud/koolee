@@ -18,6 +18,7 @@ import {
 } from "@koolee/db";
 
 import { cleanupAnonymousUsers } from "./cleanup-anonymous-users";
+import { generateBookingRef } from "../booking/ref";
 
 /**
  * Integration tests for the anonymous-user GC against a real Postgres.
@@ -145,6 +146,7 @@ describeIntegration("cleanupAnonymousUsers (integration)", () => {
       })
       .returning();
     await db.insert(bookings).values({
+      ref: generateBookingRef(),
       userId: staleWithBooking,
       status: "draft",
       displayTz: "America/New_York",

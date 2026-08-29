@@ -26,7 +26,6 @@ import {
 } from "@koolee/core";
 
 import { OPS_CONSOLE_TZ } from "@/lib/airport-tz";
-import { bookingRef } from "@/lib/booking-ref";
 import { tryGetCore } from "@/lib/core";
 import { getAdminSession } from "@/lib/session";
 
@@ -321,7 +320,7 @@ export default async function BookingsPage({
                         linkComponent={Link}
                         className="font-mono text-xs"
                       >
-                        {bookingRef(booking.id)}
+                        {booking.ref}
                       </RowLink>
                     </td>
                     {/* When the booking came in — not when it happens. An

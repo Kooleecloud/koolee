@@ -28,7 +28,6 @@ import {
 
 import { TransitionControls } from "@/components/transition-controls";
 import { ViewerLocalTime } from "@/components/viewer-local-time";
-import { bookingRef } from "@/lib/booking-ref";
 import { tryGetCore } from "@/lib/core";
 import { getAdminSession } from "@/lib/session";
 import { getSupabaseAdminClient } from "@/lib/supabase/admin";
@@ -116,9 +115,10 @@ export default async function BookingDetailPage({
         title={`${booking.flightNumber} · ${booking.departureAirport}`}
         subtitle={
           <span className="font-mono text-xs">
-            {/* Short ref first — it is what the board lists and what ops read
-                out loud; the full id stays for copy-paste. */}
-            <strong>{bookingRef(booking.id)}</strong> · {booking.id}
+            {/* The ref first — it is what the board lists, what the
+                customer's email carries, and what ops read out loud; the full
+                id stays for copy-paste and for the URL. */}
+            <strong>{booking.ref}</strong> · {booking.id}
           </span>
         }
         actions={

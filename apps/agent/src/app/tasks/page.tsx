@@ -177,6 +177,7 @@ export default async function TasksPage() {
                             {booking.addressLine1}, {booking.addressCity}
                           </span>
                           <span>
+                            <span className="font-mono">{booking.ref}</span> ·{" "}
                             {booking.flightNumber} · {booking.departureAirport}
                           </span>
                         </div>

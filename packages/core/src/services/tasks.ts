@@ -78,6 +78,8 @@ export interface ScheduledTask<T> {
 /** The booking fields an agent needs to identify and reach a job. */
 export interface TaskBookingContext {
   id: string;
+  /** `KOO-XXXXX` — what the customer quotes and what ops reads back. */
+  ref: string;
   paxName: string;
   flightNumber: string;
   departureAirport: string;
@@ -109,6 +111,7 @@ export async function listAssignedTasks(
   // list can never describe the same booking differently.
   const bookingColumns = {
     id: bookings.id,
+    ref: bookings.ref,
     paxName: bookings.paxName,
     flightNumber: bookings.flightNumber,
     departureAirport: bookings.departureAirport,
