@@ -78,6 +78,29 @@ describe("transactional email copy rules", () => {
       expect(message.html).toBeTruthy();
     }
   });
+
+  /**
+   * The agreement is a gate: an agent cannot collect bags until the customer
+   * accepts. The customer therefore has to be TOLD, in the two messages they
+   * actually read, or the first they hear of it is an agent standing at their
+   * door unable to proceed.
+   */
+  it("the confirmation and the reminder both ask the customer to accept the agreement", () => {
+    const [confirm, reminder] = messages();
+    for (const message of [confirm!, reminder!]) {
+      for (const content of [message.body, message.html ?? ""]) {
+        expect(content).toMatch(/booking agreement/i);
+        expect(content).toMatch(/trip page/i);
+      }
+    }
+  });
+
+  it("presents the passport pre-upload as optional, never as a requirement", () => {
+    const [confirm] = messages();
+    // The word that keeps this from reading as a second gate.
+    expect(confirm!.body).toMatch(/optional/i);
+    expect(confirm!.body).toMatch(/passport/i);
+  });
 });
 
 describe("brand color rules", () => {

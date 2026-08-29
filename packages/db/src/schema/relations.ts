@@ -5,6 +5,8 @@ import { payments, pricingRules } from "./billing";
 import { bags, bookings } from "./bookings";
 import { bookingDrafts } from "./drafts";
 import { custodyEvents } from "./custody";
+import { agreementAcceptances, agreementVersions } from "./agreements";
+import { passportVerifications } from "./passport";
 import { addresses, agents, drivers, users } from "./identity";
 import { routes } from "./ops";
 import { slots } from "./slots";
@@ -98,7 +100,52 @@ export const bookingsRelations = relations(bookings, ({ one, many }) => ({
   payments: many(payments),
   verificationTasks: many(verificationTasks),
   pickupTasks: many(pickupTasks),
+  agreementAcceptances: many(agreementAcceptances),
+  passportVerification: one(passportVerifications),
 }));
+
+export const agreementVersionsRelations = relations(
+  agreementVersions,
+  ({ one, many }) => ({
+    publisher: one(users, {
+      fields: [agreementVersions.publishedBy],
+      references: [users.id],
+    }),
+    acceptances: many(agreementAcceptances),
+  }),
+);
+
+export const agreementAcceptancesRelations = relations(
+  agreementAcceptances,
+  ({ one }) => ({
+    booking: one(bookings, {
+      fields: [agreementAcceptances.bookingId],
+      references: [bookings.id],
+    }),
+    agreementVersion: one(agreementVersions, {
+      fields: [agreementAcceptances.agreementVersionId],
+      references: [agreementVersions.id],
+    }),
+    acceptedBy: one(users, {
+      fields: [agreementAcceptances.acceptedByUserId],
+      references: [users.id],
+    }),
+  }),
+);
+
+export const passportVerificationsRelations = relations(
+  passportVerifications,
+  ({ one }) => ({
+    booking: one(bookings, {
+      fields: [passportVerifications.bookingId],
+      references: [bookings.id],
+    }),
+    confirmedByAgent: one(users, {
+      fields: [passportVerifications.confirmedByAgentId],
+      references: [users.id],
+    }),
+  }),
+);
 
 export const bagsRelations = relations(bags, ({ one, many }) => ({
   booking: one(bookings, { fields: [bags.bookingId], references: [bookings.id] }),

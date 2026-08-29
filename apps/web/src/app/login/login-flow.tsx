@@ -2,10 +2,23 @@
 
 import * as React from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
-import { CTAButton, FormMessage, formatUsPhone, Input, Label, OTPInput, PhoneInput, toE164 } from "@koolee/ui";
+import {
+  Card,
+  CTAButton,
+  FormMessage,
+  formatUsPhone,
+  Input,
+  Label,
+  OTPInput,
+  PhoneInput,
+  toE164,
+} from "@koolee/ui";
 
 import { type SendOtpSuccess } from "@/actions/auth";
-import { TurnstileGate, type TurnstileGateHandle } from "@/components/auth/turnstile-gate";
+import {
+  TurnstileGate,
+  type TurnstileGateHandle,
+} from "@/components/auth/turnstile-gate";
 
 import { sendOtp, verifyOtp } from "./actions";
 
@@ -142,7 +155,7 @@ export function LoginFlow({ returnTo }: { returnTo: string | null }) {
   const transition = { duration: 0.3, ease: [0.16, 1, 0.3, 1] as const };
 
   return (
-    <div className="rounded-2xl border border-border bg-white p-6 shadow-lift sm:p-8">
+    <Card surface="panel" className="p-6 sm:p-8">
       {/* Outside AnimatePresence so resends from the code step and the email
           step share one gate that survives screen swaps. */}
       <TurnstileGate ref={turnstile} />
@@ -250,9 +263,7 @@ export function LoginFlow({ returnTo }: { returnTo: string | null }) {
               </button>
               <button
                 type="button"
-                onClick={() =>
-                  void (viaEmail ? sendEmailCode(true) : sendCode(true))
-                }
+                onClick={() => void (viaEmail ? sendEmailCode(true) : sendCode(true))}
                 disabled={busy || resendIn > 0 || resends >= MAX_RESENDS}
                 className="text-sky-700 underline-offset-4 hover:text-sky-600 hover:underline disabled:cursor-not-allowed disabled:text-muted-foreground disabled:no-underline"
               >
@@ -287,7 +298,7 @@ export function LoginFlow({ returnTo }: { returnTo: string | null }) {
                 autoComplete="email"
                 autoFocus
                 disabled={busy}
-                className="h-12 rounded-lg bg-white px-3.5 text-base"
+                className="h-12 rounded-lg bg-card px-3.5 text-base"
               />
             </div>
 
@@ -309,8 +320,7 @@ export function LoginFlow({ returnTo }: { returnTo: string | null }) {
             </button>
           </motion.form>
         )}
-
       </AnimatePresence>
-    </div>
+    </Card>
   );
 }

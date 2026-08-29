@@ -13,12 +13,14 @@ import {
   resolveDisplayTz,
 } from "@koolee/core";
 
-import { submitFlight } from "@/app/book/actions";
+import { submitFlight, useTicketAlternativeLeg } from "@/app/book/actions";
 import { TurnstileFormField } from "@/components/auth/turnstile-gate";
 import { CoverageStepForm } from "@/components/coverage-step-form";
+import { TicketExtractionDebug } from "@/components/ticket-extraction-debug";
 import { TicketUpload } from "@/components/ticket-upload";
 import { readDraft } from "@/lib/booking-draft";
-import { tryGetCore } from "@/lib/core";
+import { ticketExtractionDebugEnabled, tryGetCore } from "@/lib/core";
+import { describeAlternative, describePrefill } from "@/lib/ticket-prefill-copy";
 
 export const metadata = { title: "Your flight" };
 export const dynamic = "force-dynamic";
@@ -46,7 +48,10 @@ export default async function FlightStepPage({
           () => FALLBACK_DISPLAY_TZ,
         )
       : FALLBACK_DISPLAY_TZ;
-  const lowConfidence = fromTicket && prefill?.confidence === "low";
+  // One sentence saying WHICH leg we used and why — the difference between a
+  // form that quietly decided something and one that shows its work.
+  const notice = fromTicket ? describePrefill(prefill) : null;
+  const alternatives = fromTicket ? (prefill?.alternatives ?? []) : [];
 
   // Extracted fields get an attention ring (sky, matching the info banner —
   // Tag Orange stays reserved for CTAs per the brand system).
@@ -65,13 +70,42 @@ export default async function FlightStepPage({
   const flightNumberDefault = fromTicket
     ? (prefill?.flightNumber ?? "")
     : (draft.flightNumber ?? "");
+  // NEVER fall back to JFK on a ticket the extractor could not place: an
+  // unchosen dropdown showing "JFK" reads as a value the customer picked.
   const airportDefault = fromTicket
-    ? (prefill?.departureAirport ?? draft.departureAirport ?? "JFK")
+    ? (prefill?.departureAirport ?? draft.departureAirport ?? "")
     : (draft.departureAirport ?? "JFK");
   const scopeDefault = fromTicket
     ? (prefill?.scope ?? draft.scope ?? "domestic")
     : (draft.scope ?? "domestic");
   const paxNameDefault = fromTicket ? (prefill?.paxName ?? "") : (draft.paxName ?? "");
+
+  /**
+   * Remount key for the form below.
+   *
+   * Every field here is an UNCONTROLLED input seeded by `defaultValue`, and
+   * React applies `defaultValue` only on mount. After a ticket upload or a leg
+   * swap the page re-renders in place (`router.refresh()`), so the already
+   * mounted inputs keep their previous values while the prose around them —
+   * the "we read EWR → DEL" notice, the tz hint — updates from the new
+   * prefill. The result is a form that CONTRADICTS its own summary line:
+   * observed as flight AI144 and "Times are EWR local" sitting above a
+   * dropdown still reading JFK, an empty departure time, and Domestic on an
+   * international ticket. A reload fixed it, which is exactly the signature of
+   * stale mounted state.
+   *
+   * Keying on the seed values makes the form remount whenever what it is
+   * seeded FROM changes, which is the only correct trigger.
+   */
+  const formSeedKey = [
+    fromTicket ? "ticket" : "manual",
+    draft.zip ?? "",
+    flightNumberDefault,
+    airportDefault,
+    departureAtDefault,
+    scopeDefault,
+    paxNameDefault,
+  ].join("|");
 
   return (
     <div className="flex flex-col gap-6">
@@ -84,20 +118,39 @@ export default async function FlightStepPage({
         }
       />
 
-      {fromTicket && !lowConfidence && (
-        <FormMessage variant="info">
-          We filled this in from your e-ticket. The highlighted fields came from the
-          upload — nothing is saved until you review and continue.
-        </FormMessage>
-      )}
-      {lowConfidence && (
-        <FormMessage variant="error">
-          We weren&apos;t confident reading your ticket — please check every highlighted
-          field carefully (or just type your flight in fresh).
-        </FormMessage>
+      {notice ? (
+        <FormMessage variant={notice.tone}>{notice.text}</FormMessage>
+      ) : (
+        fromTicket && (
+          <FormMessage variant={prefill?.confidence === "low" ? "error" : "info"}>
+            We filled this in from your e-ticket. The highlighted fields came from the
+            upload — nothing is saved until you review and continue.
+          </FormMessage>
+        )
       )}
 
-      <CoverageStepForm action={submitFlight} retryHref="/book/flight">
+      {/* A round trip has a leg we did not pick. Rather than making the
+          customer retype it, offer the one we read as a single click. */}
+      {alternatives.length > 0 && (
+        <div className="flex flex-col gap-2 rounded-md border border-sky-200 bg-sky-50 p-3 text-sm">
+          <p className="text-slate-700">
+            This ticket has another flight leaving New York:
+          </p>
+          {alternatives.map((leg, index) => (
+            <form key={`${leg.departureAirport}-${index}`} action={useTicketAlternativeLeg}>
+              <input type="hidden" name="index" value={index} />
+              <button
+                type="submit"
+                className="text-left font-medium text-sky-900 underline underline-offset-2"
+              >
+                Use {describeAlternative(leg)} instead
+              </button>
+            </form>
+          ))}
+        </div>
+      )}
+
+      <CoverageStepForm key={formSeedKey} action={submitFlight} retryHref="/book/flight">
         {/* Paired rows: these six fields are short and related two at a time
             (where the bags are + which flight, which airport + when, domestic
             or not + whose name). One field per row turned a 30-second form
@@ -141,6 +194,11 @@ export default async function FlightStepPage({
               className={flagged(prefill?.departureAirport)}
               required
             >
+              {airportDefault === "" && (
+                <option value="" disabled>
+                  Choose your departure airport
+                </option>
+              )}
               <option value="JFK">JFK — John F. Kennedy</option>
               <option value="LGA">LGA — LaGuardia</option>
               <option value="EWR">EWR — Newark Liberty</option>
@@ -160,7 +218,11 @@ export default async function FlightStepPage({
               name="departureAt"
               defaultValue={departureAtDefault}
               triggerClassName={flagged(prefill?.departureAtLocal)}
-              hint={`Times are ${airportDefault} local`}
+              hint={
+                airportDefault
+                  ? `Times are ${airportDefault} local`
+                  : "Times are local to your departure airport"
+              }
             />
           </div>
         </div>
@@ -202,6 +264,8 @@ export default async function FlightStepPage({
       <OrDivider />
 
       <TicketUpload />
+
+      {ticketExtractionDebugEnabled() && <TicketExtractionDebug />}
     </div>
   );
 }

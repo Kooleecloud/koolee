@@ -3,6 +3,7 @@ import Image from "next/image";
 import Link from "next/link";
 import {
   Badge,
+  Card,
   CTAButton,
   CustodyTimeline,
   MilestoneTrack,
@@ -167,18 +168,18 @@ export default function AboutPage() {
             </h2>
             <p className="leading-relaxed text-muted-foreground">
               A vetted Koolee agent comes to your door, verifies your ID against the
-              booking, weighs and seals your bags with a numbered, tamper-evident tag,
-              and sends them to the airport in a tracked vehicle. You can follow their
-              journey in your Koolee timeline as we deliver them directly to your
-              airline&apos;s bag drop before its cutoff. You check in online as usual,
-              skip the bag-drop line, and head straight to security.
+              booking, weighs and seals your bags with a numbered, tamper-evident tag, and
+              sends them to the airport in a tracked vehicle. You can follow their journey
+              in your Koolee timeline as we deliver them directly to your airline&apos;s
+              bag drop before its cutoff. You check in online as usual, skip the bag-drop
+              line, and head straight to security.
             </p>
             {/* The positioning statement, set apart because it is the boundary
                 of the claim — what we do, and just as importantly what we don't. */}
             <p className="border-l-2 border-sky-400 pl-5 text-lg leading-relaxed font-medium text-navy-800">
-              We&apos;re not a storage service, a shipping company, or a travel agency.
-              We do one thing: take your checked bags from your door to your
-              airline&apos;s bag drop — carefully, securely, and in plain sight.
+              We&apos;re not a storage service, a shipping company, or a travel agency. We
+              do one thing: take your checked bags from your door to your airline&apos;s
+              bag drop — carefully, securely, and in plain sight.
             </p>
           </div>
           <div className="flex flex-col justify-center gap-4 rounded-2xl bg-navy-50 p-8">
@@ -189,9 +190,9 @@ export default function AboutPage() {
             </p>
             <p className="text-sm leading-relaxed text-muted-foreground">
               Our answer isn&apos;t a slogan. It&apos;s a process you can see: vetted
-              agents, tamper-evident seals, a photo at every handoff, and a live
-              timeline from your doorstep to the airline bag drop. You never have to
-              take our word for it. Every step is visible, documented, and trackable.
+              agents, tamper-evident seals, a photo at every handoff, and a live timeline
+              from your doorstep to the airline bag drop. You never have to take our word
+              for it. Every step is visible, documented, and trackable.
             </p>
           </div>
         </Reveal>
@@ -201,16 +202,17 @@ export default function AboutPage() {
         <Reveal>
           <SectionHeader
             eyebrow="The founders"
-            heading={
-              <span id="founders-heading">Built by two people you can name</span>
-            }
+            heading={<span id="founders-heading">Built by two people you can name</span>}
             body="Two founders, personally accountable for every bag we carry. No layers between you and the people who built this."
           />
         </Reveal>
         <div className="mt-10 flex flex-col gap-5">
           {FOUNDERS.map((founder) => (
             <Reveal key={founder.name}>
-              <div className="grid items-start gap-8 rounded-2xl border border-border bg-white p-6 shadow-lift sm:grid-cols-[auto_1fr] sm:gap-10 sm:p-8">
+              <Card
+                surface="panel"
+                className="grid items-start gap-8 p-6 sm:grid-cols-[auto_1fr] sm:gap-10 sm:p-8"
+              >
                 <div className="relative self-start pt-9 sm:w-40">
                   <SealMotif
                     serial={founder.serial}
@@ -248,7 +250,7 @@ export default function AboutPage() {
                     <ArrowUpRight aria-hidden="true" className="size-4" />
                   </a>
                 </div>
-              </div>
+              </Card>
             </Reveal>
           ))}
         </div>
@@ -267,19 +269,21 @@ export default function AboutPage() {
               body="Every hand-off writes one entry: who had your bags, where, when, and the photo taken at the time."
             />
             <p className="leading-relaxed text-muted-foreground">
-              Entries can be added. They cannot be changed or removed — not by an
-              agent, not by our operations team, not by us. If we get something
-              wrong, the correction goes onto the record next to the mistake and you
-              see both. The timeline on your trip page is not a summary we prepared
-              for you; it is the same record we work from.
+              Entries can be added. They cannot be changed or removed — not by an agent,
+              not by our operations team, not by us. If we get something wrong, the
+              correction goes onto the record next to the mistake and you see both. The
+              timeline on your trip page is not a summary we prepared for you; it is the
+              same record we work from.
             </p>
           </Reveal>
-          <Reveal className="rounded-2xl border border-border bg-white p-6 shadow-lift sm:p-8">
-            <p className="mb-5 text-xs font-semibold tracking-[0.14em] text-muted-foreground uppercase">
-              A correction, on the record
-            </p>
-            <CustodyTimeline items={LEDGER_EXAMPLE} />
-          </Reveal>
+          <Card asChild surface="panel">
+            <Reveal className="p-6 sm:p-8">
+              <p className="mb-5 text-xs font-semibold tracking-[0.14em] text-muted-foreground uppercase">
+                A correction, on the record
+              </p>
+              <CustodyTimeline items={LEDGER_EXAMPLE} />
+            </Reveal>
+          </Card>
         </div>
       </Section>
 
@@ -295,16 +299,13 @@ export default function AboutPage() {
         </Reveal>
         <Reveal stagger={0.08} className="mt-10 grid gap-5 sm:grid-cols-2">
           {VETTING.map((item) => (
-            <div
-              key={item.title}
-              className="flex flex-col gap-3 rounded-2xl border border-border bg-white p-6 shadow-lift"
-            >
+            <Card key={item.title} surface="panel" className="flex flex-col gap-3 p-6">
               <div className="w-fit rounded-xl bg-sky-50 p-3">{item.icon}</div>
               <h3 className="font-display text-lg font-semibold text-navy-800">
                 {item.title}
               </h3>
               <p className="text-sm leading-relaxed text-muted-foreground">{item.body}</p>
-            </div>
+            </Card>
           ))}
         </Reveal>
         <Reveal className="mt-10 flex flex-wrap gap-3">

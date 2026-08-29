@@ -27,7 +27,6 @@ import { CreateBlockForm, RemoveBlockButton } from "./block-forms";
 export const metadata = { title: "Window blocks" };
 export const dynamic = "force-dynamic";
 
-
 /**
  * Window blackouts. Pickup windows are virtual — every flight sees the same
  * hourly calendar — so THIS is the ops control over what customers can book:
@@ -75,29 +74,28 @@ export default async function BlocksPage() {
           ) : (
             <ul className="flex flex-col gap-3">
               {blocks.map((block) => (
-                <li
-                  key={block.id}
-                  className="flex items-center justify-between gap-4 rounded-xl border border-border bg-white p-4 shadow-xs"
-                >
-                  <div className="flex flex-col gap-0.5">
-                    <span className="font-medium">
-                      {formatWindowInAirportTz(
-                        block.blockStart,
-                        block.blockEnd,
-                        zoneFor(zones, block.airportCode),
-                      )}
-                    </span>
-                    {block.reason ? (
-                      <span className="text-xs text-muted-foreground">
-                        {block.reason}
+                <Card asChild key={block.id}>
+                  <li className="flex items-center justify-between gap-4 p-4">
+                    <div className="flex flex-col gap-0.5">
+                      <span className="font-medium">
+                        {formatWindowInAirportTz(
+                          block.blockStart,
+                          block.blockEnd,
+                          zoneFor(zones, block.airportCode),
+                        )}
                       </span>
-                    ) : null}
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <Badge variant="secondary">{block.airportCode}</Badge>
-                    <RemoveBlockButton id={block.id} />
-                  </div>
-                </li>
+                      {block.reason ? (
+                        <span className="text-xs text-muted-foreground">
+                          {block.reason}
+                        </span>
+                      ) : null}
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <Badge variant="secondary">{block.airportCode}</Badge>
+                      <RemoveBlockButton id={block.id} />
+                    </div>
+                  </li>
+                </Card>
               ))}
             </ul>
           )}
@@ -107,9 +105,8 @@ export default async function BlocksPage() {
           <CardHeader>
             <CardTitle className="text-base">Block windows</CardTitle>
             <CardDescription>
-              Hours are the airport&apos;s local time. Blocks take effect
-              immediately — customers mid-funnel will see the window rejected at
-              checkout.
+              Hours are the airport&apos;s local time. Blocks take effect immediately —
+              customers mid-funnel will see the window rejected at checkout.
             </CardDescription>
           </CardHeader>
           <CardContent>

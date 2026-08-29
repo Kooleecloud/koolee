@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import {
+  Card,
   CTAButton,
   CustodyTimeline,
   JourneyGlyph,
@@ -111,35 +112,37 @@ export default function HowItWorksPage() {
         <ol className="flex flex-col gap-4">
           {STEPS.map((step) => (
             <li key={step.number}>
-              <Reveal
-                delay={0.05}
-                className="grid items-center gap-5 rounded-2xl border border-border bg-white p-6 shadow-lift sm:grid-cols-[auto_1fr] sm:gap-8 sm:p-7"
-              >
-                {/* Number and glyph sit side by side at every width. Stacking
+              <Card asChild surface="panel">
+                <Reveal
+                  delay={0.05}
+                  className="grid items-center gap-5 p-6 sm:grid-cols-[auto_1fr] sm:gap-8 sm:p-7"
+                >
+                  {/* Number and glyph sit side by side at every width. Stacking
                     them made the rail twice as tall as the two lines of copy
                     beside it, and the card inherited that height as blank
                     space — the exact complaint the copy review opened with. */}
-                <div className="flex items-center gap-4 sm:w-44">
-                  <span
-                    aria-hidden="true"
-                    className="font-display text-5xl leading-none font-semibold text-navy-100"
-                  >
-                    {String(step.number).padStart(2, "0")}
-                  </span>
-                  <div className="rounded-2xl bg-navy-50 p-3.5">
-                    <JourneyGlyph name={step.glyph} className="h-11" />
+                  <div className="flex items-center gap-4 sm:w-44">
+                    <span
+                      aria-hidden="true"
+                      className="font-display text-5xl leading-none font-semibold text-navy-100"
+                    >
+                      {String(step.number).padStart(2, "0")}
+                    </span>
+                    <div className="rounded-2xl bg-navy-50 p-3.5">
+                      <JourneyGlyph name={step.glyph} className="h-11" />
+                    </div>
                   </div>
-                </div>
-                <div className="flex flex-col gap-2">
-                  <h2 className="font-display text-display-sm font-semibold text-navy-800">
-                    <span className="sr-only">Step {step.number}: </span>
-                    {step.title}
-                  </h2>
-                  <p className="text-lg leading-relaxed text-muted-foreground">
-                    {step.body}
-                  </p>
-                </div>
-              </Reveal>
+                  <div className="flex flex-col gap-2">
+                    <h2 className="font-display text-display-sm font-semibold text-navy-800">
+                      <span className="sr-only">Step {step.number}: </span>
+                      {step.title}
+                    </h2>
+                    <p className="text-lg leading-relaxed text-muted-foreground">
+                      {step.body}
+                    </p>
+                  </div>
+                </Reveal>
+              </Card>
             </li>
           ))}
         </ol>

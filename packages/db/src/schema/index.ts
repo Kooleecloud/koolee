@@ -11,6 +11,8 @@ export * from "./otp";
 export * from "./staff";
 export * from "./uploads";
 export * from "./custody";
+export * from "./agreements";
+export * from "./passport";
 export * from "./tasks";
 export * from "./ops";
 export * from "./billing";

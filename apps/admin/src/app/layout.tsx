@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import Link from "next/link";
 import { AppHeader, Button, Toaster } from "@koolee/ui";
+import { brandFontClassName } from "@koolee/ui/fonts";
 
 import { signOutStaff } from "@/actions/auth";
 import { getAdminSession } from "@/lib/session";
@@ -24,6 +25,7 @@ const NAV = [
   { href: "/bookings", label: "Bookings" },
   { href: "/blocks", label: "Blocks" },
   { href: "/zones", label: "Zones" },
+  { href: "/agreements", label: "Agreements" },
   { href: "/exceptions", label: "Exceptions" },
   { href: "/staff", label: "Staff" },
 ] as const;
@@ -38,7 +40,7 @@ export default async function RootLayout({
 
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className="min-h-dvh">
+      <body className={`${brandFontClassName} min-h-dvh`}>
         <AppHeader
           linkComponent={Link}
           links={[...NAV]}

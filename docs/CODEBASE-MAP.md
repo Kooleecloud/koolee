@@ -37,20 +37,23 @@ enforced across marketing, UI, SMS and email ([README §Copy rules](../README.md
 
 **The nouns**, and the table each one lives in:
 
-| Noun          | Table                                | What it is                                                                                                                                                                                                                              |
-| ------------- | ------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Booking       | `bookings`                           | One customer, one flight, one pickup window. The spine everything hangs off.                                                                                                                                                            |
-| Draft         | `booking_drafts`                     | A booking-in-progress before auth/payment. Survives page reloads and anonymous → real-user upgrade.                                                                                                                                     |
-| Bag           | `bags`                               | One physical bag. Weight, photos, a `seal_id`, and an `ordinal` (`1..bag_count`) — the number a human reads off the tag. Order and label by `ordinal`, never by array position: a booking's bags share `created_at` to the millisecond. |
-| Seal          | `bags.seal_id`                       | Opaque tamper-evident ID. Deliberately technology-agnostic (RFID vs printed QR is still undecided — no migration either way).                                                                                                           |
-| Custody event | `custody_events`                     | Append-only chain of custody: who held which bag, where, when, with photo evidence.                                                                                                                                                     |
-| Pickup window | _(none — computed)_                  | The hour the agent comes. **Not a row.** Every flight gets the same 24 clock-aligned one-hour windows, enumerated on demand; the booking stores the one it bought in `bookings.pickup_window_start/end`.                                |
-| Blackout      | `slot_blocks`                        | Ops hiding a span of windows at an airport (weather, no drivers). The only lever over what customers can book.                                                                                                                          |
-| Cutoff        | `airline_cutoffs`                    | Per airline × airport × domestic/international — the latest a bag can be dropped. One of the two deadlines that bound the window band.                                                                                                  |
-| Task          | `verification_tasks`, `pickup_tasks` | The unit of work an agent or driver sees.                                                                                                                                                                                               |
-| Payment       | `payments`, `payment_webhook_events` | Intent → authorize → capture. Webhook events table is the replay guard.                                                                                                                                                                 |
-| Staff member  | `staff_members`                      | Invite-only agent/admin accounts.                                                                                                                                                                                                       |
-| Waitlist signup | `waitlist_signups`                 | One (email, ZIP) pair — "this person wants service in this zone." Unique together; `notified_at` stamps the one promised "you're covered" email.                                                                                        |
+| Noun                  | Table                                | What it is                                                                                                                                                                                                                                        |
+| --------------------- | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Booking               | `bookings`                           | One customer, one flight, one pickup window. The spine everything hangs off.                                                                                                                                                                      |
+| Draft                 | `booking_drafts`                     | A booking-in-progress before auth/payment. Survives page reloads and anonymous → real-user upgrade.                                                                                                                                               |
+| Bag                   | `bags`                               | One physical bag. Weight, photos, a `seal_id`, and an `ordinal` (`1..bag_count`) — the number a human reads off the tag. Order and label by `ordinal`, never by array position: a booking's bags share `created_at` to the millisecond.           |
+| Seal                  | `bags.seal_id`                       | Opaque tamper-evident ID. Deliberately technology-agnostic (RFID vs printed QR is still undecided — no migration either way).                                                                                                                     |
+| Custody event         | `custody_events`                     | Append-only chain of custody: who held which bag, where, when, with photo evidence.                                                                                                                                                               |
+| Pickup window         | _(none — computed)_                  | The hour the agent comes. **Not a row.** Every flight gets the same 24 clock-aligned one-hour windows, enumerated on demand; the booking stores the one it bought in `bookings.pickup_window_start/end`.                                          |
+| Blackout              | `slot_blocks`                        | Ops hiding a span of windows at an airport (weather, no drivers). The only lever over what customers can book.                                                                                                                                    |
+| Cutoff                | `airline_cutoffs`                    | Per airline × airport × domestic/international — the latest a bag can be dropped. One of the two deadlines that bound the window band.                                                                                                            |
+| Task                  | `verification_tasks`, `pickup_tasks` | The unit of work an agent or driver sees.                                                                                                                                                                                                         |
+| Payment               | `payments`, `payment_webhook_events` | Intent → authorize → capture. Webhook events table is the replay guard.                                                                                                                                                                           |
+| Staff member          | `staff_members`                      | Invite-only agent/admin accounts.                                                                                                                                                                                                                 |
+| Agreement version     | `agreement_versions`                 | The terms a customer accepts, versioned. **"Current" is DERIVED** — `max(version)` where `effective_from <= now()`. There is no `is_active` column and there must not be one.                                                                     |
+| Agreement acceptance  | `agreement_acceptances`              | Append-only evidence that a named person accepted a specific version for a specific booking, with whatever the request carried (`user agent`, `ip`) and nothing invented. UNIQUE `(booking_id, agreement_version_id)` makes re-accepting a no-op. |
+| Passport verification | `passport_verifications`             | One per booking. A private-bucket photo PATH and three statuses — and **nothing about the document**: no number, name, DOB, nationality or MRZ, ever. The row has to be worthless to anyone who can read it.                                      |
+| Waitlist signup       | `waitlist_signups`                   | One (email, ZIP) pair — "this person wants service in this zone." Unique together; `notified_at` stamps the one promised "you're covered" email.                                                                                                  |
 
 **The lifecycle.** Ten booking statuses, and the legal moves between them are
 defined in exactly one place — [state-machine.ts](../packages/core/src/booking/state-machine.ts).
@@ -152,6 +155,8 @@ one file per concern, re-exported through `index.ts`:
 | `staff.ts`       | `staff_members`                                       |
 | `otp.ts`         | `otp_send_log`                                        |
 | `ops.ts`         | `routes`                                              |
+| `agreements.ts`  | `agreement_versions`, `agreement_acceptances`         |
+| `passport.ts`    | `passport_verifications`                              |
 | `waitlist.ts`    | `waitlist_signups`                                    |
 
 One non-table module lives beside them: `coverage-zips.ts` — the service-area
@@ -171,6 +176,33 @@ keep their foreign key. Do not add to it — see Chapter 4.
   rejects `UPDATE` / `DELETE` / `TRUNCATE`. Corrections are new rows. This is
   the evidentiary spine of the product; if it were mutable it would be
   worthless in a dispute.
+- **Reuse before you build.** Check `packages/ui` before writing any input,
+  control or layout piece, and lift one there as soon as a second app needs it.
+  `DateTimeField` and `@koolee/ui/lib/photo` are the worked examples; see
+  PROJECT-STATUS §7.
+- `agreement_versions` rows are IMMUTABLE once `effective_from` has passed
+  (trigger, migration `0024`). A future-dated version is editable because it
+  cannot have been accepted — `acceptAgreement` only ever resolves the current
+  version — which is why scheduling doubles as the draft mechanism.
+- `agreement_acceptances` holds at most ONE row per booking (`UNIQUE
+booking_id`, migration `0025`): the version a booking accepts pins for the
+  life of that booking, so a second row would mean a booking bound to two
+  documents. 0025 REFUSES to migrate if duplicates exist rather than deleting
+  them — they are append-only evidence, and which acceptance governs is a
+  human decision.
+- `agreement_acceptances` is append-only too, by the same trigger mechanism
+  and for the same reason: it is evidence that a named person agreed to
+  specific terms at a specific instant, and there is no such thing as
+  correcting that. A change of terms is a new version and a new acceptance.
+- `passport_verifications` carries no field describing the passport. This is a
+  hard rule, and an integration test asserts it against `information_schema`
+  rather than against the TypeScript type — the catalog is what actually
+  exists. A validity checker returns a STATUS, never the fields it read.
+- A storage policy needing the staff roster calls
+  `public.is_active_staff(auth.uid())` (migration `0009`), never an inline
+  `EXISTS (… staff_members …)`: the subquery is evaluated as `authenticated`,
+  which has no privilege on that table, and raises `permission denied`. Got
+  wrong twice now — `0008` (fixed by `0009`) and `0022` (fixed by `0023`).
 - `payments (provider, provider_ref)` is unique — the idempotency key that
   makes webhook redelivery a no-op.
 - `bags.seal_id` is unique **partially** (`WHERE seal_id IS NOT NULL`,
@@ -197,14 +229,22 @@ Two rules, both learned the hard way:
    issues DDL; both need a stable backend. `DIRECT_DATABASE_URL` (port 5432),
    never the Supavisor pooler (6543). `migrate.ts` prints the target host
    before it runs — read that line.
-2. **`packages/db/.env` points at the HOSTED project.** A bare `pnpm seed` or
-   `pnpm db:migrate` targets production data unless the shell overrides the
-   URL. Use `pnpm seed:local`, or set `DATABASE_URL` inline.
+2. **`packages/db/.env` points at LOCAL** (changed 2026-08-22 — it used to
+   point at hosted, and a bare `pnpm db:migrate`/`pnpm seed` silently
+   targeting production is exactly the accident the flip prevents). Hosted is
+   reached only by overriding `DIRECT_DATABASE_URL` inline; the shell always
+   beats dotenv. Both tools print `Target host:` first — read it every time.
+
+**Never trust prose for migration state, including this file's.** `pnpm
+db:status` is the tool: read-only, safe against production, and it compares
+CONTENT HASHES rather than row counts. See
+[PROJECT-STATUS §3.1](../PROJECT-STATUS.md).
 
 **The seed** ([seed.ts](../packages/db/src/seed.ts)) is idempotent reference
-data only — airports, airline cutoffs, one pricing rule. It seeds no bookings
-and, since windows went virtual, no inventory. There is nothing in it that
-can go stale with the calendar.
+data only — airports, airline cutoffs, one pricing rule, and one booking
+agreement version (v1, placeholder copy) so the identity gate can resolve. It
+seeds no bookings and, since windows went virtual, no inventory. There is
+nothing in it that can go stale with the calendar.
 
 ---
 
@@ -317,16 +357,16 @@ reviewable in a diff.
 Everything external is an interface with a fake implementation, so the whole
 product runs and tests without a single third-party credential.
 
-| Seam              | Interface                | Real                                    | Fake / default                         |
-| ----------------- | ------------------------ | ---------------------------------------- | -------------------------------------- |
-| Payments          | `PaymentProvider`        | Stripe adapter                           | `FakePaymentProvider` (in-memory, dev) |
-| Ticket extraction | `TicketExtractor`        | Claude                                   | Heuristic parser                       |
+| Seam              | Interface                | Real                                      | Fake / default                         |
+| ----------------- | ------------------------ | ----------------------------------------- | -------------------------------------- |
+| Payments          | `PaymentProvider`        | Stripe adapter                            | `FakePaymentProvider` (in-memory, dev) |
+| Ticket extraction | `TicketExtractor`        | Claude                                    | Heuristic parser                       |
 | Email             | `Notifier`               | `ResendNotifier` (REST, injectable fetch) | `ConsoleNotifier` (logs)               |
-| SMS dispatch      | `NotificationDispatcher` | _(unbuilt — Twilio later)_               | `NoopDispatcher` (logs)                |
-| Ops alerts        | `OpsAlerter`             | _(unbuilt)_                              | `ConsoleOpsAlerter`                    |
-| Clock             | `Clock`                  | `systemClock`                            | `fixedClock(instant)` for tests        |
-| Sessions          | `SessionReader`          | Supabase per app                         | injected per request                   |
-| Staff roles       | `assertRole`             | `requireStaffRole`                       | injected                               |
+| SMS dispatch      | `NotificationDispatcher` | _(unbuilt — Twilio later)_                | `NoopDispatcher` (logs)                |
+| Ops alerts        | `OpsAlerter`             | _(unbuilt)_                               | `ConsoleOpsAlerter`                    |
+| Clock             | `Clock`                  | `systemClock`                             | `fixedClock(instant)` for tests        |
+| Sessions          | `SessionReader`          | Supabase per app                          | injected per request                   |
+| Staff roles       | `assertRole`             | `requireStaffRole`                        | injected                               |
 
 Email selection mirrors the payments factory: apps resolve `RESEND_API_KEY` /
 `RESEND_FROM` in their env and pass `createRuntime` a
@@ -367,16 +407,16 @@ A service is where ownership is enforced. Session-scoped reads are
 [jobs/functions.ts](../packages/core/src/jobs/functions.ts) plus two defined in
 [apps/web/src/lib/inngest.ts](../apps/web/src/lib/inngest.ts):
 
-| function                     | trigger                             | live?                                          |
-| ---------------------------- | ----------------------------------- | ----------------------------------------------- |
-| `capture-due-bookings`       | `cron("*/5 * * * *")`               | yes — charges cards once bags are in custody   |
-| `cutoff-risk-monitor`        | `cron("*/5 * * * *")`               | yes                                            |
-| `cleanup-anonymous-users`    | daily 04:00 ET                      | yes                                            |
-| `booking-confirmation-email` | event `booking/confirmed`           | yes — real email via the Notifier seam         |
-| `booking-pickup-reminder`    | event `booking/confirmed`           | yes — email real, SMS console until Twilio     |
+| function                     | trigger                             | live?                                            |
+| ---------------------------- | ----------------------------------- | ------------------------------------------------ |
+| `capture-due-bookings`       | `cron("*/5 * * * *")`               | yes — charges cards once bags are in custody     |
+| `cutoff-risk-monitor`        | `cron("*/5 * * * *")`               | yes                                              |
+| `cleanup-anonymous-users`    | daily 04:00 ET                      | yes                                              |
+| `booking-confirmation-email` | event `booking/confirmed`           | yes — real email via the Notifier seam           |
+| `booking-pickup-reminder`    | event `booking/confirmed`           | yes — email real, SMS console until Twilio       |
 | `exception-ops-alert-email`  | event `booking/exception_raised`    | yes — to `OPS_ALERT_EMAIL`, now required in prod |
-| `waitlist-zone-opened-sweep` | daily 10:00 ET                      | yes — the waitlist's promised email            |
-| `agent-no-show-check`        | event `booking/agent_no_show_check` | **never fires** — that event is still unsent   |
+| `waitlist-zone-opened-sweep` | daily 10:00 ET                      | yes — the waitlist's promised email              |
+| `agent-no-show-check`        | event `booking/agent_no_show_check` | **never fires** — that event is still unsent     |
 
 **Where the events come from.** `booking/confirmed` is emitted by apps/web
 from [lib/booking-events.ts](../apps/web/src/lib/booking-events.ts): every
@@ -639,13 +679,13 @@ Detail: [verification-visit.md](../apps/agent/docs/verification-visit.md).
 
 **Five pages**, each a server component + a `actions.ts` + a client form file:
 
-| Route         | What it does                                                                                |
-| ------------- | ------------------------------------------------------------------------------------------- |
-| `/`           | Dashboard: today's bookings by status, unassigned count, open exceptions — all real queries |
+| Route         | What it does                                                                                                                                                                                                                                                                        |
+| ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/`           | Dashboard: today's bookings by status, unassigned count, open exceptions — all real queries                                                                                                                                                                                         |
 | `/bookings`   | Dispatch board: filter by status/airport/day, assign an agent, see at-risk bookings. Since 2026-08-23 assignment is automatic on `paid` (`autoAssignOnPaid`); the board's Assign button is the manual override, and an uncovered ZIP still falls through to it via the at-risk flag |
-| `/blocks`     | Window blackouts — the ops lever over what customers can book                               |
-| `/exceptions` | Bookings in `exception`, with the three legal resolutions                                   |
-| `/staff`      | Invite / list / deactivate agents and admins                                                |
+| `/blocks`     | Window blackouts — the ops lever over what customers can book                                                                                                                                                                                                                       |
+| `/exceptions` | Bookings in `exception`, with the three legal resolutions                                                                                                                                                                                                                           |
+| `/staff`      | Invite / list / deactivate agents and admins                                                                                                                                                                                                                                        |
 
 **Manual actions never edit history.** Every resolution is a state-machine
 transition plus an appended compensating custody event carrying a **required**
@@ -692,7 +732,7 @@ with it.
 ⚠️ **`DateTimeField` carries a timezone contract, not just a layout.** It
 replaced the flight step's native `<input type="datetime-local">`, and its
 submitted value is still a **wall-clock string** — byte-identical to what that
-input posted — because the flight step feeds it the *airport's* wall clock, not
+input posted — because the flight step feeds it the _airport's_ wall clock, not
 the browser's. Every transformation inside is string-level; the single `Date`
 exists so `DayPicker` has something to render and is built from, and read back
 as, local calendar fields. `Intl.DateTimeFormat` is avoided (the repo's lint

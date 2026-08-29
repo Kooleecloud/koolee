@@ -32,7 +32,7 @@ export function BookingStepper({ completed }: { completed: boolean[] }) {
   return (
     <nav
       aria-label="Booking progress"
-      className="border-b bg-white"
+      className="border-b bg-card"
     >
       <div className="container flex max-w-3xl items-center justify-between gap-3">
         <ol className="flex items-center gap-1 overflow-x-auto py-3">

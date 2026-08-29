@@ -70,32 +70,33 @@ over the root template until it is refreshed.
 
 Legend: ● required for the feature to work · ○ optional/degrades · — not read.
 
-| Variable                             | web | agent | admin | Where to get it                                                                      |
-| ------------------------------------ | :-: | :---: | :---: | ------------------------------------------------------------------------------------ |
-| `NEXT_PUBLIC_APP_URL`                |  ○  |   ○   |   ○   | Own origin. Dev: `:3000` / `:3001` / `:3002`                                         |
-| `NEXT_PUBLIC_AGENT_APP_URL`          |  —  |   —   |   ●   | Agent app's origin. Invite links land there                                          |
-| `DATABASE_URL`                       |  ●  |   ●   |   ●   | Supabase → Settings → Database → **Connection pooling, Transaction mode, port 6543** |
-| `DIRECT_DATABASE_URL`                |  ○  |   ○   |   ○   | Same page → **Direct connection, port 5432**. Migrations only                        |
-| `NEXT_PUBLIC_SUPABASE_URL`           |  ●  |   ●   |   ●   | Supabase → Settings → API → Project URL                                              |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY`      |  ●  |   ●   |   ●   | Supabase → Settings → API → anon public key                                          |
-| `SUPABASE_SERVICE_ROLE_KEY`          |  ●  | **—** |   ●   | Supabase → Settings → API → service_role. **Never in agent** (§5)                    |
-| `AUTH_SCHEMA_AVAILABLE`              |  ○  |   —   |   —   | `"false"` only for bare local Postgres with no GoTrue                                |
-| `NEXT_PUBLIC_TURNSTILE_SITE_KEY`     |  ●  |   —   |   —   | Cloudflare → Turnstile → Site key (invisible mode)                                   |
-| `OTP_LOG_HMAC_KEY`                   |  ●  |   —   |   —   | `openssl rand -hex 32`. **Min 32 chars**                                             |
-| `CRON_SECRET`                        |  ●  |   —   |   —   | Any random string. Protects `/api/jobs/*`                                            |
-| `STRIPE_SECRET_KEY`                  |  ●  |   —   |   ○   | Stripe → Developers → API keys (admin needs it for refunds)                          |
-| `STRIPE_WEBHOOK_SECRET`              |  ●  |   —   |   —   | Stripe → Webhooks, or `stripe listen` locally                                        |
-| `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` |  ●  |   —   |   —   | Stripe → Developers → API keys                                                       |
-| `INNGEST_EVENT_KEY`                  |  ○  |   —   |   —   | Inngest Cloud → Events. Not needed for `pnpm dev:inngest`                            |
-| `INNGEST_SIGNING_KEY`                |  ○  |   —   |   —   | Inngest Cloud → Deploy → Signing key                                                 |
-| `RESEND_API_KEY`                     |  ○  |   —   |   —   | Resend dashboard. **Required in production** (boot gate) — without it email degrades to console |
-| `RESEND_FROM`                        |  ○  |   —   |   —   | RFC 5322 From. Defaults to Resend's sandbox sender; set to the verified domain for real sends |
-| `OPS_ALERT_EMAIL`                    |  ○  |   —   |   —   | Ops inbox for `booking/exception_raised` alert emails; unset → skipped              |
-| `AEROAPI_KEY`                        |  ○  |   —   |   —   | FlightAware AeroAPI. **Stubbed**                                                     |
-| `GOOGLE_MAPS_API_KEY`                |  ○  |   ○   |   —   | Google Cloud → Maps Platform. **Stubbed**                                            |
-| `ANTHROPIC_API_KEY`                  |  ○  |   —   |   —   | Ticket-PDF extraction. Out of scope in scaffold                                      |
-| `SENTRY_DSN`                         |  ○  |   ○   |   ○   | Sentry project settings                                                              |
-| `TEST_DATABASE_URL`                  |  —  |   —   |   —   | Integration tests only. See [SCRIPTS.md](SCRIPTS.md)                                 |
+| Variable                             | web | agent | admin | Where to get it                                                                                                                                                        |
+| ------------------------------------ | :-: | :---: | :---: | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `NEXT_PUBLIC_APP_URL`                |  ○  |   ○   |   ○   | Own origin. Dev: `:3000` / `:3001` / `:3002`                                                                                                                           |
+| `NEXT_PUBLIC_AGENT_APP_URL`          |  —  |   —   |   ●   | Agent app's origin. Invite links land there                                                                                                                            |
+| `DATABASE_URL`                       |  ●  |   ●   |   ●   | Supabase → Settings → Database → **Connection pooling, Transaction mode, port 6543**                                                                                   |
+| `DIRECT_DATABASE_URL`                |  ○  |   ○   |   ○   | Same page → **Direct connection, port 5432**. Migrations only                                                                                                          |
+| `NEXT_PUBLIC_SUPABASE_URL`           |  ●  |   ●   |   ●   | Supabase → Settings → API → Project URL                                                                                                                                |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY`      |  ●  |   ●   |   ●   | Supabase → Settings → API → anon public key                                                                                                                            |
+| `SUPABASE_SERVICE_ROLE_KEY`          |  ●  | **—** |   ●   | Supabase → Settings → API → service_role. **Never in agent** (§5)                                                                                                      |
+| `AUTH_SCHEMA_AVAILABLE`              |  ○  |   —   |   —   | `"false"` only for bare local Postgres with no GoTrue                                                                                                                  |
+| `NEXT_PUBLIC_TURNSTILE_SITE_KEY`     |  ●  |   —   |   —   | Cloudflare → Turnstile → Site key (invisible mode)                                                                                                                     |
+| `OTP_LOG_HMAC_KEY`                   |  ●  |   —   |   —   | `openssl rand -hex 32`. **Min 32 chars**                                                                                                                               |
+| `CRON_SECRET`                        |  ●  |   —   |   —   | Any random string. Protects `/api/jobs/*`                                                                                                                              |
+| `STRIPE_SECRET_KEY`                  |  ●  |   —   |   ○   | Stripe → Developers → API keys (admin needs it for refunds)                                                                                                            |
+| `STRIPE_WEBHOOK_SECRET`              |  ●  |   —   |   —   | Stripe → Webhooks, or `stripe listen` locally                                                                                                                          |
+| `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` |  ●  |   —   |   —   | Stripe → Developers → API keys                                                                                                                                         |
+| `INNGEST_EVENT_KEY`                  |  ○  |   —   |   —   | Inngest Cloud → Events. Not needed for `pnpm dev:inngest`                                                                                                              |
+| `INNGEST_SIGNING_KEY`                |  ○  |   —   |   —   | Inngest Cloud → Deploy → Signing key                                                                                                                                   |
+| `RESEND_API_KEY`                     |  ○  |   —   |   —   | Resend dashboard. **Required in production** (boot gate) — without it email degrades to console                                                                        |
+| `RESEND_FROM`                        |  ○  |   —   |   —   | RFC 5322 From. Defaults to Resend's sandbox sender; set to the verified domain for real sends                                                                          |
+| `OPS_ALERT_EMAIL`                    |  ○  |   —   |   —   | Ops inbox for `booking/exception_raised` alert emails; unset → skipped                                                                                                 |
+| `AEROAPI_KEY`                        |  ○  |   —   |   —   | FlightAware AeroAPI. **Stubbed**                                                                                                                                       |
+| `GOOGLE_MAPS_API_KEY`                |  ○  |   ○   |   —   | Google Cloud → Maps Platform. **Stubbed**                                                                                                                              |
+| `ANTHROPIC_API_KEY`                  |  ○  |   —   |   —   | Ticket extraction. Absent → the free in-process heuristic extractor                                                                                                    |
+| `TICKET_EXTRACTION_DEBUG`            |  ○  |   —   |   —   | `1`/`true` returns the RAW extraction diagnostics to the browser. **Never set this on production** — the payload is a developer tool containing a customer's itinerary |
+| `SENTRY_DSN`                         |  ○  |   ○   |   ○   | Sentry project settings                                                                                                                                                |
+| `TEST_DATABASE_URL`                  |  —  |   —   |   —   | Integration tests only. See [SCRIPTS.md](SCRIPTS.md)                                                                                                                   |
 
 Source of truth: [apps/web/src/env.ts](../apps/web/src/env.ts) ·
 [apps/agent/src/env.ts](../apps/agent/src/env.ts) ·
@@ -121,12 +122,12 @@ fresh clone with no `DATABASE_URL` still boots green.
 Runs when `isProd && NEXT_PUBLIC_SUPABASE_URL` is set
 ([web/src/env.ts:241](../apps/web/src/env.ts#L241)). Refuses to boot if any of:
 
-| Missing                          | Silently disables                                                                                                      |
-| -------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| `NEXT_PUBLIC_TURNSTILE_SITE_KEY` | No widget mounts → `requireCaptchaToken` never demands a token → **CAPTCHA off across the whole funnel**               |
+| Missing                          | Silently disables                                                                                                                                                                                                                                |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `NEXT_PUBLIC_TURNSTILE_SITE_KEY` | No widget mounts → `requireCaptchaToken` never demands a token → **CAPTCHA off across the whole funnel**                                                                                                                                         |
 | `SUPABASE_SERVICE_ROLE_KEY`      | `deleteAuthUser` becomes a logged no-op → orphaned GoTrue users survive → reinstates the `phone_change` collision bug; **and** `signBagPhotoUrls` returns an empty map, so the trip page renders bags and custody events with no evidence photos |
-| `DATABASE_URL`                   | `guardUpgradeSend` degrades to allow-all → **no OTP throttle, no reconciliation**, while Supabase still sends real SMS |
-| `AUTH_SCHEMA_AVAILABLE="false"`  | Reconciliation explicitly skipped — a dev-only posture                                                                 |
+| `DATABASE_URL`                   | `guardUpgradeSend` degrades to allow-all → **no OTP throttle, no reconciliation**, while Supabase still sends real SMS                                                                                                                           |
+| `AUTH_SCHEMA_AVAILABLE="false"`  | Reconciliation explicitly skipped — a dev-only posture                                                                                                                                                                                           |
 
 ### 4.3 — `assertProductionBootConfig()` — agent & admin
 
@@ -215,15 +216,15 @@ GitHub secrets (session-pooler URLs). See
 
 ## 6.5 Two Supabase projects: prod vs dev (since 2026-08-23)
 
-| | **prod** | **dev** |
-| --- | --- | --- |
-| Project ref | `dblfbpxorleurqdlkylz` | `jpvlzoikcivxepgyrkho` |
-| Region | `us-east-2` | `ca-central-1` (historical accident) |
-| Data API | **disabled** (nothing uses `/rest/v1`; auth + storage unaffected) | enabled (legacy) |
-| Vercel env scope | **Production** (deploys of `main`) | **Preview** (every other branch) |
-| CI migration secret | `PROD_DIRECT_DATABASE_URL` | `DEV_DIRECT_DATABASE_URL` |
-| Test OTP phone numbers | **NEVER** | yes (`+13322602829` etc.) |
-| Stripe | live keys at launch (test until then) | test keys |
+|                        | **prod**                                                          | **dev**                              |
+| ---------------------- | ----------------------------------------------------------------- | ------------------------------------ |
+| Project ref            | `dblfbpxorleurqdlkylz`                                            | `jpvlzoikcivxepgyrkho`               |
+| Region                 | `us-east-2`                                                       | `ca-central-1` (historical accident) |
+| Data API               | **disabled** (nothing uses `/rest/v1`; auth + storage unaffected) | enabled (legacy)                     |
+| Vercel env scope       | **Production** (deploys of `main`)                                | **Preview** (every other branch)     |
+| CI migration secret    | `PROD_DIRECT_DATABASE_URL`                                        | `DEV_DIRECT_DATABASE_URL`            |
+| Test OTP phone numbers | **NEVER**                                                         | yes (`+13322602829` etc.)            |
+| Stripe                 | live keys at launch (test until then)                             | test keys                            |
 
 Rules that make the split hold:
 
@@ -246,11 +247,11 @@ Rules that make the split hold:
 `apps/web` is ONE Vercel project. The branch decides which variable set a build
 sees:
 
-| | **Production scope** | **Preview scope** |
-| --- | --- | --- |
-| Branch | `main` | every other branch |
-| Domain | `koolee.cloud` | `dev.koolee.cloud`, pinned to the `dev` branch (Vercel → Domains → Git Branch). Other branches get their own `*.vercel.app` URL |
-| `NEXT_PUBLIC_LAUNCH_MODE` | `coming_soon` until launch | `live` |
+|                           | **Production scope**       | **Preview scope**                                                                                                               |
+| ------------------------- | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| Branch                    | `main`                     | every other branch                                                                                                              |
+| Domain                    | `koolee.cloud`             | `dev.koolee.cloud`, pinned to the `dev` branch (Vercel → Domains → Git Branch). Other branches get their own `*.vercel.app` URL |
+| `NEXT_PUBLIC_LAUNCH_MODE` | `coming_soon` until launch | `live`                                                                                                                          |
 
 Rejected alternatives: two Vercel projects, and Vercel Custom Environments.
 Both duplicate configuration that Preview scope already provides, and §6.5's
@@ -288,8 +289,8 @@ visible in the codebase:
    password a Resend API key. The project was previously on Outlook SMTP, which
    silently failed: Microsoft has disabled basic SMTP auth for most tenants and
    would not send as `@koolee.cloud` anyway.
-2. **`{{ .Token }}` in three templates** — *Confirm signup* (new user via
-   `signInWithOtp`), *Magic Link* (existing user), *Change Email Address*
+2. **`{{ .Token }}` in three templates** — _Confirm signup_ (new user via
+   `signInWithOtp`), _Magic Link_ (existing user), _Change Email Address_
    (`updateUser({ email })`, which is the profile page's resend). A template
    holding only `{{ .ConfirmationURL }}` sends a LINK no matter what the app
    asked for, which reads as "the code never arrives".

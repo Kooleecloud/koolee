@@ -65,6 +65,19 @@ export function resolveExtractionConfig(): TicketExtractorConfig {
 }
 
 /**
+ * Whether a ticket upload may hand its RAW extraction diagnostics back to the
+ * browser — every segment the model read, the leg it chose and why.
+ *
+ * Opt-in, off by default, and never appropriate on the production project:
+ * the payload is a developer tool containing the customer's own itinerary.
+ * See TICKET_EXTRACTION_DEBUG in env.ts.
+ */
+export function ticketExtractionDebugEnabled(): boolean {
+  const flag = optionalEnv("TICKET_EXTRACTION_DEBUG");
+  return flag === "1" || flag === "true";
+}
+
+/**
  * Real email iff `RESEND_API_KEY` is set, otherwise the console notifier —
  * dev is unchanged by the Resend integration. Production REQUIRES the key
  * (fail-closed boot gate in env.ts).

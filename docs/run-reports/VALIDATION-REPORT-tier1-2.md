@@ -15,31 +15,31 @@ be performed, it says so rather than inferring from code.
 
 ## Section verdicts at a glance
 
-| § | Area | Verdict |
-|---|------|---------|
-| 0 | Baseline gates | **PASS** |
-| 1 | Small fixes (Phase 0) | **PASS** (6/6) |
-| 2 | Task uniqueness (Phase 1) | **PASS** local · hosted unverified |
-| 3 | On-paid auto-assign (Phase 2) | **PASS** |
-| 4 | Seed integrity (Phase 3) | **PASS** with one residue note |
-| 5 | ResendNotifier (Phase 4) | **PARTIAL** — 2 stated expectations are factually wrong |
-| 6 | Email side effects (Phase 5) | **PARTIAL** — one real functional gap, one test gap |
-| 7 | Docs + tracker | **PARTIAL** — stale migration-state prose in CODEBASE-MAP |
+| §   | Area                          | Verdict                                                   |
+| --- | ----------------------------- | --------------------------------------------------------- |
+| 0   | Baseline gates                | **PASS**                                                  |
+| 1   | Small fixes (Phase 0)         | **PASS** (6/6)                                            |
+| 2   | Task uniqueness (Phase 1)     | **PASS** local · hosted unverified                        |
+| 3   | On-paid auto-assign (Phase 2) | **PASS**                                                  |
+| 4   | Seed integrity (Phase 3)      | **PASS** with one residue note                            |
+| 5   | ResendNotifier (Phase 4)      | **PARTIAL** — 2 stated expectations are factually wrong   |
+| 6   | Email side effects (Phase 5)  | **PARTIAL** — one real functional gap, one test gap       |
+| 7   | Docs + tracker                | **PARTIAL** — stale migration-state prose in CODEBASE-MAP |
 
 ---
 
 ## 0. Baseline gates — PASS
 
-| Gate | Command | Result | Last known green (RUN-REPORT-3, Unit 3) |
-|------|---------|--------|------------------------------------------|
-| Typecheck | `pnpm turbo typecheck` | **6 successful, 6 total** (exit 0) | 6/6 ✅ match |
-| Lint | `pnpm turbo lint` | **6 successful, 6 total** (exit 0) | 6/6 ✅ match |
-| Unit — core | `pnpm turbo test` | **16 files / 244 tests passed** | 244 ✅ match |
-| Unit — web | " | **8 files / 64 tests passed** | 59 at Unit 2 close — higher, no regression |
-| Unit — admin | " | **2 files / 19 tests passed** | 19 ✅ match |
-| Unit — agent | " | **1 file / 6 tests passed** | 6 ✅ match |
-| Core integration | `pnpm --filter @koolee/core test:integration` | **14 files passed / 1 skipped; 87 passed / 3 skipped** | 87 passed / 3 skipped ✅ exact match |
-| Production build | `pnpm turbo build --force` | **3 successful, 3 total · Cached: 0 cached, 3 total** | 3/3 ✅ match |
+| Gate             | Command                                       | Result                                                 | Last known green (RUN-REPORT-3, Unit 3)    |
+| ---------------- | --------------------------------------------- | ------------------------------------------------------ | ------------------------------------------ |
+| Typecheck        | `pnpm turbo typecheck`                        | **6 successful, 6 total** (exit 0)                     | 6/6 ✅ match                               |
+| Lint             | `pnpm turbo lint`                             | **6 successful, 6 total** (exit 0)                     | 6/6 ✅ match                               |
+| Unit — core      | `pnpm turbo test`                             | **16 files / 244 tests passed**                        | 244 ✅ match                               |
+| Unit — web       | "                                             | **8 files / 64 tests passed**                          | 59 at Unit 2 close — higher, no regression |
+| Unit — admin     | "                                             | **2 files / 19 tests passed**                          | 19 ✅ match                                |
+| Unit — agent     | "                                             | **1 file / 6 tests passed**                            | 6 ✅ match                                 |
+| Core integration | `pnpm --filter @koolee/core test:integration` | **14 files passed / 1 skipped; 87 passed / 3 skipped** | 87 passed / 3 skipped ✅ exact match       |
+| Production build | `pnpm turbo build --force`                    | **3 successful, 3 total · Cached: 0 cached, 3 total**  | 3/3 ✅ match                               |
 
 The three skipped integration tests are the documented `booking-ownership` set that needs
 `ALLOW_DEV_DB_WIPE=1` by design. Builds were run with `--force` so none of the three apps
@@ -120,8 +120,8 @@ authenticated browser session.)
 ### 1.5 Copy fixes — PASS
 
 - `Leo·` — one hit repo-wide, and it is the comment recording the fix:
-  `apps/web/src/app/trips/[bookingId]/page.tsx:182` — *"Real space, not margin: without it
-  the accessible/text content read 'Leo· confirmed' (#51)."* The render now emits
+  `apps/web/src/app/trips/[bookingId]/page.tsx:182` — _"Real space, not margin: without it
+  the accessible/text content read 'Leo· confirmed' (#51)."_ The render now emits
   `{assignedAgent.givenName ?? "Assigned"}{" "}`.
 - `bags sealed` — `apps/agent/.../visit-flow.tsx:413-415` carries the explicit `{" "}`
   between the count and the words, with the comment recording the `0/2bags sealed` bug.
@@ -138,9 +138,10 @@ DIRECT_DATABASE_URL = postgresql://***@127.0.0.1:54322/postgres
 `pnpm db:status` independently printed `Target host: 127.0.0.1`.
 
 Hosted override documented in **both** places required:
+
 - `packages/db/.env` header comment — inline `DIRECT_DATABASE_URL='…pooler…' pnpm db:migrate`.
-- `docs/MIGRATIONS.md:87-98` — same override, plus *"Both tools print `Target host:` first.
-  **Read that line every time.**"*
+- `docs/MIGRATIONS.md:87-98` — same override, plus _"Both tools print `Target host:` first.
+  **Read that line every time.**"_
 
 > ⚠️ Non-blocking finding **N1**: `apps/web/.env.local`, `apps/agent/.env.local` and
 > `apps/admin/.env.local` each set `DATABASE_URL` to local **but `DIRECT_DATABASE_URL` to
@@ -173,6 +174,7 @@ SELECT indexname, indexdef FROM pg_indexes
  WHERE tablename IN ('verification_tasks','pickup_tasks','pricing_rules')
    AND indexdef ILIKE '%UNIQUE%';
 ```
+
 ```
  pickup_tasks_booking_id_key       | CREATE UNIQUE INDEX … ON public.pickup_tasks USING btree (booking_id)
  verification_tasks_booking_id_key | CREATE UNIQUE INDEX … ON public.verification_tasks USING btree (booking_id)
@@ -202,8 +204,8 @@ Post-rollback row counts unchanged (`vt=10, pt=10`).
 ### 2.4 Hosted — NOT VERIFIED IN THIS RUN
 
 `RUN-REPORT-3.md:262-280` marks the hosted migration (step 1) and hosted re-seed (step 2)
-as ✅ **done**, and `PROJECT-STATUS.md` §3 states the production project is *"migrated
-21/21 by hash"*. This run made no connection to either hosted project by choice (the task
+as ✅ **done**, and `PROJECT-STATUS.md` §3 states the production project is _"migrated
+21/21 by hash"_. This run made no connection to either hosted project by choice (the task
 is a local validation; connecting would put production DDL credentials on the wire for a
 read that TD can do safely from their own shell). **The hosted content-hash check per §3.1
 remains outstanding — see Blocker B1.**
@@ -222,13 +224,14 @@ Test Files  1 passed (1)
 ```
 
 The three cases are exactly the ones required:
-1. *"two concurrent transitions to paid produce exactly one task pair and one assignment"* —
+
+1. _"two concurrent transitions to paid produce exactly one task pair and one assignment"_ —
    runs `handlePaymentEvent` (webhook) and `reconcileBookingPayment` (return page) inside
    one `Promise.all`, asserts 1 verification task, 1 pickup task, 1 assign event.
-2. *"a concurrent burst of on-paid hooks assigns exactly once, stamped by the system
-   actor"* — 4 parallel `autoAssignOnPaid` calls, asserts `assignEvents[0].actorUserId`
+2. _"a concurrent burst of on-paid hooks assigns exactly once, stamped by the system
+   actor"_ — 4 parallel `autoAssignOnPaid` calls, asserts `assignEvents[0].actorUserId`
    is `null`.
-3. *"no covering agent never fails the payment path"*.
+3. _"no covering agent never fails the payment path"_.
 
 The loser of the race lands on `not_assignable` (`auto-assign.ts:251-260`), i.e. treated
 as already-assigned, not an error.
@@ -280,13 +283,14 @@ booking.payment_authorized | (null)      ← no agent_assigned event
 ```
 
 No `[auto-assign]` error lines in the dev-server log — a skip is silent by design, only a
-refused *write* (`assignment_failed`) logs.
+refused _write_ (`assignment_failed`) logs.
 
 Board behaviour, on `http://localhost:3002/bookings`:
+
 - Immediately after booking (window ~60h out): row rendered `… DL777 JFK Uncovered Zip
-  Probe 1 unassigned Booked`.
-- After shifting the probe booking's window to +6h (the at-risk flag is defined as *paid +
-  unassigned + window within 12h*, `apps/admin/src/app/bookings/page.tsx:142-143`), the
+Probe 1 unassigned Booked`.
+- After shifting the probe booking's window to +6h (the at-risk flag is defined as _paid +
+  unassigned + window within 12h_, `apps/admin/src/app/bookings/page.tsx:142-143`), the
   same row rendered **`at risk`** and the header read **`17 shown · 1 at risk`**.
 
 `agent_zones` was restored afterwards via `pnpm seed:local` (198 rows, `10001` back to 1).
@@ -311,12 +315,12 @@ page. The call-site set is closed (grep over `apps` + `packages`).
 section, once more to restore §3.3's zone deletion), plus the automatic re-seed at the tail
 of `test:integration`. After every run:
 
-| Check | Result |
-|---|---|
-| `agent_zones` row count | 198 |
-| distinct ZIPs | 198 |
+| Check                                         | Result                                 |
+| --------------------------------------------- | -------------------------------------- |
+| `agent_zones` row count                       | 198                                    |
+| distinct ZIPs                                 | 198                                    |
 | set-diff vs `ALL_COVERAGE_ZIPS` (198 in code) | **exact match, both directions empty** |
-| active pricing rules | **exactly 1** (`launch-v1`) |
+| active pricing rules                          | **exactly 1** (`launch-v1`)            |
 
 Set-diff method: `ALL_COVERAGE_ZIPS` printed from `packages/db/src/coverage-zips.ts` via
 `tsx`, `SELECT DISTINCT zip FROM agent_zones` from psql, compared with `comm`/`diff` —
@@ -328,10 +332,14 @@ across five agents, one agent per ZIP.
 ### 4.1 The active rule carries both the curve and the discount — PASS
 
 ```json
-{ "discount_rules": [ { "kind": "family", "minBags": 3, "percent": 10 } ],
-  "lead_time_multipliers": [ { "maxLeadMinutes": 600,  "multiplier": 1.4 },
-                             { "maxLeadMinutes": 960,  "multiplier": 1.2 },
-                             { "maxLeadMinutes": 1440, "multiplier": 1.1 } ] }
+{
+  "discount_rules": [{ "kind": "family", "minBags": 3, "percent": 10 }],
+  "lead_time_multipliers": [
+    { "maxLeadMinutes": 600, "multiplier": 1.4 },
+    { "maxLeadMinutes": 960, "multiplier": 1.2 },
+    { "maxLeadMinutes": 1440, "multiplier": 1.1 }
+  ]
+}
 ```
 
 Live in the window picker for the 3-bag booking (`/book/slot`), prices vary by window:
@@ -386,11 +394,11 @@ the 0020 index makes a second active row impossible.)
 ### 4.4 `dispatch.*@koolee-test.example` fixtures — PARTIAL
 
 - **In code: explicitly marked.** `dispatch.integration.test.ts:171-174` carries a
-  `TEST-ONLY FIXTURES` comment stating the accounts *"exist solely in the disposable
-  `koolee_test` database … never seeded into dev or hosted"*.
+  `TEST-ONLY FIXTURES` comment stating the accounts _"exist solely in the disposable
+  `koolee_test` database … never seeded into dev or hosted"_.
 - **`koolee_test`: clean** — `SELECT count(*) … LIKE '%koolee-test.example%'` → `0`.
 - **The local dev database still holds four of them**, all created `2026-08-10
-  02:57:35 UTC` — i.e. residue from before the #48 disposable-DB split, when the
+02:57:35 UTC` — i.e. residue from before the #48 disposable-DB split, when the
   integration tier ran against the dev DB:
 
 ```
@@ -419,7 +427,7 @@ itself is sound; the expectations were.
   through `createNotifier(config)` (`notifications/factory.ts:17-22`), injected by the app
   via `createRuntime`. Core is handed a value, never an env var.
 - **Correction (drift, not a defect):** the adapter sits behind the **`Notifier`**
-  interface, *not* `NotificationDispatcher`. `NotificationDispatcher`
+  interface, _not_ `NotificationDispatcher`. `NotificationDispatcher`
   (`notifications/dispatcher.ts`) is the separate custody-event / SMS seam and still
   defaults to `NoopDispatcher` (`config.ts:106`). The prompt named the wrong seam.
 - **FAIL as stated — "ESLint boundary present":** there is **no** ESLint rule for the
@@ -428,8 +436,8 @@ itself is sound; the expectations were.
   exemptions for `payments/stripe`, `extraction/*` and `slots/cutoff.ts` — nothing for
   `notifications/resend`. This is currently **moot**: `ResendNotifier` uses the REST API
   through an injectable `fetch` and there is no `resend` package in any `package.json`, so
-  there is no import to restrict. But the file's own comment says *"if the `resend` SDK is
-  ever adopted, it may be imported HERE only"* — and nothing enforces that. Recorded as
+  there is no import to restrict. But the file's own comment says _"if the `resend` SDK is
+  ever adopted, it may be imported HERE only"_ — and nothing enforces that. Recorded as
   **N3**.
 
 ### 5.2 "packages/core reads zero env" — **FALSE**
@@ -443,7 +451,7 @@ packages/core/src/notifications/factory.ts:7:  * `process.env`. …             
 
 `hashDestination()` reads `process.env.OTP_LOG_HMAC_KEY` directly and throws if it is
 unset. This is **pre-existing** — it arrived with the OTP-PII pass, not with this slice —
-and it is the *only* real read in core. Reporting it because the section asked for "expect
+and it is the _only_ real read in core. Reporting it because the section asked for "expect
 none" and the honest answer is "one, and here it is". Recorded as **N4**.
 
 ### 5.3 Notifier selection, both branches — PASS
@@ -464,7 +472,7 @@ App-side resolution: `apps/web/src/lib/core.ts:71-74` — `RESEND_API_KEY` prese
 `{ kind: "resend", … }`, absent → `{ kind: "console" }`. Exercised live in this run: the
 dev servers were started with `RESEND_API_KEY=""` and every send landed on the console
 notifier (see §6). No real email was sent to anyone during this run — deliberate, since
-`apps/web/.env.local` *does* carry a real Resend key locally.
+`apps/web/.env.local` _does_ carry a real Resend key locally.
 
 ### 5.4 Production boot gate — PASS
 
@@ -485,6 +493,7 @@ deliberate choice, but it has a consequence — see **N5**.
 ### 5.5 A thrown send does not fail the calling flow — PARTIAL
 
 The guards exist and are correct:
+
 - `jobs/functions.ts:161-171` — confirmation email `try/catch` → ops-alert, return
   `{ sent: false, reason: "send_failed" }`.
 - `jobs/functions.ts:265-274` — reminder email, same shape.
@@ -579,7 +588,7 @@ the reminder and the third template.
 ### 6.3 Reminder — PARTIAL
 
 - **Scheduling mechanism: verified.** `jobs/functions.ts:199` — `await
-  step.sleepUntil("wait-until-2h-before-pickup", remindAt)`, with an immediate-send branch
+step.sleepUntil("wait-until-2h-before-pickup", remindAt)`, with an immediate-send branch
   when the window is already inside the lead. Live: the reminder function was invoked
   twice (once per booking created in this run) and each run suspended at the sleep step —
   `POST /api/inngest?fnId=koolee-booking-pickup-reminder&stepId=step 206`, with no
@@ -658,29 +667,29 @@ which is what holds beyond Inngest's dedup window.
 
 All four required items are documented:
 
-| Item | Where |
-|---|---|
-| Resend account + DNS records | `RUN-REPORT-3.md:281-285` — *"resend.com/domains → add domain → publish the DKIM/SPF records → after verification set `RESEND_FROM=Koolee <notify@koolee.cloud>`"*, with the verified-live note that the sandbox From only delivers to the Resend account's own address (403 for anyone else). Echoed in `docs/CODEBASE-MAP.md:825-831`. |
-| Three env vars, per environment | `docs/ENVIRONMENT.md:91-93` (per-app/per-scope matrix) + `RUN-REPORT-3.md:286-293` (Vercel Production vs Preview, incl. `NEXT_PUBLIC_APP_URL` or the emails ship with no CTA). |
-| Hosted migration command for Phase 1 | `RUN-REPORT-3.md:262-275` — inline `DIRECT_DATABASE_URL=… pnpm db:migrate`, with the blast radius spelled out per index. Also `docs/MIGRATIONS.md:87-98`. |
-| Hosted re-seed note | `RUN-REPORT-3.md:276-280` — `DATABASE_URL='<hosted pooler>' pnpm --filter @koolee/db seed`, noting staff/zone seeding self-skips on non-local hosts. |
+| Item                                 | Where                                                                                                                                                                                                                                                                                                                                    |
+| ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Resend account + DNS records         | `RUN-REPORT-3.md:281-285` — _"resend.com/domains → add domain → publish the DKIM/SPF records → after verification set `RESEND_FROM=Koolee <notify@koolee.cloud>`"_, with the verified-live note that the sandbox From only delivers to the Resend account's own address (403 for anyone else). Echoed in `docs/CODEBASE-MAP.md:825-831`. |
+| Three env vars, per environment      | `docs/ENVIRONMENT.md:91-93` (per-app/per-scope matrix) + `RUN-REPORT-3.md:286-293` (Vercel Production vs Preview, incl. `NEXT_PUBLIC_APP_URL` or the emails ship with no CTA).                                                                                                                                                           |
+| Hosted migration command for Phase 1 | `RUN-REPORT-3.md:262-275` — inline `DIRECT_DATABASE_URL=… pnpm db:migrate`, with the blast radius spelled out per index. Also `docs/MIGRATIONS.md:87-98`.                                                                                                                                                                                |
+| Hosted re-seed note                  | `RUN-REPORT-3.md:276-280` — `DATABASE_URL='<hosted pooler>' pnpm --filter @koolee/db seed`, noting staff/zone seeding self-skips on non-local hosts.                                                                                                                                                                                     |
 
 ### 7.2 PROJECT-STATUS.md — PASS
 
 - **#47** — row 294, marked **✅**.
-- **#15** — row 257, **🔨**, body reads *"2026-08-22: Resend email SHIPPED … Still open:
-  SMS (Twilio), AeroAPI, Maps"*. Correct partial.
-- **#16** — row 258, **🔨**, *"email side effects SHIPPED"*, with the SMS/no-show remainder
+- **#15** — row 257, **🔨**, body reads _"2026-08-22: Resend email SHIPPED … Still open:
+  SMS (Twilio), AeroAPI, Maps"_. Correct partial.
+- **#16** — row 258, **🔨**, _"email side effects SHIPPED"_, with the SMS/no-show remainder
   still open. Correct partial.
 - **Snapshot §3** is current: it leads with the dispatch/email slice and the v0.2.0
-  release, and states the production project is *"migrated 21/21 by hash"* — which matches
+  release, and states the production project is _"migrated 21/21 by hash"_ — which matches
   this run's local `Applied: 21 of 21 (matched by content hash)`.
 - **Migration-state prose**: §3.1 is explicitly framed as a dated 2026-08-10 incident
-  record (*"verified, not assumed"*) and explains why `db:status` is the authority. Its
+  record (_"verified, not assumed"_) and explains why `db:status` is the authority. Its
   "16 migrations" figure is historical, which the section's date makes clear.
 
-One inaccuracy in the snapshot: §3 says the confirmation email was *"verified live
-end-to-end locally (real Resend delivery)"*. This run verified the **console** path only
+One inaccuracy in the snapshot: §3 says the confirmation email was _"verified live
+end-to-end locally (real Resend delivery)"_. This run verified the **console** path only
 (`RESEND_API_KEY` deliberately blanked so no real mail left the machine), so that specific
 claim was not re-tested today — it is not contradicted, just not re-proven.
 
@@ -697,10 +706,11 @@ the "migration-state claim made from prose" that §7 asks to be absent, and it i
 class of error that §3.1 was written to correct. Recorded as **N7**.
 
 Two smaller doc staleness items in the same file / report:
-- `docs/CODEBASE-MAP.md:855-857` still lists *"the Inngest jobs' side effects"* among the
+
+- `docs/CODEBASE-MAP.md:855-857` still lists _"the Inngest jobs' side effects"_ among the
   open items before launch — shipped in this slice.
-- `RUN-REPORT-3.md:295-296` (Unit 2's local-dev check) says *"the Inngest dev UI lists 7
-  registered functions"*; the actual count is **8**, as Unit 3's own section in the same
+- `RUN-REPORT-3.md:295-296` (Unit 2's local-dev check) says _"the Inngest dev UI lists 7
+  registered functions"_; the actual count is **8**, as Unit 3's own section in the same
   file correctly states.
 
 ---
@@ -713,9 +723,11 @@ claims prod is 21/21 by hash. This run made **no** hosted connection, so neither
 re-proven here. Given the project's own history (§3.1: the tracker was wrong about hosted
 migration state in three places), do not treat the prose as proof. Run, from your own
 shell, against each hosted project:
+
 ```bash
 DIRECT_DATABASE_URL='<hosted direct 5432 url>' pnpm db:status
 ```
+
 and confirm `Applied: 21 of 21 (matched by content hash)` and `In sync`. Read the
 `Target host:` line each time. **This is the only item that must be cleared before rollout.**
 
@@ -733,22 +745,22 @@ the thing the feature is for. Decide before rollout whether that is acceptable f
 
 ## (b) Non-blocking findings
 
-| # | Finding | Where |
-|---|---|---|
-| **N1** | `apps/{web,agent,admin}/.env.local` set `DIRECT_DATABASE_URL` to the **hosted** dev project while `DATABASE_URL` is local. Nothing reads it today (app runtime uses `DATABASE_URL`; `packages/db` doesn't load app env files), but it is a hosted DDL credential one `dotenv -e` away from the migrator — the accident the `packages/db/.env` LOCAL flip exists to prevent. | app env files |
-| **N2** | Four `dispatch.*@koolee-test.example` fixture users survive in the **local dev** DB from 2026-08-10 (pre-#48). Not regenerated, hold no zones, but `dispatch.a` is still the assignee on two dev bookings, so the local board shows work assigned to a non-existent agent. `koolee_test` is clean. | local dev DB only |
-| **N3** | No ESLint boundary for the Resend adapter. `restrictedImports.paths` covers `stripe`/`unpdf`/`@anthropic-ai/sdk` only. Moot today (REST + injectable fetch, no `resend` dependency) but the file's own "may be imported HERE only" rule is unenforced if the SDK is ever added. | `packages/config/eslint/base.mjs:13-42` |
-| **N4** | `packages/core` is not env-free: `auth/hash-destination.ts:16` reads `process.env.OTP_LOG_HMAC_KEY` and throws if unset. Pre-existing (OTP-PII pass), and the only such read — but the "core reads zero env" claim in the comments at `payments/factory.ts:7` and `notifications/factory.ts:7` is not literally true. | `packages/core/src/auth/hash-destination.ts` |
+| #      | Finding                                                                                                                                                                                                                                                                                                                                                                                    | Where                                                 |
+| ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------- |
+| **N1** | `apps/{web,agent,admin}/.env.local` set `DIRECT_DATABASE_URL` to the **hosted** dev project while `DATABASE_URL` is local. Nothing reads it today (app runtime uses `DATABASE_URL`; `packages/db` doesn't load app env files), but it is a hosted DDL credential one `dotenv -e` away from the migrator — the accident the `packages/db/.env` LOCAL flip exists to prevent.                | app env files                                         |
+| **N2** | Four `dispatch.*@koolee-test.example` fixture users survive in the **local dev** DB from 2026-08-10 (pre-#48). Not regenerated, hold no zones, but `dispatch.a` is still the assignee on two dev bookings, so the local board shows work assigned to a non-existent agent. `koolee_test` is clean.                                                                                         | local dev DB only                                     |
+| **N3** | No ESLint boundary for the Resend adapter. `restrictedImports.paths` covers `stripe`/`unpdf`/`@anthropic-ai/sdk` only. Moot today (REST + injectable fetch, no `resend` dependency) but the file's own "may be imported HERE only" rule is unenforced if the SDK is ever added.                                                                                                            | `packages/config/eslint/base.mjs:13-42`               |
+| **N4** | `packages/core` is not env-free: `auth/hash-destination.ts:16` reads `process.env.OTP_LOG_HMAC_KEY` and throws if unset. Pre-existing (OTP-PII pass), and the only such read — but the "core reads zero env" claim in the comments at `payments/factory.ts:7` and `notifications/factory.ts:7` is not literally true.                                                                      | `packages/core/src/auth/hash-destination.ts`          |
 | **N5** | `OPS_ALERT_EMAIL` has **no** production boot gate — it is `optionalString`, and `exceptionOpsAlertEmail` logs `"OPS_ALERT_EMAIL not configured; skipping exception email."` and returns. A production deploy that forgets it silently loses every ops alert, with no boot failure. `RESEND_FROM` is similar but has a working sandbox default, so it degrades visibly instead of silently. | `apps/web/src/env.ts:92`, `jobs/functions.ts:302-305` |
-| **N6** | `packages/core/src/jobs/functions.ts` — all six Inngest functions — has **zero** tests. Uncovered: the reminder's `sleepUntil` and `REMINDER_WORTHY` guard, the confirmation/reminder `try/catch` that keeps a thrown send from failing the flow, and the exception alert's unset-address skip. The only throwing-notifier test in the repo covers the waitlist sweep. | `packages/core/src/jobs/` |
-| **N7** | `docs/CODEBASE-MAP.md:843-845` still says migration `0012` is *"applied locally but not yet hosted"* — false, and precisely the prose-migration-claim §7 asks to be absent. Same file:855-857 lists the now-shipped Inngest side effects as open. `RUN-REPORT-3.md:296` says the dev UI lists "7 registered functions"; it lists 8. | docs |
+| **N6** | `packages/core/src/jobs/functions.ts` — all six Inngest functions — has **zero** tests. Uncovered: the reminder's `sleepUntil` and `REMINDER_WORTHY` guard, the confirmation/reminder `try/catch` that keeps a thrown send from failing the flow, and the exception alert's unset-address skip. The only throwing-notifier test in the repo covers the waitlist sweep.                     | `packages/core/src/jobs/`                             |
+| **N7** | `docs/CODEBASE-MAP.md:843-845` still says migration `0012` is _"applied locally but not yet hosted"_ — false, and precisely the prose-migration-claim §7 asks to be absent. Same file:855-857 lists the now-shipped Inngest side effects as open. `RUN-REPORT-3.md:296` says the dev UI lists "7 registered functions"; it lists 8.                                                        | docs                                                  |
 
 ---
 
 ## (c) Drift between the slice prompt and what was implemented
 
 **D1 — "ref" in the confirmation email.** The prompt (and `jobs/functions.ts:85`'s own doc
-comment) says the confirmation email carries a booking *ref*. **No such field exists**:
+comment) says the confirmation email carries a booking _ref_. **No such field exists**:
 `bookings` has 21 columns and none is a reference / confirmation code
 (`id, user_id, status, flight_number, airline_iata, departure_airport, departure_at,
 pax_name, pickup_address_id, bag_count, slot_id, price_cents, currency, created_at,
@@ -766,7 +778,7 @@ wrong interface.
 
 **D3 — "`config.ts` selection".** §5 expects the console/Resend choice in `packages/core`'s
 `config.ts`. It is actually in `notifications/factory.ts` (`createNotifier`) with the env
-read pushed out to `apps/web/src/lib/core.ts:71-74`. That is *better* than what was asked —
+read pushed out to `apps/web/src/lib/core.ts:71-74`. That is _better_ than what was asked —
 it is what keeps core env-free — but it is not where the prompt says to look.
 
 **D4 — "ESLint boundary present" (§5).** Asserted as existing; it does not. See N3.

@@ -6,10 +6,12 @@ import { CutoffUnknownError } from "../errors";
 import {
   airportLocalDay,
   airportLocalDayBounds,
+  airportLocalDateTime,
   airportLocalInstant,
   computeBagDropCutoffAt,
   computeLatestPickupStart,
   dstTransitionNote,
+  formatDateTimeLocalInAirportTz,
   formatDayInAirportTz,
   formatHourRangeInAirportTz,
   formatWindowInAirportTz,
@@ -475,6 +477,41 @@ describe("dstTransitionNote", () => {
       "second of two — clocks have already gone back",
     );
     expect(dstTransitionNote(new Date("2025-11-02T05:00:00Z"), "Europe/London")).toBeNull();
+  });
+});
+
+/* ================================================================== */
+/* airportLocalDateTime                                                */
+/* ================================================================== */
+
+describe("airportLocalDateTime", () => {
+  it("reads a datetime-local value in the AIRPORT's zone, not the server's", () => {
+    // The bug this exists to prevent: `new Date("2026-09-01T18:30")` uses the
+    // server zone, which is UTC in production — a 6:30 PM JFK departure was
+    // being stored as 18:30Z and read back four hours early.
+    expect(airportLocalDateTime("2026-09-01T18:30", NY).toISOString()).toBe(
+      "2026-09-01T22:30:00.000Z",
+    );
+  });
+
+  it("round-trips formatDateTimeLocalInAirportTz", () => {
+    const local = "2025-12-24T06:05";
+    expect(formatDateTimeLocalInAirportTz(airportLocalDateTime(local, NY), NY)).toBe(local);
+  });
+
+  it("is DST-correct on both sides of the change", () => {
+    // EST (UTC-5) in January, EDT (UTC-4) in July.
+    expect(airportLocalDateTime("2026-01-15T12:00", NY).toISOString()).toBe(
+      "2026-01-15T17:00:00.000Z",
+    );
+    expect(airportLocalDateTime("2026-07-15T12:00", NY).toISOString()).toBe(
+      "2026-07-15T16:00:00.000Z",
+    );
+  });
+
+  it("throws on anything that is not a datetime-local value", () => {
+    expect(() => airportLocalDateTime("2026-09-01", NY)).toThrow(RangeError);
+    expect(() => airportLocalDateTime("tomorrow", NY)).toThrow(RangeError);
   });
 });
 

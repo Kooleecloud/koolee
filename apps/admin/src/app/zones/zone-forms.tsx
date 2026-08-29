@@ -6,14 +6,11 @@ import {
   FormMessage,
   Input,
   Label,
-  Spinner,
+  Select,
   usePreservedFormValues,
 } from "@koolee/ui";
 
 import { addZones, removeZone, type ZoneActionState } from "./actions";
-
-const selectClassName =
-  "flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring";
 
 export interface ZoneAgentOption {
   userId: string;
@@ -44,13 +41,13 @@ export function AddZonesForm({ agents }: { agents: ZoneAgentOption[] }) {
     >
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="zone-agent">Agent</Label>
-        <select id="zone-agent" name="agentUserId" required className={selectClassName}>
+        <Select id="zone-agent" name="agentUserId" required>
           {agents.map((agent) => (
             <option key={agent.userId} value={agent.userId}>
               {agent.label}
             </option>
           ))}
-        </select>
+        </Select>
       </div>
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="zone-zips">ZIPs</Label>
@@ -67,7 +64,9 @@ export function AddZonesForm({ agents }: { agents: ZoneAgentOption[] }) {
       </div>
       {state.error ? <FormMessage>{state.error}</FormMessage> : null}
       {state.ok ? <FormMessage variant="success">{state.ok}</FormMessage> : null}
-      <Button type="submit">{pending ? <Spinner /> : "Add ZIPs"}</Button>
+      <Button type="submit" loading={pending}>
+        Add ZIPs
+      </Button>
     </form>
   );
 }
@@ -92,12 +91,12 @@ export function RemoveZoneButton({
         type="submit"
         variant="ghost"
         size="sm"
-        disabled={pending}
+        loading={pending}
         aria-label={`Remove ZIP ${zip}`}
         title={state.error ?? `Remove ${zip}`}
         className="h-6 px-1.5 font-mono text-xs"
       >
-        {pending ? <Spinner className="size-3" /> : `${zip} ×`}
+        {`${zip} ×`}
       </Button>
     </form>
   );

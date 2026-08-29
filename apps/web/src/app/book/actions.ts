@@ -2,13 +2,16 @@
 
 import { redirect } from "next/navigation";
 import {
+  airportLocalDateTime,
   checkCoverage,
   ConflictError,
   createBooking,
   discardBookingDraft,
+  FALLBACK_DISPLAY_TZ,
   listBookableWindows,
   OutOfCoverageError,
   recordWaitlistSignup,
+  resolveDisplayTz,
   SlotNotSellableError,
   softDeleteBookingDraft,
   type AirportCode,
@@ -19,6 +22,7 @@ import { ensureDraftSession } from "@/actions/auth";
 import { getAuthUser } from "@/lib/auth";
 import { emitBookingConfirmed } from "@/lib/booking-events";
 import { clearDraft, readDraft, writeDraft } from "@/lib/booking-draft";
+import type { PrefillAlternative } from "@/lib/booking-draft-schema";
 import { nextIncompleteStep } from "@/lib/booking-steps";
 import { buildCheckoutSetup, isDraftReadyForPayment } from "@/lib/checkout";
 import { getCore, tryGetCore } from "@/lib/core";
@@ -134,6 +138,69 @@ export async function captureOutOfAreaEmail(
  */
 
 /**
+ * "Use the other leg instead" on a round-trip ticket.
+ *
+ * Swaps the chosen leg with one of the alternatives the extractor recorded,
+ * inside the quarantined prefill ONLY — nothing here touches a booking field,
+ * and the customer still confirms the review form afterwards. The leg being
+ * replaced becomes an alternative in turn, so the swap is reversible.
+ *
+ * `scope` comes from the CHOSEN leg's own reading, not from the leg being
+ * replaced. Each alternative carries the domestic/international value derived
+ * from its own destination country at extraction time, so nothing is inherited
+ * and nothing is invented. It was previously cleared on swap, which sounded
+ * conservative but made the review form fall back to "Domestic" on a leg to
+ * Paris — asserting a value we had actually read the opposite of, and one that
+ * picks a shorter bag-drop cutoff.
+ */
+export async function useTicketAlternativeLeg(form: FormData): Promise<void> {
+  const draft = await readDraft();
+  const prefill = draft.ticketPrefill;
+  const index = Number(str(form, "index"));
+  const chosen = prefill?.alternatives?.[index];
+
+  if (!prefill || !chosen) redirect("/book/flight");
+
+  const replaced: PrefillAlternative | null = prefill.departureAirport
+    ? {
+        departureAirport: prefill.departureAirport,
+        ...(prefill.destinationAirport
+          ? { destinationAirport: prefill.destinationAirport }
+          : {}),
+        ...(prefill.flightNumber ? { flightNumber: prefill.flightNumber } : {}),
+        ...(prefill.departureAtLocal
+          ? { departureAtLocal: prefill.departureAtLocal }
+          : {}),
+        // Carried so swapping BACK restores this leg's scope too.
+        ...(prefill.scope ? { scope: prefill.scope } : {}),
+      }
+    : null;
+
+  const alternatives = (prefill.alternatives ?? []).filter((_, i) => i !== index);
+  if (replaced) alternatives.unshift(replaced);
+
+  await writeDraft({
+    ticketPrefill: {
+      ...prefill,
+      departureAirport: chosen.departureAirport,
+      flightNumber: chosen.flightNumber,
+      airlineIata: chosen.flightNumber
+        ? (/^([A-Z]{2}|[A-Z]\d|\d[A-Z])/.exec(chosen.flightNumber)?.[1] ?? undefined)
+        : undefined,
+      departureAtLocal: chosen.departureAtLocal,
+      destinationAirport: chosen.destinationAirport,
+      scope: chosen.scope,
+      nonServicedOrigin: undefined,
+      // The customer picked this leg, so it is no longer our ambiguous guess.
+      selectionReason: "single_serviced_origin",
+      alternatives: alternatives.slice(0, 2),
+    },
+  });
+
+  redirect("/book/flight?from=ticket");
+}
+
+/**
  * Confirming the flight review form is the moment funnel state is first
  * persisted server-side: anonymous session + `public.users` row + draft row.
  */
@@ -170,8 +237,21 @@ export async function submitFlight(
     return { error: "Enter your departure date and time." };
   }
 
-  const departureAt = new Date(departureAtLocal);
-  if (Number.isNaN(departureAt.getTime())) {
+  // A `datetime-local` value carries no zone, so it has to be read in the
+  // DEPARTURE AIRPORT's — `new Date(...)` applies the SERVER's instead, which
+  // is UTC in production and silently shifted every stored departure (and so
+  // every cutoff and bookable window derived from it) by the offset.
+  const flightCore = tryGetCore();
+  const airportTz = flightCore
+    ? await resolveDisplayTz(flightCore.db, departureAirport).catch(
+        () => FALLBACK_DISPLAY_TZ,
+      )
+    : FALLBACK_DISPLAY_TZ;
+
+  let departureAt: Date;
+  try {
+    departureAt = airportLocalDateTime(departureAtLocal, airportTz);
+  } catch {
     return { error: "That departure time is not valid." };
   }
   if (departureAt.getTime() < Date.now()) {

@@ -47,13 +47,13 @@ What shipped:
 
 Gates:
 
-| Gate | Result |
-| --- | --- |
-| turbo typecheck (db, core, web) | ✅ 3/3 |
-| turbo lint (db, core, web) | ✅ 3/3 |
-| core unit tests | ✅ 229 passed |
+| Gate                                | Result                              |
+| ----------------------------------- | ----------------------------------- |
+| turbo typecheck (db, core, web)     | ✅ 3/3                              |
+| turbo lint (db, core, web)          | ✅ 3/3                              |
+| core unit tests                     | ✅ 229 passed                       |
 | core integration tier (koolee_test) | ✅ 81 passed / 3 skipped (12 files) |
-| web production build | ✅ |
+| web production build                | ✅                                  |
 
 Notes / deferred:
 
@@ -137,7 +137,7 @@ Gates: typecheck+lint ✅ · unit 229 ✅ · integration 84 ✅ (3 new).
 3. `dispatch.a/b@koolee-test.example`: verified they exist ONLY in the
    disposable `koolee_test` fixtures (wiped per run) — marked with a comment;
    nothing to remove from any seed.
-Gates: full turbo 16/16 ✅ · integration 84 ✅ · all three app builds ✅.
+   Gates: full turbo 16/16 ✅ · integration 84 ✅ · all three app builds ✅.
 
 ### Phase 4 — ResendNotifier ✅
 
@@ -158,6 +158,7 @@ API. Gates: typecheck+lint ✅ · unit 235 ✅ · web build ✅.
 Discovery that shaped the phase: `booking/confirmed` and
 `booking/exception_raised` were catalogued but NEVER EMITTED — the existing
 pickup-reminder function was dead code. Now:
+
 - Emission (apps/web `lib/booking-events.ts`, no-throw, deterministic ids):
   `booking/confirmed` from all three paid paths, keyed on
   "this call performed the move" (`WebhookOutcome.movedTo` /
@@ -175,14 +176,14 @@ pickup-reminder function was dead code. Now:
 - Templates: pure builders, text always + simple HTML; copy rules PINNED by
   tests — "airline's bag drop", no check-in claims, Tag Orange #FF6B35 only
   on the CTA, html-escaped interpolation.
-Deferred, explicitly: admin-raised exception emission (apps/admin has no
-Inngest client today); real SMS (#15).
-Dev visibility: with no RESEND_API_KEY emails print via ConsoleNotifier to
-the dev-server console (Mailpit at :54324 carries only Supabase AUTH mail —
-not these). Live registration check (`pnpm dev:inngest`) left to TD's next
-dev session; the functions array now exports 7 functions (5 core + 2 crons),
-crons untouched.
-Gates: typecheck+lint ✅ · unit 243 ✅ · integration 84 ✅ · web build ✅.
+  Deferred, explicitly: admin-raised exception emission (apps/admin has no
+  Inngest client today); real SMS (#15).
+  Dev visibility: with no RESEND_API_KEY emails print via ConsoleNotifier to
+  the dev-server console (Mailpit at :54324 carries only Supabase AUTH mail —
+  not these). Live registration check (`pnpm dev:inngest`) left to TD's next
+  dev session; the functions array now exports 7 functions (5 core + 2 crons),
+  crons untouched.
+  Gates: typecheck+lint ✅ · unit 243 ✅ · integration 84 ✅ · web build ✅.
 
 ### Phase 6 — docs + close-out ✅
 
@@ -193,6 +194,7 @@ shipped; SMS + admin-exception emission open), 47 → ✅ (closed by 0019 +
 on-paid trigger), snapshot updated.
 
 Two failures surfaced in the first full-gate run, both fixed:
+
 - `env.test.ts` "complete prod config" predated the new Resend gate — the
   gate working as designed. Stub now includes the key, and the gate itself is
   pinned by two new tests (missing key refuses a live prod boot; coming-soon

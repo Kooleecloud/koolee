@@ -83,36 +83,35 @@ export default async function ZonesPage() {
           ) : (
             <ul className="flex flex-col gap-3">
               {rows.map((agent) => (
-                <li
-                  key={agent.userId}
-                  className="flex flex-col gap-2 rounded-xl border border-border bg-white p-4 shadow-xs"
-                >
-                  <div className="flex flex-col gap-0.5">
-                    <span className="font-medium">
-                      {agent.fullName ?? agent.email ?? agent.userId}
-                    </span>
-                    {agent.fullName && agent.email ? (
-                      <span className="text-xs text-muted-foreground">
-                        {agent.email}
+                <Card asChild key={agent.userId}>
+                  <li className="flex flex-col gap-2 p-4">
+                    <div className="flex flex-col gap-0.5">
+                      <span className="font-medium">
+                        {agent.fullName ?? agent.email ?? agent.userId}
                       </span>
-                    ) : null}
-                  </div>
-                  {agent.zips.length === 0 ? (
-                    <span className="text-xs text-muted-foreground">
-                      No ZIPs — auto-assign will never pick this agent.
-                    </span>
-                  ) : (
-                    <div className="flex flex-wrap items-center gap-1">
-                      {agent.zips.map((zip) => (
-                        <RemoveZoneButton
-                          key={zip}
-                          agentUserId={agent.userId}
-                          zip={zip}
-                        />
-                      ))}
+                      {agent.fullName && agent.email ? (
+                        <span className="text-xs text-muted-foreground">
+                          {agent.email}
+                        </span>
+                      ) : null}
                     </div>
-                  )}
-                </li>
+                    {agent.zips.length === 0 ? (
+                      <span className="text-xs text-muted-foreground">
+                        No ZIPs — auto-assign will never pick this agent.
+                      </span>
+                    ) : (
+                      <div className="flex flex-wrap items-center gap-1">
+                        {agent.zips.map((zip) => (
+                          <RemoveZoneButton
+                            key={zip}
+                            agentUserId={agent.userId}
+                            zip={zip}
+                          />
+                        ))}
+                      </div>
+                    )}
+                  </li>
+                </Card>
               ))}
             </ul>
           )}
@@ -123,8 +122,7 @@ export default async function ZonesPage() {
             <CardTitle className="text-base">Assign ZIPs</CardTitle>
             <CardDescription>
               Auto-assign picks the covering agent with the fewest clashing tasks.
-              Coverage changes apply to the next booking, never to one already
-              assigned.
+              Coverage changes apply to the next booking, never to one already assigned.
             </CardDescription>
           </CardHeader>
           <CardContent>

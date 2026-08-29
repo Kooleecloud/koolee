@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import {
   Badge,
   Button,
+  Card,
   ContentColumn,
   DatabaseNotConfigured,
   EmptyState,
@@ -82,40 +83,44 @@ export default async function AgentHomePage() {
         <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
           {today.map(({ kind, task, tz }) => (
             <li key={`${kind}-${task.id}`}>
-              <Link
-                href={`/tasks/${task.id}?kind=${kind}`}
-                className="flex items-start justify-between gap-3 rounded-lg border border-border bg-white p-4 shadow-xs transition-colors hover:bg-accent/10"
-              >
-                <span className="flex flex-col gap-1">
-                  <span className="font-medium">
-                    {kind === "verification" ? "Verify and seal" : "Collect and deliver"}
-                  </span>
-                  <span className="text-sm text-muted-foreground">
-                    {task.scheduledStart
-                      ? task.scheduledEnd
-                        ? formatHourRangeInAirportTz(
-                            task.scheduledStart,
-                            task.scheduledEnd,
-                            tz,
-                          )
-                        : formatInstantInAirportTz(task.scheduledStart, tz)
-                      : "Unscheduled"}
-                  </span>
-                </span>
-                <Badge
-                  variant={
-                    task.status === "done"
-                      ? "success"
-                      : task.status === "failed"
-                        ? "destructive"
-                        : task.status === "in_progress"
-                          ? "warning"
-                          : "secondary"
-                  }
+              <Card asChild interactive>
+                <Link
+                  href={`/tasks/${task.id}?kind=${kind}`}
+                  className="flex items-start justify-between gap-3 p-4"
                 >
-                  {task.status.replace("_", " ")}
-                </Badge>
-              </Link>
+                  <span className="flex flex-col gap-1">
+                    <span className="font-medium">
+                      {kind === "verification"
+                        ? "Verify and seal"
+                        : "Collect and deliver"}
+                    </span>
+                    <span className="text-sm text-muted-foreground">
+                      {task.scheduledStart
+                        ? task.scheduledEnd
+                          ? formatHourRangeInAirportTz(
+                              task.scheduledStart,
+                              task.scheduledEnd,
+                              tz,
+                            )
+                          : formatInstantInAirportTz(task.scheduledStart, tz)
+                        : "Unscheduled"}
+                    </span>
+                  </span>
+                  <Badge
+                    variant={
+                      task.status === "done"
+                        ? "success"
+                        : task.status === "failed"
+                          ? "destructive"
+                          : task.status === "in_progress"
+                            ? "warning"
+                            : "secondary"
+                    }
+                  >
+                    {task.status.replace("_", " ")}
+                  </Badge>
+                </Link>
+              </Card>
             </li>
           ))}
         </ul>

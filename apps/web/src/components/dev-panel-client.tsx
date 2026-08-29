@@ -95,7 +95,7 @@ export function DevPanelClient({ envSection }: { envSection: React.ReactNode }) 
           <aside
             role="dialog"
             aria-label="Dev panel"
-            className="fixed inset-y-0 right-0 z-101 flex w-90 max-w-[calc(100vw-3rem)] flex-col border-l bg-white shadow-2xl"
+            className="fixed inset-y-0 right-0 z-101 flex w-90 max-w-[calc(100vw-3rem)] flex-col border-l bg-card shadow-2xl"
           >
             <header className="flex items-center justify-between gap-3 border-b px-4 py-3">
               <div className="flex items-center gap-2">

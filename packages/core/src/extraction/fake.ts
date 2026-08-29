@@ -18,6 +18,8 @@ export const FAKE_EXTRACTION_RESULT: TicketExtractionResult = {
   destinationAirport: "SFO",
   paxName: "Jordan Alvarez",
   scope: "domestic",
+  documentKind: "one_way",
+  selectionReason: "single_serviced_origin",
   confidence: "high",
 };
 

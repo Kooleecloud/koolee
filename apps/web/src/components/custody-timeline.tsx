@@ -29,6 +29,16 @@ const LABELS: Record<string, string> = {
   "booking.created": "Booking created",
   "booking.payment_authorized": "Payment authorized",
   "booking.agent_assigned": "Agent assigned",
+  // Adjacent one-liners: these three were already rendering as raw event
+  // names ("visit.arrived") on the customer's own timeline, and the new
+  // passport rows made that sit right next to labelled ones.
+  "visit.arrived": "Your agent arrived",
+  "visit.identity_verified": "Your agent checked your ID",
+  "bag.sealed": "Bag sealed and photographed",
+  "agreement.accepted": "You accepted the booking agreement",
+  "passport.customer_uploaded": "You added a passport photo",
+  "passport.agent_captured": "Your agent photographed your passport",
+  "passport.agent_confirmed": "Your agent confirmed your passport",
   "booking.verified_sealed": "ID verified, bags sealed",
   "booking.awaiting_pickup": "Ready for pickup",
   "booking.in_transit": "Driver collected your bags",

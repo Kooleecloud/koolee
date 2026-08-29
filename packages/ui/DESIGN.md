@@ -61,11 +61,20 @@ Until then it lives in the app that needs it.
 - **Elevation**: two steps, both from `theme.css` — `shadow-lift` for anything
   that reads as a surface (this is what `Card` ships, as of 2026-08-16;
   it was `shadow-xs`, which left app cards visibly flatter than the marketing
-  surfaces beside them) and `shadow-lift-lg` for its raised state. A card that
-  is a link or a picker option pairs it with
-  `hover:-translate-y-0.5 … motion-reduce:hover:translate-y-0`. Do not reach
+  surfaces beside them) and `shadow-lift-lg` for its raised state. Do not reach
   for Tailwind's default `shadow-sm`/`shadow-md`: a second shadow scale is how
   two cards on one page end up sitting at different heights.
+- **Surfaces are `Card`, always.** Never hand-roll
+  `rounded-… border bg-… shadow-…` on a div. `Card` carries the three shapes:
+  default (in-app, `rounded-xl`), `surface="panel"` (marketing, `rounded-2xl`),
+  and `interactive` for a card that is itself a link or a picker option (hover
+  lift, brand focus ring, reduced-motion hold). Use `asChild` to keep the real
+  element — `<Card asChild interactive><Link …>` , `<Card asChild><li …>`.
+  Padding stays on the child, so a row can be `p-3` and a panel `p-6 sm:p-8`.
+  Until 2026-08-29 this recipe was transcribed by hand in 21 places across the
+  three apps and had drifted in both ways that matter: `bg-white` (invisible in
+  the dark theme, where `--card` is navy) and `shadow-xs` sitting next to
+  `shadow-lift` on the same page.
 - **Route states**: every data route ships `loading.tsx` (`PageSkeleton`),
   and each app has root `error.tsx` + `not-found.tsx`. Chrome lives in
   layouts, not pages, so those states keep the header alive.
@@ -92,8 +101,19 @@ Until then it lives in the app that needs it.
   banked is navy and everything ahead is hollow.
 - `KooleeLogo` renders body/wordmark in `currentColor` — default on light,
   `className="text-white"` on navy. Never tint the whole SVG.
-- Fonts: Sora (display) + Inter (body) via `next/font`, exposed as
-  `--font-display` / `--font-sans`.
+- Fonts: Sora (display) + Inter (body) come from `@koolee/ui/fonts` — one
+  module, imported by every app's root layout as `brandFontClassName` and
+  spread onto `<body>`. It exposes `--font-display` / `--font-sans`, which is
+  what `theme.css` reads. Do not call `next/font` in an app. An app that
+  mounts nothing here does not fail loudly; it silently renders every heading
+  in system-ui, which is exactly how admin and agent ran until 2026-08-29.
+  The subpath is deliberate: `next/font` resolves only in a Next build, and
+  Storybook builds this package with Vite, so it must stay off the barrel.
+- App icons: `icon.svg`, `favicon.ico` and `apple-icon.png` are the same bytes
+  in every app, derived from `brand/app-tile.svg`. `src/lib/brand-assets.test.ts`
+  fails if one drifts. Note `brand/` itself has been gitignored since
+  2026-08-01, so it is absent from a fresh clone — web's committed copy is the
+  in-repo reference.
 
 ## Adding a new app (the recipe)
 
@@ -101,11 +121,14 @@ Until then it lives in the app that needs it.
    if it reads data).
 2. `globals.css`: `@import "tailwindcss";` then
    `@import "@koolee/ui/styles/theme.css";`
-3. Root layout: load Sora + Inter via `next/font` with the two CSS variables
-   (copy from apps/web), mount `<AppHeader>` + `<Toaster />`, set
+3. Root layout: `import { brandFontClassName } from "@koolee/ui/fonts"` and
+   spread it onto `<body>`, mount `<AppHeader>` + `<Toaster />`, set
    `themeColor` to navy `#0B2545`.
-4. Derive favicons/PWA tiles from `brand/app-tile.svg` (masked
-   surfaces: full-bleed square, mark in the 80% safe zone).
+4. Copy `icon.svg`, `favicon.ico` and `apple-icon.png` from `apps/web/src/app`
+   and add the app to `COPY_APPS` in `src/lib/brand-assets.test.ts`. PWA tiles
+   are the one deliberate variant — full-bleed square, no corner radius, mark
+   in the 80% safe zone, because the OS applies its own mask
+   (`apps/agent/public/icons`).
 5. Add root `loading.tsx` / `error.tsx` / `not-found.tsx` (copy from
    apps/admin — they are shell-composed one-liners).
 6. Copy the `env.ts` convention: never throw at import, `requireEnv()` at the

@@ -1,31 +1,14 @@
 import type { Metadata, Viewport } from "next";
-import { Inter, Sora } from "next/font/google";
 import { Analytics } from "@vercel/analytics/next";
 import { SpeedInsights } from "@vercel/speed-insights/next";
 import { Toaster } from "@koolee/ui";
+import { brandFontClassName } from "@koolee/ui/fonts";
 
 import { DevPanel } from "@/components/dev-panel";
 import { optionalEnv } from "@/env";
 import { SITE } from "@/lib/site";
 
 import "./globals.css";
-
-/**
- * Type system: Sora for display (geometric, airline-signage confidence),
- * Inter for body (quiet, highly readable). The CSS variables feed the
- * `font-display` / `font-sans` families in the shared Tailwind preset.
- */
-const sora = Sora({
-  subsets: ["latin"],
-  variable: "--font-display",
-  display: "swap",
-});
-
-const inter = Inter({
-  subsets: ["latin"],
-  variable: "--font-sans",
-  display: "swap",
-});
 
 const appUrl = optionalEnv("NEXT_PUBLIC_APP_URL") ?? "http://localhost:3000";
 
@@ -55,7 +38,7 @@ export default function RootLayout({
     // data-scroll-behavior keeps Next 16 overriding our CSS smooth-scroll
     // during SPA navigations (instant scroll-to-top), as 15 did by default.
     <html lang="en" suppressHydrationWarning data-scroll-behavior="smooth">
-      <body className={`${sora.variable} ${inter.variable} min-h-dvh font-sans`}>
+      <body className={`${brandFontClassName} min-h-dvh`}>
         {children}
         <Toaster />
         <DevPanel />

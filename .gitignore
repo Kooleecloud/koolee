@@ -48,4 +48,8 @@ apps/agent/public/sw.js.map
 # storybook build output
 storybook-static/
 
-brand*
+# Brand artifacts. The vector source and guidelines are the single source of
+# truth for every app icon, so they belong in the repo — an unanchored
+# `brand*` here also swallowed `brand/` itself and any `brand-*.ts` anywhere
+# in the tree. Only the large working proposal PDFs stay local.
+/brand/*.pdf

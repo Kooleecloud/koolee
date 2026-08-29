@@ -231,13 +231,13 @@ koolee/
 ├── packages/
 │   ├── core/    booking/ slots/ pricing/ services/ auth/ payments/
 │   │            notifications/ jobs/ extraction/ coverage/ test-utils/
-│   ├── db/      src/schema/ (18 files) · drizzle/ (17 migrations)
+│   ├── db/      src/schema/ (21 files) · drizzle/ (26 migrations)
 │   │            src/{client,migrate,status,seed,seed-local,custody}.ts
-│   ├── ui/      src/components/ · DESIGN.md · Storybook
+│   ├── ui/      src/components/ · src/lib/ · fonts.ts · DESIGN.md · Storybook
 │   └── config/  eslint / tsconfig / tailwind bases
 │
 ├── docs/        ARCHITECTURE · ENVIRONMENT · MIGRATIONS · SCRIPTS ·
-│                CODEBASE-MAP · TIME · features/ · learning/
+│                CODEBASE-MAP · TIME · features/ · learning/ · run-reports/
 ├── scripts/     local.sh (dev orchestrator) · test-env.sh (local stack)
 ├── supabase/    config.toml — the LOCAL CLI stack only
 └── brand/       BRAND.md — Tag-K

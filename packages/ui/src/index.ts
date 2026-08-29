@@ -3,6 +3,8 @@ export { cn } from "./lib/utils";
 export { Button, buttonVariants, type ButtonProps } from "./components/button";
 export {
   Card,
+  cardVariants,
+  type CardProps,
   CardHeader,
   CardFooter,
   CardTitle,
@@ -67,14 +69,8 @@ export {
   type TripContrastProps,
   type TripContrastColumn,
 } from "./components/trip-contrast";
-export {
-  MilestoneTrack,
-  type MilestoneTrackProps,
-} from "./components/milestone-track";
-export {
-  CoverageScene,
-  type CoverageSceneProps,
-} from "./components/coverage-scene";
+export { MilestoneTrack, type MilestoneTrackProps } from "./components/milestone-track";
+export { CoverageScene, type CoverageSceneProps } from "./components/coverage-scene";
 export {
   JourneyGlyph,
   type JourneyGlyphProps,
@@ -110,14 +106,8 @@ export {
 } from "./components/phone-input";
 export { OTPInput, type OTPInputProps } from "./components/otp-input";
 export { Calendar, type CalendarProps } from "./components/calendar";
-export {
-  DateTimeField,
-  type DateTimeFieldProps,
-} from "./components/date-time-field";
-export {
-  NumberStepper,
-  type NumberStepperProps,
-} from "./components/number-stepper";
+export { DateTimeField, type DateTimeFieldProps } from "./components/date-time-field";
+export { NumberStepper, type NumberStepperProps } from "./components/number-stepper";
 export {
   PriceEstimator,
   type PriceEstimatorProps,
@@ -163,21 +153,10 @@ export {
   DatabaseNotConfigured,
   type EmptyStateProps,
 } from "./components/empty-state";
-export {
-  Skeleton,
-  PageSkeleton,
-  type PageSkeletonProps,
-} from "./components/skeleton";
-export {
-  EnvStatusCard,
-  type EnvStatusCardProps,
-} from "./components/env-status-card";
+export { Skeleton, PageSkeleton, type PageSkeletonProps } from "./components/skeleton";
+export { EnvStatusCard, type EnvStatusCardProps } from "./components/env-status-card";
 export { Select } from "./components/select";
-export {
-  Checkbox,
-  CheckboxField,
-  type CheckboxFieldProps,
-} from "./components/checkbox";
+export { Checkbox, CheckboxField, type CheckboxFieldProps } from "./components/checkbox";
 export {
   MultiSelect,
   type MultiSelectProps,
@@ -185,10 +164,7 @@ export {
 } from "./components/multi-select";
 
 /* Data tables */
-export {
-  LinkedTableRow,
-  type LinkedTableRowProps,
-} from "./components/linked-table-row";
+export { LinkedTableRow, type LinkedTableRowProps } from "./components/linked-table-row";
 /* Separate module on purpose — see the note in row-link.tsx. */
 export { RowLink, type RowLinkProps } from "./components/row-link";
 export {
@@ -196,9 +172,10 @@ export {
   type RawDataDisclosureProps,
 } from "./components/raw-data-disclosure";
 
+/* Prose */
+export { Markdown, type MarkdownProps } from "./components/markdown";
+export { RichTextEditor, type RichTextEditorProps } from "./components/rich-text-editor";
+
 /* Motion */
 export { Reveal, type RevealProps } from "./components/reveal";
-export {
-  HeroRouteScene,
-  type HeroRouteSceneProps,
-} from "./components/hero-route-scene";
+export { HeroRouteScene, type HeroRouteSceneProps } from "./components/hero-route-scene";

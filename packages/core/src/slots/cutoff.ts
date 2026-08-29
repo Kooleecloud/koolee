@@ -310,6 +310,32 @@ export function formatDateTimeLocalInAirportTz(instant: Date, tz: string): strin
 }
 
 /**
+ * The absolute instant of a `yyyy-MM-ddTHH:mm` wall clock READ AT AN AIRPORT
+ * — the exact inverse of `formatDateTimeLocalInAirportTz`, and the only
+ * correct way to turn a `datetime-local` form value into a stored instant.
+ *
+ * `new Date("2026-09-01T18:30")` looks like it does this and does not: with no
+ * zone in the string, the runtime applies the SERVER's. In production that is
+ * UTC, so a customer's 6:30 PM departure out of JFK was being stored as
+ * 18:30Z and read back as 2:30 PM — four hours of drift through every cutoff
+ * and every bookable window derived from it.
+ */
+export function airportLocalDateTime(local: string, tz: string): Date {
+  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/.exec(local);
+  if (!match) {
+    throw new RangeError(`Invalid airport-local date-time: ${local}`);
+  }
+  const [, year, month, day, hour, minute] = match.map(Number);
+  const instant = new Date(
+    new TZDate(year!, month! - 1, day!, hour!, minute!, 0, tz).getTime(),
+  );
+  if (Number.isNaN(instant.getTime())) {
+    throw new RangeError(`Invalid airport-local date-time: ${local}`);
+  }
+  return instant;
+}
+
+/**
  * The absolute instant of an airport-local wall-clock hour — the inverse
  * edge of `airportLocalDay`, for ops input ("block Aug 12, 2 PM at JFK").
  * DST-correct because TZDate owns the offset lookup.

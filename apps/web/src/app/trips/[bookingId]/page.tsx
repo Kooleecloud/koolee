@@ -16,14 +16,22 @@ import {
 import {
   formatInstantInAirportTz,
   formatWindowInAirportTz,
+  getBookingAgreementState,
   getBookingDetailForSession,
+  getPassportVerification,
   type AssignedAgent,
 } from "@koolee/core";
 
 import { CustodyTimeline } from "@/components/custody-timeline";
 import { CutoffCountdown } from "@/components/cutoff-countdown";
+import {
+  TripActionNeeded,
+  type TripAgreementView,
+  type TripPassportView,
+} from "@/components/trip-action-needed";
 import { signBagPhotoUrls } from "@/lib/bag-photos";
 import { tryGetCore } from "@/lib/core";
+import { signPassportPhotoUrl } from "@/lib/passport-photos";
 import { getCustomerSession } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
@@ -100,6 +108,45 @@ export default async function TripPage({
   } = result;
 
   const isActive = !["completed", "cancelled"].includes(booking.status);
+  // Only before the visit: once the agent has taken custody there is nothing
+  // to accept and nothing to pre-upload. Mirrors AGREEMENT_ACCEPTABLE_STATUSES.
+  const preVisit = booking.status === "paid" || booking.status === "agent_assigned";
+
+  const [agreementState, passportRow] = await Promise.all([
+    getBookingAgreementState(core.db, booking.id, new Date()),
+    getPassportVerification(core.db, booking.id),
+  ]);
+
+  const agreementVersion =
+    agreementState.acceptedVersion ?? agreementState.currentVersion;
+
+  // Every time in the booking's zone, never the viewer's (docs/TIME.md) — an
+  // agreement's effective date is exactly the kind of value that reads wrong
+  // when it silently follows the device.
+  const agreementView: TripAgreementView = {
+    // The version this booking is BOUND by once accepted, and only otherwise
+    // what a new acceptance would pin to.
+    version: agreementVersion?.version ?? null,
+    title: agreementVersion?.title ?? "Booking agreement",
+    bodyMd: agreementVersion?.bodyMd ?? "",
+    effectiveLabel: agreementVersion
+      ? formatInstantInAirportTz(agreementVersion.effectiveFrom, tz)
+      : null,
+    accepted: agreementState.accepted,
+    acceptedAtLabel: agreementState.acceptance
+      ? formatInstantInAirportTz(agreementState.acceptance.acceptedAt, tz)
+      : null,
+  };
+
+  // Signed here, after the booking has already passed the ownership check in
+  // `getBookingDetailForSession` — the bucket is private and the row holds a
+  // path, never a URL.
+  const passportView: TripPassportView = {
+    status: passportRow?.status ?? "pending",
+    photoUrl: passportRow?.photoStoragePath
+      ? await signPassportPhotoUrl(passportRow.photoStoragePath)
+      : null,
+  };
 
   // Bag and custody photos live in a private bucket and are stored as paths;
   // they need signing before any <img> can load them. Safe to sign here: the
@@ -135,12 +182,19 @@ export default async function TripPage({
         />
       )}
 
+      <TripActionNeeded
+        bookingId={booking.id}
+        agreement={agreementView}
+        passport={passportView}
+        actionable={preVisit}
+      />
+
       <Card>
         <CardHeader>
           <CardTitle className="font-display text-base">Your pickup</CardTitle>
           <CardDescription>
-            Times are local to {booking.departureAirport}. Please have your bags and
-            photo ID ready when your agent arrives.
+            Times are local to {booking.departureAirport}. Please have your bags and your
+            passport ready when your agent arrives.
           </CardDescription>
         </CardHeader>
         <CardContent>

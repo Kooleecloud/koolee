@@ -18,6 +18,8 @@ import {
   availableEvents,
   dstTransitionNote,
   EVENT_TYPES,
+  getBookingAgreementState,
+  getPassportVerification,
   formatInstantInAirportTz,
   formatWindowInAirportTz,
   getBookingAssignment,
@@ -33,7 +35,11 @@ import { getAdminSession } from "@/lib/session";
 import { getSupabaseAdminClient } from "@/lib/supabase/admin";
 
 import { CustodyTrail } from "./custody-trail";
-import { AssignAgentForm, AutoAssignButton, ResolveExceptionForm } from "./dispatch-forms";
+import {
+  AssignAgentForm,
+  AutoAssignButton,
+  ResolveExceptionForm,
+} from "./dispatch-forms";
 
 export const dynamic = "force-dynamic";
 
@@ -106,6 +112,14 @@ export default async function BookingDetailPage({
     ...timeline.map((event) => event.photoUrl).filter((p): p is string => Boolean(p)),
   ];
   const signedUrls = await signPhotoUrls([...new Set(photoPaths)]);
+
+  // The identity gate's two halves, read for display only. Ops cannot satisfy
+  // either of them from here by design: the acceptance is the customer's act,
+  // and the passport confirmation is the assigned agent's.
+  const [agreementState, passportRow] = await Promise.all([
+    getBookingAgreementState(core.db, booking.id, new Date()),
+    getPassportVerification(core.db, booking.id),
+  ]);
 
   const legal = availableEvents(booking.status);
 
@@ -255,75 +269,74 @@ export default async function BookingDetailPage({
                  and a stacked list makes that a scroll instead of a glance. */
               <ul className="flex flex-wrap gap-3">
                 {bags.map((bag) => (
-                  <li
-                    key={bag.id}
-                    className="flex w-40 flex-col gap-2 rounded-lg border bg-white p-3 shadow-lift"
-                  >
-                    <div className="flex items-baseline justify-between gap-2">
-                      <span className="font-display text-sm font-semibold text-navy-800">
-                        Bag {bag.ordinal}
-                      </span>
-                      {bag.weightKg ? (
-                        <span className="text-xs text-muted-foreground">
-                          {bag.weightKg} kg
+                  <Card asChild key={bag.id}>
+                    <li className="flex w-40 flex-col gap-2 p-3">
+                      <div className="flex items-baseline justify-between gap-2">
+                        <span className="font-display text-sm font-semibold text-navy-800">
+                          Bag {bag.ordinal}
                         </span>
-                      ) : null}
-                    </div>
+                        {bag.weightKg ? (
+                          <span className="text-xs text-muted-foreground">
+                            {bag.weightKg} kg
+                          </span>
+                        ) : null}
+                      </div>
 
-                    {/* The seal id is the identifier a dispute turns on, so it
+                      {/* The seal id is the identifier a dispute turns on, so it
                         gets its own line in mono rather than sharing one. */}
-                    <span className="font-mono text-xs break-all">
-                      {bag.sealId ? (
-                        bag.sealId
-                      ) : (
-                        <span className="text-muted-foreground">not sealed</span>
-                      )}
-                    </span>
+                      <span className="font-mono text-xs break-all">
+                        {bag.sealId ? (
+                          bag.sealId
+                        ) : (
+                          <span className="text-muted-foreground">not sealed</span>
+                        )}
+                      </span>
 
-                    {(() => {
-                      const path = bag.photoUrls.find((p) => signedUrls.has(p));
-                      if (path) {
-                        return (
-                          <ImageLightbox
-                            src={signedUrls.get(path)!}
-                            alt={`Bag ${bag.ordinal} evidence photo`}
-                            title={`Bag ${bag.ordinal}`}
-                            description={
-                              bag.sealId
-                                ? `seal ${bag.sealId}${bag.weightKg ? ` · ${bag.weightKg} kg` : ""}`
-                                : undefined
-                            }
-                            className="h-28 w-full"
-                          />
-                        );
-                      }
-                      return (
-                        <span className="flex h-28 items-center justify-center rounded-md border border-dashed text-center text-xs text-muted-foreground">
-                          {bag.photoUrls.length > 0
-                            ? "photo (signing unavailable)"
-                            : "no photo"}
-                        </span>
-                      );
-                    })()}
-
-                    {/* Extra photos stay reachable without stretching the card. */}
-                    {bag.photoUrls.filter((p) => signedUrls.has(p)).length > 1 && (
-                      <div className="flex flex-wrap gap-1">
-                        {bag.photoUrls
-                          .filter((p) => signedUrls.has(p))
-                          .slice(1)
-                          .map((path) => (
+                      {(() => {
+                        const path = bag.photoUrls.find((p) => signedUrls.has(p));
+                        if (path) {
+                          return (
                             <ImageLightbox
-                              key={path}
                               src={signedUrls.get(path)!}
                               alt={`Bag ${bag.ordinal} evidence photo`}
                               title={`Bag ${bag.ordinal}`}
-                              className="h-10 w-10"
+                              description={
+                                bag.sealId
+                                  ? `seal ${bag.sealId}${bag.weightKg ? ` · ${bag.weightKg} kg` : ""}`
+                                  : undefined
+                              }
+                              className="h-28 w-full"
                             />
-                          ))}
-                      </div>
-                    )}
-                  </li>
+                          );
+                        }
+                        return (
+                          <span className="flex h-28 items-center justify-center rounded-md border border-dashed text-center text-xs text-muted-foreground">
+                            {bag.photoUrls.length > 0
+                              ? "photo (signing unavailable)"
+                              : "no photo"}
+                          </span>
+                        );
+                      })()}
+
+                      {/* Extra photos stay reachable without stretching the card. */}
+                      {bag.photoUrls.filter((p) => signedUrls.has(p)).length > 1 && (
+                        <div className="flex flex-wrap gap-1">
+                          {bag.photoUrls
+                            .filter((p) => signedUrls.has(p))
+                            .slice(1)
+                            .map((path) => (
+                              <ImageLightbox
+                                key={path}
+                                src={signedUrls.get(path)!}
+                                alt={`Bag ${bag.ordinal} evidence photo`}
+                                title={`Bag ${bag.ordinal}`}
+                                className="h-10 w-10"
+                              />
+                            ))}
+                        </div>
+                      )}
+                    </li>
+                  </Card>
                 ))}
               </ul>
             )}
@@ -372,6 +385,73 @@ export default async function BookingDetailPage({
             )}
           </CardContent>
         </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Identity gate</CardTitle>
+            <CardDescription>
+              Both must hold before an agent can seal a bag. There is no override — a
+              blocked agent files an exception.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-3 text-sm">
+            <div className="flex flex-col gap-1 rounded-lg border px-3 py-2">
+              <span className="flex items-center justify-between gap-3">
+                <span className="font-medium">Booking agreement</span>
+                {agreementState.accepted ? (
+                  <Badge variant="success">accepted</Badge>
+                ) : (
+                  <Badge variant="warning">outstanding</Badge>
+                )}
+              </span>
+              <span className="text-xs text-muted-foreground">
+                {agreementState.accepted && agreementState.acceptance ? (
+                  <>
+                    v{agreementState.acceptedVersion?.version} ·{" "}
+                    {formatInstantInAirportTz(agreementState.acceptance.acceptedAt, tz)}
+                    {" · pinned"}
+                  </>
+                ) : agreementState.currentVersion === null ? (
+                  "No agreement is published — every visit is blocked until one is."
+                ) : (
+                  <>
+                    v{agreementState.currentVersion.version} not yet accepted. Only the
+                    customer can do this, from their trip page.
+                  </>
+                )}
+              </span>
+            </div>
+
+            <div className="flex flex-col gap-1 rounded-lg border px-3 py-2">
+              <span className="flex items-center justify-between gap-3">
+                <span className="font-medium">Passport</span>
+                <Badge
+                  variant={
+                    passportRow?.status === "agent_confirmed"
+                      ? "success"
+                      : passportRow?.status === "failed"
+                        ? "warning"
+                        : "secondary"
+                  }
+                >
+                  {passportRow?.status ?? "pending"}
+                </Badge>
+              </span>
+              <span className="text-xs text-muted-foreground">
+                {passportRow?.confirmedAt
+                  ? `Confirmed ${formatInstantInAirportTz(passportRow.confirmedAt, tz)}`
+                  : passportRow?.uploadedAt
+                    ? `Photo on file since ${formatInstantInAirportTz(passportRow.uploadedAt, tz)} — the agent still confirms at the door.`
+                    : "Nothing uploaded. The agent photographs and confirms at the door."}
+              </span>
+              {/* The photo is NOT rendered here, deliberately. Ops has no
+                  reason to look at a customer's passport: the check is the
+                  agent's, at the door, against the person. Least privilege —
+                  every surface that can display it is a surface that can leak
+                  it, and this one earns nothing by having it. The storage path
+                  is in the custody trail if an investigation ever needs it. */}
+            </div>
+          </CardContent>
+        </Card>
       </div>
 
       <div className="grid items-start gap-6 lg:grid-cols-[2fr_3fr]">
@@ -398,9 +478,8 @@ export default async function BookingDetailPage({
             <CardTitle className="text-base">Custody trail</CardTitle>
             <CardDescription>
               Append-only. {timeline.length} event{timeline.length === 1 ? "" : "s"} —
-              actor, timestamp, and evidence for every hand-off. Each line is a
-              summary of the stored row; expand <strong>Raw data</strong> for the
-              record itself.
+              actor, timestamp, and evidence for every hand-off. Each line is a summary of
+              the stored row; expand <strong>Raw data</strong> for the record itself.
             </CardDescription>
           </CardHeader>
           <CardContent>

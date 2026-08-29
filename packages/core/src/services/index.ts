@@ -55,9 +55,10 @@ export { handlePaymentEvent, type WebhookOutcome } from "./webhooks";
 export {
   arriveAtVisit,
   completeVerificationVisit,
+  confirmVisitIdentity,
   getVisitContext,
+  identityGateMessage,
   recordBagSealed,
-  recordIdentityVerified,
   reportVisitException,
   VISIT_EVENT_TYPES,
   VISIT_EXCEPTION_REASONS,
@@ -65,7 +66,40 @@ export {
   type SealBagInput,
   type VisitContext,
   type VisitExceptionReason,
+  type VisitGateBlocker,
+  type VisitIdentityGate,
 } from "./agent-visit";
+
+export {
+  acceptAgreement,
+  AGREEMENT_ACCEPTABLE_STATUSES,
+  AGREEMENT_EVENT_TYPES,
+  bookingHasAcceptedAgreement,
+  getAgreementVersionById,
+  getBookingAgreementState,
+  getCurrentAgreementVersion,
+  isAgreementVersionEditable,
+  listAgreementVersions,
+  publishAgreementVersion,
+  updateScheduledAgreementVersion,
+  type AcceptAgreementInput,
+  type AcceptAgreementResult,
+  type BookingAgreementState,
+  type PublishAgreementVersionInput,
+  type UpdateScheduledAgreementVersionInput,
+  type UpdateScheduledAgreementVersionResult,
+} from "./agreements";
+
+export {
+  bookingPassportConfirmed,
+  confirmPassport,
+  getPassportVerification,
+  PASSPORT_EVENT_TYPES,
+  recordAgentCapture,
+  recordCustomerUpload,
+  type RecordAgentCaptureInput,
+  type RecordCustomerUploadInput,
+} from "./passport";
 
 export {
   addAgentZones,

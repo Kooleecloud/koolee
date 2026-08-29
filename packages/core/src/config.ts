@@ -1,10 +1,7 @@
 import type { Database } from "@koolee/db";
 
 import { NoopEmitter, type EventEmitter } from "./events/emitter";
-import {
-  NoopDispatcher,
-  type NotificationDispatcher,
-} from "./notifications/dispatcher";
+import { NoopDispatcher, type NotificationDispatcher } from "./notifications/dispatcher";
 import {
   ConsoleNotifier,
   ConsoleOpsAlerter,
@@ -12,6 +9,10 @@ import {
   type OpsAlerter,
 } from "./notifications/notifier";
 import type { PaymentProvider } from "./payments/types";
+import {
+  NotCheckedValidityChecker,
+  type PassportValidityChecker,
+} from "./passport/checker";
 import { HeuristicTicketExtractor } from "./extraction/heuristic";
 import type { TicketExtractor } from "./extraction/types";
 
@@ -88,6 +89,12 @@ export interface CoreConfig {
   /** Custody-event customer notifications. Noop until the notifications work item. */
   dispatcher: NotificationDispatcher;
   opsAlerter: OpsAlerter;
+  /**
+   * Automated passport validity checking (a paid-vendor seam). Defaults to
+   * `NotCheckedValidityChecker`, which returns `not_checked` and never blocks
+   * — automated checking is deliberately not built.
+   */
+  passportValidityChecker: PassportValidityChecker;
   clock: Clock;
   defaults: CoreDefaults;
 }
@@ -100,6 +107,7 @@ export interface CoreConfigInput {
   emitter?: EventEmitter;
   dispatcher?: NotificationDispatcher;
   opsAlerter?: OpsAlerter;
+  passportValidityChecker?: PassportValidityChecker;
   clock?: Clock;
   defaults?: Partial<CoreDefaults>;
 }
@@ -114,6 +122,8 @@ export function createCoreConfig(input: CoreConfigInput): CoreConfig {
     emitter: input.emitter ?? new NoopEmitter(),
     dispatcher: input.dispatcher ?? new NoopDispatcher(),
     opsAlerter: input.opsAlerter ?? new ConsoleOpsAlerter(),
+    passportValidityChecker:
+      input.passportValidityChecker ?? new NotCheckedValidityChecker(),
     clock: input.clock ?? systemClock,
     defaults: { ...DEFAULTS, ...input.defaults },
   };

@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import Link from "next/link";
 import { AppHeader, Button, Toaster } from "@koolee/ui";
+import { brandFontClassName } from "@koolee/ui/fonts";
 
 import { signOutStaff } from "@/actions/auth";
 import { ServiceWorkerRegistrar } from "@/components/service-worker-registrar";
@@ -41,7 +42,7 @@ export default async function RootLayout({
 
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className="min-h-dvh">
+      <body className={`${brandFontClassName} min-h-dvh`}>
         <AppHeader
           linkComponent={Link}
           tag="agent"

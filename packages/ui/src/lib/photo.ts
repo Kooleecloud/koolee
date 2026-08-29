@@ -1,11 +1,17 @@
 /**
- * Client-side photo downscaling for the visit flow.
+ * Client-side photo downscaling.
  *
  * Phone cameras hand us 3–8 MB JPEGs. Server Actions cap the request body at
  * 1 MB by default (and Vercel's serverless request body is hard-capped at
  * ~4.5 MB, which `serverActions.bodySizeLimit` cannot raise), so an untouched
  * camera capture fails with a 413 before the action ever runs. We resize in
- * the browser instead: a bag photo only has to show the bag and its seal.
+ * the browser instead: an evidence photo only has to be legible.
+ *
+ * Lives in `@koolee/ui` rather than in one app because two apps now capture
+ * photos on a phone — the agent sealing a bag, and the customer photographing
+ * a passport page — and the 413 it prevents is identical in both. Imported as
+ * `@koolee/ui/lib/photo`; it touches no React and renders nothing, so it stays
+ * out of the component barrel.
  *
  * Everything here is best-effort. If the browser can't decode or encode, we
  * return the original file and let the server-side size/type checks decide.

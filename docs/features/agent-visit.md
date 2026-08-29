@@ -42,15 +42,25 @@ permission table: _having the task assigned to you_ is the permission.
 
 ## 3. The visit flow
 
-| Step                      | Service                     | Custody event                      |
-| ------------------------- | --------------------------- | ---------------------------------- |
-| Arrive at the address     | `arriveAtVisit`             | `visit.arrived`                    |
-| Verify passenger identity | `recordIdentityVerified`    | `visit.identity_verified`          |
-| Seal each bag             | `recordBagSealed`           | `bag.sealed`                       |
-| Complete                  | `completeVerificationVisit` | transition `complete_verification` |
-| Something went wrong      | `reportVisitException`      | → `exception`                      |
+| Step                    | Service                     | Custody event                      |
+| ----------------------- | --------------------------- | ---------------------------------- |
+| Arrive at the address   | `arriveAtVisit`             | `visit.arrived`                    |
+| Clear the identity gate | `confirmVisitIdentity`      | `passport.agent_confirmed`         |
+| Seal each bag           | `recordBagSealed`           | `bag.sealed`                       |
+| Complete                | `completeVerificationVisit` | transition `complete_verification` |
+| Something went wrong    | `reportVisitException`      | → `exception`                      |
 
-`getVisitContext` assembles everything the visit screen needs in one read.
+`getVisitContext` assembles everything the visit screen needs in one read,
+`identityGate` included.
+
+⚠️ **The identity step changed (2026-08-28).** It used to be a self-attested
+checkbox writing `visit.identity_verified`; `recordIdentityVerified` no longer
+exists in core. The step now requires BOTH the customer's acceptance of the
+current booking agreement AND the assigned agent's passport confirmation, and
+the sealing steps are refused in core until both hold. There is no override.
+Full rules: [agreements-and-passport.md](agreements-and-passport.md).
+`VISIT_EVENT_TYPES.identityVerified` survives as a constant because it is the
+only record of every visit performed before that change.
 
 ### 3.1 — Bags
 

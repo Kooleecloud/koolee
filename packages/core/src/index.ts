@@ -7,6 +7,7 @@ export * from "./extraction";
 export * from "./slots";
 export * from "./pricing";
 export * from "./payments";
+export * from "./passport";
 export * from "./auth";
 export * from "./coverage";
 export * from "./waitlist";
@@ -22,6 +23,8 @@ export * from "./events";
 export type {
   Address,
   Agent,
+  AgreementAcceptance,
+  AgreementVersion,
   Airport,
   AirlineCutoff,
   AirportCode,
@@ -32,6 +35,9 @@ export type {
   CustodyEvent,
   CutoffScope,
   Driver,
+  PassportVerification,
+  PassportVerificationStatus,
+  PassportValidityCheckStatus,
   Payment,
   PaymentStatus,
   PickupTask,
