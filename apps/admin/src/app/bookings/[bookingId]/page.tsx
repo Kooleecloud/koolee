@@ -11,6 +11,7 @@ import {
   CardHeader,
   CardTitle,
   DatabaseNotConfigured,
+  formatUsPhone,
   PageHeader,
 } from "@koolee/ui";
 import {
@@ -25,6 +26,7 @@ import {
   getBookingDetailForSession,
   listAgentWorkload,
   type AgentWorkload,
+  type PriceBreakdown,
 } from "@koolee/core";
 
 import { ConsoleMain } from "@/components/console";
@@ -58,6 +60,58 @@ async function signPhotoUrls(paths: string[]): Promise<Map<string, string>> {
     if (entry.signedUrl && entry.path) map.set(entry.path, entry.signedUrl);
   }
   return map;
+}
+
+const money = (cents: number) =>
+  `${cents < 0 ? "-" : ""}$${Math.abs(cents / 100).toFixed(2)}`;
+
+/**
+ * Stored E.164 (`+12125550100`) rendered the way an operator reads a number
+ * aloud. Falls back to the raw value for anything non-US rather than
+ * mangling it — `formatUsPhone` only knows the ten-digit shape.
+ */
+function formatPhoneForDisplay(e164: string): string {
+  const digits = e164.replace(/\D/g, "");
+  if (e164.startsWith("+1") && digits.length === 11) return formatUsPhone(digits.slice(1));
+  // Only a value with no country code may be read as ten national digits.
+  // Without the `+` guard, a truncated "+1212555010" formats as
+  // "(121) 255-5010" — a plausible number that is not the customer's, on a
+  // page whose whole point is that somebody dials it.
+  if (!e164.startsWith("+") && digits.length === 10) return formatUsPhone(digits);
+  return e164;
+}
+
+/** The price snapshot, expanded. Zero-value lines are omitted, not shown as $0.00. */
+function PriceBreakdownLines({ breakdown }: { breakdown: PriceBreakdown }) {
+  const lines: { label: string; value: string }[] = [
+    { label: "Base", value: money(breakdown.baseFeeCents) },
+    { label: "Bags", value: money(breakdown.bagsCents) },
+  ];
+  if (breakdown.distanceCents !== 0) {
+    lines.push({ label: "Distance", value: money(breakdown.distanceCents) });
+  }
+  if (breakdown.leadTimeAdjustmentCents !== 0) {
+    lines.push({
+      // The multiplier is why the number moved, so it rides the label rather
+      // than sitting in a separate row an operator has to correlate.
+      label: `Lead time (\u00d7${breakdown.leadTimeMultiplier})`,
+      value: money(breakdown.leadTimeAdjustmentCents),
+    });
+  }
+  for (const discount of breakdown.discounts) {
+    lines.push({ label: discount.label, value: money(-Math.abs(discount.amountCents)) });
+  }
+
+  return (
+    <span className="flex flex-col gap-0.5 text-xs text-muted-foreground">
+      {lines.map((line) => (
+        <span key={line.label} className="flex justify-between gap-4">
+          <span>{line.label}</span>
+          <span className="tabular-nums">{line.value}</span>
+        </span>
+      ))}
+    </span>
+  );
 }
 
 export default async function BookingDetailPage({
@@ -226,10 +280,36 @@ export default async function BookingDetailPage({
                 </dd>
                 <dt className="text-muted-foreground">Bags</dt>
                 <dd>{booking.bagCount}</dd>
-                <dt className="text-muted-foreground">Price</dt>
+                {/* The number ops rings when a customer is not at the door.
+                    It has been on the booking row all along and this page
+                    never rendered it, so finding it meant leaving the
+                    console. `tel:` because half of dispatch is on a phone. */}
+                <dt className="text-muted-foreground">Contact</dt>
                 <dd>
-                  ${(booking.priceCents / 100).toFixed(2)}{" "}
-                  {booking.currency.toUpperCase()}
+                  {booking.contactPhone ? (
+                    <a
+                      href={`tel:${booking.contactPhone}`}
+                      className="text-primary underline-offset-4 hover:underline"
+                    >
+                      {formatPhoneForDisplay(booking.contactPhone)}
+                    </a>
+                  ) : (
+                    <span className="text-muted-foreground">none on file</span>
+                  )}
+                </dd>
+                <dt className="text-muted-foreground">Price</dt>
+                <dd className="flex flex-col gap-1">
+                  <span>
+                    ${(booking.priceCents / 100).toFixed(2)}{" "}
+                    {booking.currency.toUpperCase()}
+                  </span>
+                  {/* Refund conversations are about the components, never the
+                      total. The snapshot has been stored on every booking
+                      since pricing shipped; the page was printing one number
+                      and dropping the rest. */}
+                  {booking.priceBreakdown && (
+                    <PriceBreakdownLines breakdown={booking.priceBreakdown} />
+                  )}
                 </dd>
                 <dt className="text-muted-foreground">Created</dt>
                 <dd>{formatInstantInAirportTz(booking.createdAt, tz)}</dd>
