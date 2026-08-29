@@ -242,6 +242,38 @@ Practical consequences:
 | 0015      | `colossal_sue_storm`     | 2026-08-10 |                                                                        |
 | 0016      | `uniform_rls_baseline`   | 2026-08-11 | RLS on for every `public` table + `ensure_rls` event trigger           |
 | 0017      | `unique_seal_id`         | 2026-08-15 | `bags.seal_id` plain index → **partial `UNIQUE`** (sealed bags only)   |
+| 0018–0020 |                          | 2026-08-22 | Dispatch close-out: one task pair per booking (0019), one active pricing rule (0020) |
+| 0021      | `big_hobgoblin`          | 2026-08-25 | `bookings.ref` (`KOO-XXXXX`) + backfill — the nullable→backfill→constrain pattern |
+| 0022–0025 |                          | 2026-08-28 | Agreements + passport: the tables, the storage-policy fix, version freeze, per-booking pin |
+| 0026–0027 |                          | 2026-08-29 | Buckets declared by migration; the private `avatars` bucket           |
+| 0028      | `geo_zip_centroids`      | 2026-08-29 | **Koolee's first coordinates**: `zip_centroids` (837 US-Census rows), `airports.lat/lng` NOT NULL, and a backfill of `addresses.lat/lng` |
+| 0029      | `driver_fleet_and_shifts`| 2026-08-29 | `trucks`, `driver_shifts`, `driver_positions`, `staff_members.can_drive`, `pickup_tasks.driver_shift_id` — **and DROPs `drivers`, `routes`, `agents`** |
+
+⚠️ **`0029` can fail on apply, by design — and that is the safe outcome.** It
+drops three tables that shipped in `0000_init` and were never used, and it does
+not take that on trust: it counts `agents`, `drivers` and `routes` first and
+`RAISE EXCEPTION`s, aborting the whole migration, if the total is not zero.
+
+```
+Refusing to drop: agents=0, drivers=1, routes=0. …
+```
+
+A failure means something started using a table this migration deletes. Find out
+what; do not force it through. The drops run in FK order (routes → drivers →
+agents) with **no `CASCADE`** — Drizzle generated `CASCADE` and it was removed,
+because it would silently take dependents with it and the whole claim is that
+there are none.
+
+ℹ️ **`0028` reports what it backfilled**, and a gap is not a failure:
+
+```
+NOTICE:  addresses: backfilled 8 row(s) from ZIP centroids; 0 row(s) left
+         without coordinates (ZIP not in zip_centroids)
+```
+
+A row without coordinates renders "ETA on the way" rather than a guess. The
+NOTICE names the ZIPs so you can decide whether
+`packages/db/src/zip-centroids.ts` needs widening.
 
 ⚠️ **`0017` can fail on apply, by design.** It drops `bags_seal_id_idx` and
 builds a partial unique index in its place, so it **refuses to build if

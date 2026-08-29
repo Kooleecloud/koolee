@@ -9,7 +9,7 @@
 > commit/PR. When new work is spec'd, add a row + a spec section before
 > writing code. Keep detail in the linked docs; this file stays a map.
 
-**Last updated:** 2026-08-29 · **Active branch:** `feat/agreements-and-passport`
+**Last updated:** 2026-08-29 · **Active branch:** `feat/driver-pickup`
 
 ---
 
@@ -56,6 +56,26 @@ package-specific in `packages/<pkg>/docs/`. Nothing new accumulates at the root.
 
 ## 3. Snapshot — where we are right now
 
+- **Tier 4 shipped: the driver half of the job (2026-08-29, `feat/driver-pickup`).**
+  Rows 74–79. A booking's life used to stop dead at `verified_sealed`: four
+  state-machine transitions had no production caller, nothing ever advanced a
+  `pickup_tasks` row, and the agent app's pickup screen was a card headed "Not
+  in the app yet". It now runs end to end — the customer picks their driver
+  from a shortlist of up to four, watches distance and ETA update, and the
+  driver sets off, scans each seal at the door, drives, and confirms the
+  airline took the bags. Three dead tables from `0000_init` (`drivers`,
+  `routes`, `agents` — zero rows, zero call sites, ever) are dropped and
+  replaced by `trucks` + `driver_shifts` + `driver_positions`. **Driving is a
+  capability, not a third role.** Migrations **0028 + 0029, LOCAL ONLY** — the
+  hosted apply is TD's manual step, and 0029's drop is guarded by a check that
+  aborts the whole migration if any of the three tables has grown a row
+  ([docs/features/driver-and-pickup-hosted-setup.md](docs/features/driver-and-pickup-hosted-setup.md)).
+  **No new environment variables**, in any app or in core. Koolee also has
+  coordinates for the first time: 837 US-Census ZIP centroids and three airport
+  points, which is what turned a hardcoded 60-minute drive time into a real
+  estimate — and fixed `cutoffRiskMonitor`, which had been measuring
+  international flights against a deadline 15 minutes too late. Full record:
+  [docs/run-reports/RUN-REPORT-7.md](docs/run-reports/RUN-REPORT-7.md).
 - **Three parallel sessions merged and validated (2026-08-29).** Rows 67–70.
   Agreement versions now PIN per booking (row 67) — the re-acceptance model in
   row 63 is reversed. Admin authors agreements in a constrained rich-text
@@ -360,6 +380,12 @@ the linked row is the current behaviour)
 | 71 | Storage buckets declared by migration, and profile pictures (2026-08-29) | ✅ | `feat/storage-buckets-and-avatars`: **0026** converges `storage.buckets` on `packages/core/src/uploads/buckets.ts` — the four buckets' `file_size_limit`, `allowed_mime_types` and `public=false`, all previously UNSET on every migration-made bucket, so each accepted a 50 MB file of any type from any path that skipped an app check. `ON CONFLICT DO UPDATE`, not `DO NOTHING`: declared state must converge on re-apply. `buckets.test.ts` parses the SQL and fails on drift, and asserts the rule that matters — `bucketMaxBytes >= maxUploadBytes`, because the inverse makes Storage reject a file the app accepted and the customer reads a generic error instead of a size message. `/api/ticket-uploads` no longer calls `createBucket`: a request path that creates infrastructure can create it wrong, and that call was the only place any bucket's limits were ever set. **0027** adds the `avatars` bucket, `users.avatar_storage_path`, and the first storage policies that are not staff-only — own folder to write, own-or-staff to read, matched on `storage.foldername(name)[1] = auth.uid()`. Writes run over the ANON key in all three apps so RLS is the gate everywhere; the single service-role read is a customer seeing their assigned agent, which core authorizes first. Pickers in web `/dashboard/profile`, agent `/account` and the console settings sheet; faces on the trip page, the visit screen, the console chrome and the staff table. Doc: [storage-and-avatars.md](docs/features/storage-and-avatars.md) |
 | 72 | Customer dashboard: save, then actually show it (2026-08-29) | ✅ | `fix/dashboard-revalidate-on-save`: **not one customer-dashboard server action revalidated anything**, so saving a name returned `ok`, the form said "Profile saved", and the card kept rendering the OLD name — a Server Action invalidates nothing on its own and the client Router Cache served the previous RSC payload. Found by using the app, not by a test; typecheck, lint and the type system are all blind to it. `revalidatePath("/dashboard/profile")` added to the five actions that mutate rendered state (profile save, email confirm, address create/update/delete), which is what every admin action has always done — `resendEmailCode` deliberately does NOT, since a resend changes nothing on screen. Five tests pin it, including the negative cases: revalidating on a failed save would discard a correct cache entry. Verified red-then-green by reverting the fix. |
 | 73 | `Avatar` crashed every page that server-rendered it (2026-08-29) | ✅ | Shipped broken in row 71 and caught only by opening the app: `avatar.tsx` calls `useState` with no `"use client"`, so the agent's `/account`, the console's `/staff` and `/bookings`, and the customer's trip page all threw *"useState only works in Client Components"* — while `pnpm typecheck`, `pnpm lint`, 478 tests, `next build` on all three apps AND Storybook screenshots were every one of them green. **A build does not render a `force-dynamic` route**, and Storybook renders client-side where hooks always work. `markdown.tsx` carried the identical omission, firing only because its sole caller happens to be a client component. Both marked; `client-directive.test.ts` now asserts the rule across every shared component (59 assertions, proven red-then-green). Verified in the running dev server with a throwaway RSC route: **500 without the directive, 200 with it.** |
+| 74 | Geo groundwork: ZIP centroids, airport coordinates, a real ETA seam (2026-08-29) | ✅ | `feat/driver-pickup`: migration **0028**. Koolee had **no coordinates anywhere** — `addresses.lat/lng` were 0-of-8 populated since 0000 and `airports` had no lat/lng column at all, which is why drive time was a hardcoded 60 minutes and pricing distance a hardcoded 20 km. `zip_centroids` holds 837 NY/NJ-metro rows from the **US Census 2023 ZCTA gazetteer** (one hand-entered: `10281` is a single-building ZIP with no ZCTA); `ensureAddress` derives coordinates from it at insert without touching the funnel; the migration backfills existing rows and NOTICEs any ZIP it cannot resolve. `EtaEstimator` is a seam injected through `createRuntime` — `HaversineEtaEstimator` ships, a routing provider would replace it, core still reads no env. It returns a RANGE, never a point. **Known calibration bias, pinned by a test**: 18 km/h has no notion of a highway, so Midtown → JFK reads 75–145 min against a real ~50 — kept because it is the safe direction for both consumers (customer cards only ever show an in-zone driver; `cutoffRiskMonitor` wants an alert that fires early). [RUN-REPORT-7 Phase 0](docs/run-reports/RUN-REPORT-7.md) |
+| 75 | `cutoffRiskMonitor` stopped under-alerting (2026-08-29) | ✅ | `feat/driver-pickup`: two bugs, both pointing the same wrong way — quiet. (a) It assumed `scope: "domestic"` for every booking. Bookings **do not persist a scope at all** (the prompt said "use the real scope"; the code says there isn't one), and domestic is the LOOSER of the two seeded cutoffs — so international flights were measured against a deadline 15 minutes later than the real one. `resolveStrictestCutoffMinutes` now names the rule `getBookingDetail` already used: take the strictest row on record, whichever scope. (b) It subtracted a flat 60-minute constant; it now asks the ETA seam for a real pickup→airport estimate wherever both ends have coordinates and takes the pessimistic end. The alert payload carries `driveMinutes` + `driveSource` so it is auditable. |
+| 76 | Driver model: trucks, shifts, positions — and three dead tables dropped (2026-08-29) | ✅ | `feat/driver-pickup`: migration **0029**. `drivers`, `routes` and `agents` shipped in `0000_init` and were never used — zero rows, zero reads, zero writes, re-verified by grep AND by a fail-closed guard in the migration itself that aborts if any has grown a row. What replaces them is smaller: `trucks` (name + bag capacity; no size-class enum), `driver_shifts` (one person, one truck, one stretch of time, with **partial unique indexes** enforcing one open shift per person and per truck), and `driver_positions` (one mutable row per driver, header comment stating outright that it is **NOT** part of the chain of custody). **Driving is a capability, not a third role** — `staff_members.can_drive`, default false; the `user_role` CHECK still excludes `driver` on purpose. `pickup_tasks.driver_shift_id` is the real assignment target and `assignee_user_id` is written in the same statement because six existing readers key on it. |
+| 77 | The customer picks their driver (2026-08-29) | ✅ | `feat/driver-pickup`: up to four candidates — on shift + cleared to drive + covers the ZIP + has room (`capacity − bags on board ≥ this booking's bags`, **bags not task count**), emptiest truck first. `agent_zones` is SHARED with agents, not renamed: the role discriminator moved to read time. Widening past the zone happens only when the in-zone pass is EMPTY, never to pad a short list, and widened results say so. `selectDriver` runs in one transaction behind **one** `pg_advisory_xact_lock` on the shift — one, so no lock-order rule is needed and no deadlock is possible (the released shift is not locked because releasing only ever ADDS capacity). Integration test: two customers, a three-bag van, two bags each, concurrent — exactly one wins and the van is not overloaded. |
+| 78 | The pickup lifecycle gets its first production caller (2026-08-29) | ✅ | `feat/driver-pickup`: `mark_awaiting_pickup`, `start_transit`, `deliver_to_bagdrop` and `complete` had **no production caller at all**, nothing ever advanced a `pickup_tasks` row, and the agent's pickup screen was a card headed "Not in the app yet". Now: set off → per-bag seal scan → in transit → at the bag drop → the airline has them. Custody moves on the LAST bag, never earlier. A seal from another booking is refused loudly (it WOULD resolve — `bags.seal_id` is unique operation-wide), appends `pickup.seal_mismatch` and pages ops. Every step is idempotent, because the agent app is an offline-prone PWA and a tap that times out gets tapped again. |
+| 79 | The board learned to see a booking nobody is coming for (2026-08-29) | ✅ | `feat/driver-pickup`: every at-risk surface read `verification_tasks` only, so a booking with its bags sealed on a doorstep and no driver on it looked healthy. `BoardRow.atRiskReason` now says WHICH — `no_agent` or `no_driver` — and `OpsDashboard.awaitingDriverToday` is a SEPARATE count from `unassignedToday`, because one needs an agent sent to a door and the other needs a van. New console surfaces: `/trucks` (fleet CRUD, `reserved_spaces` labelled "not yet enforced"), `/shifts` (who is out, force-end with a required reason, grant/revoke `can_drive`), a Driver column on the board, and a Pickup-run card with reassignment that reuses `selectDriver`'s exact lock and recount. |
 ---
 
 ## 5. Timeline (condensed)
@@ -506,6 +532,55 @@ user-confirmed values persist. `ANTHROPIC_API_KEY` present = Claude
   `public.is_active_staff(auth.uid())` (0009), never an inline
   `EXISTS (… staff_members …)` — the subquery runs as `authenticated`, which
   has no privilege on that table. This has now been got wrong twice (0008, 0022).
+- **Driving is a CAPABILITY, not a third role.** `staff_members.can_drive`
+  (0029), not `user_role = 'driver'` — the enum has carried `driver` since 0000
+  and `staff_members_role_check` still excludes it on purpose. One person
+  verifying at the door and driving the van is the v1 reality; a third role
+  would force `STAFF_ROLES`, `getActiveStaffRole` and both app session readers
+  to reason about somebody who is an agent on Tuesday and a driver on Thursday.
+  Never "fix" this by relaxing the CHECK.
+- **`driver_positions` is NOT chain of custody.** One mutable row per driver,
+  overwritten every ~45 seconds, no history. The evidence is
+  `custody_events.lat/lng` — append-only, trigger-guarded, written once at a
+  door beside a photo and a seal. Never cite a position in a dispute, never
+  build a timeline from it, and never migrate it into `custody_events`. The
+  table's own header says so; keep it there.
+- **A pickup task's two assignment columns must never disagree.**
+  `driver_shift_id` is the real target (a pickup belongs to a
+  truck-with-a-person-in-it, which is what makes "you cannot clock off, there
+  are bags in your van" a query); `assignee_user_id` is kept because six
+  existing readers key on it. Every write sets BOTH, in the same statement.
+- **Driver selection takes exactly ONE advisory lock, and that is why there is
+  no lock-order rule.** `otp-throttle.ts` takes two and therefore documents a
+  fixed order to stay deadlock-free; `selectDriver` and `adminReassignPickup`
+  take one — on the SHIFT — and no second. The tempting second is the shift
+  being released when a customer re-chooses, and it is deliberately not taken,
+  because releasing only ever ADDS capacity and no invariant is defended by an
+  upper bound going down. If a change ever needs both, take them in ascending
+  shift-id order and write that down where otp-throttle does.
+- **Agents are shift-blind BY DESIGN.** `driver_shifts` is for drivers only.
+  Auto-assign places agents against a pickup WINDOW bought hours or days ahead,
+  so filtering by who happens to be clocked in tonight would assign nobody to
+  anything; and shifts exist because a driver has a truck with finite capacity
+  that a customer picks in real time, which an agent does not have. The
+  asymmetry is chosen, and the reasoning is written at the `autoAssignBooking`
+  call site — delete that comment only if agent rostering actually ships.
+- `agent_zones` is SHARED between agents and drivers and is deliberately not
+  renamed (198 live rows, an admin CRUD, and an FK already to `users`). The
+  role discriminator lives at READ time: the agent reader filters on
+  `staff_members.role`, the driver reader on `staff_members.can_drive`.
+- The ETA seam returns a RANGE, never a point — an estimate built from ZIP
+  centroids and an average speed is not accurate to the minute and must not be
+  rendered as though it were. Its 18 km/h constant has no notion of a highway
+  and therefore over-states long airport runs; that bias is kept because it
+  points the safe way for both consumers (a customer card only ever shows a
+  driver already in zone; `cutoffRiskMonitor` wants an alert that fires early),
+  and `geo/eta.test.ts` pins both halves so it cannot drift silently.
+- Bookings do NOT store a domestic/international scope. Anything needing a
+  cutoff for a booking read back later takes the STRICTEST row on record across
+  scopes (`resolveStrictestCutoffMinutes`) — a deadline that runs early costs
+  the customer nothing; one that runs late puts bags on the wrong side of the
+  counter. Never re-introduce an assumed `scope: "domestic"`.
 - Every human-facing time renders in the BOOKING's zone (`bookings.display_tz`,
   the departure airport's) — never the viewer's, never the server's, and always
   with the zone abbreviation. `booked_from_tz` is metadata and must never reach
