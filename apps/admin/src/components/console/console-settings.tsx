@@ -69,10 +69,23 @@ export function ConsoleSettings({
   diagnostics,
 }: ConsoleSettingsProps) {
   const { preferences, update } = useConsolePreferences();
+  const contentRef = React.useRef<HTMLDivElement>(null);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
+        ref={contentRef}
+        /*
+         * Radix focuses the first focusable child on open. Here that was
+         * Sign out — so opening Settings and pressing Enter signed the
+         * operator out of the console mid-shift. Focus the panel itself
+         * instead: the title is announced, Tab still walks into the sheet,
+         * and no keypress is destructive on arrival.
+         */
+        onOpenAutoFocus={(event) => {
+          event.preventDefault();
+          contentRef.current?.focus();
+        }}
         className="inset-y-0 top-0 right-0 left-auto flex h-dvh w-full max-w-100 translate-x-0 translate-y-0 flex-col gap-0 border-l bg-card p-0 duration-200 data-[state=closed]:slide-out-to-right data-[state=open]:slide-in-from-right sm:rounded-none"
         aria-describedby="console-settings-description"
       >

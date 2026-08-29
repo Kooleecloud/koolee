@@ -9,7 +9,6 @@ import {
   CardDescription,
   CardHeader,
   CardTitle,
-  EmptyState,
   DatabaseNotConfigured,
   PageHeader,
 } from "@koolee/ui";
@@ -206,7 +205,7 @@ export default async function AdminHomePage() {
                     Nothing left today. Tomorrow&apos;s windows are on the board.
                   </p>
                 ) : (
-                  <ul className="console-rows flex flex-col divide-y divide-border">
+                  <ul className="flex flex-col divide-y divide-border">
                     {nextUp.map(
                       ({
                         booking,
@@ -304,17 +303,6 @@ export default async function AdminHomePage() {
             </Card>
           </div>
 
-          {todayTotal === 0 && nextUp.length === 0 && (
-            <EmptyState
-              title="Nothing scheduled today"
-              description="No booking has a pickup window today. The board still has everything else."
-              action={
-                <Button asChild variant="outline">
-                  <Link href="/bookings">Open the board</Link>
-                </Button>
-              }
-            />
-          )}
         </>
       )}
     </ConsoleMain>

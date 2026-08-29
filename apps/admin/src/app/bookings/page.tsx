@@ -268,19 +268,24 @@ export default async function BookingsPage({
             <thead className="sticky top-0 z-10 bg-muted text-left [&_th]:border-b [&_th]:border-border">
               <tr>
                 <th className="px-4 py-2 font-medium whitespace-nowrap">Ref</th>
-                <SortableHeader
-                  label="Booked"
-                  sortKey="booked"
-                  activeKey={sortKey}
-                  direction={sortDir}
-                  href={sortHref("booked")}
-                />
+                {/* Window before Booked, deliberately. It is the column the
+                    board sorts by, and on a narrow viewport only the first
+                    two columns and the pinned Status stay on screen — so
+                    whichever sits here is what an operator sees on a phone.
+                    "When is the pickup" beats "when did this come in". */}
                 <SortableHeader
                   label="Pickup window"
                   sortKey="window"
                   activeKey={sortKey}
                   direction={sortDir}
                   href={sortHref("window")}
+                />
+                <SortableHeader
+                  label="Booked"
+                  sortKey="booked"
+                  activeKey={sortKey}
+                  direction={sortDir}
+                  href={sortHref("booked")}
                 />
                 <SortableHeader
                   label="Departs"
@@ -338,15 +343,6 @@ export default async function BookingsPage({
                         {booking.ref}
                       </RowLink>
                     </td>
-                    {/* When the booking came in — not when it happens. An
-                        operator triaging a board needs to tell a booking made
-                        an hour ago from one made last week. */}
-                    <td className="px-4 py-2">
-                      <TimeCell
-                        time={formatTimeInAirportTz(booking.createdAt, tz)}
-                        date={formatDayInAirportTz(booking.createdAt, tz)}
-                      />
-                    </td>
                     <td className="px-4 py-2">
                       {slotStart ? (
                         <TimeCell
@@ -367,6 +363,15 @@ export default async function BookingsPage({
                           {atRisk && <Badge variant="warning">at risk</Badge>}
                         </span>
                       )}
+                    </td>
+                    {/* When the booking came in — not when it happens. An
+                        operator triaging a board needs to tell a booking made
+                        an hour ago from one made last week. */}
+                    <td className="px-4 py-2">
+                      <TimeCell
+                        time={formatTimeInAirportTz(booking.createdAt, tz)}
+                        date={formatDayInAirportTz(booking.createdAt, tz)}
+                      />
                     </td>
                     <td className="px-4 py-2">
                       <TimeCell

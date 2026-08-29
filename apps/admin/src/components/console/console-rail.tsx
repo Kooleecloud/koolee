@@ -72,6 +72,15 @@ export function ConsoleRail({
 
       <aside
         aria-label="Console sections"
+        /*
+         * Drives the visibility rule in globals.css. Below `lg` a closed
+         * drawer is only translated off-screen, which leaves all ten of its
+         * links in the tab order — a keyboard or screen-reader user on a
+         * phone walked through the whole rail, invisibly, before reaching
+         * the page. `visibility: hidden` takes them out; the rule delays it
+         * so the slide-out still animates.
+         */
+        data-drawer={drawerOpen ? "open" : "closed"}
         className={cn(
           "fixed inset-y-0 left-0 z-50 flex w-64 flex-col border-r border-border bg-card",
           "transition-[transform,width] duration-200 ease-out-expo",

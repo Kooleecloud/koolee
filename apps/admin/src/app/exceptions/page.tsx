@@ -131,15 +131,18 @@ export default async function ExceptionsPage() {
 
       <Card className="border-dashed">
         <CardHeader>
-          <CardTitle className="text-base">Resolution workflows</CardTitle>
+          <CardTitle className="text-base">Resolving an exception</CardTitle>
           <CardDescription>
-            Rejected-bag and lost-bag flows are out of scope for this scaffold. Use the
-            manual state overrides on a booking&apos;s detail page in the meantime — every
-            override is recorded in the custody log.
+            Open the booking and use the resolution panel there: cancel and refund,
+            put the bags back in transit, or close it out as complete. Each one asks
+            for a reason and writes it to the custody trail, which is append-only —
+            nothing you do here can erase what happened.
           </CardDescription>
         </CardHeader>
         <CardContent className="text-sm text-muted-foreground">
-          See the TODO(exceptions) note in this file.
+          Dedicated flows for the common cases — rejected bag, lost bag, re-dispatch,
+          partial refund — are not built yet. Until they are, the reason you type is
+          what the next person reads, so write it for them.
         </CardContent>
       </Card>
     </ConsoleMain>
