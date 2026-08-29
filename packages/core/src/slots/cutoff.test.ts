@@ -17,6 +17,7 @@ import {
   formatWindowInAirportTz,
   minutesUntilCutoff,
   resolveCutoffMinutes,
+  resolveStrictestCutoffMinutes,
   zoneAbbrev,
 } from "./cutoff";
 
@@ -579,5 +580,73 @@ describe("airportLocalDayBounds", () => {
     const newYearEve = airportLocalDayBounds(new Date("2025-12-31T17:00:00.000Z"), NY);
     expect(airportLocalDay(newYearEve.start, NY)).toBe("2025-12-31");
     expect(newYearEve.end.toISOString()).toBe("2026-01-01T05:00:00.000Z"); // 00:00 EST
+  });
+});
+
+describe("resolveStrictestCutoffMinutes", () => {
+  const cutoff = (over: Partial<AirlineCutoff>): AirlineCutoff =>
+    ({
+      id: "c-1",
+      airlineIata: "DL",
+      airportCode: "JFK" as AirportCode,
+      scope: "domestic",
+      cutoffMinutesBeforeDeparture: 45,
+      source: null,
+      effectiveFrom: new Date("2024-01-01T00:00:00Z"),
+      createdAt: new Date("2024-01-01T00:00:00Z"),
+      ...over,
+    }) as AirlineCutoff;
+
+  const now = new Date("2025-06-01T00:00:00Z");
+  const lookup = { airlineIata: "DL", airportCode: "JFK" as AirportCode };
+
+  it("takes the larger of the two scopes — the earlier deadline", () => {
+    const rows = [
+      cutoff({ id: "dom", scope: "domestic", cutoffMinutesBeforeDeparture: 45 }),
+      cutoff({ id: "intl", scope: "international", cutoffMinutesBeforeDeparture: 60 }),
+    ];
+    expect(resolveStrictestCutoffMinutes(rows, lookup, now)).toBe(60);
+  });
+
+  it("does not care which order the rows arrive in", () => {
+    const rows = [
+      cutoff({ id: "intl", scope: "international", cutoffMinutesBeforeDeparture: 90 }),
+      cutoff({ id: "dom", scope: "domestic", cutoffMinutesBeforeDeparture: 45 }),
+    ];
+    expect(resolveStrictestCutoffMinutes(rows, lookup, now)).toBe(90);
+  });
+
+  it("works from a single scope", () => {
+    const rows = [cutoff({ scope: "international", cutoffMinutesBeforeDeparture: 75 })];
+    expect(resolveStrictestCutoffMinutes(rows, lookup, now)).toBe(75);
+  });
+
+  it("matches the airline code case-insensitively", () => {
+    expect(resolveStrictestCutoffMinutes([cutoff({ airlineIata: "dl" })], lookup, now)).toBe(45);
+  });
+
+  it("ignores rows that have not taken effect yet", () => {
+    const rows = [
+      cutoff({ cutoffMinutesBeforeDeparture: 45 }),
+      cutoff({
+        id: "future",
+        scope: "international",
+        cutoffMinutesBeforeDeparture: 120,
+        effectiveFrom: new Date("2030-01-01T00:00:00Z"),
+      }),
+    ];
+    expect(resolveStrictestCutoffMinutes(rows, lookup, now)).toBe(45);
+  });
+
+  it("ignores another airport's rows", () => {
+    const rows = [
+      cutoff({ cutoffMinutesBeforeDeparture: 45 }),
+      cutoff({ id: "lga", airportCode: "LGA" as AirportCode, cutoffMinutesBeforeDeparture: 200 }),
+    ];
+    expect(resolveStrictestCutoffMinutes(rows, lookup, now)).toBe(45);
+  });
+
+  it("throws rather than guessing when nothing is on record", () => {
+    expect(() => resolveStrictestCutoffMinutes([], lookup, now)).toThrow(/No bag-drop cutoff/);
   });
 });

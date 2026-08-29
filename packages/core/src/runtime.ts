@@ -7,6 +7,8 @@ import {
   type CoreDefaults,
 } from "./config";
 import { createEventEmitter, type EventEmitterConfig } from "./events/factory";
+import { createEtaEstimator, type EtaEstimatorConfig } from "./geo/factory";
+import type { EtaEstimator } from "./geo/eta";
 import type { EventEmitter } from "./events/emitter";
 import { createTicketExtractor, type TicketExtractorConfig } from "./extraction/factory";
 import { createNotifier, type NotifierConfig } from "./notifications/factory";
@@ -50,6 +52,13 @@ export interface RuntimeOptions {
   events?: EventEmitterConfig;
   emitter?: EventEmitter;
   opsAlerter?: OpsAlerter;
+  /**
+   * Declarative ETA-estimator selection. Omitted → the haversine estimator,
+   * which needs no credentials. A routing provider would arrive as an
+   * `etaEstimator` instance for the same reason the Inngest emitter does.
+   */
+  eta?: EtaEstimatorConfig;
+  etaEstimator?: EtaEstimator;
   clock?: Clock;
   defaults?: Partial<CoreDefaults>;
 }
@@ -83,6 +92,11 @@ export function createRuntime(options: RuntimeOptions): CoreConfig {
         ? { emitter: createEventEmitter(options.events) }
         : {}),
     ...(options.opsAlerter === undefined ? {} : { opsAlerter: options.opsAlerter }),
+    ...(options.etaEstimator !== undefined
+      ? { etaEstimator: options.etaEstimator }
+      : options.eta !== undefined
+        ? { etaEstimator: createEtaEstimator(options.eta) }
+        : {}),
     ...(options.clock === undefined ? {} : { clock: options.clock }),
     ...(options.defaults === undefined ? {} : { defaults: options.defaults }),
   });

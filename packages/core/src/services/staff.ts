@@ -103,6 +103,16 @@ export interface StaffIdentity {
   email: string | null;
   /** Key in the PRIVATE `avatars` bucket, or null. */
   avatarStoragePath: string | null;
+  /**
+   * May open a driver shift and be offered to customers as a driver.
+   *
+   * Carried on the IDENTITY rather than fetched separately because the agent
+   * app decides whether to mount the shift bar on every render, and a
+   * capability the shell has to ask for in a second round trip is one that
+   * flickers. Read from `staff_members`, so deactivating an account or
+   * revoking the grant takes effect on the next request like the role does.
+   */
+  canDrive: boolean;
 }
 
 /**
@@ -117,10 +127,46 @@ export async function getStaffIdentity(
   db: Database,
   userId: string,
 ): Promise<StaffIdentity | null> {
-  const row = await db.query.users.findFirst({
-    where: eq(users.id, userId),
-    columns: { fullName: true, email: true, avatarStoragePath: true },
-  });
+  const [row] = await db
+    .select({
+      fullName: users.fullName,
+      email: users.email,
+      avatarStoragePath: users.avatarStoragePath,
+      canDrive: staffMembers.canDrive,
+      active: staffMembers.active,
+    })
+    .from(users)
+    .leftJoin(staffMembers, eq(staffMembers.userId, users.id))
+    .where(eq(users.id, userId))
+    .limit(1);
+
+  if (!row) return null;
+  return {
+    fullName: row.fullName,
+    email: row.email,
+    avatarStoragePath: row.avatarStoragePath,
+    // A deactivated staff row never grants a capability, whatever the column
+    // says. The role guard already refuses the request; this keeps the two
+    // answers from disagreeing if it is ever read on its own.
+    canDrive: (row.canDrive ?? false) && (row.active ?? false),
+  };
+}
+
+export interface SetStaffCanDriveInput {
+  userId: string;
+  canDrive: boolean;
+}
+
+/** Grants or revokes the driving capability. Admin-only at the action layer. */
+export async function setStaffCanDrive(
+  db: Database,
+  input: SetStaffCanDriveInput,
+): Promise<StaffMember | null> {
+  const [row] = await db
+    .update(staffMembers)
+    .set({ canDrive: input.canDrive, updatedAt: new Date() })
+    .where(eq(staffMembers.userId, input.userId))
+    .returning();
   return row ?? null;
 }
 

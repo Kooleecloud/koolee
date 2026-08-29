@@ -7,6 +7,7 @@ import {
   verificationTasks,
   type Database,
   type PickupTask,
+  type TaskStatus,
   type VerificationTask,
 } from "@koolee/db";
 
@@ -20,6 +21,25 @@ import {
  */
 
 export type TaskKind = "verification" | "pickup";
+
+/**
+ * Task statuses that still represent work somebody has to do.
+ *
+ * `done` and `failed` are both finished — a failed visit has already been
+ * handed to the exception flow, and counting it as load would keep a person
+ * artificially busy for the rest of the day.
+ *
+ * Three readers depend on this being ONE list: the admin workload strip
+ * (`listAgentWorkload`), a driver's remaining bag load (`driver-selection.ts`),
+ * and the guard that refuses to end a shift with bags still on the truck
+ * (`shifts.ts`). They must agree on what "open" means or a driver clocks off
+ * mid-run.
+ */
+export const OPEN_TASK_STATUSES = [
+  "pending",
+  "assigned",
+  "in_progress",
+] as const satisfies readonly TaskStatus[];
 
 export type AssignedTask =
   | { kind: "verification"; task: VerificationTask }

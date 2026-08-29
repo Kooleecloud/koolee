@@ -58,3 +58,120 @@ export async function emitExceptionRaised(
     );
   }
 }
+
+
+/* ------------------------------------------------------------------ */
+/* Driver / pickup events                                              */
+/* ------------------------------------------------------------------ */
+
+export const BOOKING_DRIVER_SELECTED = "booking/driver_selected";
+export const BOOKING_DELIVERED_TO_BAGDROP = "booking/delivered_to_bagdrop";
+export const BOOKING_DRIVER_POOL_EMPTY = "booking/driver_pool_empty";
+
+/** Same contract as the exception emit: NEVER throws. */
+async function emitQuietly(
+  emitter: EventEmitter,
+  event: { name: string; id: string; data: Record<string, unknown> },
+  context: string,
+): Promise<void> {
+  try {
+    await emitter.emit(event);
+  } catch (error) {
+    console.error(`[events] ${event.name} emit failed for ${context}`, error);
+  }
+}
+
+export interface DriverSelectedInput {
+  bookingId: string;
+  shiftId: string;
+  driverUserId: string;
+  /**
+   * Distinguishes independent selections of the same booking — selection is
+   * re-runnable, and a customer who changes their mind must get the second
+   * email too. The custody event id is the natural value.
+   */
+  dedupeKey: string;
+}
+
+export async function emitDriverSelected(
+  emitter: EventEmitter,
+  input: DriverSelectedInput,
+): Promise<void> {
+  await emitQuietly(
+    emitter,
+    {
+      name: BOOKING_DRIVER_SELECTED,
+      id: `booking-driver-selected:${input.bookingId}:${input.dedupeKey}`,
+      data: {
+        bookingId: input.bookingId,
+        shiftId: input.shiftId,
+        driverUserId: input.driverUserId,
+      },
+    },
+    input.bookingId,
+  );
+}
+
+export interface DeliveredToBagdropInput {
+  bookingId: string;
+  deliveredAt: Date;
+  /** The custody event id of the transition — one per delivery, ever. */
+  dedupeKey: string;
+}
+
+export async function emitDeliveredToBagdrop(
+  emitter: EventEmitter,
+  input: DeliveredToBagdropInput,
+): Promise<void> {
+  await emitQuietly(
+    emitter,
+    {
+      name: BOOKING_DELIVERED_TO_BAGDROP,
+      id: `booking-delivered:${input.bookingId}:${input.dedupeKey}`,
+      data: {
+        bookingId: input.bookingId,
+        deliveredAt: input.deliveredAt.toISOString(),
+      },
+    },
+    input.bookingId,
+  );
+}
+
+export interface DriverPoolEmptyInput {
+  bookingId: string;
+  zip: string;
+  bagCount: number;
+  /** Injectable so the hour bucket below is deterministic under test. */
+  now: Date;
+}
+
+/**
+ * ONE ALERT PER BOOKING PER HOUR.
+ *
+ * This fires from a render: the trip page raises it whenever it has nothing to
+ * offer, and a customer refreshing a page they are anxious about would page
+ * ops on every reload. The dedupe is the event id — Inngest drops a repeated
+ * id, so bucketing the id by the hour is the whole throttle, with no state to
+ * store and nothing to clean up.
+ *
+ * The bucket is UTC on purpose: it is a rate limit, not a time a human reads.
+ */
+export async function emitDriverPoolEmpty(
+  emitter: EventEmitter,
+  input: DriverPoolEmptyInput,
+): Promise<void> {
+  const hourBucket = input.now.toISOString().slice(0, 13);
+  await emitQuietly(
+    emitter,
+    {
+      name: BOOKING_DRIVER_POOL_EMPTY,
+      id: `booking-driver-pool-empty:${input.bookingId}:${hourBucket}`,
+      data: {
+        bookingId: input.bookingId,
+        zip: input.zip,
+        bagCount: input.bagCount,
+      },
+    },
+    input.bookingId,
+  );
+}

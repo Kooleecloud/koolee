@@ -41,6 +41,29 @@ export type KooleeEvents = {
       raisedByUserId?: string;
     };
   };
+  "booking/driver_selected": {
+    data: {
+      bookingId: string;
+      /** Shift the pickup was assigned to. */
+      shiftId: string;
+      driverUserId: string;
+    };
+  };
+  "booking/delivered_to_bagdrop": {
+    data: {
+      bookingId: string;
+      /** ISO-8601. When the bags reached the counter. */
+      deliveredAt: string;
+    };
+  };
+  "booking/driver_pool_empty": {
+    data: {
+      bookingId: string;
+      /** Pickup ZIP — the first thing ops looks at. */
+      zip: string;
+      bagCount: number;
+    };
+  };
 };
 
 export const bookingConfirmed = eventType("booking/confirmed", {
@@ -53,6 +76,26 @@ export const agentNoShowCheck = eventType("booking/agent_no_show_check", {
 
 export const exceptionRaised = eventType("booking/exception_raised", {
   schema: staticSchema<KooleeEvents["booking/exception_raised"]["data"]>(),
+});
+
+export const driverSelected = eventType("booking/driver_selected", {
+  schema: staticSchema<KooleeEvents["booking/driver_selected"]["data"]>(),
+});
+
+export const deliveredToBagdrop = eventType("booking/delivered_to_bagdrop", {
+  schema: staticSchema<KooleeEvents["booking/delivered_to_bagdrop"]["data"]>(),
+});
+
+/**
+ * A sealed booking was shown to a customer and there was nobody to offer.
+ *
+ * Not an exception — the booking is fine, the roster is not — so it goes
+ * through its own event rather than `booking/exception_raised`, which would
+ * put a staffing problem in the exceptions queue where it would be resolved
+ * by a human who cannot fix it there.
+ */
+export const driverPoolEmpty = eventType("booking/driver_pool_empty", {
+  schema: staticSchema<KooleeEvents["booking/driver_pool_empty"]["data"]>(),
 });
 
 /**

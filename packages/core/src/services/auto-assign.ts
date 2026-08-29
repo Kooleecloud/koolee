@@ -18,6 +18,7 @@ import { isInCoverage, normalizeZip } from "../coverage/nyc-zips";
 import { airportLocalDayBounds } from "../slots/cutoff";
 import { assignAgentToBooking } from "./dispatch";
 import { getActiveStaffRole } from "./staff";
+import { OPEN_TASK_STATUSES } from "./tasks";
 
 /**
  * Naive auto-assignment (v1).
@@ -64,9 +65,6 @@ const SYSTEM_ACTOR: TransitionActor = { userId: null, role: null };
 
 /** Every airport Koolee serves is Eastern; the lookup is the real source. */
 const FALLBACK_TZ = "America/New_York";
-
-/** Task statuses that still cost the agent time. Mirrors `listAgentWorkload`. */
-const OPEN_TASK_STATUSES = ["pending", "assigned", "in_progress"] as const;
 
 interface Candidate {
   agentUserId: string;
@@ -185,6 +183,28 @@ export async function autoAssignBooking(
     return { ok: false, reason: "no_coverage", detail: "Pickup address not found." };
   }
 
+  // AGENTS STAY SHIFT-BLIND, BY DESIGN — this is the decision, not an
+  // oversight.
+  //
+  // `driver_shifts` (migration 0029) is the first temporal-availability
+  // entity in the schema, and the obvious next thought is "so auto-assign
+  // should check whether the agent is working". It deliberately does not.
+  // Two reasons, both from the preflight (§7.5):
+  //
+  //  1. A verification visit is scheduled against a pickup WINDOW the
+  //     customer bought hours or days ahead. A shift is a live "I am out
+  //     right now" fact. Filtering tomorrow's 9 AM visit by who happens to
+  //     be clocked in tonight would assign nobody to anything.
+  //  2. Shifts exist for DRIVERS, because a driver has a truck with finite
+  //     capacity and a customer picks them in real time. An agent has
+  //     neither. Giving agents shifts too would mean every agent has to
+  //     clock in before dispatch can see them, which is a rostering product
+  //     Koolee has not built and does not need at NYC scale.
+  //
+  // The asymmetry — a shift-aware driver selector next to a shift-blind
+  // agent selector — is therefore intentional. If agent rostering ever
+  // ships, this comment is the thing to come back and delete.
+  //
   // Covering agents must ALSO be active staff with the agent role — a zone row
   // for someone who has left is stale data, not a licence to assign them.
   const covering = await db

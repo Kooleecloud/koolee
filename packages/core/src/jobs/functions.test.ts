@@ -45,8 +45,11 @@ class ThrowingNotifier extends RecordingNotifier {
 /** Records alerts so the catch branches can be asserted on. */
 class RecordingAlerter {
   readonly alerts: { severity: string; title: string }[] = [];
-  async alert(event: { severity: string; title: string }): Promise<void> {
+  /** Same events with their `detail` payload — what the cutoff monitor puts its working in. */
+  readonly full: { severity: string; title: string; detail?: unknown }[] = [];
+  async alert(event: { severity: string; title: string; detail?: unknown }): Promise<void> {
     this.alerts.push({ severity: event.severity, title: event.title });
+    this.full.push(event);
   }
 }
 
@@ -152,13 +155,16 @@ const confirmedEvent = {
 /* ------------------------------------------------------------------ */
 
 describe("createKooleeFunctions — registration", () => {
-  it("registers all six functions with the expected triggers", () => {
+  it("registers every function with the expected triggers", () => {
     const h = harness();
     expect(h.functions.map((f) => f.id).sort()).toEqual([
       "agent-no-show-check",
+      "bagdrop-delivered-email",
       "booking-confirmation-email",
       "booking-pickup-reminder",
       "cutoff-risk-monitor",
+      "driver-pool-empty-ops-alert",
+      "driver-selected-email",
       "exception-ops-alert-email",
       "waitlist-zone-opened-sweep",
     ]);
@@ -363,6 +369,106 @@ describe("cutoff-risk-monitor (*/5 cron)", () => {
     expect(result).toEqual({ alerted: 1 });
     expect(h.alerter.alerts[0]!.title).toBe("Booking b-1 at risk of missing bag drop");
   });
+
+  /* --- the two fixes from the driver/pickup slice --------------------- */
+
+  const cutoffRow = (scope: "domestic" | "international", minutes: number) => ({
+    airlineIata: "DL",
+    airportCode: "JFK",
+    scope,
+    cutoffMinutesBeforeDeparture: minutes,
+    effectiveFrom: new Date("2026-01-01T00:00:00Z"),
+  });
+
+  const inTransitDepartingIn = (minutes: number, overrides: Record<string, unknown> = {}) =>
+    booking({
+      status: "in_transit",
+      departureAt: new Date(NOW.getTime() + minutes * 60_000),
+      ...overrides,
+    });
+
+  /** Midtown ZIP centroid — a real coordinate, matching zip-centroids.ts. */
+  const MIDTOWN = { lat: 40.75544, lng: -73.9927 };
+  const JFK_TERMINALS = { lat: 40.6446, lng: -73.7797 };
+
+  describe("scope: takes the strictest cutoff, never an assumed domestic", () => {
+    // Departure is chosen so the two scopes DISAGREE about whether to alert:
+    // against domestic-45 the booking has 70 minutes of slack (quiet), against
+    // international-60 it has 55 (alert). Assuming domestic is exactly how the
+    // old version stayed silent on the flights hardest to re-cut.
+    const DEPARTS_IN = 175;
+
+    it("alerts when only the international row makes it tight", async () => {
+      const h = harness(
+        seed({
+          bookings: [inTransitDepartingIn(DEPARTS_IN)],
+          airlineCutoffs: [cutoffRow("domestic", 45), cutoffRow("international", 60)],
+        }),
+      );
+      const { result } = await invoke(fn(h, "cutoff-risk-monitor"));
+
+      expect(result).toEqual({ alerted: 1 });
+      expect(h.alerter.full[0]!.detail).toMatchObject({
+        bookingId: "b-1",
+        minutesRemaining: 55,
+        driveSource: "configured_default",
+      });
+    });
+
+    it("stays quiet when the strictest row on record still leaves slack", async () => {
+      const h = harness(
+        seed({
+          bookings: [inTransitDepartingIn(DEPARTS_IN)],
+          airlineCutoffs: [cutoffRow("domestic", 45)],
+        }),
+      );
+      const { result } = await invoke(fn(h, "cutoff-risk-monitor"));
+
+      expect(result).toEqual({ alerted: 0 });
+    });
+  });
+
+  describe("drive time: the estimator where there are coordinates", () => {
+    // Departure is chosen so the two drive-time sources DISAGREE: the flat
+    // 60-minute default leaves 130 minutes of slack (quiet), a real
+    // Midtown → JFK estimate of 145 leaves 45 (alert).
+    const DEPARTS_IN = 250;
+    const cutoffs = [cutoffRow("domestic", 60)];
+
+    it("uses the ETA estimator when both ends have coordinates", async () => {
+      const h = harness(
+        seed({
+          bookings: [inTransitDepartingIn(DEPARTS_IN)],
+          addresses: [{ id: "a-1", zip: "10018", ...MIDTOWN }],
+          airports: [{ code: "JFK", tz: "America/New_York", ...JFK_TERMINALS }],
+          airlineCutoffs: cutoffs,
+        }),
+      );
+      const { result } = await invoke(fn(h, "cutoff-risk-monitor"));
+
+      expect(result).toEqual({ alerted: 1 });
+      expect(h.alerter.full[0]!.detail).toMatchObject({
+        driveSource: "estimator",
+        driveMinutes: 145,
+        minutesRemaining: 45,
+      });
+    });
+
+    it("falls back to the configured default when the address has no coordinates", async () => {
+      const h = harness(
+        seed({
+          bookings: [inTransitDepartingIn(DEPARTS_IN)],
+          airports: [{ code: "JFK", tz: "America/New_York", ...JFK_TERMINALS }],
+          airlineCutoffs: cutoffs,
+        }),
+      );
+      const { result } = await invoke(fn(h, "cutoff-risk-monitor"));
+
+      // 250 − 60 cutoff − 60 default = 130 minutes of slack. Quiet, and the
+      // point is that it got there through the fallback rather than the seam.
+      expect(result).toEqual({ alerted: 0 });
+    });
+  });
 });
 
 describe("agent-no-show-check", () => {
@@ -459,5 +565,127 @@ describe("module import contract", () => {
 
   it("importing jobs/functions with no credentials does not throw", async () => {
     await expect(import("./functions")).resolves.toBeDefined();
+  });
+});
+
+/* ================================================================== */
+/* Driver / pickup notifications                                       */
+/* ================================================================== */
+
+describe("driver-selected-email", () => {
+  const event = { bookingId: "b-1", shiftId: "s-1", driverUserId: "d-1" };
+
+  /**
+   * ONE users row carrying both identities. `fakeDb` ignores `where` clauses
+   * by design (see test-doubles.ts) and `findFirst` returns the first row, so
+   * the customer lookup and the driver lookup resolve to the same object. What
+   * is under test here is the first-name extraction and the copy, not the
+   * query predicates — those run against real Postgres in the integration
+   * tier.
+   */
+  const withDriver = (over: FakeTables = {}) =>
+    seed({
+      users: [{ id: "u-1", email: "casey@example.com", fullName: "Nina Petrov" }],
+      ...over,
+    });
+
+  it("names the driver by first name and links the trip page", async () => {
+    const h = harness(withDriver());
+    const { result } = await invoke(fn(h, "driver-selected-email"), event);
+
+    expect(result).toEqual({ sent: true, bookingId: "b-1" });
+    const email = h.notifier.emails[0]!;
+    expect(email.to).toBe("casey@example.com");
+    expect(email.subject).toBe("Driver on the way — KOO-7H2QM");
+    expect(email.body).toContain("Nina is on your pickup.");
+    expect(email.body).toContain("https://koolee.test/trips/b-1");
+  });
+
+  // An ETA is live and an email is a snapshot; see buildDriverSelectedEmail.
+  it("carries no ETA", async () => {
+    const h = harness(withDriver());
+    await invoke(fn(h, "driver-selected-email"), event);
+    expect(h.notifier.emails[0]!.body).not.toMatch(/\bmin\b/);
+  });
+
+  it("says nothing about airline check-in", async () => {
+    const h = harness(withDriver());
+    await invoke(fn(h, "driver-selected-email"), event);
+    const email = h.notifier.emails[0]!;
+    expect(email.body).toContain("airline's bag drop");
+    expect(`${email.body}${email.html}`).not.toMatch(/check(ing)? you in|check-in/i);
+  });
+
+  it("skips a cancelled booking", async () => {
+    const h = harness(
+      withDriver({ bookings: [booking({ status: "cancelled" })] }),
+    );
+    const { result } = await invoke(fn(h, "driver-selected-email"), event);
+    expect(result).toEqual({ sent: false, reason: "cancelled" });
+    expect(h.notifier.emails).toHaveLength(0);
+  });
+
+  it("skips a customer with no email rather than failing the run", async () => {
+    const h = harness(seed({ users: [{ id: "u-1", email: null }] }));
+    const { result } = await invoke(fn(h, "driver-selected-email"), event);
+    expect(result).toEqual({ sent: false, reason: "no_email" });
+  });
+
+  it("falls back to a generic greeting when the driver has no name on file", async () => {
+    const h = harness(seed({ users: [{ id: "u-1", email: "casey@example.com" }] }));
+    await invoke(fn(h, "driver-selected-email"), event);
+    expect(h.notifier.emails[0]!.body).toContain("Your driver is on your pickup.");
+  });
+});
+
+describe("bagdrop-delivered-email", () => {
+  const event = { bookingId: "b-1", deliveredAt: NOW.toISOString() };
+
+  it("says the bags reached the bag drop — never that they were checked in", async () => {
+    const h = harness();
+    const { result } = await invoke(fn(h, "bagdrop-delivered-email"), event);
+
+    expect(result).toEqual({ sent: true, bookingId: "b-1" });
+    const email = h.notifier.emails[0]!;
+    expect(email.subject).toBe("Bags delivered — KOO-7H2QM · DL123");
+    expect(email.body).toContain("reached the bag drop for DL123 at JFK");
+    expect(`${email.body}${email.html}`).not.toMatch(/check(ing)? you in|check-in/i);
+  });
+
+  it("escalates a failed send instead of throwing", async () => {
+    const h = harness(seed(), undefined, new ThrowingNotifier());
+    const { result } = await invoke(fn(h, "bagdrop-delivered-email"), event);
+    expect(result).toEqual({ sent: false, reason: "send_failed" });
+    expect(h.alerter.alerts[0]!.severity).toBe("warning");
+  });
+});
+
+describe("driver-pool-empty-ops-alert", () => {
+  const event = { bookingId: "b-1", zip: "10018", bagCount: 2 };
+
+  it("alerts ops and emails the address the app resolved", async () => {
+    const h = harness();
+    const { result } = await invoke(fn(h, "driver-pool-empty-ops-alert"), event);
+
+    expect(result).toEqual({ sent: true });
+    expect(h.alerter.alerts[0]).toEqual({
+      severity: "warning",
+      title: "No driver available for booking b-1",
+    });
+
+    const email = h.notifier.emails[0]!;
+    expect(email.to).toBe("ops@koolee.test");
+    expect(email.subject).toBe("No driver available — booking KOO-7H2QM");
+    expect(email.body).toContain("Pickup ZIP: 10018");
+    expect(email.body).toContain("Bags: 2");
+  });
+
+  it("still alerts on the console when OPS_ALERT_EMAIL is unset", async () => {
+    const h = harness(seed(), { appOrigin: "https://koolee.test" });
+    const { result, logger } = await invoke(fn(h, "driver-pool-empty-ops-alert"), event);
+
+    expect(result).toEqual({ sent: false, reason: "no_ops_email" });
+    expect(h.alerter.alerts).toHaveLength(1);
+    expect(logger.lines.join("\n")).toContain("OPS_ALERT_EMAIL not configured");
   });
 });

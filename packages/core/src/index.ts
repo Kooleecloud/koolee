@@ -11,6 +11,7 @@ export * from "./payments";
 export * from "./passport";
 export * from "./auth";
 export * from "./coverage";
+export * from "./geo";
 export * from "./waitlist";
 export * from "./services";
 export * from "./notifications";
@@ -23,7 +24,6 @@ export * from "./events";
  */
 export type {
   Address,
-  Agent,
   AgreementAcceptance,
   AgreementVersion,
   Airport,
@@ -35,7 +35,8 @@ export type {
   BookingStatus,
   CustodyEvent,
   CutoffScope,
-  Driver,
+  DriverPosition,
+  DriverShift,
   PassportVerification,
   PassportVerificationStatus,
   PassportValidityCheckStatus,
@@ -43,14 +44,13 @@ export type {
   PaymentStatus,
   PickupTask,
   PricingRule,
-  Route,
-  RouteStatus,
   Slot,
   SlotBlock,
   SlotTier,
   StaffMember,
   TaskStatus,
   TicketExtractionStatus,
+  Truck,
   TicketUpload,
   User,
   UserRole,

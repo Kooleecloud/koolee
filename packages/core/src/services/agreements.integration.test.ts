@@ -18,6 +18,7 @@ import {
   users,
   type Database,
 } from "@koolee/db";
+import { TEST_AIRPORTS } from "../test-utils/airport-fixtures";
 
 import { createCoreConfig, fixedClock, type CoreConfig } from "../config";
 import { InvalidInputError, NotAuthorizedError, NotFoundError } from "../errors";
@@ -113,11 +114,7 @@ describeIntegration("booking agreements (integration)", () => {
       SET session_replication_role = DEFAULT;
     `);
 
-    await db.insert(airports).values({
-      code: "JFK",
-      name: "John F. Kennedy International",
-      tz: "America/New_York",
-    });
+    await db.insert(airports).values(TEST_AIRPORTS.JFK);
     await db.insert(airlineCutoffs).values({
       airlineIata: "DL",
       airportCode: "JFK",

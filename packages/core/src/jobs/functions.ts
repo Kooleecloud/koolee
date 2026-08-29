@@ -2,6 +2,7 @@ import { and, eq, gte, lte } from "drizzle-orm";
 import {
   addresses,
   airlineCutoffs,
+  airports,
   bookings,
   users,
   verificationTasks,
@@ -11,22 +12,29 @@ import { cron } from "inngest";
 
 import type { CoreConfig } from "../config";
 import {
+  buildBagdropDeliveredEmail,
   buildBookingConfirmationEmail,
+  buildDriverSelectedEmail,
+  buildOpsDriverPoolEmptyEmail,
   buildOpsExceptionEmail,
   buildPickupReminderEmail,
   type PriceLine,
 } from "../notifications/emails";
+import { toCoordinates } from "../geo/coordinates";
 import { resolveDisplayTz } from "../services/display-tz";
 import { notifyNewlyCoveredWaitlist } from "../waitlist/notify-covered";
 import {
   formatInstantInAirportTz,
   formatWindowInAirportTz,
   minutesUntilCutoff,
-  resolveCutoffMinutes,
+  resolveStrictestCutoffMinutes,
 } from "../slots/cutoff";
 import {
   agentNoShowCheck as agentNoShowCheckEvent,
   bookingConfirmed,
+  deliveredToBagdrop as deliveredToBagdropEvent,
+  driverPoolEmpty as driverPoolEmptyEvent,
+  driverSelected as driverSelectedEvent,
   exceptionRaised,
 } from "./client";
 import type { KooleeInngest } from "./client";
@@ -63,6 +71,9 @@ interface AtRiskBooking {
   /** Null when no cutoff is on record, which is itself the problem. */
   minutesRemaining: number | null;
   note: string;
+  /** Where the drive-time number came from, so an alert is auditable. */
+  driveMinutes?: number;
+  driveSource?: "estimator" | "configured_default";
 }
 
 /** How long before pickup the reminder goes out. */
@@ -374,10 +385,25 @@ export function createKooleeFunctions(
    * Every five minutes, checks in-transit bookings against their bag-drop
    * cutoff and alerts ops on anything that looks tight.
    *
-   * Driver ETA is stubbed. The real version compares live vehicle position
-   * against a Maps ETA; until then it assumes the configured default drive
-   * time, which is optimistic and therefore under-alerts. Noted deliberately:
-   * an alert that fires late is worse than one that fires early.
+   * Two things it used to get wrong, both fixed in the driver/pickup slice
+   * and both in the direction of staying quiet — the worst direction for an
+   * alert:
+   *
+   *  1. It assumed `scope: "domestic"` for every booking. Bookings do not
+   *     persist a scope, and domestic is the LOOSER of the two seeded cutoffs,
+   *     so international flights were measured against a deadline 15 minutes
+   *     later than the real one. It now takes the strictest row on record for
+   *     the airline and airport, whichever scope it belongs to.
+   *  2. It subtracted a flat `defaults.driveTimeMinutes`. It now asks the
+   *     `etaEstimator` seam for a real pickup-address → airport estimate
+   *     wherever both ends have coordinates, and takes the pessimistic end of
+   *     the range. The configured default remains the fallback for an address
+   *     whose ZIP has no centroid.
+   *
+   * Still stubbed: the drive is measured from the PICKUP ADDRESS, not from
+   * where the driver actually is. `driver_positions` holds a live latest
+   * position and wiring it in here is the obvious next step; it is left out
+   * so this function keeps working for a booking whose driver has GPS off.
    */
   const cutoffRiskMonitor = inngest.createFunction(
     {
@@ -401,20 +427,32 @@ export function createKooleeFunctions(
             ),
           );
 
-        const cutoffRows = await config.db.select().from(airlineCutoffs);
+        // Both ends of the drive, loaded wholesale rather than joined. Same
+        // reasoning as `cutoffRows` below: `airports` is three rows, and the
+        // in-transit set inside a 24-hour horizon is small enough that one
+        // more small scan beats a three-table join that every reader (and the
+        // job test double) then has to unpick.
+        const [cutoffRows, addressRows, airportRows] = await Promise.all([
+          config.db.select().from(airlineCutoffs),
+          config.db.select().from(addresses),
+          config.db.select().from(airports),
+        ]);
+        const addressById = new Map(addressRows.map((a) => [a.id, a]));
+        const airportByCode = new Map(airportRows.map((a) => [a.code, a]));
 
         return inTransit.flatMap<AtRiskBooking>((booking) => {
           let cutoffMinutes: number;
           try {
-            cutoffMinutes = resolveCutoffMinutes(
+            // The STRICTEST cutoff across both scopes, not an assumed
+            // `domestic`. Bookings do not persist domestic/international, and
+            // the old assumption picked the looser of the two rows — so an
+            // international flight was measured against a deadline 15 minutes
+            // later than the real one and the alert stayed quiet.
+            cutoffMinutes = resolveStrictestCutoffMinutes(
               cutoffRows,
               {
                 airlineIata: booking.airlineIata,
                 airportCode: booking.departureAirport,
-                // TODO: persist scope on the booking. Assuming domestic
-                // under-estimates the cutoff for international flights, which
-                // errs toward alerting rather than staying quiet.
-                scope: "domestic",
               },
               now,
             );
@@ -429,14 +467,36 @@ export function createKooleeFunctions(
             ];
           }
 
-          // TODO(maps): replace with a live driver ETA from the route.
-          const stubDriveMinutes = config.defaults.driveTimeMinutes;
+          // A real estimate where both ends have coordinates; the configured
+          // default only where they do not (an address whose ZIP has no
+          // centroid). `maxMinutes` rather than the midpoint on purpose: this
+          // is an alert, and the pessimistic end is the one that fires early.
+          const pickup = addressById.get(booking.pickupAddressId);
+          const airport = airportByCode.get(booking.departureAirport);
+          const from = toCoordinates(pickup?.lat, pickup?.lng);
+          const to = toCoordinates(airport?.lat, airport?.lng);
+          const estimated =
+            from !== null && to !== null
+              ? config.etaEstimator.estimate({ from, to }).maxMinutes
+              : null;
+          const driveMinutes = estimated ?? config.defaults.driveTimeMinutes;
+
           const remaining =
-            minutesUntilCutoff(booking.departureAt, cutoffMinutes, now) -
-            stubDriveMinutes;
+            minutesUntilCutoff(booking.departureAt, cutoffMinutes, now) - driveMinutes;
 
           return remaining <= CUTOFF_ALERT_THRESHOLD_MINUTES
-            ? [{ bookingId: booking.id, minutesRemaining: remaining, note: "tight" }]
+            ? [
+                {
+                  bookingId: booking.id,
+                  minutesRemaining: remaining,
+                  note: "tight",
+                  driveMinutes,
+                  driveSource:
+                    estimated === null
+                      ? ("configured_default" as const)
+                      : ("estimator" as const),
+                },
+              ]
             : [];
         });
       });
@@ -555,6 +615,197 @@ export function createKooleeFunctions(
     },
   );
 
+  /* ------------------------------------------------------------------ */
+  /* 5. Driver selected — customer email                                  */
+  /* ------------------------------------------------------------------ */
+
+  /**
+   * Registered HERE, in core's shared factory, not in the app that raises it.
+   * The agent app's Inngest client is SEND-ONLY by design (it serves no
+   * `/api/inngest` route); a function added there would silently never run.
+   * `apps/web` owns the registry and serves every one of these.
+   */
+  const driverSelectedEmail = inngest.createFunction(
+    {
+      id: "driver-selected-email",
+      name: "Tell the customer which driver is on their pickup",
+      triggers: [driverSelectedEvent],
+    },
+    async ({ event, step, logger }) => {
+      return step.run("send-driver-selected-email", async () => {
+        const config = getConfig();
+
+        const booking = await config.db.query.bookings.findFirst({
+          where: eq(bookings.id, event.data.bookingId),
+        });
+        if (!booking) return { sent: false, reason: "booking_missing" };
+        if (booking.status === "cancelled") return { sent: false, reason: "cancelled" };
+
+        const [customer, driver] = await Promise.all([
+          config.db.query.users.findFirst({
+            where: eq(users.id, booking.userId),
+            columns: { email: true },
+          }),
+          config.db.query.users.findFirst({
+            where: eq(users.id, event.data.driverUserId),
+            columns: { fullName: true },
+          }),
+        ]);
+        if (!customer?.email) {
+          logger.info(`Booking ${booking.id}: customer has no email; skipping.`);
+          return { sent: false, reason: "no_email" };
+        }
+
+        const message = buildDriverSelectedEmail({
+          to: customer.email,
+          bookingRef: booking.ref,
+          paxName: booking.paxName,
+          driverGivenName: driver?.fullName?.trim().split(/\s+/)[0] ?? null,
+          bagCount: booking.bagCount,
+          ...(tripUrlFor(booking.id) === undefined
+            ? {}
+            : { tripUrl: tripUrlFor(booking.id)! }),
+        });
+
+        try {
+          await config.notifier.sendEmail(message);
+        } catch (error) {
+          await config.opsAlerter.alert({
+            severity: "warning",
+            title: `Driver-selected email failed for booking ${booking.id}`,
+            detail: { bookingId: booking.id, error: String(error) },
+          });
+          return { sent: false, reason: "send_failed" };
+        }
+        return { sent: true, bookingId: booking.id };
+      });
+    },
+  );
+
+  /* ------------------------------------------------------------------ */
+  /* 6. Delivered to the bag drop — customer email                        */
+  /* ------------------------------------------------------------------ */
+
+  const bagdropDeliveredEmail = inngest.createFunction(
+    {
+      id: "bagdrop-delivered-email",
+      name: "Tell the customer their bags reached the bag drop",
+      triggers: [deliveredToBagdropEvent],
+    },
+    async ({ event, step, logger }) => {
+      return step.run("send-bagdrop-delivered-email", async () => {
+        const config = getConfig();
+
+        const booking = await config.db.query.bookings.findFirst({
+          where: eq(bookings.id, event.data.bookingId),
+        });
+        if (!booking) return { sent: false, reason: "booking_missing" };
+
+        const customer = await config.db.query.users.findFirst({
+          where: eq(users.id, booking.userId),
+          columns: { email: true },
+        });
+        if (!customer?.email) {
+          logger.info(`Booking ${booking.id}: customer has no email; skipping.`);
+          return { sent: false, reason: "no_email" };
+        }
+
+        const message = buildBagdropDeliveredEmail({
+          to: customer.email,
+          bookingRef: booking.ref,
+          paxName: booking.paxName,
+          flightNumber: booking.flightNumber,
+          departureAirport: booking.departureAirport,
+          bagCount: booking.bagCount,
+          ...(tripUrlFor(booking.id) === undefined
+            ? {}
+            : { tripUrl: tripUrlFor(booking.id)! }),
+        });
+
+        try {
+          await config.notifier.sendEmail(message);
+        } catch (error) {
+          await config.opsAlerter.alert({
+            severity: "warning",
+            title: `Bag-drop delivered email failed for booking ${booking.id}`,
+            detail: { bookingId: booking.id, error: String(error) },
+          });
+          return { sent: false, reason: "send_failed" };
+        }
+        return { sent: true, bookingId: booking.id };
+      });
+    },
+  );
+
+  /* ------------------------------------------------------------------ */
+  /* 7. No driver available — ops alert                                   */
+  /* ------------------------------------------------------------------ */
+
+  /**
+   * A sealed booking was shown to a customer and there was nothing to offer.
+   *
+   * Not routed through the exception queue: the booking is fine, the roster is
+   * not, and an exception is resolved by a human who cannot fix staffing from
+   * that screen. Throttling is the EVENT ID (bucketed by hour in
+   * `emitDriverPoolEmpty`), so this handler has no rate limiting of its own —
+   * a repeated id never reaches it.
+   */
+  const driverPoolEmptyOpsAlert = inngest.createFunction(
+    {
+      id: "driver-pool-empty-ops-alert",
+      name: "Alert ops when no driver can be offered",
+      triggers: [driverPoolEmptyEvent],
+    },
+    async ({ event, step, logger }) => {
+      return step.run("alert-ops-no-driver", async () => {
+        const config = getConfig();
+
+        // The console alerter always fires; the email is the upgrade, and it
+        // needs an address the app resolved from OPS_ALERT_EMAIL.
+        await config.opsAlerter.alert({
+          severity: "warning",
+          title: `No driver available for booking ${event.data.bookingId}`,
+          detail: event.data,
+        });
+
+        if (!options.opsAlertEmail) {
+          logger.info("OPS_ALERT_EMAIL not configured; console alert only.");
+          return { sent: false, reason: "no_ops_email" };
+        }
+
+        const booking = await config.db.query.bookings.findFirst({
+          where: eq(bookings.id, event.data.bookingId),
+        });
+        const tz = booking
+          ? await resolveDisplayTz(config.db, booking.departureAirport)
+          : null;
+
+        const message = buildOpsDriverPoolEmptyEmail({
+          to: options.opsAlertEmail,
+          bookingId: event.data.bookingId,
+          bookingRef: booking?.ref,
+          zip: event.data.zip,
+          bagCount: event.data.bagCount,
+          ...(booking && tz
+            ? { departureLabel: formatInstantInAirportTz(booking.departureAt, tz) }
+            : {}),
+        });
+
+        try {
+          await config.notifier.sendEmail(message);
+        } catch (error) {
+          await config.opsAlerter.alert({
+            severity: "critical",
+            title: `No-driver alert email failed for booking ${event.data.bookingId}`,
+            detail: { error: String(error) },
+          });
+          return { sent: false, reason: "send_failed" };
+        }
+        return { sent: true };
+      });
+    },
+  );
+
   return [
     bookingConfirmationEmail,
     pickupReminder,
@@ -562,6 +813,9 @@ export function createKooleeFunctions(
     waitlistZoneOpenedSweep,
     cutoffRiskMonitor,
     agentNoShowCheck,
+    driverSelectedEmail,
+    bagdropDeliveredEmail,
+    driverPoolEmptyOpsAlert,
   ];
 }
 

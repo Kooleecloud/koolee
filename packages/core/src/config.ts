@@ -1,6 +1,7 @@
 import type { Database } from "@koolee/db";
 
 import { NoopEmitter, type EventEmitter } from "./events/emitter";
+import { HaversineEtaEstimator, type EtaEstimator } from "./geo/eta";
 import { NoopDispatcher, type NotificationDispatcher } from "./notifications/dispatcher";
 import {
   ConsoleNotifier,
@@ -28,7 +29,11 @@ import type { TicketExtractor } from "./extraction/types";
 export interface CoreDefaults {
   /** Operational slack between the drive and the airline cutoff. */
   bufferMinutes: number;
-  /** Fallback when a real drive-time estimate is unavailable. */
+  /**
+   * Fallback when a real drive-time estimate is unavailable — which today
+   * means one of the two endpoints has no coordinate. Where both do, the
+   * `etaEstimator` seam answers instead; see `cutoffRiskMonitor`.
+   */
   driveTimeMinutes: number;
   /**
    * Booking notice: a pickup window may not START sooner than this after
@@ -95,6 +100,11 @@ export interface CoreConfig {
    * — automated checking is deliberately not built.
    */
   passportValidityChecker: PassportValidityChecker;
+  /**
+   * Drive-time estimation seam. Defaults to `HaversineEtaEstimator` — ZIP
+   * centroids and an average city speed, no routing provider. See geo/eta.ts.
+   */
+  etaEstimator: EtaEstimator;
   clock: Clock;
   defaults: CoreDefaults;
 }
@@ -108,6 +118,7 @@ export interface CoreConfigInput {
   dispatcher?: NotificationDispatcher;
   opsAlerter?: OpsAlerter;
   passportValidityChecker?: PassportValidityChecker;
+  etaEstimator?: EtaEstimator;
   clock?: Clock;
   defaults?: Partial<CoreDefaults>;
 }
@@ -124,6 +135,7 @@ export function createCoreConfig(input: CoreConfigInput): CoreConfig {
     opsAlerter: input.opsAlerter ?? new ConsoleOpsAlerter(),
     passportValidityChecker:
       input.passportValidityChecker ?? new NotCheckedValidityChecker(),
+    etaEstimator: input.etaEstimator ?? new HaversineEtaEstimator(),
     clock: input.clock ?? systemClock,
     defaults: { ...DEFAULTS, ...input.defaults },
   };

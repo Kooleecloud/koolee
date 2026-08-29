@@ -122,8 +122,26 @@ export {
 } from "./auto-assign";
 
 export {
+  confirmAirlineHandover,
+  deliverToBagdrop,
+  getPickupContext,
+  PICKUP_EXCEPTION_REASONS,
+  reportPickupException,
+  scanSealAtPickup,
+  startPickupTravel,
+  type PickupContext,
+  type PickupExceptionInput,
+  type PickupExceptionReason,
+  type PickupStepInput,
+  type PickupStepResult,
+  type ScanSealInput,
+  type ScanSealResult,
+} from "./pickup";
+
+export {
   assignAgentToBooking,
   BOARD_SORT_KEYS,
+  DRIVER_AWAITED_STATUSES,
   EXCEPTION_RESOLUTIONS,
   getBookingAssignment,
   getOpsDashboard,
@@ -134,6 +152,7 @@ export {
   type ActiveAgent,
   type AgentWorkload,
   type AssignAgentResult,
+  type AtRiskReason,
   type BoardFilter,
   type BoardSort,
   type BoardSortKey,
@@ -180,8 +199,56 @@ export {
 } from "./customers";
 
 export {
+  adminForceEndShift,
+  bagsOnShift,
+  createTruck,
+  endShift,
+  getActiveShift,
+  listShifts,
+  listTruckOptions,
+  listTrucks,
+  shiftBlockers,
+  startShift,
+  updateTruck,
+  type ActiveShift,
+  type CreateTruckInput,
+  type ShiftRow,
+  type TruckRow,
+  type UpdateTruckInput,
+  type AdminForceEndShiftInput,
+  type AdminForceEndShiftResult,
+  type EndShiftResult,
+  type ShiftBlocker,
+  type StartShiftInput,
+  type TruckOption,
+} from "./shifts";
+
+export {
+  adminReassignPickup,
+  DRIVER_SELECTABLE_STATUSES,
+  DRIVER_SHORTLIST_SIZE,
+  getSelectedDriver,
+  listCandidateDrivers,
+  listReassignOptions,
+  recordDriverPosition,
+  reportEmptyDriverPool,
+  selectDriver,
+  type AdminReassignPickupInput,
+  type AdminReassignPickupResult,
+  type DriverCandidate,
+  type ListCandidateDriversInput,
+  type ReassignOption,
+  type SelectDriverInput,
+  type SelectDriverResult,
+  type SelectedDriver,
+} from "./driver-selection";
+
+export { PICKUP_EVENT_TYPES, type PickupEventType } from "./pickup-events";
+
+export {
   getAssignedTask,
   listAssignedTasks,
+  OPEN_TASK_STATUSES,
   type AssignedTask,
   type AssignedTasks,
   type ScheduledTask,
@@ -204,9 +271,11 @@ export {
   isStaffRole,
   listStaffMembers,
   requireStaffRole,
+  setStaffCanDrive,
   setStaffMemberActive,
   STAFF_ROLES,
   type CreateStaffMemberInput,
+  type SetStaffCanDriveInput,
   type StaffIdentity,
   type StaffMemberWithIdentity,
   type StaffRole,
