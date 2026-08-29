@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import {
   deriveScope,
   hasExtractedFields,
+  BUCKETS,
   MAX_TICKET_UPLOAD_BYTES,
   TICKET_UPLOAD_MIME_TYPES,
   type ExtractedSegment,
@@ -27,7 +28,7 @@ import {
  * review form's confirmed values go further (see booking-draft-schema.ts).
  */
 
-export const TICKET_BUCKET = "ticket-uploads";
+export const TICKET_BUCKET = BUCKETS.ticketUploads.id;
 
 export const UPLOAD_COPY = {
   tooLarge: "That file is too large — e-tickets are usually under 10 MB.",
@@ -38,8 +39,6 @@ export const UPLOAD_COPY = {
 } as const;
 
 export interface TicketUploadStorage {
-  /** Must create/verify a PRIVATE bucket — never a public one. */
-  ensureBucket(): Promise<void>;
   upload(path: string, data: Uint8Array, contentType: string): Promise<void>;
 }
 
@@ -96,7 +95,11 @@ export async function handleTicketUpload(
   const uploadId = crypto.randomUUID();
   const storagePath = `tickets/${deps.draftId}/${uploadId}.${extension}`;
   try {
-    await deps.storage.ensureBucket();
+    // Nothing ensures the bucket here: `ticket-uploads` is created by
+    // migration 0026 like every other bucket. A request path that creates
+    // infrastructure is a request path that can create it WRONG — this one
+    // used to be the only place a bucket's limits were set, which is
+    // exactly how they ended up unset on every bucket a migration made.
     await deps.storage.upload(storagePath, file.data, file.mimeType);
   } catch (error) {
     console.error("[ticket-upload] storage write failed", error);
