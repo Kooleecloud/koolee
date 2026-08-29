@@ -133,7 +133,10 @@ export default async function TaskDetailPage({
         title="Verify and seal"
         subtitle={
           <>
-            {booking.flightNumber} · {booking.departureAirport} · departs{" "}
+            {/* The ref leads: it is the token on the customer's email and the
+                one an agent reads back to ops over the phone. */}
+            <span className="font-mono">{booking.ref}</span> · {booking.flightNumber} ·{" "}
+            {booking.departureAirport} · departs{" "}
             {formatInstantInAirportTz(booking.departureAt, context.tz)}
           </>
         }

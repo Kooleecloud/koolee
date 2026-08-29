@@ -19,6 +19,7 @@ const ORANGE = "#FF6B35";
 const confirmation = () =>
   buildBookingConfirmationEmail({
     to: "casey@example.com",
+    bookingRef: "KOO-7H2QM",
     paxName: "Casey Rivera",
     flightNumber: "DL123",
     departureAirport: "JFK",
@@ -39,6 +40,7 @@ describe("transactional email copy rules", () => {
     confirmation(),
     buildPickupReminderEmail({
       to: "casey@example.com",
+      bookingRef: "KOO-7H2QM",
       paxName: "Casey Rivera",
       windowLabel: "Thu 12 Jun, 10:00 AM – 11:00 AM EDT",
       bagCount: 2,
@@ -119,11 +121,13 @@ describe("confirmation content", () => {
     expect(body).toContain("Base fee: $29.00");
     expect(body).toContain("Total: $59.00");
     expect(body).toContain("https://koolee.test/trips/abc");
+    expect(body).toContain("Booking reference: KOO-7H2QM");
   });
 
   it("escapes html in interpolated values", () => {
     const { html } = buildBookingConfirmationEmail({
       to: "x@example.com",
+      bookingRef: "KOO-7H2QM",
       paxName: '<img src=x onerror=alert(1)>"Casey"',
       flightNumber: "DL123",
       departureAirport: "JFK",

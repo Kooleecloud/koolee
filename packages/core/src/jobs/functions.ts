@@ -81,9 +81,10 @@ export function createKooleeFunctions(
   /* ------------------------------------------------------------------ */
 
   /**
-   * On `booking/confirmed`, emails the customer the full confirmation: ref,
-   * flight, pickup window (BOOKING's tz with abbreviation — docs/TIME.md),
-   * address, bags, price breakdown, trip link.
+   * On `booking/confirmed`, emails the customer the full confirmation:
+   * booking ref (`bookings.ref`, KOO-XXXXX), flight, pickup window (BOOKING's
+   * tz with abbreviation — docs/TIME.md), address, bags, price breakdown,
+   * trip link.
    *
    * Idempotency: senders emit the event with id `booking-confirmed:<id>`, so
    * the webhook/return-page race collapses to ONE event, and Inngest's step
@@ -142,6 +143,7 @@ export function createKooleeFunctions(
 
         const message = buildBookingConfirmationEmail({
           to: customer.email,
+          bookingRef: booking.ref,
           paxName: booking.paxName,
           flightNumber: booking.flightNumber,
           departureAirport: booking.departureAirport,
@@ -254,6 +256,7 @@ export function createKooleeFunctions(
         const tz = await resolveDisplayTz(config.db, booking.departureAirport);
         const message = buildPickupReminderEmail({
           to: customer.email,
+          bookingRef: booking.ref,
           paxName: booking.paxName,
           windowLabel:
             booking.pickupWindowStart && booking.pickupWindowEnd
@@ -306,9 +309,19 @@ export function createKooleeFunctions(
         }
 
         const config = getConfig();
+
+        // Best-effort: the event payload carries no ref (its shape is fixed),
+        // so look it up. A missing row must not stop the alert — ops needs to
+        // hear about the exception either way.
+        const booking = await config.db.query.bookings.findFirst({
+          where: eq(bookings.id, event.data.bookingId),
+          columns: { ref: true },
+        });
+
         const message = buildOpsExceptionEmail({
           to,
           bookingId: event.data.bookingId,
+          ...(booking?.ref === undefined ? {} : { bookingRef: booking.ref }),
           reason: event.data.reason,
           raisedByUserId: event.data.raisedByUserId,
         });

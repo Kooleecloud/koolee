@@ -3,9 +3,13 @@ import { ResendNotifier } from "./resend";
 
 /**
  * Which notifier to use, injected rather than read from the environment —
- * same contract as `createPaymentProvider`: packages/core never touches
- * `process.env`. Apps resolve this from their own validated `env.ts`
- * (RESEND_API_KEY present → resend, absent → console) and pass it in.
+ * same contract as `createPaymentProvider`. Apps resolve this from their own
+ * validated `env.ts` (RESEND_API_KEY present → resend, absent → console) and
+ * pass it in.
+ *
+ * Core takes credentials as values rather than reading `process.env`, with
+ * one known exception: `auth/hash-destination.ts` reads `OTP_LOG_HMAC_KEY`
+ * directly. See the note in payments/factory.ts.
  *
  * Constructing a notifier never opens a connection or validates a key, so
  * this is safe to call at module scope.

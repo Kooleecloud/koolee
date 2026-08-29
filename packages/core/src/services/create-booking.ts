@@ -15,6 +15,7 @@ import {
 } from "@koolee/db";
 
 import { transitionOrThrow } from "../booking/state-machine";
+import { withBookingRef } from "../booking/ref";
 import type { CoreConfig } from "../config";
 import { assertInCoverage } from "../coverage/nyc-zips";
 import {
@@ -223,64 +224,75 @@ export async function createBooking(
 
   /* --- 2. One transaction: write the booking ------------------------ */
 
-  const created = await db.transaction(async (tx) => {
-    const [booking] = await tx
-      .insert(bookings)
-      .values({
-        userId: input.userId,
-        status: "draft",
-        flightNumber: input.flightNumber.toUpperCase(),
-        airlineIata: input.airlineIata.toUpperCase(),
-        departureAirport: input.departureAirport,
-        departureAt: input.departureAt,
-        paxName: input.paxName,
-        pickupAddressId: input.pickupAddressId,
-        bagCount: input.bagCount,
-        pickupWindowStart: input.pickupWindowStart,
-        pickupWindowEnd: input.pickupWindowEnd,
-        // Snapshotted once, here, and never updated: this is what makes the
-        // row self-describing for every app that reads it later.
-        displayTz,
-        bookedFromTz: sanitizeIanaZone(input.bookedFromTz),
-        contactPhone: input.contactPhone ?? null,
-        priceCents: breakdown.totalCents,
-        currency: defaults.currency,
-        // The receipt: which lead-time step, distance, and discounts made
-        // this price. Feeds dynamic-pricing analysis with per-window data.
-        priceBreakdown: breakdown,
-      })
-      .returning();
+  /*
+   * The whole write is retried on a ref collision rather than just the insert:
+   * a failed statement aborts its Postgres transaction, so there is nothing to
+   * retry INSIDE one. Nothing has committed when the retry runs, so the second
+   * attempt starts from the same clean slate as the first. In practice this
+   * body runs once — see BOOKING_REF_MAX_ATTEMPTS for why the loop exists at
+   * all.
+   */
+  const created = await withBookingRef((ref) =>
+    db.transaction(async (tx) => {
+      const [booking] = await tx
+        .insert(bookings)
+        .values({
+          ref,
+          userId: input.userId,
+          status: "draft",
+          flightNumber: input.flightNumber.toUpperCase(),
+          airlineIata: input.airlineIata.toUpperCase(),
+          departureAirport: input.departureAirport,
+          departureAt: input.departureAt,
+          paxName: input.paxName,
+          pickupAddressId: input.pickupAddressId,
+          bagCount: input.bagCount,
+          pickupWindowStart: input.pickupWindowStart,
+          pickupWindowEnd: input.pickupWindowEnd,
+          // Snapshotted once, here, and never updated: this is what makes the
+          // row self-describing for every app that reads it later.
+          displayTz,
+          bookedFromTz: sanitizeIanaZone(input.bookedFromTz),
+          contactPhone: input.contactPhone ?? null,
+          priceCents: breakdown.totalCents,
+          currency: defaults.currency,
+          // The receipt: which lead-time step, distance, and discounts made
+          // this price. Feeds dynamic-pricing analysis with per-window data.
+          priceBreakdown: breakdown,
+        })
+        .returning();
 
-    if (!booking) throw new Error("Insert of booking returned no row");
+      if (!booking) throw new Error("Insert of booking returned no row");
 
-    // `ordinal` is assigned here, once, and is the bag's identity for the rest
-    // of the booking's life — every reader orders by it and every screen labels
-    // from it. Do not derive bag numbers from array position anywhere.
-    await tx.insert(bags).values(
-      Array.from({ length: input.bagCount }, (_, index) => ({
+      // `ordinal` is assigned here, once, and is the bag's identity for the rest
+      // of the booking's life — every reader orders by it and every screen labels
+      // from it. Do not derive bag numbers from array position anywhere.
+      await tx.insert(bags).values(
+        Array.from({ length: input.bagCount }, (_, index) => ({
+          bookingId: booking.id,
+          ordinal: index + 1,
+        })),
+      );
+
+      // The custody log opens with the booking itself, so the chain starts at
+      // creation rather than at the first physical handover.
+      await tx.insert(custodyEvents).values({
         bookingId: booking.id,
-        ordinal: index + 1,
-      })),
-    );
+        actorUserId: input.userId,
+        actorRole: "customer",
+        eventType: "booking.created",
+        metadata: {
+          pickupWindowStart: input.pickupWindowStart.toISOString(),
+          pickupWindowEnd: input.pickupWindowEnd.toISOString(),
+          priceCents: breakdown.totalCents,
+          cutoffMinutes,
+          bagCount: input.bagCount,
+        },
+      });
 
-    // The custody log opens with the booking itself, so the chain starts at
-    // creation rather than at the first physical handover.
-    await tx.insert(custodyEvents).values({
-      bookingId: booking.id,
-      actorUserId: input.userId,
-      actorRole: "customer",
-      eventType: "booking.created",
-      metadata: {
-        pickupWindowStart: input.pickupWindowStart.toISOString(),
-        pickupWindowEnd: input.pickupWindowEnd.toISOString(),
-        priceCents: breakdown.totalCents,
-        cutoffMinutes,
-        bagCount: input.bagCount,
-      },
-    });
-
-    return booking;
-  });
+      return booking;
+    }),
+  );
 
   /* --- 3. Authorize, then record the payment ------------------------ */
 

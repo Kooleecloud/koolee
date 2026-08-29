@@ -112,11 +112,17 @@ This is not ceremony. It is what makes three apps share one set of rules: the
 cutoff maths, the state machine, and the ownership checks live in one place,
 and no app can route around them by writing its own SQL.
 
-**The second boundary.** `packages/core` reads no environment variables and
-imports nothing from Next.js. Apps resolve their own credentials in a
-zod-validated `env.ts` and hand the results to core as a `CoreConfig`
+**The second boundary.** `packages/core` takes its credentials as values and
+imports nothing from Next.js. Apps resolve their own in a zod-validated
+`env.ts` and hand the results to core as a `CoreConfig`
 ([config.ts](../packages/core/src/config.ts)). That is what makes core
 testable without a process environment and reusable from a job runner.
+
+There is exactly **one** exception to the no-`process.env` rule, named here
+rather than left as a claim that is quietly false:
+[auth/hash-destination.ts](../packages/core/src/auth/hash-destination.ts)
+reads `OTP_LOG_HMAC_KEY` directly and throws when it is unset. Every other
+seam — payments, notifications, extraction, events — is injected.
 
 **Where a feature actually lives.** A typical change touches three layers in
 this order — schema (`packages/db/src/schema/`), rule + service
@@ -368,16 +374,38 @@ A service is where ownership is enforced. Session-scoped reads are
 | `cleanup-anonymous-users`    | daily 04:00 ET                      | yes                                            |
 | `booking-confirmation-email` | event `booking/confirmed`           | yes — real email via the Notifier seam         |
 | `booking-pickup-reminder`    | event `booking/confirmed`           | yes — email real, SMS console until Twilio     |
-| `exception-ops-alert-email`  | event `booking/exception_raised`    | yes — to `OPS_ALERT_EMAIL` (unset = skip)      |
+| `exception-ops-alert-email`  | event `booking/exception_raised`    | yes — to `OPS_ALERT_EMAIL`, now required in prod |
 | `waitlist-zone-opened-sweep` | daily 10:00 ET                      | yes — the waitlist's promised email            |
 | `agent-no-show-check`        | event `booking/agent_no_show_check` | **never fires** — that event is still unsent   |
 
-The `booking/confirmed` and `booking/exception_raised` events are actually
-emitted now (2026-08-23) from
-[apps/web/src/lib/booking-events.ts](../apps/web/src/lib/booking-events.ts):
-every path to `paid` emits with a deterministic id, keyed on "this call
-performed the move" so redeliveries and races never re-fire — see
+**Where the events come from.** `booking/confirmed` is emitted by apps/web
+from [lib/booking-events.ts](../apps/web/src/lib/booking-events.ts): every
+path to `paid` emits with a deterministic id, keyed on "this call performed
+the move" so redeliveries and races never re-fire.
+
+`booking/exception_raised` is emitted by **`packages/core`**, not by an app.
+It used to come from the Stripe webhook route alone, which meant six of the
+seven states that can raise an exception produced no ops alert — an agent
+flagging a problem at the customer's door was silent. Emission now sits at the
+two transaction choke points that are the only ways a booking row reaches
+`exception`: `applyTransition`
+([services/bookings.ts](../packages/core/src/services/bookings.ts)) and the
+webhook handler's own `moveBooking`
+([services/webhooks.ts](../packages/core/src/services/webhooks.ts)). A new
+path into `exception` is therefore covered by construction.
+
+Core stays queue-agnostic through the **`EventEmitter` seam**
+([events/emitter.ts](../packages/core/src/events/emitter.ts)) — same shape as
+the `Notifier` seam, defaulting to `NoopEmitter`. Each app builds the
+Inngest-backed adapter in its own `lib/event-emitter.ts` and injects it via
+`createRuntime`, because an event key is environment and core reads none.
+apps/agent and apps/admin are **send-only**: they emit but serve no
+`/api/inngest` route, since a second serve endpoint would double-register
+every function. Emission never throws — the booking has already moved, and
+failing the caller would report a transition that demonstrably happened as an
+error. See
 [features/jobs-and-notifications.md](features/jobs-and-notifications.md).
+
 `booking/agent_no_show_check` is the one still-unsent event.
 
 Inngest rather than a plain cron service because the reminder uses
@@ -842,8 +870,11 @@ pins are asserted in a test so a refactor cannot quietly break them.
 **Deploy checklist**, in order:
 
 1. Apply pending migrations to the hosted project over the direct connection.
-   _(Migration `0012` — virtual windows — is applied locally but **not** yet
-   hosted.)_
+   _Never take the migration state from prose — this file's included, which
+   said something false about `0012` for weeks. Run `pnpm db:status` against
+   the target and read what it reports; it is read-only and safe against
+   production. See [PROJECT-STATUS §3.1](../PROJECT-STATUS.md) for why
+   content hash, and never row count, is the authority._
 2. Seed reference data if the project is new (`pnpm seed` with the hosted URL:
    airports, cutoffs, pricing rule).
 3. Set per-app env per the [README matrix](../README.md), including the
@@ -855,4 +886,5 @@ pins are asserted in a test so a refactor cannot quietly break them.
 Open items before a real launch are tracked in
 [pre-launch-security.md](../apps/web/docs/pre-launch-security.md) and
 [PROJECT-STATUS.md](../PROJECT-STATUS.md) (notably: real AeroAPI/Maps/SMS
-integrations, and the Inngest jobs' side effects).
+integrations). The Inngest jobs' side effects **shipped** in the
+dispatch/email slice — every function in the table above does real work.

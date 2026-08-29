@@ -30,6 +30,7 @@ import type { CoreConfig } from "../config";
 import { NotAuthorizedError, NotFoundError, type Result } from "../errors";
 import { IllegalTransitionError } from "../booking/state-machine";
 import { canActOnBooking, type Session } from "../auth/types";
+import { emitExceptionRaised } from "../events/booking-events";
 import { FALLBACK_DISPLAY_TZ } from "./display-tz";
 
 /**
@@ -330,6 +331,43 @@ export interface ApplyTransitionInput {
   lng?: number | null;
   photoUrl?: string | null;
   metadata?: Record<string, unknown> | null;
+  /**
+   * Human-readable reason carried into the `booking/exception_raised` ops
+   * email. Only read when the transition lands on `exception`. Omitted →
+   * derived from `metadata.reason` (+ `note`/`detail`), which is what the
+   * existing call sites already write.
+   */
+  exceptionReason?: string;
+}
+
+/**
+ * The sentence ops reads in the alert email.
+ *
+ * Reads `metadata` rather than demanding a new argument at every call site:
+ * the agent-visit and payment-capture paths already put a `reason` there,
+ * and a path that puts nothing still produces something better than an empty
+ * body.
+ */
+function exceptionReasonFrom(input: ApplyTransitionInput): string {
+  const explicit = input.exceptionReason?.trim();
+  if (explicit) return explicit;
+
+  const metadata = input.metadata ?? {};
+  const text = (key: string): string | null => {
+    const value = metadata[key];
+    return typeof value === "string" && value.trim() ? value.trim() : null;
+  };
+
+  const reason = text("reason");
+  const detail = text("note") ?? text("detail");
+
+  // The admin console's manual override writes `note` and no `reason`
+  // (bookings/actions.ts). Falling through to the generic sentence there
+  // would throw away the one thing the operator actually typed.
+  if (!reason) {
+    return detail ?? `Booking moved to exception by ${input.event}.`;
+  }
+  return detail ? `${reason} — ${detail}` : reason;
 }
 
 /**
@@ -366,7 +404,7 @@ export async function applyTransition(
 
   const { from, to, custodyEvent } = attempted.value;
 
-  const updated = await db.transaction(async (tx) => {
+  const committed = await db.transaction(async (tx) => {
     const [row] = await tx
       .update(bookings)
       .set({ status: to })
@@ -375,11 +413,18 @@ export async function applyTransition(
 
     if (!row) return null;
 
-    await tx.insert(custodyEvents).values(custodyEvent);
-    return row;
+    // The custody event's id is the dedupe key for the emitted domain event:
+    // one row per raise, written in the same transaction as the status
+    // change, so the loser of a concurrent transition emits nothing.
+    const [event] = await tx
+      .insert(custodyEvents)
+      .values(custodyEvent)
+      .returning({ id: custodyEvents.id });
+
+    return { row, custodyEventId: event?.id ?? null };
   });
 
-  if (!updated) {
+  if (!committed) {
     // Someone else moved it between our read and our write.
     const current = await getBooking(db, input.bookingId);
     return {
@@ -388,7 +433,24 @@ export async function applyTransition(
     };
   }
 
-  return { ok: true, value: updated };
+  // AFTER the commit, and only when THIS call performed the move. `raise_exception`
+  // is legal from seven states and reached from three services; emitting here
+  // rather than at each call site is what makes an eighth path covered by
+  // construction. Never throws — see events/booking-events.ts.
+  if (to === "exception") {
+    await emitExceptionRaised(config.emitter, {
+      bookingId: input.bookingId,
+      reason: exceptionReasonFrom(input),
+      dedupeKey: committed.custodyEventId ?? `${input.event}:${Date.now()}`,
+      // Null actor is a system-raised exception (a job, a webhook) — omit
+      // rather than send null; the ops email renders "system".
+      ...(typeof input.actor?.userId === "string"
+        ? { raisedByUserId: input.actor.userId }
+        : {}),
+    });
+  }
+
+  return { ok: true, value: committed.row };
 }
 
 /** Transition guarded by a session's permissions. */

@@ -119,6 +119,7 @@ export default async function TripPage({
         title={`${booking.flightNumber} · ${booking.departureAirport}`}
         subtitle={
           <>
+            <span className="font-mono">{booking.ref}</span> ·{" "}
             {formatInstantInAirportTz(booking.departureAt, tz)} · {booking.bagCount}{" "}
             {booking.bagCount === 1 ? "bag" : "bags"} · {booking.paxName}
           </>

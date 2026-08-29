@@ -2,31 +2,25 @@ import "server-only";
 
 import { cron } from "inngest";
 import { captureDueBookings } from "@koolee/core";
-import {
-  cleanupAnonymousUsers,
-  createInngestClient,
-  createKooleeFunctions,
-} from "@koolee/core/jobs";
+import { cleanupAnonymousUsers, createKooleeFunctions } from "@koolee/core/jobs";
 
-import { env, optionalEnv } from "@/env";
+import { optionalEnv } from "@/env";
 import { getCore } from "@/lib/core";
+import { inngest } from "@/lib/inngest-client";
 import { deleteAuthUser } from "@/lib/supabase/admin";
 
 /**
- * Inngest wiring for apps/web.
+ * Inngest wiring for apps/web — the FUNCTION registry.
  *
- * The client is created at module scope (cheap, no I/O) but the functions
- * receive a `getConfig` thunk, so the database connection is only opened when a
- * run actually executes. Importing this module with no credentials must not
- * throw — the `/api/inngest` route is registered on every boot.
+ * The client itself lives in `lib/inngest-client.ts` so that `lib/core.ts`
+ * can build an emitter from it without importing this module (which imports
+ * `getCore` right back). Functions receive a `getConfig` thunk, so the
+ * database connection is only opened when a run actually executes. Importing
+ * this module with no credentials must not throw — the `/api/inngest` route
+ * is registered on every boot.
  */
 
-export const inngest = createInngestClient({
-  eventKey: optionalEnv("INNGEST_EVENT_KEY"),
-  // v4: the signing key lives on the client, not the serve() handler.
-  signingKey: optionalEnv("INNGEST_SIGNING_KEY"),
-  isDev: env.NODE_ENV !== "production",
-});
+export { inngest };
 
 /**
  * Abandoned-draft + anonymous-user GC. Lives here rather than in core because

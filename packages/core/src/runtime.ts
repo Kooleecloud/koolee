@@ -6,6 +6,8 @@ import {
   type CoreConfig,
   type CoreDefaults,
 } from "./config";
+import { createEventEmitter, type EventEmitterConfig } from "./events/factory";
+import type { EventEmitter } from "./events/emitter";
 import { createTicketExtractor, type TicketExtractorConfig } from "./extraction/factory";
 import { createNotifier, type NotifierConfig } from "./notifications/factory";
 import type { Notifier, OpsAlerter } from "./notifications/notifier";
@@ -39,6 +41,14 @@ export interface RuntimeOptions {
    */
   notifications?: NotifierConfig;
   notifier?: Notifier;
+  /**
+   * Declarative emitter selection for the credential-free choices. The real
+   * queue adapter needs an event key and a client, so apps pass it as an
+   * `emitter` instance instead — see events/emitter.ts. Omitted → noop.
+   * Ignored when an explicit `emitter` is given.
+   */
+  events?: EventEmitterConfig;
+  emitter?: EventEmitter;
   opsAlerter?: OpsAlerter;
   clock?: Clock;
   defaults?: Partial<CoreDefaults>;
@@ -66,6 +76,11 @@ export function createRuntime(options: RuntimeOptions): CoreConfig {
       ? { notifier: options.notifier }
       : options.notifications !== undefined
         ? { notifier: createNotifier(options.notifications) }
+        : {}),
+    ...(options.emitter !== undefined
+      ? { emitter: options.emitter }
+      : options.events !== undefined
+        ? { emitter: createEventEmitter(options.events) }
         : {}),
     ...(options.opsAlerter === undefined ? {} : { opsAlerter: options.opsAlerter }),
     ...(options.clock === undefined ? {} : { clock: options.clock }),

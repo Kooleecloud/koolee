@@ -3,6 +3,7 @@ import "server-only";
 import { createRuntime, tryCreateRuntime, type CoreConfig } from "@koolee/core";
 
 import { env } from "@/env";
+import { inngestEmitter } from "@/lib/event-emitter";
 
 /**
  * Builds the injected `CoreConfig` from this app's validated environment.
@@ -18,6 +19,10 @@ export function getCore(): CoreConfig {
   return createRuntime({
     databaseUrl: env.DATABASE_URL,
     payments: { kind: "fake", currency: "usd" },
+    // `reportVisitException` raises `booking/exception_raised` from inside
+    // core; this adapter is what turns it into an ops alert email. Without
+    // it, a field exception is silent outside the exceptions board.
+    emitter: inngestEmitter,
   });
 }
 
@@ -26,5 +31,6 @@ export function tryGetCore(): CoreConfig | null {
   return tryCreateRuntime({
     databaseUrl: env.DATABASE_URL,
     payments: { kind: "fake", currency: "usd" },
+    emitter: inngestEmitter,
   });
 }

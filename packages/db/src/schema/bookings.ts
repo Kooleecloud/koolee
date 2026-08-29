@@ -40,6 +40,26 @@ export const bookings = pgTable(
   "bookings",
   {
     id: primaryId(),
+    /**
+     * Human-quotable booking reference, `KOO-XXXXX`.
+     *
+     * The id a customer reads off an email to a support agent, and the one
+     * ops types into a search box. It exists because a UUID is not something
+     * a person can say out loud, and the two ad-hoc substitutes it replaces
+     * (`KL-` + last six hex in apps/web, bare last-six-hex in apps/admin)
+     * were DERIVED from the id — so the same booking had two different
+     * "references" depending on which console you were looking at.
+     *
+     * The five payload characters are Crockford base32, which drops `I`,
+     * `L`, `O` and `U`: no glyph pair a human can confuse survives, so a ref
+     * read over a phone transcribes back to the same row.
+     *
+     * DISPLAY AND SUPPORT ONLY. Nothing authenticates or authorizes on this
+     * value and no public route looks a booking up by it — 32^5 is ~33.5M,
+     * fine for uniqueness and hopeless as a secret. The trip page stays
+     * UUID-addressed.
+     */
+    ref: varchar("ref", { length: 9 }).notNull(),
     userId: uuid("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "restrict" }),
@@ -129,6 +149,10 @@ export const bookings = pgTable(
     updatedAt: updatedAt(),
   },
   (t) => [
+    // UNIQUE, not merely indexed: a collision would put two bookings behind
+    // one thing a human says out loud, and the generator's retry loop needs
+    // the database to be the arbiter rather than a racing SELECT.
+    uniqueIndex("bookings_ref_key").on(t.ref),
     index("bookings_user_id_idx").on(t.userId),
     index("bookings_status_idx").on(t.status),
     index("bookings_departure_at_idx").on(t.departureAt),

@@ -81,6 +81,9 @@ export default async function ExceptionsPage() {
               >
                 <span className="flex flex-col gap-1">
                   <span className="font-medium">
+                    {/* The ops alert email names the booking by its ref, so
+                        that is what has to be scannable on this board. */}
+                    <span className="font-mono">{booking.ref}</span> ·{" "}
                     {booking.flightNumber} · {booking.departureAirport}
                   </span>
                   <span className="text-sm text-muted-foreground">

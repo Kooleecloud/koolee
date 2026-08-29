@@ -1,5 +1,6 @@
 import type { Database } from "@koolee/db";
 
+import { NoopEmitter, type EventEmitter } from "./events/emitter";
 import {
   NoopDispatcher,
   type NotificationDispatcher,
@@ -78,6 +79,12 @@ export interface CoreConfig {
   /** Ticket-PDF extraction seam. Defaults to the free heuristic extractor. */
   ticketExtractor: TicketExtractor;
   notifier: Notifier;
+  /**
+   * Domain event emission (queue seam). Noop unless the app's runtime passes
+   * a real one — see packages/core/src/events/emitter.ts for why the adapter
+   * cannot live here.
+   */
+  emitter: EventEmitter;
   /** Custody-event customer notifications. Noop until the notifications work item. */
   dispatcher: NotificationDispatcher;
   opsAlerter: OpsAlerter;
@@ -90,6 +97,7 @@ export interface CoreConfigInput {
   payments: PaymentProvider;
   ticketExtractor?: TicketExtractor;
   notifier?: Notifier;
+  emitter?: EventEmitter;
   dispatcher?: NotificationDispatcher;
   opsAlerter?: OpsAlerter;
   clock?: Clock;
@@ -103,6 +111,7 @@ export function createCoreConfig(input: CoreConfigInput): CoreConfig {
     payments: input.payments,
     ticketExtractor: input.ticketExtractor ?? new HeuristicTicketExtractor(),
     notifier: input.notifier ?? new ConsoleNotifier(),
+    emitter: input.emitter ?? new NoopEmitter(),
     dispatcher: input.dispatcher ?? new NoopDispatcher(),
     opsAlerter: input.opsAlerter ?? new ConsoleOpsAlerter(),
     clock: input.clock ?? systemClock,

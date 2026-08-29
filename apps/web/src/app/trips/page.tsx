@@ -28,7 +28,6 @@ import {
 import { discardDraft } from "@/app/trips/actions";
 import { ConfirmActionForm } from "@/components/confirm-action-form";
 import { getAuthUser } from "@/lib/auth";
-import { bookingReference } from "@/lib/booking-reference";
 import { bookingDraftSchema, type TypedBookingDraft } from "@/lib/booking-draft-schema";
 import { BOOKING_STEPS, draftHasProgress, nextIncompleteStep } from "@/lib/booking-steps";
 import { tryGetCore } from "@/lib/core";
@@ -145,7 +144,7 @@ export default async function TripsPage() {
                       label="Total"
                       value={`$${(booking.priceCents / 100).toFixed(2)} ${booking.currency.toUpperCase()}`}
                     />
-                    <TripFact label="Reference" value={bookingReference(booking.id)} />
+                    <TripFact label="Reference" value={booking.ref} />
                   </dl>
                 </Link>
               </li>

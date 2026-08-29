@@ -32,6 +32,7 @@ import {
   captureDueBookings,
 } from "./payment-lifecycle";
 import { handlePaymentEvent } from "./webhooks";
+import { generateBookingRef } from "../booking/ref";
 
 /**
  * Phase 5 acceptance — the payment lifecycle, end to end over the
@@ -415,6 +416,7 @@ describeIntegration("payment lifecycle (integration)", () => {
     const [legacy] = await db
       .insert(bookings)
       .values({
+        ref: generateBookingRef(),
         userId,
         status: "paid",
         flightNumber: "DL123",

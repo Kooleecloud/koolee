@@ -26,6 +26,11 @@ import { OutOfCoverageError, SlotNotSellableError } from "../errors";
 import { FakePaymentProvider } from "../payments/fake";
 import { errorChainMessage, pgErrorCode } from "../test-utils/db-errors";
 import { createBooking } from "./create-booking";
+import {
+  BOOKING_REF_PATTERN,
+  generateBookingRef,
+  isBookingRefConflict,
+} from "../booking/ref";
 
 /**
  * Integration tests for the booking orchestrator against a real Postgres.
@@ -261,6 +266,44 @@ describeIntegration("createBooking (integration)", () => {
     expect(paymentRows).toHaveLength(1);
     expect(paymentRows[0]!.status).toBe("authorized");
     expect(paymentRows[0]!.provider).toBe("fake");
+  });
+
+  it("mints a well-formed, unique booking ref", async () => {
+    const first = await createBooking(config, input());
+    const second = await createBooking(config, input());
+
+    expect(first.booking.ref).toMatch(BOOKING_REF_PATTERN);
+    expect(second.booking.ref).toMatch(BOOKING_REF_PATTERN);
+    expect(first.booking.ref).not.toBe(second.booking.ref);
+
+    // Stored, not derived: the row carries it, and it is nothing like the id.
+    const [row] = await db
+      .select({ ref: bookings.ref })
+      .from(bookings)
+      .where(eq(bookings.id, first.booking.id));
+    expect(row?.ref).toBe(first.booking.ref);
+    expect(first.booking.id).not.toContain(first.booking.ref.slice(4));
+  });
+
+  it("the unique index is real — a duplicate ref cannot be inserted", async () => {
+    const { booking } = await createBooking(config, input());
+
+    await expect(
+      db.insert(bookings).values({
+        ref: booking.ref,
+        userId: booking.userId,
+        status: "draft",
+        flightNumber: "DL999",
+        airlineIata: "DL",
+        departureAirport: "JFK",
+        departureAt,
+        paxName: "Ref Collider",
+        pickupAddressId: booking.pickupAddressId,
+        bagCount: 1,
+        displayTz: "America/New_York",
+        priceCents: 1000,
+      }),
+    ).rejects.toSatisfy(isBookingRefConflict);
   });
 
   it("accepts two concurrent bookings of the same window — windows have no capacity", async () => {
@@ -509,6 +552,7 @@ describeIntegration("custody_events append-only trigger", () => {
     const [booking] = await db
       .insert(bookings)
       .values({
+        ref: generateBookingRef(),
         userId: user!.id,
         flightNumber: "DL1",
         airlineIata: "DL",
