@@ -1,3 +1,13 @@
+"use client";
+
+/*
+ * CLIENT COMPONENT: `useState` for the load-failure fallback. Server components render this
+ * directly (the staff table, the agent's visit screen, the customer's trip
+ * page), so without this directive they crash at RENDER time — which a
+ * `next build` does not catch, because every one of those routes is
+ * force-dynamic and is therefore never prerendered.
+ */
+
 import * as React from "react";
 import { cva, type VariantProps } from "class-variance-authority";
 import { User } from "lucide-react";

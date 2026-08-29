@@ -1,3 +1,11 @@
+"use client";
+
+/*
+ * CLIENT COMPONENT: `useMemo` for the parsed AST. Today the only caller is already a client
+ * component, so this never fired — but that made it a trap set for the first
+ * server component to render an agreement body. Same failure as `avatar.tsx`.
+ */
+
 import * as React from "react";
 
 import {

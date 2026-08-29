@@ -1,5 +1,6 @@
 "use server";
 
+import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import {
   attachEmail,
@@ -15,6 +16,15 @@ import { getAuthUser } from "@/lib/auth";
 import { tryGetCore } from "@/lib/core";
 import { deleteAuthUser } from "@/lib/supabase/admin";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
+
+/**
+ * Everything these actions mutate is rendered by `/dashboard/profile` —
+ * saved addresses included, since `/dashboard/addresses` is now a redirect
+ * onto it. Without this the action returns `ok`, the form says "saved", and
+ * the page keeps showing the old value out of the client Router Cache: the
+ * server component never re-ran. Matches what every admin action already does.
+ */
+const PROFILE_PATH = "/dashboard/profile";
 
 export interface ProfileActionState {
   error?: string;
@@ -97,6 +107,7 @@ export async function saveProfile(
       await attachEmail(core.db, { authUserId: authUser.id, email, verified: false });
     }
 
+    revalidatePath(PROFILE_PATH);
     return { ok: true };
   } catch (error) {
     if (error instanceof ConflictError) {
@@ -174,6 +185,8 @@ export async function resendEmailCode(): Promise<ProfileActionState> {
     return { error: "We couldn't send the code. Try again in a minute." };
   }
 
+  // No revalidate: a resend changes nothing the page renders. The pending
+  // email was already on screen before the button was pressed.
   return { ok: true };
 }
 
@@ -233,5 +246,6 @@ export async function confirmEmailCode(
     }
   }
 
+  revalidatePath(PROFILE_PATH);
   return { ok: true };
 }
