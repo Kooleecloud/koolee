@@ -62,8 +62,10 @@ describe("env — assertProductionSecurityConfig boot gate", () => {
     vi.stubEnv("OTP_LOG_HMAC_KEY", "f".repeat(64));
     vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "service-role-key");
     vi.stubEnv("NEXT_PUBLIC_TURNSTILE_SITE_KEY", "1x00000000000000000000BB");
-    // The transactional-email gate (§4.3b) is part of "complete" too.
+    // The transactional-email gate (§4.3b) is part of "complete" too — both
+    // halves of it: the sending key and the address alerts are sent TO.
     vi.stubEnv("RESEND_API_KEY", "re_test_key");
+    vi.stubEnv("OPS_ALERT_EMAIL", "ops@koolee.cloud");
   }
 
   it("boots when the production security config is complete", async () => {
@@ -83,6 +85,36 @@ describe("env — assertProductionSecurityConfig boot gate", () => {
     stubCompleteProdConfig();
     vi.stubEnv("RESEND_API_KEY", "");
     vi.stubEnv("NEXT_PUBLIC_LAUNCH_MODE", "coming_soon");
+    vi.resetModules();
+    await expect(import("./env")).resolves.toBeDefined();
+  });
+
+  /*
+   * OPS_ALERT_EMAIL, same shape as the key above. It fails SILENTLY when
+   * unset — the alert function logs a skip and returns — so a production
+   * deploy that forgets it loses every exception alert while looking healthy.
+   */
+  it("throws at import when OPS_ALERT_EMAIL is missing on a live prod boot", async () => {
+    stubCompleteProdConfig();
+    vi.stubEnv("OPS_ALERT_EMAIL", "");
+    vi.resetModules();
+    await expect(import("./env")).rejects.toThrow(/OPS_ALERT_EMAIL/);
+  });
+
+  it("boots without OPS_ALERT_EMAIL when the deploy is coming-soon", async () => {
+    stubCompleteProdConfig();
+    vi.stubEnv("OPS_ALERT_EMAIL", "");
+    vi.stubEnv("NEXT_PUBLIC_LAUNCH_MODE", "coming_soon");
+    vi.resetModules();
+    await expect(import("./env")).resolves.toBeDefined();
+  });
+
+  it("leaves OPS_ALERT_EMAIL optional outside production", async () => {
+    vi.stubEnv("NODE_ENV", "development");
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "https://example.supabase.co");
+    vi.stubEnv("DATABASE_URL", "postgres://localhost:6543/postgres");
+    vi.stubEnv("OTP_LOG_HMAC_KEY", "f".repeat(64));
+    vi.stubEnv("OPS_ALERT_EMAIL", "");
     vi.resetModules();
     await expect(import("./env")).resolves.toBeDefined();
   });

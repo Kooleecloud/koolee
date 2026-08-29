@@ -88,7 +88,11 @@ const schema = z.object({
   // credentials land with the notifications work item (NotificationDispatcher
   // in @koolee/core is the seam).
   RESEND_API_KEY: optionalString,
-  /** Ops inbox for `booking/exception_raised` alert emails. Unset → skip. */
+  /**
+   * Ops inbox for `booking/exception_raised` alert emails. Optional at parse
+   * time (dev sends nowhere), but REQUIRED by the production boot gate below —
+   * unset in prod means every alert is silently skipped.
+   */
   OPS_ALERT_EMAIL: optionalString,
   /**
    * RFC 5322 From for transactional email. The default is Resend's sandbox
@@ -299,30 +303,55 @@ if (typeof window === "undefined" && isProd && env.NEXT_PUBLIC_SUPABASE_URL && !
 }
 
 /*
- * Fail-closed production gate for transactional email: without a key the
- * notifier silently degrades to console, which in production means booking
- * confirmations vanish into a log nobody reads. Exemptions, each deliberate:
+ * Fail-closed production gate for transactional email. Both of these fail
+ * SILENTLY when unset, which is the whole reason they are checked at boot:
+ *
+ *  - RESEND_API_KEY — the notifier degrades to console, so booking
+ *    confirmations vanish into a log nobody reads;
+ *  - OPS_ALERT_EMAIL — `exceptionOpsAlertEmail` logs
+ *    "OPS_ALERT_EMAIL not configured; skipping exception email." and
+ *    returns, so every ops alert is dropped while the deploy looks healthy.
+ *    Now that core emits `booking/exception_raised` from ALL seven states
+ *    that can raise one, a production deploy missing this address loses the
+ *    entire alerting path rather than one webhook's worth of it.
+ *
+ * The runtime skip-and-log stays in place as defense in depth — this gate
+ * makes it unreachable in production, not redundant.
+ *
+ * Exemptions, each deliberate:
  *  - coming-soon deploys — no booking can complete, nothing sends;
  *  - no Supabase — the funnel is inert scaffold, same as the auth gate;
  *  - the build phase — `next build` runs with NODE_ENV=production on
  *    credential-less machines by design (zero-config-boot rule above); the
  *    assertion is about SERVING production, and the deployed server's boot
  *    still enforces it.
+ *
+ * Dev is untouched: both stay optional, and their absence is the normal
+ * zero-credentials local experience.
  */
 if (
   typeof window === "undefined" &&
   isProd &&
   process.env.NEXT_PHASE !== "phase-production-build" &&
   env.NEXT_PUBLIC_SUPABASE_URL &&
-  !isComingSoon() &&
-  !env.RESEND_API_KEY
+  !isComingSoon()
 ) {
-  throw new Error(
-    "RESEND_API_KEY is required in production: transactional email would " +
-      "silently degrade to console logging. Set the key (and RESEND_FROM " +
-      "once the sending domain is verified), or deploy with " +
-      "NEXT_PUBLIC_LAUNCH_MODE=coming_soon.",
-  );
+  if (!env.RESEND_API_KEY) {
+    throw new Error(
+      "RESEND_API_KEY is required in production: transactional email would " +
+        "silently degrade to console logging. Set the key (and RESEND_FROM " +
+        "once the sending domain is verified), or deploy with " +
+        "NEXT_PUBLIC_LAUNCH_MODE=coming_soon.",
+    );
+  }
+  if (!env.OPS_ALERT_EMAIL) {
+    throw new Error(
+      "OPS_ALERT_EMAIL is required in production: without it every " +
+        "booking/exception_raised alert is skipped with a log line and no " +
+        "one is paged when a booking hits the exception state. Set the ops " +
+        "inbox address, or deploy with NEXT_PUBLIC_LAUNCH_MODE=coming_soon.",
+    );
+  }
 }
 
 /* ------------------------------------------------------------------ */
