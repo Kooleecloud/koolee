@@ -3,10 +3,13 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import {
+  adminReassignPickup,
   applyTransitionForSession,
   assignAgentToBooking,
   autoAssignBooking,
+  ConflictError,
   EXCEPTION_RESOLUTIONS,
+  NotFoundError,
   resolveExceptionBooking,
   type BookingEvent,
 } from "@koolee/core";
@@ -205,4 +208,70 @@ export async function resolveException(
   revalidatePath("/bookings");
   revalidatePath("/exceptions");
   return { ok: "Resolved — the custody trail carries the reason." };
+}
+
+
+const reassignPickupSchema = z.object({
+  bookingId: z.uuid(),
+  shiftId: z.uuid(),
+  override: z.boolean(),
+});
+
+/**
+ * Move a pickup to a different driver's shift.
+ *
+ * The customer normally chooses; this is for when they cannot, or when the one
+ * they chose fell through. It runs the SAME transaction, lock and capacity
+ * recount as `selectDriver` — the two are the same operation with a different
+ * actor, and letting them drift into two concurrency stories is how a van ends
+ * up overloaded.
+ *
+ * The override waives the zone and capacity rules and is RECORDED on the
+ * custody event with the exact rule it waived, so a van that arrived overloaded
+ * traces back to a decision rather than to a bug.
+ */
+export async function reassignPickup(
+  _prev: DispatchActionState,
+  form: FormData,
+): Promise<DispatchActionState> {
+  const session = await getAdminSession();
+  if (!session) return { error: "Not signed in." };
+
+  const parsed = reassignPickupSchema.safeParse({
+    bookingId: String(form.get("bookingId") ?? ""),
+    shiftId: String(form.get("shiftId") ?? ""),
+    override: form.get("override") === "on",
+  });
+  if (!parsed.success) return { error: "Pick a driver who is on shift." };
+
+  let core;
+  try {
+    core = getCore();
+  } catch {
+    return { error: "Database not configured." };
+  }
+
+  try {
+    const result = await adminReassignPickup(core, {
+      bookingId: parsed.data.bookingId,
+      shiftId: parsed.data.shiftId,
+      adminUserId: session.userId,
+      override: parsed.data.override,
+    });
+    revalidatePath(`/bookings/${parsed.data.bookingId}`);
+    revalidatePath("/bookings");
+    revalidatePath("/shifts");
+    return {
+      ok:
+        result.overrode.length > 0
+          ? `Moved, overriding ${result.overrode.join(" and ")}. The override is on the custody trail.`
+          : "Moved to that driver.",
+    };
+  } catch (error) {
+    if (error instanceof ConflictError || error instanceof NotFoundError) {
+      return { error: error.message };
+    }
+    console.error("[dispatch] pickup reassignment failed", error);
+    return { error: "Couldn't move that pickup." };
+  }
 }

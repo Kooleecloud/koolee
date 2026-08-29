@@ -73,6 +73,7 @@ export default async function RootLayout({
             avatarUrl={avatarUrl}
             counts={{
               unassignedToday: dashboard?.unassignedToday ?? 0,
+              awaitingDriverToday: dashboard?.awaitingDriverToday ?? 0,
               exceptionsOpen: dashboard?.exceptionsOpen ?? 0,
             }}
             environmentLabel={isDev ? "local" : undefined}

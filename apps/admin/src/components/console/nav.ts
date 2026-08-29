@@ -1,10 +1,12 @@
 import {
   CalendarOff,
   ClipboardList,
+  Container,
   FileText,
   LayoutDashboard,
   MapPin,
   TriangleAlert,
+  Truck,
   Users,
   type LucideIcon,
 } from "lucide-react";
@@ -27,7 +29,10 @@ import {
  */
 
 /** Which live count, if any, rides on a nav item. Keys of `ConsoleBadgeCounts`. */
-export type ConsoleBadgeKey = "unassignedToday" | "exceptionsOpen";
+export type ConsoleBadgeKey =
+  | "unassignedToday"
+  | "awaitingDriverToday"
+  | "exceptionsOpen";
 
 export interface ConsoleNavItem {
   href: string;
@@ -53,6 +58,13 @@ export interface ConsoleNavGroup {
  */
 export interface ConsoleBadgeCounts {
   unassignedToday: number;
+  /**
+   * Sealed bookings with today's window and no driver on them. A SEPARATE
+   * count from `unassignedToday` — one needs an agent sent to a door, the
+   * other needs a van, and one badge meaning both would hide whichever is
+   * rarer.
+   */
+  awaitingDriverToday: number;
   exceptionsOpen: number;
 }
 
@@ -72,6 +84,13 @@ export const CONSOLE_NAV: readonly ConsoleNavGroup[] = [
         icon: ClipboardList,
         description: "The dispatch board, by pickup window",
         badge: "unassignedToday",
+      },
+      {
+        href: "/shifts",
+        label: "Shifts",
+        icon: Truck,
+        description: "Who is out driving, in what, with how many bags",
+        badge: "awaitingDriverToday",
       },
       {
         href: "/exceptions",
@@ -102,6 +121,12 @@ export const CONSOLE_NAV: readonly ConsoleNavGroup[] = [
         label: "Agreements",
         icon: FileText,
         description: "Versioned booking agreements",
+      },
+      {
+        href: "/trucks",
+        label: "Trucks",
+        icon: Container,
+        description: "The fleet and how many bags each one holds",
       },
       {
         href: "/staff",
