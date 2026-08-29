@@ -100,6 +100,12 @@ watermark), regenerate it with a newer timestamp — never edit journal rows
 
 ## 3. The `passport-photos` bucket
 
+> **Superseded in part by 0026.** Its size limit and accepted MIME types are no
+> longer unset: every bucket's configuration is now declared in
+> `packages/core/src/uploads/buckets.ts` and converged by migration. See
+> [storage-and-avatars.md](storage-and-avatars.md). The policy notes below
+> still stand.
+
 Migration 0022 creates it and 0023 fixes its policies, so on a Supabase project
 **applying the migrations is the whole step** — there is nothing to click. The
 bucket block is guarded on `to_regclass('storage.buckets')`, so it is a no-op on

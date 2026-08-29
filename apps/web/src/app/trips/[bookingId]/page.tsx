@@ -2,6 +2,7 @@ import { cache } from "react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import {
+  Avatar,
   BackLink,
   BookingStatusBadge,
   Card,
@@ -29,6 +30,7 @@ import {
   type TripAgreementView,
   type TripPassportView,
 } from "@/components/trip-action-needed";
+import { signAvatarUrlForViewer } from "@/lib/avatars";
 import { signBagPhotoUrls } from "@/lib/bag-photos";
 import { tryGetCore } from "@/lib/core";
 import { signPassportPhotoUrl } from "@/lib/passport-photos";
@@ -106,6 +108,14 @@ export default async function TripPage({
     tz,
     bagDropCutoffAt: cutoffAt,
   } = result;
+
+  // The agent's face, signed SERVICE-ROLE: the customer is not staff, so
+  // 0027's read policy refuses this under their own session — correctly, since
+  // the only reason they may see it is that core just resolved this agent as
+  // the one assigned to this booking.
+  const agentAvatarUrl = await signAvatarUrlForViewer(
+    assignedAgent?.avatarStoragePath ?? null,
+  );
 
   const isActive = !["completed", "cancelled"].includes(booking.status);
   // Only before the visit: once the agent has taken custody there is nothing
@@ -232,14 +242,22 @@ export default async function TripPage({
               <dt className="text-muted-foreground">Agent</dt>
               <dd className="mt-1 font-medium">
                 {assignedAgent ? (
-                  <>
-                    {/* Real space, not margin: without it the accessible/text
-                        content read "Leo· confirmed" (#51). */}
-                    {assignedAgent.givenName ?? "Assigned"}{" "}
-                    <span className="font-normal text-muted-foreground">
-                      {AGENT_STATUS_COPY[assignedAgent.taskStatus]}
+                  <span className="flex items-center gap-2">
+                    <Avatar
+                      size="sm"
+                      name={assignedAgent.givenName}
+                      src={agentAvatarUrl}
+                      alt=""
+                    />
+                    <span>
+                      {/* Real space, not margin: without it the accessible/text
+                          content read "Leo· confirmed" (#51). */}
+                      {assignedAgent.givenName ?? "Assigned"}{" "}
+                      <span className="font-normal text-muted-foreground">
+                        {AGENT_STATUS_COPY[assignedAgent.taskStatus]}
+                      </span>
                     </span>
-                  </>
+                  </span>
                 ) : (
                   <span className="font-normal text-muted-foreground">
                     Assigned closer to your window

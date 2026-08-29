@@ -1,8 +1,15 @@
 "use client";
 
 import * as React from "react";
+import { useRouter } from "next/navigation";
 import { LogOut } from "lucide-react";
+// Subpath, NOT the package barrel: the barrel reaches `runtime.ts` →
+// `@koolee/db` → the `postgres` driver, which cannot resolve `fs` in a
+// browser bundle. `@koolee/core/uploads` imports nothing.
+import { BUCKETS } from "@koolee/core/uploads";
 import {
+  Avatar,
+  AvatarUploader,
   Badge,
   Button,
   CheckboxField,
@@ -24,6 +31,8 @@ export interface ConsoleSettingsProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   email: string | null;
+  fullName: string | null;
+  avatarUrl: string | null;
   /**
    * `EnvStatus`, pre-rendered by the server layout. Null in production, where
    * the component renders nothing anyway — passing the element rather than
@@ -66,8 +75,11 @@ export function ConsoleSettings({
   open,
   onOpenChange,
   email,
+  fullName,
+  avatarUrl,
   diagnostics,
 }: ConsoleSettingsProps) {
+  const router = useRouter();
   const { preferences, update } = useConsolePreferences();
   const contentRef = React.useRef<HTMLDivElement>(null);
 
@@ -101,17 +113,24 @@ export function ConsoleSettings({
         <div className="flex flex-1 flex-col gap-6 overflow-y-auto p-5">
           <SettingsSection title="Account">
             <div className="flex items-center gap-3">
-              <span
-                aria-hidden="true"
-                className="inline-flex size-9 shrink-0 items-center justify-center rounded-full bg-navy-50 text-xs font-semibold text-navy-700"
-              >
-                {(email?.split("@")[0] ?? "??").slice(0, 2).toUpperCase()}
-              </span>
+              <Avatar size="md" name={fullName ?? email} src={avatarUrl} alt="" />
               <span className="min-w-0 flex-1 truncate text-sm font-medium">
-                {email ?? "Signed in"}
+                {fullName ?? email ?? "Signed in"}
               </span>
               <Badge>admin</Badge>
             </div>
+
+            {/* The console has no account route — this sheet IS the account
+                surface, so the picker lives here rather than behind one more
+                click to a page that would exist only to hold it. */}
+            <AvatarUploader
+              endpoint="/api/avatars"
+              currentUrl={avatarUrl}
+              name={fullName ?? email}
+              accept={BUCKETS.avatars.mimeTypes}
+              maxBytes={BUCKETS.avatars.maxUploadBytes}
+              onUploaded={() => router.refresh()}
+            />
             <form action={signOutStaff}>
               <Button type="submit" variant="outline" className="w-full">
                 <LogOut aria-hidden="true" />

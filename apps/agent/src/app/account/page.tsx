@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { LogOut } from "lucide-react";
 import {
+  Avatar,
   Badge,
   Button,
   Card,
@@ -11,9 +12,12 @@ import {
 } from "@koolee/ui";
 
 import { signOutStaff } from "@/actions/auth";
+import { signAvatarUrl } from "@/lib/avatars";
 import { EnvStatus } from "@/components/env-status";
 import { AgentMain } from "@/components/shell/agent-main";
 import { getAgentIdentity } from "@/lib/session";
+
+import { AvatarCard } from "./avatar-card";
 
 export const metadata = { title: "Account" };
 export const dynamic = "force-dynamic";
@@ -33,6 +37,11 @@ export default async function AccountPage() {
   const identity = await getAgentIdentity();
   if (!identity) redirect("/login");
 
+  // Staff read any folder under 0027's policy, so the agent's own session
+  // signs this — no service key exists in this app to fall back on.
+  const avatarUrl = await signAvatarUrl(identity.avatarStoragePath);
+  const displayName = identity.fullName ?? identity.email ?? null;
+
   return (
     <AgentMain>
       <header className="flex flex-col gap-1">
@@ -41,8 +50,11 @@ export default async function AccountPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center justify-between gap-3 text-base">
-            <span className="min-w-0 truncate">{identity.email ?? "Signed in"}</span>
+          <CardTitle className="flex items-center gap-3 text-base">
+            <Avatar size="sm" name={displayName} src={avatarUrl} alt="" />
+            <span className="min-w-0 flex-1 truncate">
+              {identity.fullName ?? identity.email ?? "Signed in"}
+            </span>
             <Badge variant="secondary">agent</Badge>
           </CardTitle>
           <CardDescription>
@@ -58,6 +70,8 @@ export default async function AccountPage() {
           </form>
         </CardContent>
       </Card>
+
+      <AvatarCard currentUrl={avatarUrl} name={displayName} />
 
       <Card>
         <CardHeader>

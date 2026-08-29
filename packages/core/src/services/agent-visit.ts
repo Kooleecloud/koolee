@@ -5,6 +5,7 @@ import {
   bookings,
   custodyEvents,
   payments,
+  users,
   verificationTasks,
   type Bag,
   type Booking,
@@ -103,6 +104,20 @@ export interface VisitContext {
    * in UTC, so a bare local format here put the agent 4–5 hours out.)
    */
   tz: string;
+  /**
+   * Who the agent is meeting.
+   *
+   * `booking.paxName` is the name on the TICKET, which is the name the seal
+   * and the airline care about. This is the account holder's own display name
+   * and face — what actually helps at a door, where the person answering has
+   * to be recognised before a passport comes out. Null if the row went
+   * missing; the screen degrades to the pax name and initials.
+   */
+  customer: {
+    fullName: string | null;
+    /** Key in the PRIVATE `avatars` bucket. Signed by whoever renders it. */
+    avatarStoragePath: string | null;
+  } | null;
   /** The two things that must both be true before any bag may be sealed. */
   identityGate: VisitIdentityGate;
 }
@@ -165,8 +180,16 @@ export async function getVisitContext(
   });
   if (!booking) throw new NotFoundError("Booking", task.bookingId);
 
-  const [bagRows, timeline, paymentRows, tz, agreement, passport, addressRows] =
-    await Promise.all([
+  const [
+    bagRows,
+    timeline,
+    paymentRows,
+    tz,
+    agreement,
+    passport,
+    addressRows,
+    customerRows,
+  ] = await Promise.all([
     // By ordinal, never createdAt — see the note on `bags.ordinal`. This is the
     // list the agent seals down, so a shuffling order was visible in the UI.
     db
@@ -208,6 +231,13 @@ export async function getVisitContext(
       .from(addresses)
       .where(eq(addresses.id, booking.pickupAddressId))
       .limit(1),
+    // Name and face only. The agent app has no business reading a customer's
+    // phone, email or verification timestamps off this join.
+    db
+      .select({ fullName: users.fullName, avatarStoragePath: users.avatarStoragePath })
+      .from(users)
+      .where(eq(users.id, booking.userId))
+      .limit(1),
   ]);
 
   return {
@@ -218,6 +248,7 @@ export async function getVisitContext(
     paymentStatus: paymentRows[0]?.status ?? null,
     address: addressRows[0] ?? null,
     tz,
+    customer: customerRows[0] ?? null,
     identityGate: buildIdentityGate(agreement, passport),
   };
 }

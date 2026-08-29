@@ -30,6 +30,14 @@ export {
 } from "./display-tz";
 
 export {
+  clearUserAvatar,
+  getUserAvatarPath,
+  listUserAvatarPaths,
+  setUserAvatar,
+  type SetUserAvatarInput,
+} from "./avatars";
+
+export {
   createAddressForSession,
   deleteAddressForSession,
   getAddressForSession,
@@ -192,12 +200,14 @@ export {
 export {
   createStaffMember,
   getActiveStaffRole,
+  getStaffIdentity,
   isStaffRole,
   listStaffMembers,
   requireStaffRole,
   setStaffMemberActive,
   STAFF_ROLES,
   type CreateStaffMemberInput,
+  type StaffIdentity,
   type StaffMemberWithIdentity,
   type StaffRole,
 } from "./staff";

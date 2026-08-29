@@ -24,6 +24,13 @@ export const users = pgTable(
     phone: varchar("phone", { length: 20 }),
     email: varchar("email", { length: 320 }),
     fullName: text("full_name"),
+    /**
+     * Object key in the PRIVATE `avatars` bucket — `<userId>/<uuid>.<ext>`,
+     * never a URL. Reads mint a short-lived signed URL; there is no public URL
+     * to anybody's face. Null until they upload one, which is the common case
+     * and the reason every surface needs an initials fallback.
+     */
+    avatarStoragePath: text("avatar_storage_path"),
     role: userRoleEnum("role").notNull().default("customer"),
     /** True for a guest funnel session (Supabase anonymous sign-in). */
     isAnonymous: boolean("is_anonymous").notNull().default(false),

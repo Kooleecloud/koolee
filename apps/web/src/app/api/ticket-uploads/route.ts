@@ -1,10 +1,5 @@
 import { NextResponse } from "next/server";
-import {
-  createTicketUpload,
-  MAX_TICKET_UPLOAD_BYTES,
-  setTicketUploadStatus,
-  TICKET_UPLOAD_MIME_TYPES,
-} from "@koolee/core";
+import { createTicketUpload, setTicketUploadStatus } from "@koolee/core";
 
 import { ensureDraftId, writeDraft } from "@/lib/booking-draft";
 import { ticketExtractionDebugEnabled, tryGetCore } from "@/lib/core";
@@ -26,6 +21,13 @@ export const runtime = "nodejs";
  * extracted values land ONLY in the quarantined `ticketPrefill` cookie key —
  * the flight review form's editable defaults. See
  * `@/lib/ticket-upload-handler` for the pipeline and its tests.
+ *
+ * The bucket itself is NOT created here any more. It used to be, lazily, on
+ * the first upload an environment ever received — which made a request path
+ * responsible for infrastructure and left the bucket's limits as the only ones
+ * in the product that were set at all. Migration 0026 owns every bucket now,
+ * so a fresh environment that has not migrated fails this upload loudly
+ * instead of quietly building itself something slightly different.
  *
  * With TICKET_EXTRACTION_DEBUG set, the response also carries the raw
  * extraction diagnostics so the upload page can show exactly what the model
@@ -58,18 +60,6 @@ export async function POST(request: Request) {
   }
 
   const storage: TicketUploadStorage = {
-    async ensureBucket() {
-      // PRIVATE bucket, idempotently. Reads happen via short-lived signed
-      // URLs only; there is no public URL to a customer's ticket.
-      const { error } = await admin.storage.createBucket(TICKET_BUCKET, {
-        public: false,
-        fileSizeLimit: MAX_TICKET_UPLOAD_BYTES,
-        allowedMimeTypes: [...TICKET_UPLOAD_MIME_TYPES],
-      });
-      if (error && !/already exists/i.test(error.message)) {
-        throw new Error(`createBucket: ${error.message}`);
-      }
-    },
     async upload(path, data, contentType) {
       const { error } = await admin.storage
         .from(TICKET_BUCKET)

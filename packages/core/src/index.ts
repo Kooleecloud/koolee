@@ -4,6 +4,7 @@ export * from "./runtime";
 
 export * from "./booking";
 export * from "./extraction";
+export * from "./uploads";
 export * from "./slots";
 export * from "./pricing";
 export * from "./payments";

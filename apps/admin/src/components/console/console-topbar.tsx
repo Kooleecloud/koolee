@@ -4,20 +4,28 @@ import * as React from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { ChevronRight, Menu, Search, Settings } from "lucide-react";
-import { cn, Input } from "@koolee/ui";
+import { Avatar, cn, Input } from "@koolee/ui";
 
 import { resolveConsoleRoute } from "./nav";
 
 export interface ConsoleTopbarProps {
   email: string | null;
+  fullName: string | null;
+  avatarUrl: string | null;
   /** Rendered only outside production, where knowing the target matters. */
   environmentLabel?: string;
   onOpenDrawer: () => void;
   onOpenSettings: () => void;
 }
 
-/** Two initials from an email local part — `ops@koolee.local` → `OP`. */
-function initialsFor(email: string | null): string {
+/**
+ * Two initials from an email local part — `ops@koolee.local` → `OP`.
+ *
+ * Kept for the email-only case. When a display name exists, `Avatar` derives
+ * initials from THAT instead, so the console and the staff table agree on what
+ * a person's two letters are.
+ */
+function emailInitialsFor(email: string | null): string {
   const local = email?.split("@")[0] ?? "";
   const parts = local.split(/[._-]+/).filter(Boolean);
   if (parts.length >= 2) return (parts[0]![0]! + parts[1]![0]!).toUpperCase();
@@ -34,6 +42,8 @@ function initialsFor(email: string | null): string {
  */
 export function ConsoleTopbar({
   email,
+  fullName,
+  avatarUrl,
   environmentLabel,
   onOpenDrawer,
   onOpenSettings,
@@ -136,24 +146,24 @@ export function ConsoleTopbar({
       {/* Identity, not a control — the gear beside it is the only way in, so
           there is one affordance for one destination. */}
       <div
-        title={email ?? undefined}
+        title={email ?? fullName ?? undefined}
         className="flex shrink-0 items-center gap-2 border-l border-border pl-3"
       >
-        <span
-          aria-hidden="true"
-          className="inline-flex size-8 items-center justify-center rounded-full bg-navy-50 text-xs font-semibold text-navy-700"
-        >
-          {initialsFor(email)}
-        </span>
+        <Avatar
+          size="sm"
+          name={fullName ?? emailInitialsFor(email)}
+          src={avatarUrl}
+          alt=""
+        />
         <span
           className={cn(
             "hidden max-w-44 truncate text-sm text-muted-foreground xl:inline",
-            !email && "xl:hidden",
+            !email && !fullName && "xl:hidden",
           )}
         >
-          {email}
+          {fullName ?? email}
         </span>
-        <span className="sr-only">Signed in as {email ?? "an admin"}</span>
+        <span className="sr-only">Signed in as {fullName ?? email ?? "an admin"}</span>
       </div>
     </header>
   );

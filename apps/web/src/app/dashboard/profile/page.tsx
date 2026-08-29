@@ -18,6 +18,7 @@ import {
 } from "@koolee/core";
 
 import { getAuthUser } from "@/lib/auth";
+import { signAvatarUrl } from "@/lib/avatars";
 import { tryGetCore } from "@/lib/core";
 import { customerSessionFromAuthUser } from "@/lib/session";
 
@@ -26,6 +27,7 @@ import {
   DeleteAddressButton,
   EditAddressForm,
 } from "../addresses/address-forms";
+import { AvatarCard } from "./avatar-card";
 import { ConfirmEmailForm } from "./confirm-email-form";
 import { ProfileForm } from "./profile-form";
 
@@ -96,6 +98,10 @@ export default async function ProfilePage() {
     }
   }
 
+  // Signed with the user's OWN session — 0027's read policy admits your own
+  // folder, so no service-role client is involved in showing you your face.
+  const avatarUrl = await signAvatarUrl(userRow?.avatarStoragePath ?? null);
+
   const phone = userRow?.phone ?? authUser.phone ?? "";
   const email = userRow?.email ?? authUser.email ?? "";
   const phoneVerified = Boolean(userRow?.phoneVerifiedAt);
@@ -107,6 +113,8 @@ export default async function ProfilePage() {
         title="Your profile"
         subtitle="Your contact details, how your name appears, and your saved pickup addresses."
       />
+
+      <AvatarCard currentUrl={avatarUrl} name={userRow?.fullName ?? (paxName || null)} />
 
       <ProfileForm
         defaults={{

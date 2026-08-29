@@ -17,7 +17,6 @@ const DRAFT_ID = "11111111-1111-4111-8111-111111111111";
 
 function makeDeps() {
   const calls = {
-    ensureBucket: 0,
     uploads: [] as Array<{ path: string; contentType: string; bytes: number }>,
     rows: [] as Array<Record<string, unknown>>,
     statuses: [] as Array<{ id: string; status: string }>,
@@ -27,9 +26,6 @@ function makeDeps() {
     draftId: DRAFT_ID,
     extractor,
     storage: {
-      async ensureBucket() {
-        calls.ensureBucket += 1;
-      },
       async upload(path, data, contentType) {
         calls.uploads.push({ path, contentType, bytes: data.byteLength });
       },
@@ -83,9 +79,6 @@ describe("handleTicketUpload", () => {
     const outcome = await handleTicketUpload(deps, pdfFile());
 
     expect(outcome.ok).toBe(true);
-    // Bucket is ensured (private — asserted by the storage impl contract)
-    // before the object is written under tickets/<draftId>/.
-    expect(calls.ensureBucket).toBe(1);
     expect(calls.uploads).toHaveLength(1);
     expect(calls.uploads[0]!.path).toMatch(
       new RegExp(`^tickets/${DRAFT_ID}/[0-9a-f-]{36}\\.pdf$`),

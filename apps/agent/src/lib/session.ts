@@ -1,7 +1,12 @@
 import "server-only";
 
 import { cache } from "react";
-import { NotAuthorizedError, requireStaffRole, type AgentSession } from "@koolee/core";
+import {
+  getStaffIdentity,
+  NotAuthorizedError,
+  requireStaffRole,
+  type AgentSession,
+} from "@koolee/core";
 
 import { tryGetCore } from "@/lib/core";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
@@ -27,6 +32,10 @@ export interface AgentIdentity {
    * email invite.
    */
   email: string | null;
+  /** Display name from `public.users`, null until an admin sets one. */
+  fullName: string | null;
+  /** Key in the PRIVATE `avatars` bucket, or null. Signed where it renders. */
+  avatarStoragePath: string | null;
 }
 
 /**
@@ -51,9 +60,16 @@ const loadAgentIdentity = cache(async (): Promise<AgentIdentity> => {
   if (!core) throw new NotAuthorizedError("Database is not configured.");
 
   await requireStaffRole(core.db, user.id, ["agent"]);
+
+  // One more read on a request that already does two, and it is the read that
+  // lets every agent surface show a name and a face instead of an email.
+  const identity = await getStaffIdentity(core.db, user.id).catch(() => null);
+
   return {
     session: { kind: "agent", role: "agent", userId: user.id },
-    email: user.email ?? null,
+    email: user.email ?? identity?.email ?? null,
+    fullName: identity?.fullName ?? null,
+    avatarStoragePath: identity?.avatarStoragePath ?? null,
   };
 });
 

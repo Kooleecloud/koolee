@@ -1,7 +1,12 @@
 import "server-only";
 
 import { cache } from "react";
-import { NotAuthorizedError, requireStaffRole, type AdminSession } from "@koolee/core";
+import {
+  getStaffIdentity,
+  NotAuthorizedError,
+  requireStaffRole,
+  type AdminSession,
+} from "@koolee/core";
 
 import { tryGetCore } from "@/lib/core";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
@@ -15,6 +20,10 @@ export interface AdminIdentity {
    * are acting as — every override is written under this user's id.
    */
   email: string | null;
+  /** Display name from `public.users`, null until somebody sets one. */
+  fullName: string | null;
+  /** Key in the PRIVATE `avatars` bucket, or null. Signed where it renders. */
+  avatarStoragePath: string | null;
 }
 
 /**
@@ -40,9 +49,16 @@ const loadAdminIdentity = cache(async (): Promise<AdminIdentity> => {
   if (!core) throw new NotAuthorizedError("Database is not configured.");
 
   await requireStaffRole(core.db, user.id, ["admin"]);
+
+  // Cheap on a request that already does two round-trips, and it is what lets
+  // the chrome show a person instead of an email local-part.
+  const identity = await getStaffIdentity(core.db, user.id).catch(() => null);
+
   return {
     session: { kind: "admin", role: "admin", userId: user.id },
-    email: user.email ?? null,
+    email: user.email ?? identity?.email ?? null,
+    fullName: identity?.fullName ?? null,
+    avatarStoragePath: identity?.avatarStoragePath ?? null,
   };
 });
 
