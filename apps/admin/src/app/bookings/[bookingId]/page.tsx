@@ -18,6 +18,8 @@ import {
   availableEvents,
   dstTransitionNote,
   EVENT_TYPES,
+  getBookingAgreementState,
+  getPassportVerification,
   formatInstantInAirportTz,
   formatWindowInAirportTz,
   getBookingAssignment,
@@ -33,7 +35,11 @@ import { getAdminSession } from "@/lib/session";
 import { getSupabaseAdminClient } from "@/lib/supabase/admin";
 
 import { CustodyTrail } from "./custody-trail";
-import { AssignAgentForm, AutoAssignButton, ResolveExceptionForm } from "./dispatch-forms";
+import {
+  AssignAgentForm,
+  AutoAssignButton,
+  ResolveExceptionForm,
+} from "./dispatch-forms";
 
 export const dynamic = "force-dynamic";
 
@@ -106,6 +112,14 @@ export default async function BookingDetailPage({
     ...timeline.map((event) => event.photoUrl).filter((p): p is string => Boolean(p)),
   ];
   const signedUrls = await signPhotoUrls([...new Set(photoPaths)]);
+
+  // The identity gate's two halves, read for display only. Ops cannot satisfy
+  // either of them from here by design: the acceptance is the customer's act,
+  // and the passport confirmation is the assigned agent's.
+  const [agreementState, passportRow] = await Promise.all([
+    getBookingAgreementState(core.db, booking.id, new Date()),
+    getPassportVerification(core.db, booking.id),
+  ]);
 
   const legal = availableEvents(booking.status);
 
@@ -372,6 +386,77 @@ export default async function BookingDetailPage({
             )}
           </CardContent>
         </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Identity gate</CardTitle>
+            <CardDescription>
+              Both must hold before an agent can seal a bag. There is no override — a
+              blocked agent files an exception.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-3 text-sm">
+            <div className="flex flex-col gap-1 rounded-lg border px-3 py-2">
+              <span className="flex items-center justify-between gap-3">
+                <span className="font-medium">Booking agreement</span>
+                {agreementState.accepted ? (
+                  <Badge variant="success">accepted</Badge>
+                ) : (
+                  <Badge variant="warning">outstanding</Badge>
+                )}
+              </span>
+              <span className="text-xs text-muted-foreground">
+                {agreementState.accepted && agreementState.acceptance ? (
+                  <>
+                    v{agreementState.currentVersion?.version} ·{" "}
+                    {formatInstantInAirportTz(agreementState.acceptance.acceptedAt, tz)}
+                  </>
+                ) : agreementState.currentVersion === null ? (
+                  "No agreement is published — every visit is blocked until one is."
+                ) : agreementState.supersededAcceptance ? (
+                  <>
+                    Accepted an earlier version; v{agreementState.currentVersion.version}{" "}
+                    needs re-accepting on the customer&apos;s trip page.
+                  </>
+                ) : (
+                  <>
+                    v{agreementState.currentVersion.version} not yet accepted. Only the
+                    customer can do this, from their trip page.
+                  </>
+                )}
+              </span>
+            </div>
+
+            <div className="flex flex-col gap-1 rounded-lg border px-3 py-2">
+              <span className="flex items-center justify-between gap-3">
+                <span className="font-medium">Passport</span>
+                <Badge
+                  variant={
+                    passportRow?.status === "agent_confirmed"
+                      ? "success"
+                      : passportRow?.status === "failed"
+                        ? "warning"
+                        : "secondary"
+                  }
+                >
+                  {passportRow?.status ?? "pending"}
+                </Badge>
+              </span>
+              <span className="text-xs text-muted-foreground">
+                {passportRow?.confirmedAt
+                  ? `Confirmed ${formatInstantInAirportTz(passportRow.confirmedAt, tz)}`
+                  : passportRow?.uploadedAt
+                    ? `Photo on file since ${formatInstantInAirportTz(passportRow.uploadedAt, tz)} — the agent still confirms at the door.`
+                    : "Nothing uploaded. The agent photographs and confirms at the door."}
+              </span>
+              {/* The photo is NOT rendered here, deliberately. Ops has no
+                  reason to look at a customer's passport: the check is the
+                  agent's, at the door, against the person. Least privilege —
+                  every surface that can display it is a surface that can leak
+                  it, and this one earns nothing by having it. The storage path
+                  is in the custody trail if an investigation ever needs it. */}
+            </div>
+          </CardContent>
+        </Card>
       </div>
 
       <div className="grid items-start gap-6 lg:grid-cols-[2fr_3fr]">
@@ -398,9 +483,8 @@ export default async function BookingDetailPage({
             <CardTitle className="text-base">Custody trail</CardTitle>
             <CardDescription>
               Append-only. {timeline.length} event{timeline.length === 1 ? "" : "s"} —
-              actor, timestamp, and evidence for every hand-off. Each line is a
-              summary of the stored row; expand <strong>Raw data</strong> for the
-              record itself.
+              actor, timestamp, and evidence for every hand-off. Each line is a summary of
+              the stored row; expand <strong>Raw data</strong> for the record itself.
             </CardDescription>
           </CardHeader>
           <CardContent>

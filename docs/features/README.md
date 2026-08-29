@@ -8,14 +8,15 @@
 
 ## The features
 
-| Doc                                                    | Covers                                                                                   | Lifecycle phase                 |
-| ------------------------------------------------------ | ---------------------------------------------------------------------------------------- | ------------------------------- |
-| [booking-funnel.md](booking-funnel.md)                 | Marketing site, the 4-step funnel, drafts, coverage, virtual windows, pricing            | `draft`                         |
-| [auth.md](auth.md)                                     | Customer phone/email OTP, anonymous drafts, the upgrade guard, staff invite-only sign-in | cross-cutting                   |
-| [payments.md](payments.md)                             | Intents, authorization, deferred capture, refunds, webhooks                              | `paid` → capture                |
-| [agent-visit.md](agent-visit.md)                       | Field PWA: task list, arrival, identity check, bag sealing, transit                      | `agent_assigned` → `in_transit` |
-| [ops-console.md](ops-console.md)                       | Dispatch board, assignment, exceptions, blackouts, staff, zones                          | oversight                       |
-| [jobs-and-notifications.md](jobs-and-notifications.md) | Inngest jobs, cron routes, the notification seam                                         | background                      |
+| Doc                                                      | Covers                                                                                   | Lifecycle phase                 |
+| -------------------------------------------------------- | ---------------------------------------------------------------------------------------- | ------------------------------- |
+| [booking-funnel.md](booking-funnel.md)                   | Marketing site, the 4-step funnel, drafts, coverage, virtual windows, pricing            | `draft`                         |
+| [auth.md](auth.md)                                       | Customer phone/email OTP, anonymous drafts, the upgrade guard, staff invite-only sign-in | cross-cutting                   |
+| [payments.md](payments.md)                               | Intents, authorization, deferred capture, refunds, webhooks                              | `paid` → capture                |
+| [agent-visit.md](agent-visit.md)                         | Field PWA: task list, arrival, identity check, bag sealing, transit                      | `agent_assigned` → `in_transit` |
+| [agreements-and-passport.md](agreements-and-passport.md) | Versioned booking agreements, manual passport verification, the visit identity gate      | `paid` → `verified_sealed`      |
+| [ops-console.md](ops-console.md)                         | Dispatch board, assignment, exceptions, blackouts, staff, zones                          | oversight                       |
+| [jobs-and-notifications.md](jobs-and-notifications.md)   | Inngest jobs, cron routes, the notification seam                                         | background                      |
 
 ## The spine
 

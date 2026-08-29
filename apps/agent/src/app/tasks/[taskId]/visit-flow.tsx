@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { useActionState } from "react";
+import { useRouter } from "next/navigation";
 import {
   Badge,
   Button,
@@ -18,22 +19,28 @@ import {
   usePreservedFormValues,
 } from "@koolee/ui";
 
-import { downscalePhoto } from "@/lib/photo";
+import { downscalePhoto } from "@koolee/ui/lib/photo";
 
 import {
   arriveAction,
+  capturePassportAction,
   completeVisitAction,
+  confirmPassportAction,
   reportExceptionAction,
   sealBagAction,
-  verifyIdentityAction,
   type VisitActionState,
 } from "./actions";
 
 /**
  * The guided verification visit. Screen order (a deliberate design call —
- * logged in RUN-REPORT.md): arrive → ID check → per-bag seal loop →
+ * logged in RUN-REPORT.md): arrive → identity gate → per-bag seal loop →
  * completion. Every submit hits a server action that appends the custody
- * event; this component only renders progress derived from the timeline.
+ * event; this component only renders progress derived from server state.
+ *
+ * The seal steps render only once `identityPassed` is true, but that is
+ * CONVENIENCE, not enforcement: core refuses `recordBagSealed` and
+ * `completeVerificationVisit` while the gate is shut, because a server action
+ * stays reachable as a POST whatever this file chooses to render.
  *
  * GPS: captured best-effort from the browser at mount and attached to every
  * step as hidden fields. Denied/unavailable geolocation degrades to null —
@@ -49,12 +56,31 @@ export interface VisitBagView {
   photoCount: number;
 }
 
+export interface VisitAgreementView {
+  accepted: boolean;
+  /** Null only when no agreement has ever been published. */
+  version: number | null;
+  /** Preformatted in the BOOKING's zone, never the device's. */
+  acceptedAtLabel: string | null;
+  /** Accepted an earlier version; the terms have changed since. */
+  superseded: boolean;
+}
+
+export interface VisitPassportView {
+  status: "pending" | "customer_uploaded" | "agent_confirmed" | "failed";
+  /** Short-TTL signed URL, minted server-side. Null when there is no photo. */
+  photoUrl: string | null;
+}
+
 export interface VisitView {
   taskId: string;
   paxName: string;
   bookingStatus: string;
   arrived: boolean;
-  identityVerified: boolean;
+  /** Both halves of the identity gate hold. Sealing is locked until they do. */
+  identityPassed: boolean;
+  agreement: VisitAgreementView;
+  passport: VisitPassportView;
   bags: VisitBagView[];
   done: boolean;
   exception: boolean;
@@ -187,7 +213,7 @@ export function VisitFlow({ view }: { view: VisitView }) {
     <div className="flex flex-col gap-4">
       <ArriveStep view={view} coords={coords} />
       {view.arrived && <IdentityStep view={view} coords={coords} />}
-      {view.arrived && view.identityVerified && (
+      {view.arrived && view.identityPassed && (
         <>
           {view.bags.map((bag) => (
             <BagStep key={bag.id} view={view} bag={bag} coords={coords} />
@@ -240,6 +266,17 @@ function ArriveStep({
   );
 }
 
+/**
+ * Step 2 — the identity gate.
+ *
+ * Two halves, and the agent can only act on one of them. The customer's
+ * agreement acceptance happens on the customer's own trip page (that is what
+ * makes it an acceptance), so this panel can only report it and offer a
+ * refresh. There is NO agent-side override: an override button's only use is
+ * to bypass the control this step exists to be, and it would be pressed at 6am
+ * by someone who just wants to finish the job. The way past a stuck gate is to
+ * flag a problem, which raises the booking and reaches ops by email.
+ */
 function IdentityStep({
   view,
   coords,
@@ -247,35 +284,180 @@ function IdentityStep({
   view: VisitView;
   coords: { lat: number; lng: number } | null;
 }) {
-  const [state, formAction, pending] = useActionState<VisitActionState, FormData>(
-    verifyIdentityAction,
-    {},
+  const router = useRouter();
+  const [confirmState, confirmAction, confirming] = useActionState<
+    VisitActionState,
+    FormData
+  >(confirmPassportAction, {});
+  const [captureState, captureFormAction, capturing] = useActionState<
+    VisitActionState,
+    FormData
+  >(capturePassportAction, {});
+
+  // Shrink before the capture becomes a Server Action body — an untouched
+  // phone photo blows the 1 MB limit and 413s before the action runs.
+  const [shrinking, setShrinking] = React.useState(false);
+  const submitCapture = React.useCallback(
+    async (form: FormData) => {
+      const photo = form.get("passport");
+      if (photo instanceof File && photo.size > 0) {
+        setShrinking(true);
+        try {
+          form.set("passport", await downscalePhoto(photo));
+        } finally {
+          setShrinking(false);
+        }
+      }
+      // `<form action={asyncFn}>` opens a transition, but awaiting the
+      // downscale leaves it — dispatching a `useActionState` action from
+      // outside one is a React error and leaves `pending` stuck false. Re-open
+      // it explicitly around the dispatch.
+      React.startTransition(() => captureFormAction(form));
+    },
+    [captureFormAction],
   );
+
+  const confirmed = view.passport.status === "agent_confirmed";
 
   return (
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center justify-between gap-3 text-base">
-          <span>2 · Photo-ID check</span>
-          <StepBadge done={view.identityVerified} label="next" />
+          <span>2 · Identity</span>
+          <StepBadge done={view.identityPassed} label="next" />
         </CardTitle>
         <CardDescription>
-          The name on the ID must match the ticket: <strong>{view.paxName}</strong>. If
-          it doesn&apos;t, don&apos;t continue — flag a problem below.
+          The passport must belong to the traveler on the ticket:{" "}
+          <strong>{view.paxName}</strong>. If it doesn&apos;t, don&apos;t continue — flag
+          a problem below.
         </CardDescription>
       </CardHeader>
-      {!view.identityVerified && (
-        <CardContent>
-          <form action={formAction} className="flex flex-col gap-3">
-            <input type="hidden" name="taskId" value={view.taskId} />
-            <GpsFields coords={coords} />
-            {state.error && <FormMessage>{state.error}</FormMessage>}
-            <Button type="submit" loading={pending}>
-              ID matches the ticket
-            </Button>
-          </form>
-        </CardContent>
-      )}
+
+      <CardContent className="flex flex-col gap-4">
+        {/* --- half 1: the customer's agreement ------------------------- */}
+        <div className="flex flex-col gap-2 rounded-lg border border-border p-3">
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-sm font-medium">Booking agreement</span>
+            {view.agreement.accepted ? (
+              <Badge variant="success">accepted</Badge>
+            ) : (
+              <Badge variant="warning">not accepted</Badge>
+            )}
+          </div>
+          {view.agreement.accepted ? (
+            <p className="text-xs text-muted-foreground">
+              Version {view.agreement.version}
+              {view.agreement.acceptedAtLabel
+                ? ` · accepted ${view.agreement.acceptedAtLabel}`
+                : ""}
+            </p>
+          ) : (
+            <>
+              <p className="text-xs text-muted-foreground">
+                {view.agreement.version === null
+                  ? "No agreement is published — call ops, this booking can't proceed."
+                  : view.agreement.superseded
+                    ? "Our agreement changed since they accepted. Ask the customer to open their trip page and accept the new version."
+                    : "Ask the customer to open their trip page and accept the agreement. You can't do this for them."}
+              </p>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="self-start"
+                onClick={() => router.refresh()}
+              >
+                Check again
+              </Button>
+            </>
+          )}
+        </div>
+
+        {/* --- half 2: the passport ------------------------------------- */}
+        <div className="flex flex-col gap-3 rounded-lg border border-border p-3">
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-sm font-medium">Passport</span>
+            {confirmed ? (
+              <Badge variant="success">confirmed</Badge>
+            ) : view.passport.photoUrl ? (
+              <Badge variant="secondary">photo on file</Badge>
+            ) : (
+              <Badge variant="warning">not checked</Badge>
+            )}
+          </div>
+
+          {view.passport.photoUrl && (
+            <div className="flex items-center gap-3">
+              <ImageLightbox
+                src={view.passport.photoUrl}
+                alt="The traveler's passport page"
+                title="Passport"
+                description="Check this against the document and the person in front of you."
+                className="h-24 w-24"
+              />
+              <p className="text-xs text-muted-foreground">
+                Tap to enlarge. Compare it to the document in the traveler&apos;s hand — a
+                photo on file is not a check.
+              </p>
+            </div>
+          )}
+
+          {!confirmed && (
+            <>
+              {/* Capture is optional even here: the agent may simply look at
+                  the document. What is not optional is pressing confirm. */}
+              <form
+                action={submitCapture}
+                className="flex flex-col gap-2 border-t border-border pt-3"
+              >
+                <input type="hidden" name="taskId" value={view.taskId} />
+                <Label htmlFor="passport-photo">
+                  {view.passport.photoUrl
+                    ? "Replace the photo (optional)"
+                    : "Photograph the passport page (optional)"}
+                </Label>
+                <Input
+                  id="passport-photo"
+                  name="passport"
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  capture="environment"
+                />
+                {captureState.error && <FormMessage>{captureState.error}</FormMessage>}
+                <Button
+                  type="submit"
+                  variant="outline"
+                  size="sm"
+                  className="self-start"
+                  loading={capturing || shrinking}
+                >
+                  Save photo
+                </Button>
+              </form>
+
+              <form
+                action={confirmAction}
+                className="flex flex-col gap-2 border-t border-border pt-3"
+              >
+                <input type="hidden" name="taskId" value={view.taskId} />
+                <GpsFields coords={coords} />
+                {confirmState.error && <FormMessage>{confirmState.error}</FormMessage>}
+                <Button type="submit" loading={confirming}>
+                  Confirm passport matches the traveler
+                </Button>
+              </form>
+            </>
+          )}
+        </div>
+
+        {!view.identityPassed && view.agreement.accepted && confirmed && (
+          // Defensive: the two halves say yes but the server-computed gate
+          // says no. Never silently show the seal steps in that case.
+          <FormMessage variant="info">
+            Refresh — something changed while you were on this screen.
+          </FormMessage>
+        )}
+      </CardContent>
     </Card>
   );
 }
@@ -308,7 +490,9 @@ function BagStep({
           setShrinking(false);
         }
       }
-      formAction(form);
+      // Same transition re-entry as the passport capture above — see the note
+      // there. Without it React errors and `pending` never flips.
+      React.startTransition(() => formAction(form));
     },
     [formAction],
   );
@@ -411,11 +595,10 @@ function CompleteStep({
         <CardDescription>
           {/* Braces around the space: JSX drops whitespace at a line break,
               which rendered this as "0/2bags sealed". */}
-          {sealedCount}/{view.bags.length}{" "}
-          bags sealed. Completing records the
-          hand-off — from here the bags are in Koolee&apos;s custody until the
-          airline&apos;s bag drop. Billing is handled by ops; nothing about the
-          customer&apos;s card happens on this device.
+          {sealedCount}/{view.bags.length} bags sealed. Completing records the hand-off —
+          from here the bags are in Koolee&apos;s custody until the airline&apos;s bag
+          drop. Billing is handled by ops; nothing about the customer&apos;s card happens
+          on this device.
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -459,8 +642,8 @@ function ExceptionStep({
       <CardHeader>
         <CardTitle className="text-base">Flag a problem</CardTitle>
         <CardDescription>
-          This stops the visit and hands the booking to ops. It can&apos;t be undone
-          from here.
+          This stops the visit and hands the booking to ops. It can&apos;t be undone from
+          here.
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -476,7 +659,9 @@ function ExceptionStep({
             <Label htmlFor="reason">What happened?</Label>
             <Select id="reason" name="reason" required defaultValue="customer_not_home">
               <option value="customer_not_home">Customer not home</option>
-              <option value="customer_id_mismatch">ID doesn&apos;t match the ticket</option>
+              <option value="customer_id_mismatch">
+                ID doesn&apos;t match the ticket
+              </option>
               <option value="bags_refused">Bags can&apos;t be accepted</option>
               <option value="unsafe_conditions">Unsafe conditions</option>
               <option value="other">Something else</option>
@@ -484,7 +669,12 @@ function ExceptionStep({
           </div>
           <div className="grid gap-2">
             <Label htmlFor="note">Details</Label>
-            <Input id="note" name="note" maxLength={500} placeholder="what ops should know" />
+            <Input
+              id="note"
+              name="note"
+              maxLength={500}
+              placeholder="what ops should know"
+            />
           </div>
           {state.error && <FormMessage>{state.error}</FormMessage>}
           <div className="flex gap-2">

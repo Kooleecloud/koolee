@@ -32,7 +32,11 @@ function escapeHtml(value: string): string {
 }
 
 /** Shared shell: navy text on white, sky rule under the heading. */
-function layout(heading: string, bodyHtml: string, cta?: { label: string; url: string }): string {
+function layout(
+  heading: string,
+  bodyHtml: string,
+  cta?: { label: string; url: string },
+): string {
   const button = cta
     ? `<p style="margin:24px 0;"><a href="${escapeHtml(cta.url)}" ` +
       `style="background:${ORANGE};color:#ffffff;text-decoration:none;` +
@@ -101,10 +105,18 @@ export function buildBookingConfirmationEmail(
     ``,
     `We collect your ${bags} at your door, seal each one in front of you, and ` +
       `deliver them to your airline's bag drop. You travel to the airport hands-free.`,
+    ``,
+    `One thing to do: open your trip page and accept our booking agreement — your ` +
+      `agent can't collect your bags until you have. While you're there you can add ` +
+      `a photo of your passport page, which speeds up the check at your door; it's ` +
+      `optional, and your agent checks your passport either way.`,
     ...(input.tripUrl ? [``, `Track your trip: ${input.tripUrl}`] : []),
   ].join("\n");
 
-  const priceRows = [...input.priceLines, { label: "Total", amountCents: input.totalCents }]
+  const priceRows = [
+    ...input.priceLines,
+    { label: "Total", amountCents: input.totalCents },
+  ]
     .map(
       (l, i, all) =>
         `<tr><td style="padding:2px 12px 2px 0;${i === all.length - 1 ? "font-weight:600;" : ""}">` +
@@ -127,7 +139,11 @@ export function buildBookingConfirmationEmail(
       `</table>` +
       `<table style="border-collapse:collapse;margin:16px 0;">${priceRows}</table>` +
       `<p>We collect your ${escapeHtml(bags)} at your door, seal each one in front of you, and ` +
-      `deliver them to your airline's bag drop. You travel to the airport hands-free.</p>`,
+      `deliver them to your airline's bag drop. You travel to the airport hands-free.</p>` +
+      `<p><strong>One thing to do:</strong> open your trip page and accept our booking ` +
+      `agreement — your agent can't collect your bags until you have. While you're there ` +
+      `you can add a photo of your passport page, which speeds up the check at your door; ` +
+      `it's optional, and your agent checks your passport either way.</p>`,
     input.tripUrl ? { label: "Track your trip", url: input.tripUrl } : undefined,
   );
 
@@ -161,8 +177,11 @@ export function buildPickupReminderEmail(input: PickupReminderEmailInput): Email
     ``,
     `Booking reference: ${input.bookingRef}`,
     ``,
-    `Please have your ${bags} packed and your photo ID ready. We'll seal your ` +
+    `Please have your ${bags} packed and your passport ready. We'll seal your ` +
       `bags in front of you and deliver them to your airline's bag drop.`,
+    ``,
+    `If you haven't accepted our booking agreement yet, please do that on your trip ` +
+      `page — your agent can't collect your bags until you have.`,
     ...(input.tripUrl ? [``, `Track your trip: ${input.tripUrl}`] : []),
   ].join("\n");
 
@@ -171,8 +190,10 @@ export function buildPickupReminderEmail(input: PickupReminderEmailInput): Email
     `<p>Hi ${escapeHtml(input.paxName)},</p>` +
       `<p>Your Koolee pickup window is coming up: <strong>${escapeHtml(input.windowLabel)}</strong>.</p>` +
       `<p>Booking reference: <strong>${escapeHtml(input.bookingRef)}</strong></p>` +
-      `<p>Please have your ${escapeHtml(bags)} packed and your photo ID ready. We'll seal your ` +
-      `bags in front of you and deliver them to your airline's bag drop.</p>`,
+      `<p>Please have your ${escapeHtml(bags)} packed and your passport ready. We'll seal your ` +
+      `bags in front of you and deliver them to your airline's bag drop.</p>` +
+      `<p>If you haven't accepted our booking agreement yet, please do that on your trip ` +
+      `page — your agent can't collect your bags until you have.</p>`,
     input.tripUrl ? { label: "Track your trip", url: input.tripUrl } : undefined,
   );
 
@@ -242,12 +263,16 @@ export interface OpsExceptionEmailInput {
 
 /** Internal ops alert — plain and factual, no CTA (and therefore no orange). */
 export function buildOpsExceptionEmail(input: OpsExceptionEmailInput): EmailMessage {
-  const label = input.bookingRef ? `${input.bookingRef} (${input.bookingId})` : input.bookingId;
+  const label = input.bookingRef
+    ? `${input.bookingRef} (${input.bookingId})`
+    : input.bookingId;
   const body = [
     `Booking ${label} entered the exception state.`,
     ``,
     `Reason: ${input.reason}`,
-    ...(input.raisedByUserId ? [`Raised by: ${input.raisedByUserId}`] : [`Raised by: system`]),
+    ...(input.raisedByUserId
+      ? [`Raised by: ${input.raisedByUserId}`]
+      : [`Raised by: system`]),
     ``,
     `Resolve it from the admin console's exceptions queue.`,
   ].join("\n");

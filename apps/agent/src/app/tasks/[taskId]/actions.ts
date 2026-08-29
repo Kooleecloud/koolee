@@ -6,14 +6,17 @@ import {
   arriveAtVisit,
   completeVerificationVisit,
   ConflictError,
+  confirmVisitIdentity,
+  getVisitContext,
   NotFoundError,
+  recordAgentCapture,
   recordBagSealed,
-  recordIdentityVerified,
   reportVisitException,
   VISIT_EXCEPTION_REASONS,
 } from "@koolee/core";
 
 import { getCore } from "@/lib/core";
+import { uploadPassportPhoto } from "@/lib/passport-photos";
 import { requireAgentSession } from "@/lib/session";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
 
@@ -79,18 +82,83 @@ export async function arriveAction(
   }
 }
 
-export async function verifyIdentityAction(
+/** Photo constraints for the at-the-door passport capture. */
+const PASSPORT_PHOTO_MAX_BYTES = 4 * 1024 * 1024;
+const PASSPORT_PHOTO_TYPES: Record<string, string> = {
+  "image/jpeg": "jpg",
+  "image/png": "png",
+  "image/webp": "webp",
+};
+
+/**
+ * The agent photographs the passport at the door.
+ *
+ * Separate from confirmation on purpose: capture is evidence, confirmation is
+ * a judgement. Uploading a photo does NOT open the gate — a photo nobody
+ * looked at is not a check — so the agent still presses confirm after seeing
+ * the document and the person together.
+ *
+ * The upload runs as the signed-in agent over the anon key (this app holds no
+ * service key); migration 0022's storage policies gate it to active staff.
+ */
+export async function capturePassportAction(
+  _prev: VisitActionState,
+  form: FormData,
+): Promise<VisitActionState> {
+  const taskId = String(form.get("taskId") ?? "");
+  if (!taskId) return { error: "Reload the task and try again." };
+
+  const photo = form.get("passport");
+  if (!(photo instanceof File) || photo.size === 0) {
+    return { error: "Take a photo of the passport page first." };
+  }
+  if (photo.size > PASSPORT_PHOTO_MAX_BYTES) {
+    return { error: "That photo is too large — keep it under 4 MB." };
+  }
+  const extension = PASSPORT_PHOTO_TYPES[photo.type];
+  if (!extension) return { error: "Photos must be JPEG, PNG, or WebP." };
+
+  try {
+    const { session, core } = await context(taskId);
+    // Resolves assignment-scoped: an unassigned task 404s before we upload
+    // anything, so a stray object is never written for a task this agent
+    // cannot act on.
+    const visit = await getVisitContext(core.db, session, taskId);
+
+    const storagePath = await uploadPassportPhoto({
+      bookingId: visit.booking.id,
+      data: new Uint8Array(await photo.arrayBuffer()),
+      contentType: photo.type,
+      extension,
+    });
+    if (!storagePath) {
+      return { error: "Photo upload failed. Check your connection and try again." };
+    }
+
+    await recordAgentCapture(core, session, { taskId, storagePath });
+    revalidatePath(`/tasks/${taskId}`);
+    return { ok: true };
+  } catch (error) {
+    return fail(error, "Couldn't save the passport photo.");
+  }
+}
+
+/**
+ * Confirms the traveler's passport — the identity gate. Replaces the old
+ * self-attested "ID matches the ticket" checkbox; core no longer exposes it.
+ */
+export async function confirmPassportAction(
   _prev: VisitActionState,
   form: FormData,
 ): Promise<VisitActionState> {
   try {
     const taskId = String(form.get("taskId"));
     const { session, core } = await context(taskId);
-    await recordIdentityVerified(core, session, { taskId });
+    await confirmVisitIdentity(core, session, { taskId, ...gps(form) });
     revalidatePath(`/tasks/${taskId}`);
     return { ok: true };
   } catch (error) {
-    return fail(error, "Couldn't record the ID check.");
+    return fail(error, "Couldn't confirm the passport.");
   }
 }
 

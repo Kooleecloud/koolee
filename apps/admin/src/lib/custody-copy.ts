@@ -119,9 +119,16 @@ const HEADLINES: Record<string, string> = {
   "booking.agent_assigned": "Agent assigned to the verification visit and pickup run.",
   "booking.agent_reassigned": "Visit handed to a different agent.",
   "visit.arrived": "Agent arrived at the pickup address.",
+  // Superseded by the passport events below — kept because it is the only
+  // record of every visit performed before the agreement/passport slice.
   "visit.identity_verified": "Photo ID checked against the name on the ticket.",
+  "agreement.accepted": "Customer accepted the booking agreement.",
+  "passport.customer_uploaded": "Customer uploaded a passport photo.",
+  "passport.agent_captured": "Agent photographed the passport at the door.",
+  "passport.agent_confirmed": "Agent confirmed the passport matches the traveler.",
   "bag.sealed": "Bag sealed.",
-  "booking.verified_sealed": "Verification visit complete — bags sealed and in our custody.",
+  "booking.verified_sealed":
+    "Verification visit complete — bags sealed and in our custody.",
   "booking.awaiting_pickup": "Marked ready for the pickup run.",
   "booking.in_transit": "Bags collected — in transit to the airport.",
   "booking.delivered_to_bagdrop": "Bags handed to the airline bag drop.",

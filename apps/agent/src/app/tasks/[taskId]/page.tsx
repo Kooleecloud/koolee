@@ -25,6 +25,7 @@ import {
 } from "@koolee/core";
 
 import { tryGetCore } from "@/lib/core";
+import { signPassportPhotoUrl } from "@/lib/passport-photos";
 import { getAgentSession } from "@/lib/session";
 
 import { VisitFlow, type VisitView } from "./visit-flow";
@@ -104,14 +105,36 @@ export default async function TaskDetailPage({
     ? dstTransitionNote(task.scheduledStart, context.tz)
     : null;
 
+  const { identityGate: gate } = context;
+  // Signed here rather than in the client component: the URL is a bearer
+  // credential for a photo of somebody's passport and must not outlive the
+  // render. Minted as the signed-in agent over the anon key — the bucket's
+  // storage policy (0022) is what permits it, and only for active staff.
+  const passportPhotoUrl = gate.passport?.photoStoragePath
+    ? await signPassportPhotoUrl(gate.passport.photoStoragePath)
+    : null;
+
   const view: VisitView = {
     taskId: task.id,
     paxName: booking.paxName,
     bookingStatus: booking.status,
     arrived: timeline.some((e) => e.eventType === VISIT_EVENT_TYPES.arrived),
-    identityVerified: timeline.some(
-      (e) => e.eventType === VISIT_EVENT_TYPES.identityVerified,
-    ),
+    // The gate, not a checkbox the agent ticked. Both halves must hold before
+    // the sealing steps render — and core refuses them regardless of what
+    // this renders, which is the actual guarantee.
+    identityPassed: gate.passed,
+    agreement: {
+      accepted: gate.agreement.accepted,
+      version: gate.agreement.currentVersion?.version ?? null,
+      acceptedAtLabel: gate.agreement.acceptance
+        ? formatInstantInAirportTz(gate.agreement.acceptance.acceptedAt, context.tz)
+        : null,
+      superseded: gate.agreement.supersededAcceptance,
+    },
+    passport: {
+      status: gate.passport?.status ?? "pending",
+      photoUrl: passportPhotoUrl,
+    },
     bags: bags.map((bag) => ({
       id: bag.id,
       ordinal: bag.ordinal,

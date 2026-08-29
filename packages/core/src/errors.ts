@@ -109,15 +109,17 @@ export class NotFoundError extends CoreError {
 
 /**
  * A conflicting resource state: a unique identifier (phone, email) already
- * belonging to another account, or a record (address) that other rows
- * depend on.
+ * belonging to another account, a record (address) that other rows depend on,
+ * or a step attempted against a state that has moved past it (seal, passport).
  */
+export type ConflictField = "phone" | "email" | "address" | "seal" | "passport";
+
 export class ConflictError extends CoreError {
   readonly code = "CONFLICT" as const;
   /** What collided. */
-  readonly field: "phone" | "email" | "address" | "seal";
+  readonly field: ConflictField;
 
-  constructor(field: "phone" | "email" | "address" | "seal", message?: string) {
+  constructor(field: ConflictField, message?: string) {
     super(message ?? `That ${field} already belongs to another account.`);
     this.field = field;
   }

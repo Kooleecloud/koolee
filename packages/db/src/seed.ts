@@ -11,6 +11,7 @@ import { createDb } from "./client";
 import { ALL_COVERAGE_ZIPS } from "./coverage-zips";
 import {
   agentZones,
+  agreementVersions,
   airlineCutoffs,
   airports,
   pricingRules,
@@ -81,17 +82,66 @@ const INTERNATIONAL_CUTOFF_MINUTES = 60;
 const AIRLINES_BY_AIRPORT: Record<AirportCode, readonly string[]> = {
   // Hubs: Delta, JetBlue, American. Heavy international presence.
   JFK: [
-    "AA", "AS", "B6", "DL", "F9", "UA",
-    "AC", "AF", "AY", "AZ", "BA", "CX", "EI", "EK", "EY", "IB", "JL", "KE",
-    "KL", "LH", "LX", "LY", "NH", "OS", "QF", "QR", "SQ", "TK", "TP", "VS",
+    "AA",
+    "AS",
+    "B6",
+    "DL",
+    "F9",
+    "UA",
+    "AC",
+    "AF",
+    "AY",
+    "AZ",
+    "BA",
+    "CX",
+    "EI",
+    "EK",
+    "EY",
+    "IB",
+    "JL",
+    "KE",
+    "KL",
+    "LH",
+    "LX",
+    "LY",
+    "NH",
+    "OS",
+    "QF",
+    "QR",
+    "SQ",
+    "TK",
+    "TP",
+    "VS",
   ],
   // Domestic-focused (perimeter rule); Delta and American hubs.
   LGA: ["AA", "AC", "B6", "DL", "F9", "NK", "PD", "UA", "WN"],
   // United's hub; Star Alliance internationals concentrate here.
   EWR: [
-    "AA", "AC", "AS", "B6", "DL", "F9", "G4", "NK", "PD", "SY", "UA",
-    "AI", "BA", "EI", "ET", "FI", "LH", "LX", "LY", "OS", "SK", "SN", "SQ",
-    "TK", "TP",
+    "AA",
+    "AC",
+    "AS",
+    "B6",
+    "DL",
+    "F9",
+    "G4",
+    "NK",
+    "PD",
+    "SY",
+    "UA",
+    "AI",
+    "BA",
+    "EI",
+    "ET",
+    "FI",
+    "LH",
+    "LX",
+    "LY",
+    "OS",
+    "SK",
+    "SN",
+    "SQ",
+    "TK",
+    "TP",
   ],
 };
 
@@ -169,9 +219,7 @@ async function main(): Promise<void> {
     perBagCents: 1500,
     distanceMultiplier: "45.0000",
     leadTimeMultipliers: LEAD_TIME_CURVE,
-    discountRules: [
-      { kind: "family", minBags: 3, percent: 10 },
-    ] as DiscountRuleJson[],
+    discountRules: [{ kind: "family", minBags: 3, percent: 10 }] as DiscountRuleJson[],
   };
   await db
     .update(pricingRules)
@@ -196,10 +244,112 @@ async function main(): Promise<void> {
   // Pickup windows are virtual (computed per flight from the pricing rule and
   // slot_blocks) — there is no slot inventory to seed anymore.
 
+  await seedAgreementV1(db);
+
   await seedLocalStaff(db);
 
   console.log("Seed complete.");
   process.exit(0);
+}
+
+/**
+ * The canonical v1 booking agreement.
+ *
+ * Exactly one version is seeded so dev and CI have something for the trip
+ * page's accept card and the visit gate to resolve — without it, every local
+ * booking is permanently blocked at the agent's identity step, which reads as
+ * a bug rather than as missing data.
+ *
+ * IDEMPOTENT ON `version`, and deliberately NOT on the body: re-running the
+ * seed refreshes v1's title/body/effective_from in place instead of
+ * publishing a v2. Inserting a new version on every seed would silently
+ * invalidate every acceptance in the local database (the gate is
+ * version-specific by design), so a developer would watch accepted bookings
+ * un-accept themselves for no visible reason.
+ *
+ * `effective_from` is a fixed past date so the derivation
+ * (`max(version) WHERE effective_from <= now()`) resolves it immediately.
+ * A fixed date rather than `now()` keeps the seed deterministic, and a
+ * readable one rather than the Unix epoch because the customer SEES this
+ * value — "in effect from Wed 31 Dec, 7:00 PM EST" is what epoch-in-EST
+ * renders as on the trip page, and it reads like a bug.
+ *
+ * Backdating here is a SEED-only shortcut: `publishAgreementVersion` refuses
+ * a retroactive date, because backdating a real version would invalidate
+ * in-flight acceptances mid-visit.
+ *
+ * COPY: placeholder launch text under the standing copy rules — the service
+ * is "delivered to your airline's bag drop", never any claim of checking a
+ * traveler in, and there are no numbers here we cannot stand behind. This is
+ * NOT legal-reviewed terms; publishing the real ones is an admin action at
+ * /agreements, and it is the operator who owns that.
+ */
+const AGREEMENT_V1_TITLE = "Koolee booking agreement";
+
+/** Fixed, past, and readable. See the note above. */
+const AGREEMENT_V1_EFFECTIVE_FROM = new Date("2026-01-01T00:00:00Z");
+
+const AGREEMENT_V1_BODY_MD = `## What you are booking
+
+Koolee collects your bags from your door and delivers them to your airline's
+bag drop. We do not check you in, issue boarding passes, or act on your behalf
+with the airline. You remain responsible for your own check-in and for arriving
+at the airport for your flight.
+
+## Identity
+
+The traveler named on the booking must be present at pickup, and our agent
+verifies the traveler's passport before taking custody of any bag. If we cannot
+verify identity, the agent cannot collect the bags and we will contact you to
+sort it out.
+
+## Your bags
+
+Pack your bags as you would for the airport, and follow your airline's rules on
+what may travel in checked luggage. Do not give us anything you are not
+permitted to check, anything prohibited by law, or anything you would not
+entrust to an airline's baggage system.
+
+We photograph and seal each bag in front of you with a serialized tamper-evident
+seal, and we record every hand-off. That record is yours to see on your trip
+page.
+
+## Money
+
+Your card is authorized when you book and charged once your bags have been
+collected and sealed. Cancellation terms are shown when you cancel.
+
+## If something goes wrong
+
+Tell us as soon as you can. Our custody record — the seals, the photos, and the
+timestamps — is what we investigate against, and it is what we will share with
+you.
+
+---
+
+_Placeholder terms for launch. Replace this version at the admin console's
+agreements page with the legally reviewed text before taking real bookings._
+`;
+
+async function seedAgreementV1(db: ReturnType<typeof createDb>): Promise<void> {
+  console.log("Seeding booking agreement v1…");
+  await db
+    .insert(agreementVersions)
+    .values({
+      version: 1,
+      title: AGREEMENT_V1_TITLE,
+      bodyMd: AGREEMENT_V1_BODY_MD,
+      effectiveFrom: AGREEMENT_V1_EFFECTIVE_FROM,
+    })
+    .onConflictDoUpdate({
+      target: agreementVersions.version,
+      set: {
+        title: AGREEMENT_V1_TITLE,
+        bodyMd: AGREEMENT_V1_BODY_MD,
+        effectiveFrom: AGREEMENT_V1_EFFECTIVE_FROM,
+      },
+    });
+  console.log("  agreement v1 present");
 }
 
 /**
@@ -278,9 +428,12 @@ async function seedLocalStaff(db: ReturnType<typeof createDb>): Promise<void> {
       return undefined;
     }
     // Idempotent re-run: find the existing auth user.
-    const listRes = await fetch(`${supabaseUrl}/auth/v1/admin/users?page=1&per_page=1000`, {
-      headers,
-    });
+    const listRes = await fetch(
+      `${supabaseUrl}/auth/v1/admin/users?page=1&per_page=1000`,
+      {
+        headers,
+      },
+    );
     const list = (await listRes.json()) as {
       users?: Array<{ id: string; email?: string; phone?: string }>;
     };
@@ -294,13 +447,48 @@ async function seedLocalStaff(db: ReturnType<typeof createDb>): Promise<void> {
   console.log("Seeding local staff accounts…");
   const agentUserIds: string[] = [];
   const staffAccounts = [
-    { email: "admin@koolee.local", password: "koolee-admin-dev-1", role: "admin" as const, fullName: "Alex Morgan" },
-    { email: "admin2@koolee.local", password: "koolee-admin-dev-2", role: "admin" as const, fullName: "Priya Rao" },
-    { email: "agent@koolee.local", password: "koolee-agent-dev-1", role: "agent" as const, fullName: "Leo Vargas" },
-    { email: "agent2@koolee.local", password: "koolee-agent-dev-2", role: "agent" as const, fullName: "Nina Petrov" },
-    { email: "agent3@koolee.local", password: "koolee-agent-dev-3", role: "agent" as const, fullName: "Sam Okafor" },
-    { email: "agent4@koolee.local", password: "koolee-agent-dev-4", role: "agent" as const, fullName: "Tara Lin" },
-    { email: "agent5@koolee.local", password: "koolee-agent-dev-5", role: "agent" as const, fullName: "Jonas Weber" },
+    {
+      email: "admin@koolee.local",
+      password: "koolee-admin-dev-1",
+      role: "admin" as const,
+      fullName: "Alex Morgan",
+    },
+    {
+      email: "admin2@koolee.local",
+      password: "koolee-admin-dev-2",
+      role: "admin" as const,
+      fullName: "Priya Rao",
+    },
+    {
+      email: "agent@koolee.local",
+      password: "koolee-agent-dev-1",
+      role: "agent" as const,
+      fullName: "Leo Vargas",
+    },
+    {
+      email: "agent2@koolee.local",
+      password: "koolee-agent-dev-2",
+      role: "agent" as const,
+      fullName: "Nina Petrov",
+    },
+    {
+      email: "agent3@koolee.local",
+      password: "koolee-agent-dev-3",
+      role: "agent" as const,
+      fullName: "Sam Okafor",
+    },
+    {
+      email: "agent4@koolee.local",
+      password: "koolee-agent-dev-4",
+      role: "agent" as const,
+      fullName: "Tara Lin",
+    },
+    {
+      email: "agent5@koolee.local",
+      password: "koolee-agent-dev-5",
+      role: "agent" as const,
+      fullName: "Jonas Weber",
+    },
   ];
 
   for (const account of staffAccounts) {

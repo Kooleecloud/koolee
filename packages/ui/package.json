@@ -7,6 +7,7 @@
     ".": "./src/index.ts",
     "./styles/theme.css": "./styles/theme.css",
     "./lib/utils": "./src/lib/utils.ts",
+    "./lib/photo": "./src/lib/photo.ts",
     "./components/*": "./src/components/*.tsx"
   },
   "scripts": {

@@ -155,6 +155,20 @@
       "when": 1787963719376,
       "tag": "0021_big_hobgoblin",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1787968176840,
+      "tag": "0022_funny_the_fallen",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1787969997905,
+      "tag": "0023_passport_photos_staff_check",
+      "breakpoints": true
     }
   ]
 }

@@ -1,5 +1,11 @@
 import { and, eq, gte, lte } from "drizzle-orm";
-import { addresses, airlineCutoffs, bookings, users, verificationTasks } from "@koolee/db";
+import {
+  addresses,
+  airlineCutoffs,
+  bookings,
+  users,
+  verificationTasks,
+} from "@koolee/db";
 import { subHours } from "date-fns";
 import { cron } from "inngest";
 
@@ -74,7 +80,9 @@ export function createKooleeFunctions(
   options: KooleeFunctionOptions = {},
 ) {
   const tripUrlFor = (bookingId: string): string | undefined =>
-    options.appOrigin ? `${options.appOrigin.replace(/\/$/, "")}/trips/${bookingId}` : undefined;
+    options.appOrigin
+      ? `${options.appOrigin.replace(/\/$/, "")}/trips/${bookingId}`
+      : undefined;
 
   /* ------------------------------------------------------------------ */
   /* 0. Booking confirmation email                                       */
@@ -123,7 +131,11 @@ export function createKooleeFunctions(
         const tz = await resolveDisplayTz(config.db, booking.departureAirport);
         const windowLabel =
           booking.pickupWindowStart && booking.pickupWindowEnd
-            ? formatWindowInAirportTz(booking.pickupWindowStart, booking.pickupWindowEnd, tz)
+            ? formatWindowInAirportTz(
+                booking.pickupWindowStart,
+                booking.pickupWindowEnd,
+                tz,
+              )
             : "see your trip page";
 
         // The breakdown persisted at booking time is the truth of what was
@@ -135,9 +147,17 @@ export function createKooleeFunctions(
               { label: "Bags", amountCents: bd.bagsCents },
               { label: "Distance", amountCents: bd.distanceCents },
               ...(bd.leadTimeAdjustmentCents !== 0
-                ? [{ label: "Lead-time adjustment", amountCents: bd.leadTimeAdjustmentCents }]
+                ? [
+                    {
+                      label: "Lead-time adjustment",
+                      amountCents: bd.leadTimeAdjustmentCents,
+                    },
+                  ]
                 : []),
-              ...bd.discounts.map((d) => ({ label: d.label, amountCents: -d.amountCents })),
+              ...bd.discounts.map((d) => ({
+                label: d.label,
+                amountCents: -d.amountCents,
+              })),
             ]
           : [];
 
@@ -230,8 +250,9 @@ export function createKooleeFunctions(
           to: event.data.customerPhone,
           body:
             `Koolee: your pickup window starts in ${REMINDER_LEAD_HOURS} hours. ` +
-            `Have your ${booking.bagCount} bag(s) and photo ID ready. ` +
-            `We'll deliver them to your airline's bag drop.`,
+            `Have your ${booking.bagCount} bag(s) and passport ready, and accept our ` +
+            `booking agreement on your trip page if you haven't. ` +
+            `We'll deliver your bags to your airline's bag drop.`,
         });
 
         return { sent: true, bookingId: booking.id };
@@ -260,7 +281,11 @@ export function createKooleeFunctions(
           paxName: booking.paxName,
           windowLabel:
             booking.pickupWindowStart && booking.pickupWindowEnd
-              ? formatWindowInAirportTz(booking.pickupWindowStart, booking.pickupWindowEnd, tz)
+              ? formatWindowInAirportTz(
+                  booking.pickupWindowStart,
+                  booking.pickupWindowEnd,
+                  tz,
+                )
               : "soon — see your trip page",
           bagCount: booking.bagCount,
           ...(tripUrlFor(booking.id) === undefined
