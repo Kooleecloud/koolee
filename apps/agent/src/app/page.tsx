@@ -130,7 +130,7 @@ export default async function AgentHomePage() {
   return (
     <AgentMain>
       {/* A task assigned mid-shift appears here without a pull-to-refresh. */}
-      <LiveTasks />
+      <LiveTasks stage={`jobs:${jobs.length}`} />
       <header className="flex flex-col gap-1">
         <h1 className="font-display text-3xl font-semibold text-navy-800">Today</h1>
         <p className="text-sm text-muted-foreground">{summary}</p>

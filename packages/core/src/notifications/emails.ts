@@ -462,3 +462,211 @@ export function buildOpsDriverPoolEmptyEmail(
     html,
   };
 }
+
+/* ------------------------------------------------------------------ */
+/* The F2 additions — the gaps in the notification matrix              */
+/* ------------------------------------------------------------------ */
+
+export interface AgentAssignedEmailInput {
+  to: string;
+  bookingRef: string;
+  paxName: string;
+  /** First name only. Null when the agent has no name on file. */
+  agentGivenName: string | null;
+  /** Preformatted, airport-local with zone abbreviation (docs/TIME.md). */
+  windowLabel: string;
+  tripUrl?: string;
+}
+
+/**
+ * "Your agent is <name>" — sent the moment a verification visit gets an owner.
+ *
+ * NO PHOTO IN THE EMAIL, on purpose, even though the trip page shows one.
+ * An avatar lives in a PRIVATE bucket and is read through a signed URL that
+ * expires in an hour; an email is read whenever it is read, so an embedded
+ * `<img>` would be a broken image far more often than a face. The page is
+ * where the photo lives, and the CTA is how the customer gets there.
+ *
+ * The window is repeated here because this is the first message after
+ * confirmation that a customer is likely to act on, and "who is coming" and
+ * "when" are one question.
+ */
+export function buildAgentAssignedEmail(input: AgentAssignedEmailInput): EmailMessage {
+  const agent = input.agentGivenName ?? "Your Koolee agent";
+  const body = [
+    `Hi ${input.paxName},`,
+    ``,
+    `${agent} will be collecting your bags.`,
+    ``,
+    `Booking reference: ${input.bookingRef}`,
+    `Pickup window: ${input.windowLabel}`,
+    ``,
+    `${agent} will check your ID at the door, weigh and seal each bag in front ` +
+      `of you, and photograph every seal. Their photo is on your trip page so ` +
+      `you know who to expect.`,
+    ``,
+    `If you haven't accepted our booking agreement yet, please do that on your ` +
+      `trip page — ${agent} can't collect your bags until you have.`,
+    ...(input.tripUrl ? [``, `See your trip: ${input.tripUrl}`] : []),
+  ].join("\n");
+
+  const html = layout(
+    `${agent} is on your pickup`,
+    `<p>Hi ${escapeHtml(input.paxName)},</p>` +
+      `<p><strong>${escapeHtml(agent)}</strong> will be collecting your bags.</p>` +
+      `<p>Booking reference: <strong>${escapeHtml(input.bookingRef)}</strong><br/>` +
+      `Pickup window: <strong>${escapeHtml(input.windowLabel)}</strong></p>` +
+      `<p>${escapeHtml(agent)} will check your ID at the door, weigh and seal each bag ` +
+      `in front of you, and photograph every seal. Their photo is on your trip page ` +
+      `so you know who to expect.</p>` +
+      `<p>If you haven't accepted our booking agreement yet, please do that on your ` +
+      `trip page — ${escapeHtml(agent)} can't collect your bags until you have.</p>`,
+    input.tripUrl ? { label: "See your trip", url: input.tripUrl } : undefined,
+  );
+
+  return {
+    to: input.to,
+    subject: `${agent} is on your pickup — ${input.bookingRef}`,
+    body,
+    html,
+  };
+}
+
+export interface BagsSealedEmailInput {
+  to: string;
+  bookingRef: string;
+  paxName: string;
+  bagCount: number;
+  /** Printed seal ids, in bag order. Empty is tolerated, never faked. */
+  sealIds: readonly string[];
+  tripUrl?: string;
+}
+
+/**
+ * "Your bags are sealed — now choose your driver."
+ *
+ * ONE EMAIL FOR TWO MATRIX ROWS, deliberately. The F2 matrix listed "bags
+ * sealed — a summary" and "driver selectable — a link" as separate messages,
+ * and they fire at the same instant: `verified_sealed` is both the moment the
+ * last seal goes on and the moment the shortlist opens
+ * (`DRIVER_SELECTABLE_STATUSES`). Two emails seconds apart would be a worse
+ * product than one that says both things, so this says both.
+ *
+ * The seal ids are the point. They are the customer's evidence that the bag
+ * that reaches the airline is the bag that left their door, and a summary that
+ * omits them is just a status update.
+ */
+export function buildBagsSealedEmail(input: BagsSealedEmailInput): EmailMessage {
+  const bags = `${input.bagCount} ${input.bagCount === 1 ? "bag" : "bags"}`;
+  const sealLines =
+    input.sealIds.length > 0
+      ? input.sealIds.map((seal, i) => `  Bag ${i + 1}: ${seal}`)
+      : [];
+
+  const body = [
+    `Hi ${input.paxName},`,
+    ``,
+    `Your ${bags} ${input.bagCount === 1 ? "is" : "are"} weighed, sealed and photographed.`,
+    ``,
+    `Booking reference: ${input.bookingRef}`,
+    ...(sealLines.length > 0 ? [``, `Seal numbers:`, ...sealLines] : []),
+    ``,
+    `Next: choose your driver. Your trip page shows who's available, how far ` +
+      `away they are, and how long they'll be. Once you pick, you can watch ` +
+      `them come.`,
+    ...(input.tripUrl ? [``, `Choose your driver: ${input.tripUrl}`] : []),
+  ].join("\n");
+
+  const sealHtml =
+    input.sealIds.length > 0
+      ? `<p>Seal numbers:<br/>` +
+        input.sealIds
+          .map((seal, i) => `Bag ${i + 1}: <strong>${escapeHtml(seal)}</strong>`)
+          .join("<br/>") +
+        `</p>`
+      : "";
+
+  const html = layout(
+    "Your bags are sealed",
+    `<p>Hi ${escapeHtml(input.paxName)},</p>` +
+      `<p>Your ${escapeHtml(bags)} ${input.bagCount === 1 ? "is" : "are"} weighed, ` +
+      `sealed and photographed.</p>` +
+      `<p>Booking reference: <strong>${escapeHtml(input.bookingRef)}</strong></p>` +
+      sealHtml +
+      `<p>Next: choose your driver. Your trip page shows who's available, how far ` +
+      `away they are, and how long they'll be. Once you pick, you can watch them come.</p>`,
+    input.tripUrl ? { label: "Choose your driver", url: input.tripUrl } : undefined,
+  );
+
+  return {
+    to: input.to,
+    subject: `Bags sealed — choose your driver — ${input.bookingRef}`,
+    body,
+    html,
+  };
+}
+
+export interface CustomerExceptionEmailInput {
+  to: string;
+  bookingRef: string;
+  paxName: string;
+  /** Where to write. Never a phone number we do not staff. */
+  supportEmail: string;
+  tripUrl?: string;
+}
+
+/**
+ * "We've hit a snag, and we're on it."
+ *
+ * DELIBERATELY CARRIES NO REASON. `buildOpsExceptionEmail` gets the detail
+ * because ops can act on it; this one does not, and that is the whole design:
+ *
+ *  - the internal reason is written for an operator ("ID mismatch", "customer
+ *    not home", "capture failed after retry") and reads as an accusation, a
+ *    confession, or gibberish depending on which one fired;
+ *  - it can name staff, a payment provider, or an internal state; and
+ *  - it is frequently WRONG in the first minute, because an exception is
+ *    raised before anybody has looked.
+ *
+ * What a customer needs is that a human now owns their booking and will be in
+ * touch. Anything more specific is a promise this email cannot keep.
+ *
+ * No CTA to a self-service action either — there is nothing for them to do —
+ * so the only link is the trip page, and support is a plain address.
+ */
+export function buildCustomerExceptionEmail(
+  input: CustomerExceptionEmailInput,
+): EmailMessage {
+  const body = [
+    `Hi ${input.paxName},`,
+    ``,
+    `We've hit a snag with your Koolee pickup, and our team is on it.`,
+    ``,
+    `Booking reference: ${input.bookingRef}`,
+    ``,
+    `Someone will be in touch shortly with what happens next. You don't need ` +
+      `to do anything right now — and if your plans have changed in the ` +
+      `meantime, reply to this message or write to ${input.supportEmail} and ` +
+      `we'll sort it out with you.`,
+    ...(input.tripUrl ? [``, `Your trip page: ${input.tripUrl}`] : []),
+  ].join("\n");
+
+  const html = layout(
+    "We've hit a snag with your pickup",
+    `<p>Hi ${escapeHtml(input.paxName)},</p>` +
+      `<p>We've hit a snag with your Koolee pickup, and our team is on it.</p>` +
+      `<p>Booking reference: <strong>${escapeHtml(input.bookingRef)}</strong></p>` +
+      `<p>Someone will be in touch shortly with what happens next. You don't need to ` +
+      `do anything right now — and if your plans have changed in the meantime, reply ` +
+      `to this message or write to ${escapeHtml(input.supportEmail)} and we'll sort ` +
+      `it out with you.</p>`,
+    input.tripUrl ? { label: "Your trip page", url: input.tripUrl } : undefined,
+  );
+
+  return {
+    to: input.to,
+    subject: `We're on it — ${input.bookingRef}`,
+    body,
+    html,
+  };
+}

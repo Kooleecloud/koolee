@@ -5,6 +5,7 @@ import { captureDueBookings } from "@koolee/core";
 import { cleanupAnonymousUsers, createKooleeFunctions } from "@koolee/core/jobs";
 
 import { optionalEnv } from "@/env";
+import { SITE } from "@/lib/site";
 import { getCore } from "@/lib/core";
 import { inngest } from "@/lib/inngest-client";
 import { deleteAuthUser } from "@/lib/supabase/admin";
@@ -79,6 +80,12 @@ export const functions = [
   ...createKooleeFunctions(inngest, () => getCore(), {
     opsAlertEmail: optionalEnv("OPS_ALERT_EMAIL"),
     appOrigin: optionalEnv("NEXT_PUBLIC_APP_URL"),
+    // Public site copy, not per-environment config, so it comes from SITE
+    // rather than an env var — and core still reads no environment. This is
+    // the address the customer-facing exception email tells people to write
+    // to; without it that email is skipped rather than sent with a
+    // placeholder nobody monitors.
+    supportEmail: SITE.contactEmail,
   }),
   cleanupAnonymousUsersCron,
   captureDueCron,

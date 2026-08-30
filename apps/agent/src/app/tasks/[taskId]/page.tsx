@@ -275,7 +275,10 @@ export default async function TaskDetailPage({
       <AgentMain>
         {/* The customer can accept the agreement while the driver is at the
             door. Without this the gate opens only on a manual reload. */}
-        <LiveTasks enabled={!pickupView.done} />
+        <LiveTasks
+          enabled={!pickupView.done}
+          stage={pickup.shift ? "pickup:mine" : "pickup:unclaimed"}
+        />
         <BackToToday />
         <h1 className="font-display text-2xl font-semibold text-navy-800">
           Collect &amp; deliver
@@ -348,7 +351,7 @@ export default async function TaskDetailPage({
 
   return (
     <AgentMain>
-      <LiveTasks enabled={!view.done} />
+      <LiveTasks enabled={!view.done} stage={gate.passed ? "gate:open" : "gate:blocked"} />
       <BackToToday />
 
       <h1 className="sr-only">

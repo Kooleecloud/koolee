@@ -1,6 +1,7 @@
 import {
   airlineCutoffs,
   airports,
+  bags,
   bookings,
   users,
   verificationTasks,
@@ -129,6 +130,7 @@ export function fakeLogger(): {
 
 export interface FakeTables {
   bookings?: Record<string, unknown>[];
+  bags?: Record<string, unknown>[];
   users?: Record<string, unknown>[];
   addresses?: Record<string, unknown>[];
   airports?: Record<string, unknown>[];
@@ -150,6 +152,7 @@ export interface FakeTables {
 export function fakeDb(tables: FakeTables) {
   const rowsFor = (table: unknown): Record<string, unknown>[] => {
     if (table === bookings) return tables.bookings ?? [];
+    if (table === bags) return tables.bags ?? [];
     if (table === users) return tables.users ?? [];
     if (table === addresses) return tables.addresses ?? [];
     if (table === airports) return tables.airports ?? [];

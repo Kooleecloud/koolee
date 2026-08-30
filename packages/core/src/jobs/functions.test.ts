@@ -105,9 +105,10 @@ interface Harness {
 
 function harness(
   tables: FakeTables = seed(),
-  options: { opsAlertEmail?: string; appOrigin?: string } = {
+  options: { opsAlertEmail?: string; appOrigin?: string; supportEmail?: string } = {
     opsAlertEmail: "ops@koolee.test",
     appOrigin: "https://koolee.test",
+    supportEmail: "info@koolee.cloud",
   },
   notifier: RecordingNotifier = new RecordingNotifier(),
 ): Harness {
@@ -158,15 +159,25 @@ describe("createKooleeFunctions — registration", () => {
   it("registers every function with the expected triggers", () => {
     const h = harness();
     expect(h.functions.map((f) => f.id).sort()).toEqual([
+      "agent-assigned-email",
       "agent-no-show-check",
       "bagdrop-delivered-email",
+      "bags-sealed-email",
       "booking-confirmation-email",
       "booking-pickup-reminder",
       "cutoff-risk-monitor",
       "driver-pool-empty-ops-alert",
       "driver-selected-email",
+      "exception-customer-email",
       "exception-ops-alert-email",
       "waitlist-zone-opened-sweep",
+    ]);
+    // Two functions, one event. Ops gets the reason; the customer does not.
+    expect(fn(h, "exception-ops-alert-email").events).toEqual([
+      "booking/exception_raised",
+    ]);
+    expect(fn(h, "exception-customer-email").events).toEqual([
+      "booking/exception_raised",
     ]);
     expect(fn(h, "cutoff-risk-monitor").crons).toEqual(["*/5 * * * *"]);
     expect(fn(h, "waitlist-zone-opened-sweep").crons).toEqual([
@@ -687,5 +698,165 @@ describe("driver-pool-empty-ops-alert", () => {
     expect(result).toEqual({ sent: false, reason: "no_ops_email" });
     expect(h.alerter.alerts).toHaveLength(1);
     expect(logger.lines.join("\n")).toContain("OPS_ALERT_EMAIL not configured");
+  });
+});
+
+
+/* ------------------------------------------------------------------ */
+/* The F2 additions                                                     */
+/* ------------------------------------------------------------------ */
+
+describe("agent-assigned-email", () => {
+  const event = { bookingId: "b-1", agentUserId: "s-1" };
+
+  // One users row stands in for both the customer and the agent — `fakeDb`
+  // ignores `where` clauses by design, and what is under test is the copy and
+  // the skip decisions, not the predicates.
+  const withAgent = (over: FakeTables = {}) =>
+    seed({
+      users: [{ id: "u-1", email: "casey@example.com", fullName: "Nina Petrov" }],
+      ...over,
+    });
+
+  it("names the agent and renders the window in the BOOKING's zone", async () => {
+    const h = harness(withAgent());
+    const { result } = await invoke(fn(h, "agent-assigned-email"), event);
+
+    expect(result).toEqual({ sent: true, bookingId: "b-1" });
+    const email = h.notifier.emails[0]!;
+    expect(email.subject).toBe("Nina is on your pickup — KOO-7H2QM");
+    expect(email.body).toContain("Nina will be collecting your bags.");
+    // The seeded airport is America/New_York and the window starts at
+    // 14:00Z — 10 AM EDT. A server-local render would say 2 PM.
+    expect(email.body).toMatch(/10:00\s*AM/);
+    expect(email.body).toContain("EDT");
+    expect(email.body).toContain("https://koolee.test/trips/b-1");
+  });
+
+  it("says the window is unscheduled rather than inventing one", async () => {
+    const h = harness(
+      withAgent({
+        bookings: [booking({ pickupWindowStart: null, pickupWindowEnd: null })],
+      }),
+    );
+    await invoke(fn(h, "agent-assigned-email"), event);
+    expect(h.notifier.emails[0]!.body).toContain("to be scheduled");
+  });
+
+  it("stays quiet on a booking that is no longer live", async () => {
+    for (const status of ["cancelled", "completed"]) {
+      const h = harness(withAgent({ bookings: [booking({ status })] }));
+      const { result } = await invoke(fn(h, "agent-assigned-email"), event);
+      expect(result).toEqual({ sent: false, reason: "not_live" });
+      expect(h.notifier.emails).toHaveLength(0);
+    }
+  });
+
+  it("skips a customer with no email rather than failing the run", async () => {
+    const h = harness(seed({ users: [{ id: "u-1", email: null }] }));
+    const { result } = await invoke(fn(h, "agent-assigned-email"), event);
+    expect(result).toEqual({ sent: false, reason: "no_email" });
+  });
+
+  it("a thrown send is caught and ops-alerted, never thrown", async () => {
+    const h = harness(withAgent(), undefined, new ThrowingNotifier());
+    const { result } = await invoke(fn(h, "agent-assigned-email"), event);
+    expect(result).toEqual({ sent: false, reason: "send_failed" });
+    expect(h.alerter.alerts[0]!.severity).toBe("warning");
+  });
+});
+
+describe("bags-sealed-email", () => {
+  const event = { bookingId: "b-1" };
+
+  const sealedBags = [
+    { ordinal: 1, sealId: "KLS-00041" },
+    { ordinal: 2, sealId: "KLS-00042" },
+  ];
+
+  it("reads the seal numbers from the bags, not from the event", async () => {
+    // The event deliberately carries only a booking id: a seal is evidence
+    // the agent could still have corrected between the transition and here.
+    const h = harness(seed({ bags: sealedBags }));
+    const { result } = await invoke(fn(h, "bags-sealed-email"), event);
+
+    expect(result).toEqual({ sent: true, bookingId: "b-1", bagCount: 2 });
+    const email = h.notifier.emails[0]!;
+    expect(email.body).toContain("Bag 1: KLS-00041");
+    expect(email.body).toContain("Bag 2: KLS-00042");
+  });
+
+  it("is the driver prompt too — one email covering both matrix rows", async () => {
+    const h = harness(seed({ bags: sealedBags }));
+    await invoke(fn(h, "bags-sealed-email"), event);
+    const email = h.notifier.emails[0]!;
+    expect(email.subject).toBe("Bags sealed — choose your driver — KOO-7H2QM");
+    expect(email.body).toContain("https://koolee.test/trips/b-1");
+  });
+
+  it("never claims airline check-in", async () => {
+    const h = harness(seed({ bags: sealedBags }));
+    await invoke(fn(h, "bags-sealed-email"), event);
+    const email = h.notifier.emails[0]!;
+    expect(`${email.body}${email.html}`).not.toMatch(/check(ing)? you in|check-in/i);
+  });
+
+  it("drops an unsealed bag from the list rather than printing a blank", async () => {
+    const h = harness(seed({ bags: [{ ordinal: 1, sealId: null }] }));
+    const { result } = await invoke(fn(h, "bags-sealed-email"), event);
+    expect(result).toEqual({ sent: true, bookingId: "b-1", bagCount: 1 });
+    expect(h.notifier.emails[0]!.body).not.toContain("Seal numbers");
+  });
+
+  it("skips a cancelled booking", async () => {
+    const h = harness(seed({ bags: sealedBags, bookings: [booking({ status: "cancelled" })] }));
+    const { result } = await invoke(fn(h, "bags-sealed-email"), event);
+    expect(result).toEqual({ sent: false, reason: "cancelled" });
+  });
+});
+
+describe("exception-customer-email", () => {
+  const event = {
+    bookingId: "b-1",
+    reason: "ID mismatch at the door",
+    raisedByUserId: "s-1",
+  };
+
+  it("tells the customer a human owns it, and never why", async () => {
+    const h = harness();
+    const { result } = await invoke(fn(h, "exception-customer-email"), event);
+
+    expect(result).toEqual({ sent: true, bookingId: "b-1" });
+    const email = h.notifier.emails[0]!;
+    expect(email.to).toBe("casey@example.com");
+    expect(email.subject).toBe("We're on it — KOO-7H2QM");
+    // THE assertion for this function: the ops reason arrives on the same
+    // event and must not reach the customer's inbox.
+    expect(`${email.body}${email.html}`.toLowerCase()).not.toContain("id mismatch");
+    expect(`${email.body}${email.html}`).not.toContain("s-1");
+    expect(email.body).toContain("info@koolee.cloud");
+  });
+
+  it("says nothing at all when no support address is configured", async () => {
+    // Handing somebody an unmonitored address at the moment they most need a
+    // reply is worse than staying quiet.
+    const h = harness(seed(), { opsAlertEmail: "ops@koolee.test" });
+    const { result, logger } = await invoke(fn(h, "exception-customer-email"), event);
+    expect(result).toEqual({ sent: false, reason: "no_support_email" });
+    expect(h.notifier.emails).toHaveLength(0);
+    expect(logger.lines.join("\n")).toMatch(/support address/i);
+  });
+
+  it("skips a customer with no email rather than failing the run", async () => {
+    const h = harness(seed({ users: [{ id: "u-1", email: null }] }));
+    const { result } = await invoke(fn(h, "exception-customer-email"), event);
+    expect(result).toEqual({ sent: false, reason: "no_email" });
+  });
+
+  it("a thrown send is a warning, not a critical — ops already got the alert", async () => {
+    const h = harness(seed(), undefined, new ThrowingNotifier());
+    const { result } = await invoke(fn(h, "exception-customer-email"), event);
+    expect(result).toEqual({ sent: false, reason: "send_failed" });
+    expect(h.alerter.alerts[0]!.severity).toBe("warning");
   });
 });

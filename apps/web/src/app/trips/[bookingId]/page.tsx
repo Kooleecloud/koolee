@@ -253,6 +253,27 @@ export default async function TripPage({
       }
     : null;
 
+  /*
+   * The milestone the page is currently at, for the toast on the client.
+   *
+   * Computed here rather than derived from `booking.status` alone because the
+   * one the customer most needs to hear about is not a status: "choose your
+   * driver" is `verified_sealed` AND a shortlist that actually has somebody on
+   * it. A toast telling them to choose from an empty list would be worse than
+   * silence.
+   */
+  const liveStage: string | null = !isActive
+    ? null
+    : booking.status === "exception"
+      ? "exception"
+      : booking.status === "delivered_to_bagdrop"
+        ? "delivered"
+        : booking.status === "in_transit"
+          ? "in_transit"
+          : canChooseDriver && candidateViews.length > 0
+            ? "choose_driver"
+            : booking.status;
+
   const driverSection = driverView ? (
     <DriverTracking
       driver={driverView}
@@ -274,8 +295,10 @@ export default async function TripPage({
     <>
       {/* Live from here on. A signal on this booking re-runs this whole server
           component, so every card below is current without a reload — the
-          timeline, the two action cards, the driver shortlist and the ETA. */}
-      <TripLive bookingId={booking.id} active={isActive} />
+          timeline, the two action cards, the driver shortlist and the ETA.
+          The stage is what decides whether a change is worth interrupting for;
+          everything else updates quietly. */}
+      <TripLive bookingId={booking.id} active={isActive} stage={liveStage} />
 
       <BackLink href="/trips" linkComponent={Link} className="self-start">
         All trips

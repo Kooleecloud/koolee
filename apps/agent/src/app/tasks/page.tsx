@@ -78,7 +78,7 @@ export default async function SchedulePage() {
 
   return (
     <AgentMain>
-      <LiveTasks />
+      <LiveTasks stage={`jobs:${jobs.length}`} />
       <header className="flex flex-col gap-1">
         <h1 className="font-display text-3xl font-semibold text-navy-800">Schedule</h1>
         <p className="text-sm text-muted-foreground">
