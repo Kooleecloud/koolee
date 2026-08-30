@@ -34,6 +34,7 @@ import {
 import { CustodyTimeline } from "@/components/custody-timeline";
 import { TripLive } from "@/components/trip-live";
 import { CutoffCountdown } from "@/components/cutoff-countdown";
+import { withinCutoffHorizon } from "@/lib/cutoff-horizon";
 import {
   TripActionNeeded,
   type TripAgreementView,
@@ -343,7 +344,11 @@ export default async function TripPage({
         <FormMessage variant="error">{actionability.lateNotice}</FormMessage>
       )}
 
-      {cutoffAt && isActive && (
+      {/* Only once the deadline is close enough to be a thing somebody does
+          something about — see lib/cutoff-horizon. Decided here rather than in
+          the client component so the server and the browser cannot disagree
+          about whether the banner exists. */}
+      {cutoffAt && isActive && withinCutoffHorizon(cutoffAt, new Date()) && (
         <CutoffCountdown
           cutoffAtIso={cutoffAt.toISOString()}
           airlineIata={booking.airlineIata}

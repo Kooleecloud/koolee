@@ -1075,3 +1075,60 @@ One per phase, in order:
 | `feat(agent): a schedule ordered by attention, and a history that is a record` | 5 |
 | `feat(admin): histories that name people, and counts nobody has to maintain` | 6 |
 | `fix(realtime): the layer was inert, and docs to close the slice` | 7 + §V |
+
+---
+
+## Follow-up — the cutoff countdown said 4499 hours
+
+Reported after the slice closed, on a booking six months out:
+
+> `4499h 3m until AI's bag-drop cutoff at EWR.`
+
+`CutoffCountdown` rendered raw hours, always. Nobody converts that number, and
+an urgent-looking banner that is permanently non-urgent is the fastest way to
+teach somebody to skip the one that matters.
+
+**Two rules now, both in
+[apps/web/src/lib/cutoff-horizon.ts](../../apps/web/src/lib/cutoff-horizon.ts):**
+
+1. **Beyond a week, say nothing.** A cutoff more than seven days out is not a
+   thing to do today; the page already shows the departure and the pickup
+   window. `CUTOFF_HORIZON_MS` is one constant so moving the line is one edit.
+2. **Below it, scale the unit.** Days when it is days, hours and minutes inside
+   a day, minutes inside an hour.
+
+| span | reads as |
+|---|---|
+| under a minute | `less than a minute` |
+| under an hour | `42 min` |
+| under a day | `7h 12m` |
+| a day or more | `3 days` |
+
+Days drop the hours on purpose: between one day and two there is nothing a
+customer does differently at 25 hours versus 47, and "1 day 23h" is a sentence
+people re-read.
+
+**A passed cutoff is always shown**, however long ago — that is not a
+countdown, it is the state of the booking and the only thing on the page that
+explains why nothing else works.
+
+**The horizon is decided on the SERVER** (the trip page gates the render) and
+re-checked in the component. The two clocks differ, and a boundary case where
+the server renders the banner and the client does not is a hydration mismatch
+on the whole subtree; remaining time only shrinks, so a server "yes" is still a
+yes by the time the client hydrates.
+
+**Verified in a browser**, production build, against the real bookings:
+
+| booking | before | after |
+|---|---|---|
+| `KOO-ECDQZ` — AI/EWR, Mar 2027 | `4499h 3m until …` | banner absent |
+| `KOO-Q1RQA` — cutoff passed | `…h …m ago` | `AS's bag drop at EWR has closed. It closed 1 day ago.` |
+| `KOO-S4M25` — ~35h out | `35h 12m until …` | `1 day until DL's bag-drop cutoff at JFK.` |
+
+Tests: `cutoff-horizon.test.ts` — 10 cases, including the reported span
+(4499 h → hidden), the inclusive boundary, both directions of the ladder, and
+an assertion that no span ever renders three or more digits of hours again.
+
+Gates: `turbo typecheck` 6/6 · `turbo lint` 6/6 · web unit **119** (was 109) ·
+`turbo build` 3/3.
