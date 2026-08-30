@@ -193,7 +193,18 @@ const schema = z.object({
 
   // --- Third-party data --------------------------------------------------
   AEROAPI_KEY: optionalString,
-  GOOGLE_MAPS_API_KEY: optionalString,
+  /**
+   * SERVER key for Google Maps Platform — Routes API (drive-time ETAs) and
+   * Places API (New) (the address step's autocomplete proxy).
+   *
+   * Renamed from `GOOGLE_MAPS_API_KEY`, which was parsed and never read by
+   * anything, because the name now carries a rule: this key is only ever used
+   * server-side, it must be restricted to those two APIs, and its application
+   * restriction must be "server" (IP or none) — NEVER an HTTP referrer, which
+   * would mean shipping it to a browser. Absent ⇒ haversine ETAs and a plain
+   * typed address field, which is what a fresh clone runs.
+   */
+  GOOGLE_MAPS_SERVER_KEY: optionalString,
   ANTHROPIC_API_KEY: optionalString,
   /**
    * Set to "1" to return the RAW ticket-extraction diagnostics to the browser
@@ -260,7 +271,7 @@ const raw = {
     process.env.NEXT_PUBLIC_PUSH_NOTIFICATIONS_ENABLED,
 
   AEROAPI_KEY: process.env.AEROAPI_KEY,
-  GOOGLE_MAPS_API_KEY: process.env.GOOGLE_MAPS_API_KEY,
+  GOOGLE_MAPS_SERVER_KEY: process.env.GOOGLE_MAPS_SERVER_KEY,
   ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
   TICKET_EXTRACTION_DEBUG: process.env.TICKET_EXTRACTION_DEBUG,
 
@@ -306,7 +317,8 @@ const HINTS: Partial<Record<EnvKey, string>> = {
     "Inngest Cloud → Events → Event keys. Not needed for `pnpm dev:inngest`.",
   INNGEST_SIGNING_KEY: "Inngest Cloud → Deploy → Signing key.",
   AEROAPI_KEY: "FlightAware AeroAPI. Stubbed in this scaffold.",
-  GOOGLE_MAPS_API_KEY: "Google Cloud Console → Maps Platform. Stubbed in this scaffold.",
+  GOOGLE_MAPS_SERVER_KEY:
+    "Google Cloud Console → Maps Platform. Restrict to Routes API + Places API (New), application restriction = server, never an HTTP referrer.",
 };
 
 /** Reads a var, throwing a descriptive error if it is absent. */
@@ -613,10 +625,12 @@ export function describeEnvStatus(): ServiceStatus[] {
       keys: ["AEROAPI_KEY"],
     },
     {
-      service: "Google Maps",
-      configured: has("GOOGLE_MAPS_API_KEY"),
-      fallback: "Drive time uses a fixed estimate.",
-      keys: ["GOOGLE_MAPS_API_KEY"],
+      service: "Google Maps (Routes + Places)",
+      configured: has("GOOGLE_MAPS_SERVER_KEY"),
+      fallback:
+        "Drive-time ETAs come from ZIP centroids and an average speed, and " +
+        "the address step has no autocomplete.",
+      keys: ["GOOGLE_MAPS_SERVER_KEY"],
     },
     {
       service: "Anthropic",

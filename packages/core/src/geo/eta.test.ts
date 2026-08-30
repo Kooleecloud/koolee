@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { haversineKm, toCoordinates, type Coordinates } from "./coordinates";
 import { formatEtaRange, HaversineEtaEstimator } from "./eta";
 import { createEtaEstimator } from "./factory";
+import { GoogleRoutesEtaEstimator } from "./routes";
 
 /** Terminal coordinates, matching the seed and migration 0028. */
 const JFK: Coordinates = { lat: 40.6446, lng: -73.7797 };
@@ -64,7 +65,7 @@ describe("HaversineEtaEstimator", () => {
   const estimator = new HaversineEtaEstimator();
 
   it("floors at five minutes for a driver already at the door", () => {
-    expect(estimator.estimate({ from: JFK, to: JFK })).toEqual({
+    expect(estimator.estimateSync({ from: JFK, to: JFK })).toEqual({
       minMinutes: 5,
       maxMinutes: 10,
     });
@@ -72,14 +73,14 @@ describe("HaversineEtaEstimator", () => {
 
   it("always returns a range, never a point", () => {
     for (const to of [JFK, LGA, EWR, WILLIAMSBURG_11211]) {
-      const eta = estimator.estimate({ from: MIDTOWN_10018, to });
+      const eta = estimator.estimateSync({ from: MIDTOWN_10018, to });
       expect(eta.maxMinutes).toBeGreaterThan(eta.minMinutes);
     }
   });
 
   it("returns whole five-minute steps at both ends", () => {
     for (const to of [JFK, LGA, EWR, WILLIAMSBURG_11211]) {
-      const eta = estimator.estimate({ from: MIDTOWN_10018, to });
+      const eta = estimator.estimateSync({ from: MIDTOWN_10018, to });
       expect(eta.minMinutes % 5).toBe(0);
       expect(eta.maxMinutes % 5).toBe(0);
     }
@@ -94,7 +95,7 @@ describe("HaversineEtaEstimator", () => {
     ["Midtown → Williamsburg (5.8 km)", MIDTOWN_10018, WILLIAMSBURG_11211, 15, 45],
     ["Midtown → LGA (10.4 km)", MIDTOWN_10018, LGA, 30, 75],
   ])("%s lands between %s and %s minutes", (_label, from, to, low, high) => {
-    const eta = estimator.estimate({ from, to });
+    const eta = estimator.estimateSync({ from, to });
     expect(eta.minMinutes).toBeGreaterThanOrEqual(low as number);
     expect(eta.maxMinutes).toBeLessThanOrEqual(high as number);
   });
@@ -114,13 +115,13 @@ describe("HaversineEtaEstimator", () => {
    * A routing provider behind the same seam is what fixes the middle ground.
    */
   it("over-states a long airport run, deliberately", () => {
-    const eta = estimator.estimate({ from: MIDTOWN_10018, to: JFK });
+    const eta = estimator.estimateSync({ from: MIDTOWN_10018, to: JFK });
     expect(eta).toEqual({ minMinutes: 75, maxMinutes: 145 });
   });
 
   it("is monotonic — a farther point never estimates sooner", () => {
-    const near = estimator.estimate({ from: MIDTOWN_10018, to: LGA });
-    const far = estimator.estimate({ from: MIDTOWN_10018, to: JFK });
+    const near = estimator.estimateSync({ from: MIDTOWN_10018, to: LGA });
+    const far = estimator.estimateSync({ from: MIDTOWN_10018, to: JFK });
     expect(far.minMinutes).toBeGreaterThan(near.minMinutes);
     expect(far.maxMinutes).toBeGreaterThan(near.maxMinutes);
   });
@@ -130,15 +131,52 @@ describe("HaversineEtaEstimator", () => {
       ((haversineKm(MIDTOWN_10018, JFK) * HaversineEtaEstimator.ROAD_FACTOR) /
         HaversineEtaEstimator.AVERAGE_SPEED_KMH) *
       60;
-    const eta = estimator.estimate({ from: MIDTOWN_10018, to: JFK });
+    const eta = estimator.estimateSync({ from: MIDTOWN_10018, to: JFK });
     expect(eta.minMinutes).toBeLessThanOrEqual(rawMinutes);
     expect(eta.maxMinutes).toBeGreaterThanOrEqual(rawMinutes);
+  });
+});
+
+/**
+ * The arithmetic above is pinned through `estimateSync`, which is what the
+ * class actually computes. These cover the SEAM: `estimate` and `estimateMany`
+ * are the interface a routing provider implements, and the haversine one has
+ * to satisfy it without changing a single number.
+ */
+describe("HaversineEtaEstimator — the async seam", () => {
+  const estimator = new HaversineEtaEstimator();
+
+  it("names itself, for logs and alert detail", () => {
+    expect(estimator.kind).toBe("haversine");
+  });
+
+  it("resolves `estimate` to exactly what the arithmetic returns", async () => {
+    await expect(estimator.estimate({ from: MIDTOWN_10018, to: JFK })).resolves.toEqual(
+      estimator.estimateSync({ from: MIDTOWN_10018, to: JFK }),
+    );
+  });
+
+  it("estimates many origins against one destination, index for index", async () => {
+    const origins = [MIDTOWN_10018, WILLIAMSBURG_11211, LGA];
+    await expect(estimator.estimateMany({ from: origins, to: JFK })).resolves.toEqual(
+      origins.map((from) => estimator.estimateSync({ from, to: JFK })),
+    );
+  });
+
+  it("returns an empty array for an empty batch — nobody on shift has pinged", async () => {
+    await expect(estimator.estimateMany({ from: [], to: JFK })).resolves.toEqual([]);
   });
 });
 
 describe("createEtaEstimator", () => {
   it("builds the haversine estimator", () => {
     expect(createEtaEstimator({ kind: "haversine" })).toBeInstanceOf(HaversineEtaEstimator);
+  });
+
+  it("builds the Routes estimator when a key is supplied", () => {
+    const estimator = createEtaEstimator({ kind: "google-routes", apiKey: "k" });
+    expect(estimator).toBeInstanceOf(GoogleRoutesEtaEstimator);
+    expect(estimator.kind).toBe("google-routes");
   });
 });
 

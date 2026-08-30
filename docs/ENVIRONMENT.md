@@ -94,7 +94,7 @@ Legend: ● required for the feature to work · ○ optional/degrades · — not
 | `RESEND_FROM`                        |  ○  |   —   |   —   | RFC 5322 From. Defaults to Resend's sandbox sender; set to the verified domain for real sends                                                                          |
 | `OPS_ALERT_EMAIL`                    |  ○  |   —   |   —   | Ops inbox for `booking/exception_raised` alert emails; unset → skipped                                                                                                 |
 | `AEROAPI_KEY`                        |  ○  |   —   |   —   | FlightAware AeroAPI. **Stubbed**                                                                                                                                       |
-| `GOOGLE_MAPS_API_KEY`                |  ○  |   ○   |   —   | Google Cloud → Maps Platform. **Stubbed**                                                                                                                              |
+| `GOOGLE_MAPS_SERVER_KEY`             |  ○  |   —   |   —   | Google Cloud → Maps Platform. **Server** key, restricted to Routes API + Places API (New); application restriction = server, NEVER an HTTP referrer. Absent ⇒ haversine ETAs, no autocomplete |
 | `ANTHROPIC_API_KEY`                  |  ○  |   —   |   —   | Ticket extraction. Absent → the free in-process heuristic extractor                                                                                                    |
 | `TICKET_EXTRACTION_DEBUG`            |  ○  |   —   |   —   | `1`/`true` returns the RAW extraction diagnostics to the browser. **Never set this on production** — the payload is a developer tool containing a customer's itinerary |
 | `SENTRY_DSN`                         |  ○  |   ○   |   ○   | Sentry project settings                                                                                                                                                |
@@ -303,8 +303,12 @@ Things that cost real debugging time to learn:
 - **Every variable naming an external service needs two rows**, one per scope,
   with different values. A single row ticked for both environments is how a dev
   deployment ends up writing to the production database. Shared read-only keys
-  (`AEROAPI_KEY`, `GOOGLE_MAPS_API_KEY`, `RESEND_API_KEY`, `SENTRY_DSN`) are the
-  exception.
+  (`AEROAPI_KEY`, `RESEND_API_KEY`) are the exception. **Two keys left that
+  list in Tier 5:** `SENTRY_DSN`/`NEXT_PUBLIC_SENTRY_DSN` — one shared DSN
+  merges preview errors into the production project, which is the opposite of
+  what an error tracker is for — and the Maps key, now
+  `GOOGLE_MAPS_SERVER_KEY`, because it is metered and billed and dev traffic
+  should not spend production's quota.
 - **`NODE_ENV` is `production` in Preview too**, so every boot gate in §4 fires
   on `dev.koolee.cloud` exactly as it does in production. That is deliberate —
   dev rehearses prod. `VERCEL_ENV` is the only variable that distinguishes them.

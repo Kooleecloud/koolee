@@ -472,17 +472,44 @@ the richest seam: `authorize`, `getAuth`, `updateAuthAmount`, `capture`,
 `refund`, `cancelAuth`, and webhook verification. `getAuth` exists because a
 client-side success signal is never trusted — see Chapter 8.
 
-**The ETA seam** ([geo/](../packages/core/src/geo/)) is the newest and the most
-opinionated. `estimate({from, to})` returns a RANGE — `{minMinutes, maxMinutes}`
-— never a point, because an estimate built from ZIP centroids and an average
-city speed is not accurate to the minute and must not be rendered as though it
-were. The one implementation is `haversine × 1.5 ÷ 18 km/h`, floored at 5
-minutes, ±30% widened to whole 5-minute steps. Its constants are named static
-fields and its header documents a known bias: no notion of a highway, so long
-airport runs over-state. That is kept, because it points the safe way for both
-consumers — a customer card only ever shows a driver already in zone, and
-`cutoffRiskMonitor` wants an alert that fires early. `geo/eta.test.ts` pins both
-halves so the trade-off cannot drift silently.
+**The ETA seam** ([geo/](../packages/core/src/geo/)) is the most opinionated.
+`estimate({from, to})` returns a RANGE — `{minMinutes, maxMinutes}` — never a
+point, because a drive time is not accurate to the minute and must not be
+rendered as though it were. **It is `async`, and so is `estimateMany({from[],
+to})`**, the many-origins-one-destination shape the driver shortlist and the
+cutoff cron both use: a network provider behind the seam must never become N
+serial round-trips inside a `.map`.
+
+Two implementations:
+
+- `HaversineEtaEstimator` — `haversine × 1.5 ÷ 18 km/h`, floored at 5 minutes,
+  ±30% widened to whole 5-minute steps, resolving immediately. Its header
+  documents a known bias: no notion of a highway, so long airport runs
+  over-state. Kept, because it points the safe way for both consumers.
+- `GoogleRoutesEtaEstimator` ([geo/routes.ts](../packages/core/src/geo/routes.ts))
+  — one `computeRouteMatrix` POST, plain `fetch`, no SDK, key injected as a
+  value (`GOOGLE_MAPS_SERVER_KEY`, resolved in `apps/web/src/lib/core.ts`).
+  Traffic-aware duration mapped to −15%/+45%: the spread is asymmetric because
+  a route can always take longer than predicted and essentially never takes
+  dramatically less, and because `cutoffRiskMonitor` consumes the pessimistic
+  end. **It never throws.** Any failure — quota, network, revoked key, an
+  unroutable origin — falls back to the arithmetic, per origin, with one log
+  line. ETA is not load-bearing anywhere.
+
+`geo/eta.test.ts` pins the arithmetic and the seam; `geo/routes.test.ts` pins
+the request shape, the mapping and every fallback.
+
+**The pricing distance** ([geo/distance.ts](../packages/core/src/geo/distance.ts)
++ [services/quote-distance.ts](../packages/core/src/services/quote-distance.ts))
+is a SEPARATE question from the ETA and answered differently on purpose:
+`quoteDistanceKm` is geometry — great-circle × a calibrated 1.2 road factor —
+and **never a network call**, because a booking is priced three times minutes
+apart (window picker, review page, `createBooking`) and a traffic-aware number
+would move between them. `resolveQuoteDistanceKm` resolves it against the
+database: precise address coordinates, else the ZIP centroid, else the
+per-airport typical (`TYPICAL_AIRPORT_DISTANCE_KM`, which the public pricing
+page imports rather than copies). It replaced the literal `20` at four funnel
+call sites that disagreed with the marketing page by up to $2.70.
 
 **Services** ([services/](../packages/core/src/services/)) are the app-facing
 API: `create-booking`, `windows` (window listing + blackout CRUD), `quote`,

@@ -5,6 +5,8 @@ import {
   ensureAddress,
   ensureCustomerFromAuth,
   getCustomerById,
+  resolveQuoteDistanceKm,
+  toCoordinates,
   type CoreConfig,
   type CreateBookingInput,
 } from "@koolee/core";
@@ -105,6 +107,16 @@ export async function buildCheckoutSetup(
     zip: draft.zip,
   });
 
+  // The price the booking is actually written with. It has to be the same
+  // number the review page showed, which is why this asks the same resolver
+  // rather than carrying a value forward on the draft: the address row is the
+  // authority on where the pickup is, and it exists by this line.
+  const distance = await resolveQuoteDistanceKm(core, {
+    airportCode: draft.departureAirport,
+    zip: draft.zip,
+    pickup: toCoordinates(address.lat, address.lng),
+  });
+
   return {
     userRow,
     input: {
@@ -123,8 +135,7 @@ export async function buildCheckoutSetup(
       scope: draft.scope ?? "domestic",
       paxName: draft.paxName,
       bagCount: draft.bagCount,
-      // TODO(maps): real door-to-airport distance via the Maps API.
-      distanceKm: 20,
+      distanceKm: distance.km,
       ...(draft.promoCode ? { promoCode: draft.promoCode } : {}),
     },
   };

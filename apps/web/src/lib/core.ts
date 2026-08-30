@@ -4,6 +4,7 @@ import {
   createRuntime,
   tryCreateRuntime,
   type CoreConfig,
+  type EtaEstimatorConfig,
   type NotifierConfig,
   type PushSender,
   type PaymentProviderConfig,
@@ -130,6 +131,20 @@ function resolvePushSender(): { pushSender?: PushSender } {
   return sender === null ? {} : { pushSender: sender };
 }
 
+/**
+ * The traffic-aware ETA when there is a key, the arithmetic one when there is
+ * not. Selection is by presence, exactly like the payment provider above: a
+ * fresh clone with no Google account estimates the way it always has.
+ *
+ * Never load-bearing either way — `GoogleRoutesEtaEstimator` falls back to
+ * haversine on any failure — so this needs no boot gate and no "misconfigured"
+ * state.
+ */
+function resolveEtaConfig(): EtaEstimatorConfig {
+  const apiKey = optionalEnv("GOOGLE_MAPS_SERVER_KEY");
+  return apiKey ? { kind: "google-routes", apiKey } : { kind: "haversine" };
+}
+
 /** `defaults` for `createRuntime`. Omitted keys keep the core default. */
 function resolveDefaults(): { assignmentHorizonHours?: number } {
   const assignmentHorizonHours = resolveAssignmentHorizonHours();
@@ -145,6 +160,7 @@ export function getCore(): CoreConfig {
     payments: resolvePaymentConfig(),
     extraction: resolveExtractionConfig(),
     notifications: resolveNotifierConfig(),
+    eta: resolveEtaConfig(),
     // Core raises `booking/exception_raised` from the transition itself; this
     // is the adapter that puts it on the queue. Without it the emit is a noop
     // and no ops alert is sent.
@@ -164,6 +180,7 @@ export function tryGetCore(): CoreConfig | null {
     payments: resolvePaymentConfig(),
     extraction: resolveExtractionConfig(),
     notifications: resolveNotifierConfig(),
+    eta: resolveEtaConfig(),
     emitter: inngestEmitter,
   });
 }

@@ -15,6 +15,7 @@ import {
   formatDayInAirportTz,
   formatHourInAirportTz,
   listBookableWindows,
+  resolveQuoteDistanceKm,
   type PricedWindow,
 } from "@koolee/core";
 
@@ -68,14 +69,20 @@ export default async function SlotStepPage() {
   let loadError: string | null = null;
 
   try {
+    // The same distance the review page and `createBooking` will resolve —
+    // one function, so the three moments a booking is priced cannot disagree.
+    const distance = await resolveQuoteDistanceKm(core, {
+      airportCode: draft.departureAirport,
+      zip: draft.zip,
+    });
+
     const result = await listBookableWindows(core, {
       airportCode: draft.departureAirport,
       airlineIata: draft.airlineIata,
       scope: draft.scope ?? "domestic",
       departureAt: new Date(draft.departureAt),
       bagCount: draft.bagCount,
-      // TODO(maps): real door-to-airport distance via the Maps API.
-      distanceKm: 20,
+      distanceKm: distance.km,
       promoCode: draft.promoCode ?? null,
     });
     windows = result.windows;

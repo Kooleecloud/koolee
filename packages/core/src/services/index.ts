@@ -383,3 +383,5 @@ export {
   type AssembleConfirmationEmailInput,
   type SendConfirmationEmailInput,
 } from "./confirmation-email";
+
+export { resolveQuoteDistanceKm } from "./quote-distance";

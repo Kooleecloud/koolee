@@ -237,19 +237,53 @@ export async function listCandidateDrivers(
   const pool = inZone.length > 0 ? inZone : withRoom;
   const outOfZone = inZone.length === 0;
 
-  return pool
+  const shortlist = pool
     .sort((a, b) => a.bagsOnBoard - b.bagsOnBoard || a.shiftId.localeCompare(b.shiftId))
-    .slice(0, DRIVER_SHORTLIST_SIZE)
-    .map((r) => toCandidate(config, r, pickup.coords, outOfZone));
+    .slice(0, DRIVER_SHORTLIST_SIZE);
+
+  const etas = await shortlistEtas(config, shortlist, pickup.coords);
+
+  return shortlist.map((row, i) => toCandidate(row, outOfZone, etas[i] ?? null));
+}
+
+/**
+ * One estimator call for the whole shortlist, not one per driver.
+ *
+ * `estimate` became async in Tier 5 so a routing provider could sit behind the
+ * seam. The obvious translation — `await` inside the `.map` this used to be —
+ * would have made a page render four SERIAL network round-trips for a number
+ * that is explicitly not load-bearing. `estimateMany` is the batch shape, and
+ * a route-matrix API answers all four in one request.
+ *
+ * Drivers with no position yet are left out of the call and get `null`, which
+ * the card renders as "ETA on the way".
+ */
+async function shortlistEtas(
+  config: CoreConfig,
+  rows: readonly EligibleRow[],
+  pickupCoords: Coordinates | null,
+): Promise<(EtaRange | null)[]> {
+  const origins = rows.map((r) => toCoordinates(r.driverLat, r.driverLng));
+  if (pickupCoords === null) return origins.map(() => null);
+
+  const known = origins.filter((c): c is Coordinates => c !== null);
+  if (known.length === 0) return origins.map(() => null);
+
+  const estimates = await config.etaEstimator.estimateMany({
+    from: known,
+    to: pickupCoords,
+  });
+
+  // Re-align: `estimates` is indexed against the drivers that HAD a position.
+  let next = 0;
+  return origins.map((coords) => (coords === null ? null : (estimates[next++] ?? null)));
 }
 
 function toCandidate(
-  config: CoreConfig,
   row: EligibleRow,
-  pickupCoords: Coordinates | null,
   outOfZone: boolean,
+  eta: EtaRange | null,
 ): DriverCandidate {
-  const from = toCoordinates(row.driverLat, row.driverLng);
   return {
     shiftId: row.shiftId,
     staffUserId: row.staffUserId,
@@ -260,10 +294,7 @@ function toCandidate(
     bagsOnBoard: row.bagsOnBoard,
     availableCapacity: row.bagCapacity - row.bagsOnBoard,
     outOfZone,
-    eta:
-      from !== null && pickupCoords !== null
-        ? config.etaEstimator.estimate({ from, to: pickupCoords })
-        : null,
+    eta,
   };
 }
 
@@ -332,6 +363,16 @@ export async function selectDriver(
     userId: input.userId,
     role: "customer",
   });
+
+  // BEFORE the transaction, deliberately. The ETA is a snapshot for the
+  // custody event's metadata — a record of what the customer was told — and
+  // nothing depends on it. Since Tier 5 the estimator may be a routing API,
+  // and a network round-trip inside `db.transaction` would hold the shift's
+  // advisory lock open for its duration, serialising every other customer
+  // choosing that same driver behind a third party's latency. The position it
+  // reads is at most one GPS ping (~45s) older than the one re-read under the
+  // lock; a null either way renders as "ETA on the way".
+  const eta = await snapshotDriverEta(config, input.shiftId, pickup.coords);
 
   const result = await db.transaction(async (tx) => {
     // Serialises every selection targeting THIS shift. `hashtextextended` is
@@ -416,12 +457,6 @@ export async function selectDriver(
         ? task.driverShiftId
         : null;
 
-    const from = toCoordinates(row.driverLat, row.driverLng);
-    const eta =
-      from !== null && pickup.coords !== null
-        ? config.etaEstimator.estimate({ from, to: pickup.coords })
-        : null;
-
     await tx
       .update(pickupTasks)
       .set({
@@ -488,6 +523,34 @@ export async function selectDriver(
   });
 
   return { candidate: result.candidate, releasedShiftId: result.releasedShiftId };
+}
+
+/**
+ * The ETA to write into the `pickup.driver_selected` custody event.
+ *
+ * Its own small read of `driver_positions` rather than reusing the row the
+ * transaction re-reads under the lock — see the call site for why the network
+ * call must not be inside the transaction. Null (no shift, no position, no
+ * pickup coordinate) is a perfectly ordinary answer.
+ */
+async function snapshotDriverEta(
+  config: CoreConfig,
+  shiftId: string,
+  pickupCoords: Coordinates | null,
+): Promise<EtaRange | null> {
+  if (pickupCoords === null) return null;
+
+  const [row] = await config.db
+    .select({ lat: driverPositions.lat, lng: driverPositions.lng })
+    .from(driverShifts)
+    .innerJoin(driverPositions, eq(driverPositions.staffUserId, driverShifts.staffUserId))
+    .where(eq(driverShifts.id, shiftId))
+    .limit(1);
+
+  const from = toCoordinates(row?.lat, row?.lng);
+  if (from === null) return null;
+
+  return config.etaEstimator.estimate({ from, to: pickupCoords });
 }
 
 /**

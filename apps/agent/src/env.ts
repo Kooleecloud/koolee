@@ -105,7 +105,6 @@ const schema = z.object({
    */
   NEXT_PUBLIC_TURNSTILE_SITE_KEY: optionalString,
 
-  GOOGLE_MAPS_API_KEY: optionalString,
   /**
    * Event key for the shared Inngest app. This app SENDS domain events (a
    * booking raising an exception) but serves no functions — the registry and
@@ -136,7 +135,6 @@ const raw = {
   NEXT_PUBLIC_SUPABASE_ANON_KEY: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
   NEXT_PUBLIC_TURNSTILE_SITE_KEY: process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY,
 
-  GOOGLE_MAPS_API_KEY: process.env.GOOGLE_MAPS_API_KEY,
   INNGEST_EVENT_KEY: process.env.INNGEST_EVENT_KEY,
   SENTRY_DSN: process.env.SENTRY_DSN,
 };
@@ -156,7 +154,6 @@ export class MissingEnvError extends Error {
 const HINTS: Partial<Record<EnvKey, string>> = {
   DATABASE_URL:
     "Supabase → Project Settings → Database → Connection pooling (Transaction mode, port 6543).",
-  GOOGLE_MAPS_API_KEY: "Google Cloud Console → Maps Platform. Stubbed in this scaffold.",
 };
 
 export function requireEnv(key: EnvKey): string {
@@ -274,12 +271,6 @@ export function describeEnvStatus(): ServiceStatus[] {
       configured: has("NEXT_PUBLIC_SUPABASE_URL", "NEXT_PUBLIC_SUPABASE_ANON_KEY"),
       fallback: "Sign-in is unavailable; photo capture stays local.",
       keys: ["NEXT_PUBLIC_SUPABASE_URL", "NEXT_PUBLIC_SUPABASE_ANON_KEY"],
-    },
-    {
-      service: "Google Maps",
-      configured: has("GOOGLE_MAPS_API_KEY"),
-      fallback: "Route ETA uses a fixed estimate.",
-      keys: ["GOOGLE_MAPS_API_KEY"],
     },
     {
       service: "Sentry",

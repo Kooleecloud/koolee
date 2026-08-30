@@ -13,6 +13,7 @@ import {
   QuoteZipMismatchError,
   recordWaitlistSignup,
   resolveDisplayTz,
+  resolveQuoteDistanceKm,
   SlotNotSellableError,
   softDeleteBookingDraft,
   type AirportCode,
@@ -422,14 +423,18 @@ export async function submitSlot(
   // landed, or the notice fence may have moved past this window.
   if (core && draft.departureAirport && draft.departureAt && draft.airlineIata) {
     try {
+      const distance = await resolveQuoteDistanceKm(core, {
+        airportCode: draft.departureAirport,
+        zip: draft.zip,
+      });
+
       const { windows } = await listBookableWindows(core, {
         airportCode: draft.departureAirport,
         airlineIata: draft.airlineIata,
         scope: draft.scope ?? "domestic",
         departureAt: new Date(draft.departureAt),
         bagCount: draft.bagCount ?? 1,
-        // TODO(maps): real door-to-airport distance via the Maps API.
-        distanceKm: 20,
+        distanceKm: distance.km,
       });
       if (!windows.some((w) => w.windowStart.getTime() === windowStart.getTime())) {
         return { error: "That window is no longer available. Pick another." };

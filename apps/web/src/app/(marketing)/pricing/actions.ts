@@ -1,7 +1,7 @@
 "use server";
 
 import { z } from "zod";
-import { price, type PricingRuleInput } from "@koolee/core";
+import { price, TYPICAL_AIRPORT_DISTANCE_KM, type PricingRuleInput } from "@koolee/core";
 import type { PriceEstimateResult } from "@koolee/ui";
 
 /**
@@ -24,13 +24,6 @@ const LAUNCH_RULE: PricingRuleInput = {
     { maxLeadMinutes: 24 * 60, multiplier: 1.1 },
   ],
   discountRules: [{ kind: "family", minBags: 3, percent: 10 }],
-};
-
-/** Typical drive distance from the service area, per airport (km). */
-const TYPICAL_DISTANCE_KM: Record<string, number> = {
-  JFK: 26,
-  LGA: 13,
-  EWR: 19,
 };
 
 /**
@@ -63,7 +56,11 @@ export async function estimatePrice(input: {
   airportCode: string;
 }): Promise<PriceEstimateResult> {
   const parsed = inputSchema.parse(input);
-  const distanceKm = TYPICAL_DISTANCE_KM[parsed.airportCode] ?? 20;
+  // The same table the funnel falls back to when an address has no
+  // coordinates — imported, not copied. This page used to hold its own copy
+  // while four funnel call sites passed a flat 20 km, which is how a public
+  // quote and the price of the same trip came to differ by $2.70.
+  const distanceKm = TYPICAL_AIRPORT_DISTANCE_KM[parsed.airportCode] ?? 20;
 
   const breakdown = price({
     rule: LAUNCH_RULE,

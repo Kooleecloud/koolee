@@ -28,7 +28,8 @@ import {
   taskUrlFor as buildTaskUrl,
   tripUrlFor as buildTripUrl,
 } from "../notifications/links";
-import { toCoordinates } from "../geo/coordinates";
+import { toCoordinates, type Coordinates } from "../geo/coordinates";
+import type { EtaEstimatorKind } from "../geo/eta";
 import { assignEnteringHorizon } from "../services/auto-assign";
 import {
   listAdminPushTargets,
@@ -112,6 +113,8 @@ interface AtRiskBooking {
   /** Where the drive-time number came from, so an alert is auditable. */
   driveMinutes?: number;
   driveSource?: "estimator" | "configured_default";
+  /** Which estimator was CONFIGURED — see the note at the call site. */
+  estimatorKind?: EtaEstimatorKind;
 }
 
 /** How long before pickup the reminder goes out. */
@@ -504,7 +507,18 @@ export function createKooleeFunctions(
         const addressById = new Map(addressRows.map((a) => [a.id, a]));
         const airportByCode = new Map(airportRows.map((a) => [a.code, a]));
 
-        return inTransit.flatMap<AtRiskBooking>((booking) => {
+        /* First pass, no I/O: the cutoff, and whether this booking has two
+           ends to measure between. Bookings with no cutoff on record leave
+           here — that absence IS the alert. */
+        const noCutoff: AtRiskBooking[] = [];
+        const measurable: {
+          booking: (typeof inTransit)[number];
+          cutoffMinutes: number;
+          from: Coordinates | null;
+          to: Coordinates | null;
+        }[] = [];
+
+        for (const booking of inTransit) {
           let cutoffMinutes: number;
           try {
             // The STRICTEST cutoff across both scopes, not an assumed
@@ -522,36 +536,72 @@ export function createKooleeFunctions(
             );
           } catch {
             // No cutoff on record — that is itself worth surfacing.
-            return [
-              {
-                bookingId: booking.id,
-                minutesRemaining: null,
-                note: "no cutoff on record",
-              },
-            ];
+            noCutoff.push({
+              bookingId: booking.id,
+              minutesRemaining: null,
+              note: "no cutoff on record",
+            });
+            continue;
           }
 
-          // A real estimate where both ends have coordinates; the configured
-          // default only where they do not (an address whose ZIP has no
-          // centroid). `maxMinutes` rather than the midpoint on purpose: this
-          // is an alert, and the pessimistic end is the one that fires early.
           const pickup = addressById.get(booking.pickupAddressId);
           const airport = airportByCode.get(booking.departureAirport);
-          const from = toCoordinates(pickup?.lat, pickup?.lng);
-          const to = toCoordinates(airport?.lat, airport?.lng);
-          const estimated =
-            from !== null && to !== null
-              ? config.etaEstimator.estimate({ from, to }).maxMinutes
-              : null;
+          measurable.push({
+            booking,
+            cutoffMinutes,
+            from: toCoordinates(pickup?.lat, pickup?.lng),
+            to: toCoordinates(airport?.lat, airport?.lng),
+          });
+        }
+
+        /* Second pass: the estimator, ONE CALL PER AIRPORT rather than one per
+           booking. `estimate` became async in Tier 5 so a routing provider
+           could sit behind the seam, and this is a cron that fans out over
+           every in-transit booking — awaiting inside the loop would have made
+           a five-minute job into N serial round-trips against a third party.
+           There are three airports, so this is at most three calls however
+           many bookings are moving. */
+        const byAirport = new Map<string, { index: number; from: Coordinates }[]>();
+        for (const [index, item] of measurable.entries()) {
+          if (item.from === null || item.to === null) continue;
+          const group = byAirport.get(item.booking.departureAirport);
+          if (group) group.push({ index, from: item.from });
+          else byAirport.set(item.booking.departureAirport, [{ index, from: item.from }]);
+        }
+
+        const estimatedMaxMinutes = new Array<number | null>(measurable.length).fill(null);
+        await Promise.all(
+          [...byAirport.values()].map(async (group) => {
+            const to = measurable[group[0]!.index]!.to;
+            if (to === null) return;
+            const ranges = await config.etaEstimator.estimateMany({
+              from: group.map((g) => g.from),
+              to,
+            });
+            group.forEach((g, i) => {
+              // `maxMinutes` rather than the midpoint on purpose: this is an
+              // alert, and the pessimistic end is the one that fires early.
+              const range = ranges[i];
+              if (range) estimatedMaxMinutes[g.index] = range.maxMinutes;
+            });
+          }),
+        );
+
+        /* Third pass: the arithmetic. The configured default only where there
+           was nothing to measure between (an address whose ZIP has no
+           centroid). */
+        const tight = measurable.flatMap<AtRiskBooking>((item, index) => {
+          const estimated = estimatedMaxMinutes[index] ?? null;
           const driveMinutes = estimated ?? config.defaults.driveTimeMinutes;
 
           const remaining =
-            minutesUntilCutoff(booking.departureAt, cutoffMinutes, now) - driveMinutes;
+            minutesUntilCutoff(item.booking.departureAt, item.cutoffMinutes, now) -
+            driveMinutes;
 
           return remaining <= CUTOFF_ALERT_THRESHOLD_MINUTES
             ? [
                 {
-                  bookingId: booking.id,
+                  bookingId: item.booking.id,
                   minutesRemaining: remaining,
                   note: "tight",
                   driveMinutes,
@@ -559,10 +609,17 @@ export function createKooleeFunctions(
                     estimated === null
                       ? ("configured_default" as const)
                       : ("estimator" as const),
+                  // WHICH estimator was configured — not which one answered.
+                  // `GoogleRoutesEtaEstimator` falls back to haversine per
+                  // call and logs when it does; this tag stays "google-routes"
+                  // either way, so read it as configuration.
+                  estimatorKind: config.etaEstimator.kind,
                 },
               ]
             : [];
         });
+
+        return [...noCutoff, ...tight];
       });
 
       if (atRisk.length === 0) {
