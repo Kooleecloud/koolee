@@ -11,6 +11,31 @@ import { z } from "zod";
 const optionalString = z.string().min(1).optional().catch(undefined);
 const optionalUrl = z.url().optional().catch(undefined);
 
+/**
+ * The Supabase **API** URL, and specifically not the database host.
+ *
+ * `https://db.<ref>.supabase.co` is the direct Postgres host: IPv6-only, and
+ * it serves no HTTP API at all. Pasted into this variable — an easy mistake,
+ * because it is the hostname the Database settings page shows — every auth
+ * call fails with `ERR_NAME_NOT_RESOLVED`, supabase-js reports it as an auth
+ * error, and the staff apps render it as "Email or password didn't match"
+ * over credentials that are perfectly correct. It cost a day (2026-08-30).
+ *
+ * Rejecting it here turns that into the app's honest "not configured" state,
+ * which the boot warnings and the env panel both name. The right value comes
+ * from Settings → **API** → Project URL: `https://<ref>.supabase.co`.
+ */
+const supabaseApiUrl = z
+  .url()
+  .refine((value) => !/^https?:\/\/db\./i.test(value), {
+    message:
+      "NEXT_PUBLIC_SUPABASE_URL is the db.<ref> host (direct Postgres, IPv6-only, no HTTP API). " +
+      "Use Settings → API → Project URL: https://<ref>.supabase.co",
+  })
+  .optional()
+  .catch(undefined);
+
+
 const schema = z.object({
   NODE_ENV: z
     .enum(["development", "test", "production"])
@@ -27,7 +52,7 @@ const schema = z.object({
   // DIRECT_DATABASE_URL is deliberately NOT read here: it is a hosted DDL
   // credential and belongs in packages/db/.env alone (see .env.example).
 
-  NEXT_PUBLIC_SUPABASE_URL: optionalUrl,
+  NEXT_PUBLIC_SUPABASE_URL: supabaseApiUrl,
   NEXT_PUBLIC_SUPABASE_ANON_KEY: optionalString,
 
   /**
