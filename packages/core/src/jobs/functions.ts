@@ -5,6 +5,7 @@ import {
   airports,
   bags,
   bookings,
+  pickupTasks,
   users,
   verificationTasks,
 } from "@koolee/db";
@@ -16,15 +17,25 @@ import {
   buildAgentAssignedEmail,
   buildBagdropDeliveredEmail,
   buildBagsSealedEmail,
-  buildBookingConfirmationEmail,
   buildCustomerExceptionEmail,
   buildDriverSelectedEmail,
   buildOpsDriverPoolEmptyEmail,
   buildOpsExceptionEmail,
   buildPickupReminderEmail,
-  type PriceLine,
 } from "../notifications/emails";
+import {
+  adminBookingUrlFor as buildAdminBookingUrl,
+  taskUrlFor as buildTaskUrl,
+  tripUrlFor as buildTripUrl,
+} from "../notifications/links";
 import { toCoordinates } from "../geo/coordinates";
+import { assignEnteringHorizon } from "../services/auto-assign";
+import {
+  listAdminPushTargets,
+  pushToTargets,
+  pushToUsers,
+} from "../services/push-subscriptions";
+import { assembleBookingConfirmationEmail } from "../services/confirmation-email";
 import { resolveDisplayTz } from "../services/display-tz";
 import { notifyNewlyCoveredWaitlist } from "../waitlist/notify-covered";
 import {
@@ -67,6 +78,17 @@ export interface KooleeFunctionOptions {
   /** Absolute app origin for trip-page links (NEXT_PUBLIC_APP_URL). */
   appOrigin?: string | undefined;
   /**
+   * Absolute origins of the two STAFF apps, for push deep links only.
+   *
+   * A notification that cannot be tapped through to the thing it is about is
+   * half a notification — an agent reading "new visit assigned" on a phone
+   * has to find it by hand. Absent → the push still goes, without a link,
+   * because the notification is worth more than the link (`notificationclick`
+   * falls back to `/`).
+   */
+  agentAppOrigin?: string | undefined;
+  adminAppOrigin?: string | undefined;
+  /**
    * The address a customer may write to when something has gone wrong.
    *
    * Passed in rather than read from an env var because it is not
@@ -107,9 +129,44 @@ export function createKooleeFunctions(
   options: KooleeFunctionOptions = {},
 ) {
   const tripUrlFor = (bookingId: string): string | undefined =>
-    options.appOrigin
-      ? `${options.appOrigin.replace(/\/$/, "")}/trips/${bookingId}`
-      : undefined;
+    buildTripUrl(options.appOrigin, bookingId);
+  const taskUrlFor = (taskId: string): string | undefined =>
+    buildTaskUrl(options.agentAppOrigin, taskId);
+  const adminBookingUrlFor = (bookingId: string): string | undefined =>
+    buildAdminBookingUrl(options.adminAppOrigin, bookingId);
+
+  /* ------------------------------------------------------------------ */
+  /* Push fan-out                                                         */
+  /* ------------------------------------------------------------------ */
+
+  /**
+   * PUSH IS NEVER LOAD-BEARING (§7). Every send below sits in its OWN
+   * `step.run`, after the email step and never inside it, for three reasons:
+   *
+   *  1. the email is the guaranteed channel and must complete first;
+   *  2. Inngest memoizes steps independently, so a retried email step does
+   *     not re-send the push and a retried push does not re-send the email;
+   *  3. the function's return value stays the email's result, so nothing
+   *     downstream — or in the existing tests — learns a new shape.
+   *
+   * `pushToUsers` / `pushToTargets` never throw, so a dead push provider
+   * cannot fail a step either way. The belt and the braces are both here on
+   * purpose: this is the channel that fails silently.
+   */
+
+  /** Spreads `url` only when there is one — the payload has no empty keys. */
+  const withUrl = (url: string | undefined) => (url === undefined ? {} : { url });
+
+  /**
+   * One notification per booking, replaced as the booking moves on.
+   *
+   * A stable tag means "your agent is Nina" is REPLACED by "your bags are
+   * sealed" rather than stacking beside it: the customer's lock screen shows
+   * where their bags are now, not a history of where they have been.
+   * `renotify` is what makes the replacement re-alert instead of landing in
+   * silence.
+   */
+  const customerTag = (bookingId: string) => `booking:${bookingId}`;
 
   /* ------------------------------------------------------------------ */
   /* 0. Booking confirmation email                                       */
@@ -152,59 +209,12 @@ export function createKooleeFunctions(
           return { sent: false, reason: "no_email" };
         }
 
-        const address = await config.db.query.addresses.findFirst({
-          where: eq(addresses.id, booking.pickupAddressId),
-        });
-        const tz = await resolveDisplayTz(config.db, booking.departureAirport);
-        const windowLabel =
-          booking.pickupWindowStart && booking.pickupWindowEnd
-            ? formatWindowInAirportTz(
-                booking.pickupWindowStart,
-                booking.pickupWindowEnd,
-                tz,
-              )
-            : "see your trip page";
-
-        // The breakdown persisted at booking time is the truth of what was
-        // charged — never recompute it here (prices may have changed since).
-        const bd = booking.priceBreakdown;
-        const priceLines: PriceLine[] = bd
-          ? [
-              { label: "Base fee", amountCents: bd.baseFeeCents },
-              { label: "Bags", amountCents: bd.bagsCents },
-              { label: "Distance", amountCents: bd.distanceCents },
-              ...(bd.leadTimeAdjustmentCents !== 0
-                ? [
-                    {
-                      label: "Lead-time adjustment",
-                      amountCents: bd.leadTimeAdjustmentCents,
-                    },
-                  ]
-                : []),
-              ...bd.discounts.map((d) => ({
-                label: d.label,
-                amountCents: -d.amountCents,
-              })),
-            ]
-          : [];
-
-        const message = buildBookingConfirmationEmail({
+        // Same assembler the guest-adds-email path uses — one builder, two
+        // dispatch points (services/confirmation-email.ts).
+        const message = await assembleBookingConfirmationEmail(config, {
+          booking,
           to: customer.email,
-          bookingRef: booking.ref,
-          paxName: booking.paxName,
-          flightNumber: booking.flightNumber,
-          departureAirport: booking.departureAirport,
-          windowLabel,
-          departureLabel: formatInstantInAirportTz(booking.departureAt, tz),
-          addressLine: address
-            ? `${address.line1}${address.line2 ? `, ${address.line2}` : ""}, ${address.city}, ${address.state} ${address.zip}`
-            : "your saved pickup address",
-          bagCount: booking.bagCount,
-          priceLines,
-          totalCents: bd?.totalCents ?? 0,
-          ...(tripUrlFor(booking.id) === undefined
-            ? {}
-            : { tripUrl: tripUrlFor(booking.id)! }),
+          appOrigin: options.appOrigin,
         });
 
         try {
@@ -353,7 +363,7 @@ export function createKooleeFunctions(
       triggers: [exceptionRaised],
     },
     async ({ event, step, logger }) => {
-      return step.run("send-ops-alert-email", async () => {
+      const emailResult = await step.run("send-ops-alert-email", async () => {
         const to = options.opsAlertEmail;
         if (!to) {
           logger.info("OPS_ALERT_EMAIL not configured; skipping exception email.");
@@ -390,6 +400,44 @@ export function createKooleeFunctions(
         }
         return { sent: true };
       });
+
+      /*
+       * Ops, on whatever machine they are actually at.
+       *
+       * The audience is DERIVED — every active admin who has a subscription
+       * (`listAdminPushTargets`), no roster to keep in step with anything.
+       * Unlike the email, this does NOT depend on OPS_ALERT_EMAIL: it is a
+       * different channel to different people, and an unset inbox address is
+       * no reason to leave everyone's phone silent.
+       *
+       * UNIQUE TAG. Two bookings in exception are two problems, and a
+       * collapsed notification would hide the second one entirely — the exact
+       * failure mode this alert exists to prevent.
+       */
+      await step.run("push-exception-ops", async () => {
+        const config = getConfig();
+        const targets = await listAdminPushTargets(config.db);
+        if (targets.length === 0) return { skipped: "no_admin_subscriptions" };
+
+        const booking = await config.db.query.bookings.findFirst({
+          where: eq(bookings.id, event.data.bookingId),
+          columns: { ref: true },
+        });
+
+        return pushToTargets(
+          config,
+          targets,
+          {
+            title: "Booking in exception",
+            body: `${booking?.ref ?? event.data.bookingId} · ${event.data.reason}`,
+            tag: `exception:${event.data.bookingId}:${config.clock.now().getTime()}`,
+            ...withUrl(adminBookingUrlFor(event.data.bookingId)),
+          },
+          { urgency: "high" },
+        );
+      });
+
+      return emailResult;
     },
   );
 
@@ -648,7 +696,7 @@ export function createKooleeFunctions(
       triggers: [driverSelectedEvent],
     },
     async ({ event, step, logger }) => {
-      return step.run("send-driver-selected-email", async () => {
+      const emailResult = await step.run("send-driver-selected-email", async () => {
         const config = getConfig();
 
         const booking = await config.db.query.bookings.findFirst({
@@ -695,6 +743,66 @@ export function createKooleeFunctions(
         }
         return { sent: true, bookingId: booking.id };
       });
+
+      /*
+       * TWO AUDIENCES AGAIN. The customer gets the milestone (collapsing onto
+       * the booking's one notification); the driver gets a JOB, which stacks,
+       * because a second pickup on the same shift is a second van stop and a
+       * replaced notification would be a booking nobody knows they hold.
+       *
+       * `driverUserId` is the shift's staff user — `selectDriver` writes both
+       * assignment columns in one statement, so the two cannot disagree.
+       */
+      await step.run("push-driver-selected", async () => {
+        const config = getConfig();
+        const booking = await config.db.query.bookings.findFirst({
+          where: eq(bookings.id, event.data.bookingId),
+          columns: { id: true, ref: true, userId: true, bagCount: true, status: true },
+        });
+        if (!booking) return { skipped: "booking_missing" };
+        if (booking.status === "cancelled") return { skipped: "cancelled" };
+
+        const driver = await config.db.query.users.findFirst({
+          where: eq(users.id, event.data.driverUserId),
+          columns: { fullName: true },
+        });
+        const driverGivenName = driver?.fullName?.trim().split(/\s+/)[0] ?? null;
+
+        const customer = await pushToUsers(
+          config,
+          [booking.userId],
+          {
+            title: driverGivenName
+              ? `${driverGivenName} is collecting your bags`
+              : "Your driver is on the way",
+            body: `${booking.ref} · follow the pickup on your trip page.`,
+            tag: customerTag(booking.id),
+            renotify: true,
+            ...withUrl(tripUrlFor(booking.id)),
+          },
+          { urgency: "normal" },
+        );
+
+        const task = await config.db.query.pickupTasks.findFirst({
+          where: eq(pickupTasks.bookingId, booking.id),
+          columns: { id: true },
+        });
+        const driverPush = await pushToUsers(
+          config,
+          [event.data.driverUserId],
+          {
+            title: "New pickup on your shift",
+            body: `${booking.ref} · ${booking.bagCount} ${booking.bagCount === 1 ? "bag" : "bags"}.`,
+            tag: task ? `pickup-task:${task.id}` : `pickup:${booking.id}`,
+            ...withUrl(task ? taskUrlFor(task.id) : undefined),
+          },
+          { urgency: "high" },
+        );
+
+        return { customer, driver: driverPush };
+      });
+
+      return emailResult;
     },
   );
 
@@ -709,7 +817,7 @@ export function createKooleeFunctions(
       triggers: [deliveredToBagdropEvent],
     },
     async ({ event, step, logger }) => {
-      return step.run("send-bagdrop-delivered-email", async () => {
+      const emailResult = await step.run("send-bagdrop-delivered-email", async () => {
         const config = getConfig();
 
         const booking = await config.db.query.bookings.findFirst({
@@ -750,6 +858,41 @@ export function createKooleeFunctions(
         }
         return { sent: true, bookingId: booking.id };
       });
+
+      /* The last thing the customer hears, and the one they were waiting for. */
+      await step.run("push-bagdrop-delivered", async () => {
+        const config = getConfig();
+        const booking = await config.db.query.bookings.findFirst({
+          where: eq(bookings.id, event.data.bookingId),
+          columns: {
+            id: true,
+            ref: true,
+            userId: true,
+            flightNumber: true,
+            departureAirport: true,
+          },
+        });
+        if (!booking) return { skipped: "booking_missing" };
+
+        return pushToUsers(
+          config,
+          [booking.userId],
+          {
+            title: "Your bags are at the bag drop",
+            // Copy rule: delivered TO the airline's bag drop. Never "checked
+            // in" — Koolee does not check anybody in.
+            body:
+              `${booking.ref} · handed to ${booking.flightNumber} at ` +
+              `${booking.departureAirport}. Check in as usual.`,
+            tag: customerTag(booking.id),
+            renotify: true,
+            ...withUrl(tripUrlFor(booking.id)),
+          },
+          { urgency: "normal" },
+        );
+      });
+
+      return emailResult;
     },
   );
 
@@ -773,7 +916,7 @@ export function createKooleeFunctions(
       triggers: [driverPoolEmptyEvent],
     },
     async ({ event, step, logger }) => {
-      return step.run("alert-ops-no-driver", async () => {
+      const emailResult = await step.run("alert-ops-no-driver", async () => {
         const config = getConfig();
 
         // The console alerter always fires; the email is the upgrade, and it
@@ -819,6 +962,42 @@ export function createKooleeFunctions(
         }
         return { sent: true };
       });
+
+      /*
+       * STABLE TAG + renotify, unlike the exception above: this is one
+       * booking with a staffing problem that will keep being raised until
+       * somebody rosters a driver. Stacking would bury the console under
+       * repeats of the same fact; collapsing keeps ONE live alert per booking
+       * that re-alerts each time it recurs. (The event id is already bucketed
+       * by hour in `emitDriverPoolEmpty`, so "each time" is at most hourly.)
+       */
+      await step.run("push-driver-pool-empty", async () => {
+        const config = getConfig();
+        const targets = await listAdminPushTargets(config.db);
+        if (targets.length === 0) return { skipped: "no_admin_subscriptions" };
+
+        const booking = await config.db.query.bookings.findFirst({
+          where: eq(bookings.id, event.data.bookingId),
+          columns: { ref: true },
+        });
+
+        return pushToTargets(
+          config,
+          targets,
+          {
+            title: "No driver for a sealed booking",
+            body:
+              `${booking?.ref ?? event.data.bookingId} · ZIP ${event.data.zip} · ` +
+              `${event.data.bagCount} ${event.data.bagCount === 1 ? "bag" : "bags"}.`,
+            tag: `driver-pool-empty:${event.data.bookingId}`,
+            renotify: true,
+            ...withUrl(adminBookingUrlFor(event.data.bookingId)),
+          },
+          { urgency: "high" },
+        );
+      });
+
+      return emailResult;
     },
   );
 
@@ -845,7 +1024,7 @@ export function createKooleeFunctions(
       triggers: [agentAssignedEvent],
     },
     async ({ event, step, logger }) => {
-      return step.run("send-agent-assigned-email", async () => {
+      const emailResult = await step.run("send-agent-assigned-email", async () => {
         const config = getConfig();
 
         const booking = await config.db.query.bookings.findFirst({
@@ -906,6 +1085,73 @@ export function createKooleeFunctions(
         }
         return { sent: true, bookingId: booking.id };
       });
+
+      /*
+       * TWO AUDIENCES, ONE EVENT — and they are not the same notification.
+       *
+       * The customer is being told a MILESTONE ("Nina is coming"), so it
+       * collapses onto the booking's one notification. The agent is being
+       * given WORK, so it stacks: a second assignment is a second job, and a
+       * replaced notification would be a visit nobody knows about.
+       *
+       * The horizon sweep reaches here too — it assigns through
+       * `assignAgentToBooking`, which emits this event like every other path.
+       */
+      await step.run("push-agent-assigned", async () => {
+        const config = getConfig();
+        const booking = await config.db.query.bookings.findFirst({
+          where: eq(bookings.id, event.data.bookingId),
+          columns: { id: true, ref: true, userId: true, status: true },
+        });
+        if (!booking) return { skipped: "booking_missing" };
+        if (booking.status === "cancelled" || booking.status === "completed") {
+          return { skipped: "not_live" };
+        }
+
+        const agent = await config.db.query.users.findFirst({
+          where: eq(users.id, event.data.agentUserId),
+          columns: { fullName: true },
+        });
+        const agentGivenName = agent?.fullName?.trim().split(/\s+/)[0] ?? null;
+
+        const customer = await pushToUsers(
+          config,
+          [booking.userId],
+          {
+            title: agentGivenName ? `${agentGivenName} is your agent` : "Your agent is assigned",
+            body: `${booking.ref} · they'll collect your bags at your door.`,
+            tag: customerTag(booking.id),
+            renotify: true,
+            ...withUrl(tripUrlFor(booking.id)),
+          },
+          { urgency: "normal" },
+        );
+
+        // The task id is looked up rather than carried: the event's shape is
+        // fixed, and the row is the truth about which visit this is.
+        const task = await config.db.query.verificationTasks.findFirst({
+          where: eq(verificationTasks.bookingId, booking.id),
+          columns: { id: true },
+        });
+        const agentPush = await pushToUsers(
+          config,
+          [event.data.agentUserId],
+          {
+            title: "New visit assigned",
+            // Names and a ref only. No address, nothing passport-shaped: a
+            // push is decrypted onto a lock screen that may be face-up on a
+            // table.
+            body: `${booking.ref} — check the schedule for the window.`,
+            tag: task ? `verification-task:${task.id}` : `verification:${booking.id}`,
+            ...withUrl(task ? taskUrlFor(task.id) : undefined),
+          },
+          { urgency: "high" },
+        );
+
+        return { customer, agent: agentPush };
+      });
+
+      return emailResult;
     },
   );
 
@@ -930,7 +1176,7 @@ export function createKooleeFunctions(
       triggers: [bagsSealedEvent],
     },
     async ({ event, step, logger }) => {
-      return step.run("send-bags-sealed-email", async () => {
+      const emailResult = await step.run("send-bags-sealed-email", async () => {
         const config = getConfig();
 
         const booking = await config.db.query.bookings.findFirst({
@@ -985,6 +1231,38 @@ export function createKooleeFunctions(
         }
         return { sent: true, bookingId: booking.id, bagCount: sealed.length };
       });
+
+      /*
+       * The same one notification per booking, replaced. "Nina is your agent"
+       * becomes "your bags are sealed" — a lock screen should show where the
+       * bags ARE, not a stack of everywhere they have been.
+       */
+      await step.run("push-bags-sealed", async () => {
+        const config = getConfig();
+        const booking = await config.db.query.bookings.findFirst({
+          where: eq(bookings.id, event.data.bookingId),
+          columns: { id: true, ref: true, userId: true, bagCount: true, status: true },
+        });
+        if (!booking) return { skipped: "booking_missing" };
+        if (booking.status === "cancelled") return { skipped: "cancelled" };
+
+        return pushToUsers(
+          config,
+          [booking.userId],
+          {
+            title: "Your bags are sealed",
+            body:
+              `${booking.ref} · ${booking.bagCount} ` +
+              `${booking.bagCount === 1 ? "bag" : "bags"} — choose your driver.`,
+            tag: customerTag(booking.id),
+            renotify: true,
+            ...withUrl(tripUrlFor(booking.id)),
+          },
+          { urgency: "normal" },
+        );
+      });
+
+      return emailResult;
     },
   );
 
@@ -1062,9 +1340,59 @@ export function createKooleeFunctions(
     },
   );
 
+  /* ------------------------------------------------------------------ */
+  /* 12. Assignment horizon sweep                                        */
+  /* ------------------------------------------------------------------ */
+
+  /**
+   * Assigns bookings whose pickup window has just entered the assignment
+   * horizon (`defaults.assignmentHorizonHours`, default 48).
+   *
+   * The other half of deferred assignment. `autoAssignOnPaid` handles every
+   * booking already inside the horizon at the moment the card clears — which
+   * is every same-day and next-day booking — and creates nothing for the
+   * rest. This picks those up as they come into range.
+   *
+   * five-minute for the same reason `capture-due-bookings` uses it: nothing
+   * server-side observes a clock crossing a threshold, so the sweep is the
+   * observation. Five minutes of lag on a 48-hour horizon is not a lag worth
+   * modelling. Overlapping runs are harmless — the unique index on
+   * `verification_tasks(booking_id)` referees, exactly as it does for the
+   * webhook/return-page race.
+   *
+   * Never throws: `assignEnteringHorizon` catches per booking, so one
+   * uncoverable ZIP cannot stop the rest of the batch.
+   */
+  const assignmentHorizonSweep = inngest.createFunction(
+    {
+      id: "assignment-horizon-sweep",
+      name: "Assign agents to bookings entering the horizon",
+      triggers: [cron("*/5 * * * *")],
+    },
+    async ({ step, logger }) => {
+      return step.run("assign-entering-horizon", async () => {
+        const result = await assignEnteringHorizon(getConfig());
+        if (result.considered > 0) {
+          logger.info(
+            `horizon sweep: ${result.assigned.length} assigned, ` +
+              `${result.uncovered.length} uncovered, ${result.raced.length} raced ` +
+              `(of ${result.considered} considered)`,
+          );
+        }
+        return {
+          considered: result.considered,
+          assigned: result.assigned.length,
+          uncovered: result.uncovered.length,
+          raced: result.raced.length,
+        };
+      });
+    },
+  );
+
   return [
     bookingConfirmationEmail,
     pickupReminder,
+    assignmentHorizonSweep,
     exceptionOpsAlertEmail,
     waitlistZoneOpenedSweep,
     cutoffRiskMonitor,

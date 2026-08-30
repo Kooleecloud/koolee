@@ -161,6 +161,7 @@ describe("createKooleeFunctions — registration", () => {
     expect(h.functions.map((f) => f.id).sort()).toEqual([
       "agent-assigned-email",
       "agent-no-show-check",
+      "assignment-horizon-sweep",
       "bagdrop-delivered-email",
       "bags-sealed-email",
       "booking-confirmation-email",
@@ -180,6 +181,7 @@ describe("createKooleeFunctions — registration", () => {
       "booking/exception_raised",
     ]);
     expect(fn(h, "cutoff-risk-monitor").crons).toEqual(["*/5 * * * *"]);
+    expect(fn(h, "assignment-horizon-sweep").crons).toEqual(["*/5 * * * *"]);
     expect(fn(h, "waitlist-zone-opened-sweep").crons).toEqual([
       "TZ=America/New_York 0 10 * * *",
     ]);

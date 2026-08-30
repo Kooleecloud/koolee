@@ -3,6 +3,9 @@ import {
   airports,
   bags,
   bookings,
+  pickupTasks,
+  pushSubscriptions,
+  staffMembers,
   users,
   verificationTasks,
   waitlistSignups,
@@ -136,7 +139,18 @@ export interface FakeTables {
   airports?: Record<string, unknown>[];
   airlineCutoffs?: Record<string, unknown>[];
   verificationTasks?: Record<string, unknown>[];
+  pickupTasks?: Record<string, unknown>[];
   waitlistSignups?: Record<string, unknown>[];
+  /**
+   * Push audiences. Left EMPTY by every test in this tier on purpose: the
+   * fake ignores `where` clauses, so an audience query here would return
+   * every row and prove the opposite of what it looked like it proved. Who
+   * receives what is tested against a real database in
+   * `push-moments.integration.test.ts`; this tier only needs the push steps
+   * to run and find nobody.
+   */
+  pushSubscriptions?: Record<string, unknown>[];
+  staffMembers?: Record<string, unknown>[];
 }
 
 /**
@@ -158,6 +172,9 @@ export function fakeDb(tables: FakeTables) {
     if (table === airports) return tables.airports ?? [];
     if (table === airlineCutoffs) return tables.airlineCutoffs ?? [];
     if (table === verificationTasks) return tables.verificationTasks ?? [];
+    if (table === pickupTasks) return tables.pickupTasks ?? [];
+    if (table === pushSubscriptions) return tables.pushSubscriptions ?? [];
+    if (table === staffMembers) return tables.staffMembers ?? [];
     if (table === waitlistSignups) return tables.waitlistSignups ?? [];
     throw new Error("fakeDb: unseeded table reached — add it to FakeTables.");
   };
@@ -193,6 +210,7 @@ export function fakeDb(tables: FakeTables) {
         addresses: first("addresses"),
         airports: first("airports"),
         verificationTasks: first("verificationTasks"),
+        pickupTasks: first("pickupTasks"),
       },
       select: () => ({ from: (table: unknown) => chain(rowsFor(table)) }),
       update: (table: unknown) => ({

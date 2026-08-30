@@ -80,6 +80,10 @@ export const functions = [
   ...createKooleeFunctions(inngest, () => getCore(), {
     opsAlertEmail: optionalEnv("OPS_ALERT_EMAIL"),
     appOrigin: optionalEnv("NEXT_PUBLIC_APP_URL"),
+    // Push deep links into the staff apps. Absent → the notification still
+    // goes, without a link (see KooleeFunctionOptions).
+    agentAppOrigin: optionalEnv("NEXT_PUBLIC_AGENT_APP_URL"),
+    adminAppOrigin: optionalEnv("NEXT_PUBLIC_ADMIN_APP_URL"),
     // Public site copy, not per-environment config, so it comes from SITE
     // rather than an env var — and core still reads no environment. This is
     // the address the customer-facing exception email tells people to write
