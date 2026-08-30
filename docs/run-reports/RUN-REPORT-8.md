@@ -658,8 +658,14 @@ POST regardless of what it renders.
 ### 4.1 A disk that was 100% full — found by the build gate
 
 `turbo build` succeeded but exited non-zero on `IO error: No space left on
-device`. **`.turbo/cache` had grown to 616 GB** across 5,070 entries, 18–19 GB
-each, leaving 1.5 GB free on a 926 GB volume.
+device`. **`.turbo/cache` had grown to 616 GB**, leaving 1.5 GB free on a
+926 GB volume.
+
+Precisely: 5,070 FILES, which is ~1,690 entries (turbo writes three files per
+entry — `<hash>.tar.zst`, `-manifest.json`, `-meta.json`). Most are small; a
+few dozen were **18–19 GB each**, and those are the ones that had swallowed
+the dev cache. (An earlier draft of this report said "5,070 entries at 18–19
+GB each", which is 90+ TB and therefore obviously not what happened.)
 
 The cause is in `turbo.json`:
 
@@ -675,9 +681,12 @@ Fixed by adding `"!.next/dev/**"`, with the reasoning written at the line. The
 cache was cleared (a build cache is regenerable by definition) and rebuilt:
 
 ```
-before   616 GB across 5,070 entries      (18–19 GB per entry)
-after     37 MB across 3 entries
+before   616 GB   (5,070 files / ~1,690 entries; the largest 18-19 GB each)
+after     37 MB   (3 entries, one per app)
 ```
+
+At the time of the fix `apps/web/.next/dev` was **39 GB**, admin 6.2 GB and
+agent 4.0 GB — ~49 GB of turbopack dev cache being re-archived on every miss.
 
 **618 GB recovered.** Worth TD knowing this exists on any other machine that
 has run `pnpm dev` and `turbo build` on this repo — the fix is in the tree, but

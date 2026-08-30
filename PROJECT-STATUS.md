@@ -77,8 +77,8 @@ package-specific in `packages/<pkg>/docs/`. Nothing new accumulates at the root.
   that answers "can this booking still be acted on?", on two axes (standing ×
   phase) that are deliberately not collapsed, because twenty minutes past the
   pickup window is salvageable and twenty past the bag-drop cutoff is not.
-  Also: a **616 GB** turbo cache traced to one missing exclusion in
-  `turbo.json`. Hosted steps are TD's:
+  Also: a **616 GB** turbo cache — 617 GB of disk reclaimed — traced to one
+  missing exclusion in `turbo.json`. Hosted steps are TD's:
   [docs/features/f1-hosted-setup.md](docs/features/f1-hosted-setup.md) — an
   API key, two Turnstile hostnames, and `rm -rf .turbo/cache`. Full record:
   [docs/run-reports/RUN-REPORT-8.md](docs/run-reports/RUN-REPORT-8.md).
@@ -416,7 +416,7 @@ the linked row is the current behaviour)
 | 81 | Funnel ZIP sync: the address ZIP must be the ZIP that was quoted (2026-08-29) | ✅ | `fix/f1-gates-and-bugs`: the funnel takes a ZIP on the flight step (coverage + quote) and a full address two steps later, and nothing reconciled them — **any covered ZIP was accepted and silently replaced the quoted one**. Both passing coverage is why nothing complained; they are still two different places, with their own `zip_centroids` coordinate (where every drive-time estimate starts) and their own `agent_zones` row (who gets dispatched). The pickup step now shows "This address is in 11201, but your quote was for 10001" with two one-click ways out, and `createBooking` takes a **required** `quotedZip` — a caller that cannot say which ZIP it quoted has not established the two are the same place. `QuoteZipMismatchError`. No migration |
 | 82 | Terminal-state and lateness gates: one actionability service (2026-08-29) | ✅ | `fix/f1-gates-and-bugs`: five services each carried their own status array and **none knew about time** — a `paid` booking whose flight left an hour ago is still `paid`, so it kept accepting agreements, taking passport uploads and offering a driver shortlist. `services/actionability.ts` answers it once, on two axes kept deliberately separate: **standing** (`active`/`in_transit`/`handed_over`/`exception`/`terminal`) and **phase** (`before_window_end`/`running_late`/`missed_cutoff`/`departed`). Twenty minutes past the pickup window is late and salvageable; twenty past the bag-drop cutoff is not. Late-but-savable keeps every action and shows a notice on all three surfaces; past the cutoff blocks all five and raises the existing exception path **exactly once** — not by counting, but because `applyTransition` guards `WHERE status = from`. A driver already in transit is carved out by construction. **No migration, no new column** — every anchor already exists. 18 unit + 17 integration tests |
 | 83 | Auth polish: one password rule, one email rule, a show/hide toggle (2026-08-29) | ✅ | `fix/f1-gates-and-bugs`: `PasswordField` in `packages/ui` (type=button so revealing does not submit; `tabIndex={-1}` so it is not between the field and Sign in; `aria-pressed` + a label that changes) on all three staff password inputs. The rules moved to one dependency-free `@koolee/ui/lib/credentials`: the form's `minLength` and the server's zod schema now read the SAME constant. Email normalization was genuinely inconsistent — the admin invite trimmed AND lowercased, sign-in and password reset only trimmed, and `saveProfile` only trimmed — so `normalizeEmail` is applied at every parse boundary in all three apps, on the schema (`z.preprocess`) where the input is an object. Sign-in returns ONE message for "no such account" and "wrong password". Verified in a real browser over CDP |
-| 84 | 616 GB of turbo cache, and the line that caused it (2026-08-29) | ✅ | `fix/f1-gates-and-bugs`: `turbo build` succeeded and then failed its cache write on `No space left on device` — `.turbo/cache` held **616 GB across 5,070 entries**, 18–19 GB each, on a volume with 1.5 GB free. `outputs` excluded `.next/cache/**` but not `.next/dev/**`, and Next 16 keeps its turbopack DEV cache there, so every build on a checkout where anyone had run `pnpm dev` archived 38 GB of it. One exclusion; three full app builds now produce **37 MB**. Any other machine that has built this repo has the same pile — `rm -rf .turbo/cache` |
+| 84 | 616 GB of turbo cache, and the line that caused it (2026-08-29) | ✅ | `fix/f1-gates-and-bugs`: `turbo build` succeeded and then failed its cache write on `No space left on device` — `.turbo/cache` held **616 GB** on a volume with 1.5 GB free (5,070 files ≈ 1,690 entries — turbo writes three per entry — with a few dozen of them 18–19 GB each). `outputs` excluded `.next/cache/**` but not `.next/dev/**`, and Next 16 keeps its turbopack DEV cache there, so every build on a checkout where anyone had run `pnpm dev` archived 38 GB of it. One exclusion; three full app builds now produce **37 MB**. Any other machine that has built this repo has the same pile — `rm -rf .turbo/cache` |
 ---
 
 ## 5. Timeline (condensed)
@@ -528,7 +528,8 @@ user-confirmed values persist. `ANTHROPIC_API_KEY` present = Claude
   older password and publish the policy to anyone without an account.
 - **`turbo.json`'s build `outputs` must exclude `.next/dev/**`.** Next 16 keeps
   its turbopack dev cache there, not under `.next/cache/`, and without the
-  exclusion every build archives it: 616 GB across 5,070 entries, measured.
+  exclusion every build archives it. Measured at 616 GB, with `.next/dev`
+  standing at 39 GB (web) + 6.2 GB (admin) + 4.0 GB (agent) at the time.
 - Copy rules: "delivered to your airline's bag drop" — never overclaim, no
   fabricated numbers ([README](README.md)).
 - **Documentation lives under `docs/`, never in the repo root.** The only two

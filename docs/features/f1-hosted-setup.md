@@ -120,8 +120,10 @@ Invisible or update the docs to say Managed.
 
 `turbo.json` was archiving Next 16's **turbopack dev cache** (`.next/dev/`)
 into the build cache on every `turbo build`. On this machine that was
-**616 GB across 5,070 entries**, 18–19 GB each, leaving 1.5 GB free on a 926 GB
-volume — builds succeeded and then failed their cache write.
+**616 GB**, leaving 1.5 GB free on a 926 GB volume — builds succeeded and then
+failed their cache write. (5,070 files ≈ 1,690 entries, since turbo writes
+three files per entry; a few dozen of those were 18–19 GB each, which is where
+the bulk sat. `apps/web/.next/dev` alone was 39 GB.)
 
 The fix is in the tree (`"!.next/dev/**"` added to the build task's `outputs`).
 The accumulated cache is not. On any other checkout:
