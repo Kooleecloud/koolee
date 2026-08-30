@@ -21,10 +21,24 @@ const schema = z.object({
   NEXT_PUBLIC_APP_URL: optionalUrl,
 
   DATABASE_URL: optionalString,
-  DIRECT_DATABASE_URL: optionalString,
+  // DIRECT_DATABASE_URL is deliberately NOT read here: it is a hosted DDL
+  // credential and belongs in packages/db/.env alone (see .env.example).
 
   NEXT_PUBLIC_SUPABASE_URL: optionalUrl,
   NEXT_PUBLIC_SUPABASE_ANON_KEY: optionalString,
+
+  /**
+   * Cloudflare Turnstile SITE key. Required whenever the Supabase project has
+   * CAPTCHA protection on — that is a PROJECT setting, so enabling it for the
+   * customer funnel gates this app's `signInWithPassword` and
+   * `resetPasswordForEmail` too. Absent, those calls fail with
+   * "captcha protection: request disallowed (no captcha_token found)".
+   *
+   * Must be the SAME site key apps/web uses for this environment: the secret
+   * is a single per-Supabase-project value and lives only in the Supabase
+   * dashboard, never here.
+   */
+  NEXT_PUBLIC_TURNSTILE_SITE_KEY: optionalString,
 
   GOOGLE_MAPS_API_KEY: optionalString,
   /**
@@ -46,10 +60,10 @@ const raw = {
   NEXT_PUBLIC_APP_URL: process.env.NEXT_PUBLIC_APP_URL,
 
   DATABASE_URL: process.env.DATABASE_URL,
-  DIRECT_DATABASE_URL: process.env.DIRECT_DATABASE_URL,
 
   NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL,
   NEXT_PUBLIC_SUPABASE_ANON_KEY: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+  NEXT_PUBLIC_TURNSTILE_SITE_KEY: process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY,
 
   GOOGLE_MAPS_API_KEY: process.env.GOOGLE_MAPS_API_KEY,
   INNGEST_EVENT_KEY: process.env.INNGEST_EVENT_KEY,
@@ -71,8 +85,6 @@ export class MissingEnvError extends Error {
 const HINTS: Partial<Record<EnvKey, string>> = {
   DATABASE_URL:
     "Supabase → Project Settings → Database → Connection pooling (Transaction mode, port 6543).",
-  DIRECT_DATABASE_URL:
-    "Supabase → Project Settings → Database → Direct connection (port 5432).",
   GOOGLE_MAPS_API_KEY: "Google Cloud Console → Maps Platform. Stubbed in this scaffold.",
 };
 
@@ -103,10 +115,14 @@ export const isProd = env.NODE_ENV === "production";
 export function assertProductionBootConfig(): void {
   const missing: string[] = [];
   if (!optionalEnv("NEXT_PUBLIC_SUPABASE_URL")) {
-    missing.push("NEXT_PUBLIC_SUPABASE_URL (staff sign-in silently unavailable without it)");
+    missing.push(
+      "NEXT_PUBLIC_SUPABASE_URL (staff sign-in silently unavailable without it)",
+    );
   }
   if (!optionalEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY")) {
-    missing.push("NEXT_PUBLIC_SUPABASE_ANON_KEY (staff sign-in silently unavailable without it)");
+    missing.push(
+      "NEXT_PUBLIC_SUPABASE_ANON_KEY (staff sign-in silently unavailable without it)",
+    );
   }
   if (missing.length > 0) {
     throw new Error(
@@ -146,7 +162,7 @@ export function describeEnvStatus(): ServiceStatus[] {
       service: "Postgres (Supabase)",
       configured: has("DATABASE_URL"),
       fallback: "Task list renders an empty state.",
-      keys: ["DATABASE_URL", "DIRECT_DATABASE_URL"],
+      keys: ["DATABASE_URL"],
     },
     {
       // Least privilege: this app holds NO service-role key (a shared,
