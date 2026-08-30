@@ -60,14 +60,6 @@ export async function emitExceptionRaised(
 }
 
 
-/* ------------------------------------------------------------------ */
-/* Driver / pickup events                                              */
-/* ------------------------------------------------------------------ */
-
-export const BOOKING_DRIVER_SELECTED = "booking/driver_selected";
-export const BOOKING_DELIVERED_TO_BAGDROP = "booking/delivered_to_bagdrop";
-export const BOOKING_DRIVER_POOL_EMPTY = "booking/driver_pool_empty";
-
 /** Same contract as the exception emit: NEVER throws. */
 async function emitQuietly(
   emitter: EventEmitter,
@@ -80,6 +72,72 @@ async function emitQuietly(
     console.error(`[events] ${event.name} emit failed for ${context}`, error);
   }
 }
+
+/* ------------------------------------------------------------------ */
+/* Assignment and sealing — the F2 additions                           */
+/* ------------------------------------------------------------------ */
+
+export const BOOKING_AGENT_ASSIGNED = "booking/agent_assigned";
+export const BOOKING_BAGS_SEALED = "booking/bags_sealed";
+
+export interface AgentAssignedInput {
+  bookingId: string;
+  agentUserId: string;
+}
+
+/**
+ * A verification visit got an owner.
+ *
+ * DEDUPED ON (booking, agent), not on a custody event id. The customer needs
+ * one "your agent is Nina" per agent, and reassignment to a different person
+ * is a different fact they must be told about — but a retried write, or ops
+ * re-picking the SAME agent, is not news. This is the one place in the
+ * codebase where the dedupe key is intentionally coarser than the write.
+ */
+export async function emitAgentAssigned(
+  emitter: EventEmitter,
+  input: AgentAssignedInput,
+): Promise<void> {
+  await emitQuietly(
+    emitter,
+    {
+      name: BOOKING_AGENT_ASSIGNED,
+      id: `booking-agent-assigned:${input.bookingId}:${input.agentUserId}`,
+      data: { bookingId: input.bookingId, agentUserId: input.agentUserId },
+    },
+    input.bookingId,
+  );
+}
+
+export interface BagsSealedInput {
+  bookingId: string;
+  /** The custody event id of the transition — one per sealing, ever. */
+  dedupeKey: string;
+}
+
+/** Every bag sealed; the driver shortlist just opened. */
+export async function emitBagsSealed(
+  emitter: EventEmitter,
+  input: BagsSealedInput,
+): Promise<void> {
+  await emitQuietly(
+    emitter,
+    {
+      name: BOOKING_BAGS_SEALED,
+      id: `booking-bags-sealed:${input.bookingId}:${input.dedupeKey}`,
+      data: { bookingId: input.bookingId },
+    },
+    input.bookingId,
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Driver / pickup events                                              */
+/* ------------------------------------------------------------------ */
+
+export const BOOKING_DRIVER_SELECTED = "booking/driver_selected";
+export const BOOKING_DELIVERED_TO_BAGDROP = "booking/delivered_to_bagdrop";
+export const BOOKING_DRIVER_POOL_EMPTY = "booking/driver_pool_empty";
 
 export interface DriverSelectedInput {
   bookingId: string;

@@ -365,7 +365,25 @@ export async function confirmVisitIdentity(
   const { db } = config;
   // Resolves the task assignment-scoped, so an unassigned task 404s here
   // before anything is written.
-  await getVisitContext(db, session, input.taskId, config.clock.now());
+  const context = await getVisitContext(db, session, input.taskId, config.clock.now());
+
+  /*
+   * THE GATE THIS WAS MISSING (found 2026-08-29, F2 Phase 5).
+   *
+   * `arriveAtVisit` has carried `assertActionable` since F1; this step, one
+   * tap later in the same flow, had none — so an agent whose task was still
+   * assigned could append a `passport.agent_confirmed` custody event to a
+   * booking that had already been delivered, completed or cancelled. The
+   * append-only log of a closed booking would grow an entry days after the
+   * bags reached the airline, and it would show on the customer's timeline.
+   *
+   * `startVisit` is the right action, not a sixth gate: this IS the visit, one
+   * step after arriving, and it belongs to the phase before custody transfers
+   * — which is exactly the set the carve-out covers. Late-but-savable still
+   * runs (`startVisit` is permitted in `running_late`); past the bag drop it
+   * refuses and raises the exception ops resolves, the same as arriving does.
+   */
+  await assertActionable(config, context.booking, "startVisit", actorOf(session));
 
   await confirmPassport(config, session, input);
 

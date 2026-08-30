@@ -22,6 +22,8 @@ import {
   type VisitContext,
 } from "@koolee/core";
 
+import { LiveTasks } from "@/components/live-tasks";
+import { TaskRecord } from "@/components/job/task-record";
 import { AgentMain } from "@/components/shell/agent-main";
 import { tryGetCore } from "@/lib/core";
 import { signAvatarUrl } from "@/lib/avatars";
@@ -272,6 +274,13 @@ export default async function TaskDetailPage({
 
     return (
       <AgentMain>
+        {/* The customer can accept the agreement while the driver is at the
+            door. Without this the gate opens only on a manual reload. */}
+        <LiveTasks
+          bookingIds={[pickup.booking.id]}
+          enabled={!pickupView.done}
+          stage={pickup.shift ? "pickup:mine" : "pickup:unclaimed"}
+        />
         <BackToToday />
         <h1 className="font-display text-2xl font-semibold text-navy-800">
           Collect &amp; deliver
@@ -281,7 +290,22 @@ export default async function TaskDetailPage({
             information a driver arriving for the visit needed. */}
         <ActionabilityNotice state={pickupState} />
         <DoorstepCard context={pickup} customerAvatarUrl={pickupAvatarUrl} />
-        <PickupFlow view={pickupView} />
+        {/* ONE VIEW, TWO MODES. A finished or flagged run renders its record
+            instead of its controls — same page, same doorstep card above,
+            nothing forked. See TaskRecord for why the absence of forms is not
+            what makes this read-only. */}
+        {pickupView.done || pickupView.exception ? (
+          <TaskRecord
+            kind="pickup"
+            bookingRef={pickup.booking.ref}
+            bags={pickup.bags}
+            timeline={pickup.timeline}
+            tz={pickup.tz}
+            exception={pickupView.exception}
+          />
+        ) : (
+          <PickupFlow view={pickupView} />
+        )}
       </AgentMain>
     );
   }
@@ -344,6 +368,11 @@ export default async function TaskDetailPage({
 
   return (
     <AgentMain>
+      <LiveTasks
+        bookingIds={[booking.id]}
+        enabled={!view.done}
+        stage={gate.passed ? "gate:open" : "gate:blocked"}
+      />
       <BackToToday />
 
       <h1 className="sr-only">
@@ -379,7 +408,18 @@ export default async function TaskDetailPage({
         </div>
       )}
 
-      <VisitFlow view={view} />
+      {view.done || view.exception ? (
+        <TaskRecord
+          kind="verification"
+          bookingRef={booking.ref}
+          bags={bags}
+          timeline={timeline}
+          tz={context.tz}
+          exception={view.exception}
+        />
+      ) : (
+        <VisitFlow view={view} />
+      )}
     </AgentMain>
   );
 }

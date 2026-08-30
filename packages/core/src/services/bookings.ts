@@ -30,7 +30,7 @@ import type { CoreConfig } from "../config";
 import { NotAuthorizedError, NotFoundError, type Result } from "../errors";
 import { IllegalTransitionError } from "../booking/state-machine";
 import { canActOnBooking, type Session } from "../auth/types";
-import { emitExceptionRaised } from "../events/booking-events";
+import { emitBagsSealed, emitExceptionRaised } from "../events/booking-events";
 import { FALLBACK_DISPLAY_TZ } from "./display-tz";
 
 /**
@@ -192,6 +192,12 @@ export async function getBookingForSession(
  * `getBookingAssignment` instead.
  */
 export interface AssignedAgent {
+  /**
+   * The staff user id. Carried so a caller can ask
+   * `avatarPathsForViewer` for their face by IDENTITY rather than being
+   * handed a storage path — see `services/avatar-visibility.ts`.
+   */
+  userId: string;
   givenName: string | null;
   taskStatus: TaskStatus;
   /**
@@ -260,6 +266,7 @@ export async function getBookingDetailForSession(
       db.query.addresses.findFirst({ where: eq(addresses.id, booking.pickupAddressId) }),
       db
         .select({
+          userId: users.id,
           fullName: users.fullName,
           avatarStoragePath: users.avatarStoragePath,
           taskStatus: verificationTasks.status,
@@ -303,6 +310,7 @@ export async function getBookingDetailForSession(
     pickupAddress: addressRow ?? null,
     assignedAgent: assignee
       ? {
+          userId: assignee.userId,
           givenName: assignee.fullName?.trim().split(/\s+/)[0] ?? null,
           taskStatus: assignee.taskStatus,
           avatarStoragePath: assignee.avatarStoragePath,
@@ -445,10 +453,24 @@ export async function applyTransition(
     };
   }
 
-  // AFTER the commit, and only when THIS call performed the move. `raise_exception`
-  // is legal from seven states and reached from three services; emitting here
-  // rather than at each call site is what makes an eighth path covered by
-  // construction. Never throws — see events/booking-events.ts.
+  /*
+   * AFTER the commit, and only when THIS call performed the move.
+   *
+   * Both emits below live here for the same reason: the state a booking
+   * ARRIVES AT is the fact worth telling somebody about, and the arrival is
+   * observable in exactly one place. `raise_exception` is legal from seven
+   * states and reached from three services; `verified_sealed` has one caller
+   * today (`completeVerificationVisit`) and emitting at that caller instead
+   * would leave the second one silent. Never throws — see
+   * events/booking-events.ts.
+   */
+  if (to === "verified_sealed") {
+    await emitBagsSealed(config.emitter, {
+      bookingId: input.bookingId,
+      dedupeKey: committed.custodyEventId ?? `${input.event}:${Date.now()}`,
+    });
+  }
+
   if (to === "exception") {
     await emitExceptionRaised(config.emitter, {
       bookingId: input.bookingId,

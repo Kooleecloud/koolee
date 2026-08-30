@@ -2,6 +2,7 @@ import "server-only";
 
 import { BUCKETS } from "@koolee/core";
 
+import { getSupabaseAdminClient } from "@/lib/supabase/admin";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
 
 /**
@@ -80,6 +81,39 @@ export async function uploadAvatar(input: {
     .upload(input.path, input.data, { contentType: input.contentType, upsert: false });
   if (error) {
     console.error("[avatars] upload failed", error.message);
+    return null;
+  }
+  return input.path;
+}
+
+/**
+ * Writes into SOMEBODY ELSE'S folder, service-role.
+ *
+ * The only path in the product that does. Migration 0027's insert policy is
+ * `(storage.foldername(name))[1] = auth.uid()::text` — your own folder,
+ * whoever you are — so an admin replacing a staff photo cannot go through the
+ * anon key, and that policy is right: it is what stops a path-building bug
+ * writing into a stranger's folder.
+ *
+ * The check RLS would have done therefore has to happen in code before this is
+ * called, and it does: `canReplaceAvatarOf` (packages/core) admits an admin
+ * acting on a member of ACTIVE STAFF, and nobody else. A customer's photo is
+ * deliberately out of reach — it is their face, and editing it would be a
+ * moderation capability this product has decided not to have.
+ */
+export async function uploadAvatarAsService(input: {
+  path: string;
+  data: Uint8Array;
+  contentType: string;
+}): Promise<string | null> {
+  const admin = getSupabaseAdminClient();
+  if (!admin) return null;
+
+  const { error } = await admin.storage
+    .from(AVATAR_BUCKET)
+    .upload(input.path, input.data, { contentType: input.contentType, upsert: false });
+  if (error) {
+    console.error("[avatars] service upload failed", error.message);
     return null;
   }
   return input.path;

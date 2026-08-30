@@ -15,7 +15,10 @@
 | [payments.md](payments.md)                               | Intents, authorization, deferred capture, refunds, webhooks                              | `paid` → capture                |
 | [agent-visit.md](agent-visit.md)                         | Field PWA: task list, arrival, identity check, bag sealing, transit                      | `agent_assigned` → `in_transit` |
 | [agreements-and-passport.md](agreements-and-passport.md) | Versioned booking agreements, manual passport verification, the visit identity gate      | `paid` → `verified_sealed`      |
-| [storage-and-avatars.md](storage-and-avatars.md)         | Bucket declaration and limits, storage RLS, profile pictures across all three apps       | cross-cutting                   |
+| [storage-and-avatars.md](storage-and-avatars.md)         | Bucket declaration and limits, storage RLS, profile pictures across all three apps, and who may see whose face | cross-cutting                   |
+| [realtime-signals.md](realtime-signals.md)               | The doorbell table, the one RLS policy, `useBookingSignal`, and why a payload is never rendered | cross-cutting                   |
+| [notifications.md](notifications.md)                     | The living notification matrix — in-app, email, and the parked SMS column                | cross-cutting                   |
+| [f2-hosted-setup.md](f2-hosted-setup.md)                 | F2's hosted steps: two migrations, one dashboard check, no new env vars                  | ops                             |
 | [driver-and-pickup-hosted-setup.md](driver-and-pickup-hosted-setup.md) | Trucks, shifts, `can_drive`, driver selection, the pickup run — and what TD must do by hand | `verified_sealed` → `completed` |
 | [f1-hosted-setup.md](f1-hosted-setup.md) | Slice F1's manual steps: `ANTHROPIC_API_KEY` as a production requirement, the Turnstile hostnames the staff apps need, and the turbo-cache cleanup. **No migrations** | — |
 | [ops-console.md](ops-console.md)                         | Dispatch board, assignment, exceptions, blackouts, staff, zones                          | oversight                       |

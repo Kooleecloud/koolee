@@ -1,3 +1,4 @@
+import Link from "next/link";
 import {
   DateTimeField,
   FormMessage,
@@ -19,6 +20,7 @@ import { CoverageStepForm } from "@/components/coverage-step-form";
 import { TicketExtractionDebug } from "@/components/ticket-extraction-debug";
 import { TicketUpload } from "@/components/ticket-upload";
 import { readDraft } from "@/lib/booking-draft";
+import { flightEntryMode } from "@/lib/flight-entry";
 import { ticketExtractionDebugEnabled, tryGetCore } from "@/lib/core";
 import {
   describeAlternative,
@@ -32,11 +34,11 @@ export const dynamic = "force-dynamic";
 export default async function FlightStepPage({
   searchParams,
 }: {
-  searchParams: Promise<{ from?: string }>;
+  searchParams: Promise<{ from?: string; entry?: string; read?: string }>;
 }) {
   const draft = await readDraft();
 
-  const { from } = await searchParams;
+  const { from, entry, read } = await searchParams;
 
   // The REVIEW FORM contract: raw extraction output lives only in the
   // quarantined `ticketPrefill` key and is used here as editable defaults.
@@ -44,6 +46,13 @@ export default async function FlightStepPage({
   // prefill is cleared in the same action. Manual entries win over prefill.
   const prefill = draft.ticketPrefill;
   const fromTicket = from === "ticket" && Boolean(prefill);
+
+  // Which face this step shows, decided once in a pure function so the
+  // "somebody stepping back to edit must not be sent to the door" rule is
+  // answerable from a test rather than from a browser. See lib/flight-entry.
+  const showDoor = flightEntryMode({ from, entry, draft }) === "door";
+  /** We took their file and could not read it. Never their fault. */
+  const readFailed = read === "failed";
 
   const core = tryGetCore();
   const airportTz =
@@ -115,6 +124,33 @@ export default async function FlightStepPage({
     paxNameDefault,
   ].join("|");
 
+  if (showDoor) {
+    return (
+      <div className="flex flex-col gap-6">
+        <PageHeader
+          title="Start with your ticket"
+          subtitle="Upload it and we'll read the flight details off it — you check them on the next screen. Nothing is saved until you do."
+        />
+
+        <TicketUpload variant="door" />
+
+        {/* Not a fallback, an equal path — some people have no file to hand,
+            and a door with only one handle is a wall for them. */}
+        <div className="flex flex-col items-center gap-1 text-sm">
+          <Link
+            href="/book/flight?entry=manual"
+            className="font-medium text-sky-700 underline underline-offset-4 hover:text-sky-600"
+          >
+            Enter your flight details manually
+          </Link>
+          <p className="text-muted-foreground">Takes about a minute.</p>
+        </div>
+
+        {ticketExtractionDebugEnabled() && <TicketExtractionDebug />}
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col gap-6">
       <PageHeader
@@ -125,6 +161,17 @@ export default async function FlightStepPage({
             : "Tell us where your bags are and which flight they're catching."
         }
       />
+
+      {/* We took the file and could not read it. The tone is deliberate: the
+          customer did nothing wrong, some airline PDFs are images of images,
+          and the form below is the same one they would have got anyway. */}
+      {readFailed && (
+        <FormMessage variant="info">
+          We couldn&apos;t read that one — some airline tickets are images we can&apos;t
+          get text out of. Nothing&apos;s lost: fill these in and you&apos;re set, or try
+          another file below.
+        </FormMessage>
+      )}
 
       {notice ? (
         <FormMessage variant={notice.tone}>{notice.text}</FormMessage>
@@ -300,6 +347,8 @@ export default async function FlightStepPage({
 
       <OrDivider />
 
+      {/* Still here in the form modes: somebody who started typing, or whose
+          first file failed, can hand us the document instead. */}
       <TicketUpload />
 
       {ticketExtractionDebugEnabled() && <TicketExtractionDebug />}

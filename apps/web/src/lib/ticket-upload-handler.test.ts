@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { FakeTicketExtractor, MAX_TICKET_UPLOAD_BYTES } from "@koolee/core";
 
+import { ticketPrefillSchema } from "./booking-draft-schema";
+
 import {
   handleTicketUpload,
   UPLOAD_COPY,
@@ -249,5 +251,103 @@ describe("handleTicketUpload", () => {
     if (!outcome.ok) return;
     expect(outcome.prefill.departureAirport).toBeUndefined();
     expect(outcome.prefill.nonServicedOrigin).toBe("SFO");
+  });
+});
+
+/**
+ * THE CONTRACT THE DOOR ROUTES ON.
+ *
+ * `TicketUpload` treats 400 / 413 / 415 as "pick a different file, stay here"
+ * and everything else as "we took it and could not read it — hand them the
+ * form". That is a decision made in a client component about numbers produced
+ * here, which is exactly the kind of coupling that rots silently: change
+ * `unreadable` to a 422 and the customer sits on the upload screen being told
+ * to choose another file for a ticket that will never read.
+ */
+describe("the upload outcome statuses the funnel door depends on", () => {
+  const retryable = [400, 413, 415];
+
+  it("a file we will never accept is retryable, so the customer stays on the door", async () => {
+    const { deps } = makeDeps();
+    const cases = [
+      await handleTicketUpload(deps, null),
+      await handleTicketUpload(deps, {
+        data: new Uint8Array(MAX_TICKET_UPLOAD_BYTES + 1),
+        mimeType: "application/pdf",
+      }),
+      await handleTicketUpload(deps, {
+        data: new Uint8Array(16),
+        mimeType: "text/plain",
+      }),
+    ];
+    for (const outcome of cases) {
+      expect(outcome.ok).toBe(false);
+      if (outcome.ok) continue;
+      expect(retryable).toContain(outcome.status);
+    }
+  });
+
+  it("a file we accepted and could not read is NOT retryable — it drops to the form", async () => {
+    const { deps, extractor } = makeDeps();
+    extractor.failWith = "no text layer";
+    const outcome = await handleTicketUpload(deps, pdfFile());
+    expect(outcome.ok).toBe(false);
+    if (outcome.ok) return;
+    expect(retryable).not.toContain(outcome.status);
+    // The copy already points at manual entry; the door's navigation is what
+    // makes that true rather than an instruction.
+    expect(outcome.error).toContain("manually");
+  });
+});
+
+/**
+ * UPLOAD → PREFILL → REVIEW FORM, as one link.
+ *
+ * The review form seeds every field from `draft.ticketPrefill`, and a prefill
+ * the draft schema rejects is a prefill the form silently renders empty — with
+ * the "we read your ticket" banner still above it. That is exactly the shape
+ * of the bug F1's remount key was written for, so the handoff is asserted
+ * rather than assumed.
+ */
+describe("the prefill the review form receives", () => {
+  it("validates against the draft schema the cookie is parsed with", async () => {
+    const { deps } = makeDeps();
+    const outcome = await handleTicketUpload(deps, pdfFile());
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+
+    const parsed = ticketPrefillSchema.safeParse(outcome.prefill);
+    expect(parsed.success, JSON.stringify(parsed.error?.issues)).toBe(true);
+  });
+
+  it("carries a wall-clock departure the form can put straight into a datetime field", async () => {
+    // NOT an instant. The flight step feeds `DateTimeField` the AIRPORT's wall
+    // clock; an ISO instant here would render four or five hours out.
+    const { deps } = makeDeps();
+    const outcome = await handleTicketUpload(deps, pdfFile());
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.prefill.departureAtLocal).toMatch(
+      /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/,
+    );
+  });
+
+  it("never carries a field a booking could be written from directly", async () => {
+    // Standing rule: extraction never writes to bookings. The prefill is
+    // review-form defaults and nothing else, so it must not grow a price, an
+    // address, a user id or a booking id.
+    const { deps } = makeDeps();
+    const outcome = await handleTicketUpload(deps, pdfFile());
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    for (const forbidden of [
+      "bookingId",
+      "userId",
+      "priceCents",
+      "pickupAddressId",
+      "status",
+    ]) {
+      expect(Object.keys(outcome.prefill)).not.toContain(forbidden);
+    }
   });
 });

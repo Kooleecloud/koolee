@@ -211,6 +211,20 @@
       "when": 1788036059505,
       "tag": "0029_driver_fleet_and_shifts",
       "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1788058261673,
+      "tag": "0030_booking_signals",
+      "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1788058262673,
+      "tag": "0031_booking_signals_grant",
+      "breakpoints": true
     }
   ]
 }

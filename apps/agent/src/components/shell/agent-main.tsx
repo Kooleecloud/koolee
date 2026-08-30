@@ -1,6 +1,8 @@
 import * as React from "react";
 import { cn } from "@koolee/ui";
 
+import { OfflineNotice } from "./offline-notice";
+
 /**
  * The agent app's content column.
  *
@@ -18,7 +20,12 @@ export interface AgentMainProps extends React.HTMLAttributes<HTMLElement> {
   bare?: boolean;
 }
 
-export function AgentMain({ bare = false, className, ...props }: AgentMainProps) {
+export function AgentMain({
+  bare = false,
+  className,
+  children,
+  ...props
+}: AgentMainProps) {
   return (
     <main
       className={cn(
@@ -27,6 +34,12 @@ export function AgentMain({ bare = false, className, ...props }: AgentMainProps)
         className,
       )}
       {...props}
-    />
+    >
+      {/* Above everything, on every screen with a tab bar. A driver reading a
+          stale stop list with no idea it is stale will act on it. Renders
+          nothing while online — see the component. */}
+      {!bare && <OfflineNotice />}
+      {children}
+    </main>
   );
 }

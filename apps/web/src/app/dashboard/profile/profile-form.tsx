@@ -39,14 +39,10 @@ export function ProfileForm({
     {},
   );
   const { formRef, captureValues } = usePreservedFormValues(state);
+  const formId = React.useId();
 
   return (
-    <form
-      ref={formRef}
-      action={formAction}
-      onSubmit={captureValues}
-      className="flex flex-col gap-6"
-    >
+    <div className="flex flex-col gap-6">
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Your details</CardTitle>
@@ -58,41 +54,61 @@ export function ProfileForm({
             </div>
           ) : null}
 
-          <div className="grid gap-2">
-            <Label htmlFor="fullName">Display name</Label>
-            <Input
-              id="fullName"
-              name="fullName"
-              defaultValue={defaults.fullName}
-              autoComplete="name"
-              required
-            />
-          </div>
+          {/*
+            The <form> starts here rather than wrapping the whole card: the
+            `contact` slot can hold ConfirmEmailForm, which is a form of its
+            own, and <form> inside <form> is invalid HTML — React reports it
+            as a hydration error and the browser drops the inner one.
 
-          {!defaults.emailLocked ? (
+            Nothing the action reads lives in `contact` (saveProfile takes
+            fullName + email only), so the split costs no form data. The Save
+            button sits outside this element for layout and is wired back to
+            it with `form={formId}`, which also keeps it the form's default
+            button — Enter still submits from either field.
+          */}
+          <form
+            ref={formRef}
+            id={formId}
+            action={formAction}
+            onSubmit={captureValues}
+            className="flex flex-col gap-4"
+          >
             <div className="grid gap-2">
-              <Label htmlFor="email">Email (optional)</Label>
+              <Label htmlFor="fullName">Display name</Label>
               <Input
-                id="email"
-                name="email"
-                type="email"
-                defaultValue={defaults.email}
-                autoComplete="email"
+                id="fullName"
+                name="fullName"
+                defaultValue={defaults.fullName}
+                autoComplete="name"
+                required
               />
-              <p className="text-xs text-muted-foreground">
-                We&apos;ll send a confirmation before it&apos;s used for anything.
-              </p>
             </div>
-          ) : null}
+
+            {!defaults.emailLocked ? (
+              <div className="grid gap-2">
+                <Label htmlFor="email">Email (optional)</Label>
+                <Input
+                  id="email"
+                  name="email"
+                  type="email"
+                  defaultValue={defaults.email}
+                  autoComplete="email"
+                />
+                <p className="text-xs text-muted-foreground">
+                  We&apos;ll send a confirmation before it&apos;s used for anything.
+                </p>
+              </div>
+            ) : null}
+          </form>
         </CardContent>
       </Card>
 
       {state.error && <FormMessage variant="error">{state.error}</FormMessage>}
       {state.ok && <FormMessage variant="success">Profile saved.</FormMessage>}
 
-      <Button type="submit" loading={pending} className="self-start">
+      <Button type="submit" form={formId} loading={pending} className="self-start">
         Save profile
       </Button>
-    </form>
+    </div>
   );
 }

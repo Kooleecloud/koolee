@@ -12,6 +12,7 @@ export * from "./otp";
 export * from "./staff";
 export * from "./uploads";
 export * from "./custody";
+export * from "./signals";
 export * from "./agreements";
 export * from "./passport";
 export * from "./tasks";

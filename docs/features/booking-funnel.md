@@ -258,7 +258,57 @@ See [payments.md](payments.md).
 
 ---
 
-## 9. Ticket upload
+## 9. Ticket upload — and the door it now owns
+
+### 9.0 — Upload IS the first step (2026-08-29, F2)
+
+The flight step opens on a **drop area**, not a form. Most people have their
+e-ticket as a PDF in an inbox or a photo on a phone, and typing a flight
+number, an airport, a date, a time and a name is the slowest possible way to
+tell us something readable off that document in four seconds. Manual entry is
+one link below it, framed as an equal path rather than a fallback — "takes
+about a minute" — because some people genuinely have no file to hand.
+
+`flightEntryMode` ([lib/flight-entry.ts](../../apps/web/src/lib/flight-entry.ts))
+decides which of three faces the step shows, as a pure function:
+
+| Mode     | When                                                       |
+| -------- | ---------------------------------------------------------- |
+| `door`   | first visit, nothing answered yet                          |
+| `review` | `?from=ticket` **and** a prefill actually exists            |
+| `manual` | `?entry=manual`, or the draft already carries a flight      |
+
+The third row is the one worth remembering: somebody stepping BACK to change
+an answer must never be sent to an upload screen, which reads as having lost
+their booking. `?from=ticket` with no prefill behind it (a shared link, an
+expired cookie) falls back to the door rather than rendering "here's what we
+read" above six empty fields.
+
+**Failure is two different things**, and the door treats them differently:
+
+- a file we will never accept (missing, over 10 MB, wrong type — HTTP
+  400/413/415) is **retryable**: the customer stays on the door, because
+  picking a different file is one tap;
+- a file we accepted and could not **read** (HTTP 200 with `ok: false`) sends
+  them to `?entry=manual&read=failed`, which renders a non-blaming line —
+  *"some airline tickets are images we can't get text out of"* — above the
+  same form they would have got anyway. Nothing is lost, and the compact
+  upload card is still under the form for a second attempt.
+
+That status mapping is a decision made in a client component about numbers
+produced in `ticket-upload-handler.ts`, so it is pinned by a test rather than
+left to rot.
+
+**Camera capture** is a second `<input capture="environment">`, phone-only
+(`sm:hidden`). One input cannot both open the camera and let somebody pick the
+PDF their airline emailed — `capture` makes a phone skip the file picker
+entirely.
+
+**Instrumentation** extends the `@vercel/analytics` already in the root layout
+(`ticket_upload_started` / `_read` / `_failed`, tagged with the variant). No
+second analytics system.
+
+### 9.1 — The pipeline
 
 `/api/ticket-uploads` + `ticket-upload.tsx` accept a ticket PDF or a photo;
 extraction is seamed in

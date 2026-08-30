@@ -34,6 +34,7 @@ import {
 import type { TransitionActor } from "../booking/state-machine";
 import type { AdminSession } from "../auth/types";
 import type { CoreConfig } from "../config";
+import { emitAgentAssigned } from "../events/booking-events";
 import { airportLocalDayBounds } from "../slots/cutoff";
 import { applyTransition } from "./bookings";
 import { OPEN_TASK_STATUSES } from "./tasks";
@@ -217,6 +218,25 @@ export async function assignAgentToBooking(
       metadata: { agentUserId: input.agentUserId },
     });
   }
+
+  /*
+   * "Your agent is <name>" — emitted HERE rather than from `applyTransition`,
+   * because this is the fact and the transition is not.
+   *
+   * Two paths reach this line and only one of them moves the booking: the
+   * on-paid transition above, and a reassignment that changes nothing but who
+   * is coming. A customer told once and then never again when a different
+   * person is sent has been told something false, so the emit sits at the
+   * write that decided WHO — the single write path shared by the manual
+   * assign and `autoAssignBooking`.
+   *
+   * The dedupe key is (booking, agent), so ops re-picking the same agent is
+   * not news and picking a different one is. Never throws.
+   */
+  await emitAgentAssigned(config.emitter, {
+    bookingId: booking.id,
+    agentUserId: input.agentUserId,
+  });
 
   return { ok: true, reassigned };
 }

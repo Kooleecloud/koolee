@@ -1,6 +1,6 @@
 import "server-only";
 
-import { BUCKETS } from "@koolee/core";
+import { avatarPathsForViewer, BUCKETS, type CoreConfig, type Session } from "@koolee/core";
 
 import { getSupabaseAdminClient } from "@/lib/supabase/admin";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
@@ -43,17 +43,8 @@ export async function signAvatarUrl(path: string | null): Promise<string | null>
   return data?.signedUrl ?? null;
 }
 
-/**
- * Signed URL for somebody else's avatar, service-role.
- *
- * ONLY for a path core has already authorized the viewer to see — today that
- * is the agent assigned to this customer's booking, and nothing else. Never
- * call this with a path that arrived from a request.
- */
-export async function signAvatarUrlForViewer(
-  path: string | null,
-): Promise<string | null> {
-  if (!path) return null;
+/** The raw service-role mint. Private on purpose — see the two callers below. */
+async function signAsService(path: string): Promise<string | null> {
   const admin = getSupabaseAdminClient();
   if (!admin) return null;
 
@@ -65,6 +56,61 @@ export async function signAvatarUrlForViewer(
     return null;
   }
   return data?.signedUrl ?? null;
+}
+
+/**
+ * Signed URLs for the people on a booking, RESOLVED BY RELATIONSHIP.
+ *
+ * Callers name subject USER IDS and a booking, never a storage path, so there
+ * is no signature this function can be handed a path with. That is the whole
+ * change: the previous version took a path and carried a comment saying not to
+ * pass one from a request, which is a convention rather than a control.
+ *
+ * `avatarPathsForViewer` decides — customer sees the agent and driver on their
+ * own booking, staff see the customer of a booking they have a task on — and
+ * only what comes back is signed. A subject the viewer may not see is absent
+ * from the map, which renders as initials, identical to having no photo.
+ */
+export async function signAvatarUrlsForBooking(input: {
+  db: CoreConfig["db"];
+  viewer: Session;
+  bookingId: string;
+  subjectUserIds: readonly (string | null | undefined)[];
+}): Promise<Map<string, string>> {
+  const paths = await avatarPathsForViewer(input.db, {
+    viewer: input.viewer,
+    subjectUserIds: input.subjectUserIds,
+    bookingId: input.bookingId,
+  });
+  if (paths.size === 0) return new Map();
+
+  const signed = new Map<string, string>();
+  await Promise.all(
+    [...paths].map(async ([userId, path]) => {
+      const url = await signAsService(path);
+      if (url) signed.set(userId, url);
+    }),
+  );
+  return signed;
+}
+
+/**
+ * A driver on the SHORTLIST, before anybody is assigned.
+ *
+ * The one issuance path `avatarPathsForViewer` does not cover, and it is not
+ * an omission: there is no relationship yet. The authorization is
+ * `listCandidateDrivers` itself — ownership-checked, gated by
+ * `assertActionable`, and the thing that decided to offer this driver at all.
+ * Showing a first name and a face IS the shortlist feature.
+ *
+ * Kept as its own named function so that this exception is visible in a diff
+ * rather than hidden inside a general-purpose helper.
+ */
+export async function signShortlistAvatarUrl(
+  path: string | null,
+): Promise<string | null> {
+  if (!path) return null;
+  return signAsService(path);
 }
 
 /** Uploads the bytes as the signed-in user and returns the storage path. */

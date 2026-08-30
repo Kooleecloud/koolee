@@ -20,25 +20,42 @@ import { describe, expect, it } from "vitest";
  *
  * So the rule is asserted here rather than left to whether a page happens to
  * get opened before release.
+ *
+ * `src/lib` is scanned too, and not as an afterthought: hooks live there as
+ * well (`use-preserved-form.ts`, `booking-signal.ts`), they are exported from
+ * the same barrel a server component imports, and the failure mode is
+ * identical — green build, runtime explosion on first open.
  */
 
 const componentsDir = dirname(fileURLToPath(import.meta.url));
+const libDir = join(componentsDir, "..", "lib");
 
 const HOOK =
   /\buse(?:State|Effect|LayoutEffect|Ref|Memo|Callback|Context|Reducer|Transition|DeferredValue|Id|ActionState|OptimisticState|SyncExternalStore)\s*[(<]/;
 
 const componentFiles = readdirSync(componentsDir)
   .filter((name) => name.endsWith(".tsx") && !name.endsWith(".stories.tsx"))
-  .sort();
+  .sort()
+  .map((name) => ({ label: `components/${name}`, path: join(componentsDir, name) }));
+
+const libFiles = readdirSync(libDir)
+  .filter((name) => name.endsWith(".ts") && !name.endsWith(".test.ts"))
+  .sort()
+  .map((name) => ({ label: `lib/${name}`, path: join(libDir, name) }));
+
+const sourceFiles = [...componentFiles, ...libFiles];
 
 describe("client directive", () => {
   it("finds the component files", () => {
     // Guards the guard: a bad glob would make every assertion below vacuous.
     expect(componentFiles.length).toBeGreaterThan(20);
+    expect(libFiles.length).toBeGreaterThan(3);
   });
 
-  it.each(componentFiles)("%s declares 'use client' if it uses hooks", (name) => {
-    const source = readFileSync(join(componentsDir, name), "utf8");
+  it.each(sourceFiles.map((f) => [f.label, f.path]))(
+    "%s declares 'use client' if it uses hooks",
+    (name, filePath) => {
+    const source = readFileSync(filePath, "utf8");
     if (!HOOK.test(source)) return;
 
     // The directive must be the very first statement — a comment above it is
@@ -48,6 +65,7 @@ describe("client directive", () => {
       .map((line) => line.trim())
       .find((line) => line.length > 0 && !line.startsWith("//"));
 
-    expect(firstCode, `${name} calls a React hook`).toBe('"use client";');
-  });
+      expect(firstCode, `${name} calls a React hook`).toBe('"use client";');
+    },
+  );
 });

@@ -185,9 +185,16 @@ function NoDriverYet() {
 /* 2. Watching                                                          */
 /* ------------------------------------------------------------------ */
 
-/** How often the page re-fetches the driver's position. */
-const TRACKING_POLL_MS = 30_000;
-
+/**
+ * REFRESH IS NOT THIS COMPONENT'S JOB ANY MORE.
+ *
+ * This used to own a 30-second `setInterval(router.refresh)`, which made the
+ * page live only once a driver had been chosen — an agent sealing bags on the
+ * doorstep changed nothing on the screen the customer was watching. `TripLive`
+ * now sits at page level and refreshes on a `booking_signals` change (with the
+ * same interval as its fallback), so everything on the page updates, not one
+ * card. Do not re-add a timer here.
+ */
 export function DriverTracking({
   driver,
   /** False once the bags are delivered — nothing left to track. */
@@ -196,26 +203,13 @@ export function DriverTracking({
   driver: SelectedDriverView;
   live: boolean;
 }) {
-  const router = useRouter();
-
-  // The trip page is `force-dynamic`, so a router refresh re-runs the server
-  // component and brings back a fresh position and ETA. The whole live-tracking
-  // mechanism, in four lines — no socket, no subscription, no client fetch.
-  // `CutoffCountdown` sets the precedent for an interval on this page; the
-  // difference is that one re-renders a known instant and this one re-fetches.
-  useEffect(() => {
-    if (!live) return;
-    const id = setInterval(() => router.refresh(), TRACKING_POLL_MS);
-    return () => clearInterval(id);
-  }, [live, router]);
-
   return (
     <Card>
       <CardHeader>
         <CardTitle className="font-display text-base">Your driver</CardTitle>
         <CardDescription>
           {live
-            ? "Updating every half a minute while your pickup is under way."
+            ? "Updating as your driver moves."
             : "Your bags are with your airline now."}
         </CardDescription>
       </CardHeader>

@@ -32,6 +32,7 @@ export type {
   Bag,
   Booking,
   BookingDraft as BookingDraftRow,
+  BookingSignal,
   BookingStatus,
   CustodyEvent,
   CutoffScope,

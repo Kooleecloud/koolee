@@ -34,6 +34,18 @@ export type KooleeEvents = {
       assigneeUserId?: string;
     };
   };
+  "booking/agent_assigned": {
+    data: {
+      bookingId: string;
+      /** The staff user now responsible for the verification visit. */
+      agentUserId: string;
+    };
+  };
+  "booking/bags_sealed": {
+    data: {
+      bookingId: string;
+    };
+  };
   "booking/exception_raised": {
     data: {
       bookingId: string;
@@ -72,6 +84,29 @@ export const bookingConfirmed = eventType("booking/confirmed", {
 
 export const agentNoShowCheck = eventType("booking/agent_no_show_check", {
   schema: staticSchema<KooleeEvents["booking/agent_no_show_check"]["data"]>(),
+});
+
+/**
+ * A verification visit got an owner. Raised from `assignAgentToBooking` — the
+ * one write path for both the manual assign and the on-paid auto-assign — so
+ * a customer is told who is coming however the assignment happened.
+ */
+export const agentAssigned = eventType("booking/agent_assigned", {
+  schema: staticSchema<KooleeEvents["booking/agent_assigned"]["data"]>(),
+});
+
+/**
+ * Every bag is weighed, sealed and photographed, and the shortlist just
+ * opened. Raised from `applyTransition` on arrival at `verified_sealed`, the
+ * same choke point the exception emit uses and for the same reason: a second
+ * caller reaching that state tomorrow is covered without being told.
+ *
+ * Carries only the booking id. The bag count and the seal numbers are read at
+ * send time, because an event that carried them would be a snapshot of a
+ * booking somebody could still have corrected.
+ */
+export const bagsSealed = eventType("booking/bags_sealed", {
+  schema: staticSchema<KooleeEvents["booking/bags_sealed"]["data"]>(),
 });
 
 export const exceptionRaised = eventType("booking/exception_raised", {

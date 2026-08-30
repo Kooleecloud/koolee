@@ -35,11 +35,41 @@ export {
 } from "./actionability";
 
 export {
+  listCustomerTrips,
+  type CustomerTrips,
+  type ListCustomerTripsOptions,
+  type TripNeed,
+  type TripSummary,
+} from "./trips";
+
+export {
+  profileCompleteness,
+  type ProfileCompleteness,
+  type ProfileGap,
+  type ProfileSubject,
+} from "./profile-completeness";
+
+export {
+  getBookingSignal,
+  latestSignalFor,
+  touchBookingSignal,
+  touchBookingSignals,
+  type TouchBookingSignalInput,
+} from "./booking-signals";
+
+export {
   FALLBACK_DISPLAY_TZ,
   getDisplayZones,
   resolveDisplayTz,
   zoneFor,
 } from "./display-tz";
+
+export {
+  avatarPathForViewer,
+  avatarPathsForViewer,
+  canReplaceAvatarOf,
+  type AvatarVisibilityQuery,
+} from "./avatar-visibility";
 
 export {
   clearUserAvatar,
@@ -204,6 +234,7 @@ export {
   ensureAddress,
   ensureCustomerFromAuth,
   getCustomerById,
+  listUserNames,
   markEmailVerified,
   type AddressInput,
   type CompleteProfileInput,
@@ -275,6 +306,16 @@ export {
   setTicketUploadStatus,
   type CreateTicketUploadInput,
 } from "./ticket-uploads";
+
+export {
+  getStaffWorkHistory,
+  staffHistoryRange,
+  type StaffTaskKind,
+  type StaffTaskRow,
+  type StaffWorkCounts,
+  type StaffWorkHistory,
+  type StaffWorkHistoryQuery,
+} from "./staff-history";
 
 export {
   createStaffMember,

@@ -4,9 +4,12 @@ export {
   BUCKETS,
   EXTENSION_BY_MIME_TYPE,
   extensionForUpload,
+  MAX_TICKET_UPLOAD_BYTES,
   PHOTO_MIME_TYPES,
+  TICKET_UPLOAD_MIME_TYPES,
   type BucketKey,
   type BucketSpec,
+  type TicketUploadMimeType,
 } from "./buckets";
 
 export {

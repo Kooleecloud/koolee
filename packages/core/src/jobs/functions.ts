@@ -3,6 +3,7 @@ import {
   addresses,
   airlineCutoffs,
   airports,
+  bags,
   bookings,
   users,
   verificationTasks,
@@ -12,8 +13,11 @@ import { cron } from "inngest";
 
 import type { CoreConfig } from "../config";
 import {
+  buildAgentAssignedEmail,
   buildBagdropDeliveredEmail,
+  buildBagsSealedEmail,
   buildBookingConfirmationEmail,
+  buildCustomerExceptionEmail,
   buildDriverSelectedEmail,
   buildOpsDriverPoolEmptyEmail,
   buildOpsExceptionEmail,
@@ -30,7 +34,9 @@ import {
   resolveStrictestCutoffMinutes,
 } from "../slots/cutoff";
 import {
+  agentAssigned as agentAssignedEvent,
   agentNoShowCheck as agentNoShowCheckEvent,
+  bagsSealed as bagsSealedEvent,
   bookingConfirmed,
   deliveredToBagdrop as deliveredToBagdropEvent,
   driverPoolEmpty as driverPoolEmptyEvent,
@@ -60,6 +66,16 @@ export interface KooleeFunctionOptions {
   opsAlertEmail?: string | undefined;
   /** Absolute app origin for trip-page links (NEXT_PUBLIC_APP_URL). */
   appOrigin?: string | undefined;
+  /**
+   * The address a customer may write to when something has gone wrong.
+   *
+   * Passed in rather than read from an env var because it is not
+   * per-environment configuration — it is public site copy that already lives
+   * in `apps/web/src/lib/site.ts`, and core reads no env either way. Absent →
+   * the customer-facing exception email is skipped rather than sent with a
+   * placeholder address nobody monitors.
+   */
+  supportEmail?: string | undefined;
 }
 
 /** Statuses still expecting a pickup — anything else makes a reminder wrong. */
@@ -806,6 +822,246 @@ export function createKooleeFunctions(
     },
   );
 
+  /* ------------------------------------------------------------------ */
+  /* 8. "Your agent is <name>"                                           */
+  /* ------------------------------------------------------------------ */
+
+  /**
+   * The first message after confirmation that names a person.
+   *
+   * Before this the customer learned who was coming only by opening the trip
+   * page, which nothing prompted them to do between the confirmation email
+   * and the two-hour reminder. Auto-assign usually fires within seconds of
+   * payment, so in practice this arrives right behind the confirmation and
+   * turns "somebody will collect your bags" into "Nina will".
+   *
+   * Skipped for a booking that is no longer live: a reassignment on a
+   * cancelled booking is an ops correction, not news for the customer.
+   */
+  const agentAssignedEmail = inngest.createFunction(
+    {
+      id: "agent-assigned-email",
+      name: "Tell the customer which agent is coming",
+      triggers: [agentAssignedEvent],
+    },
+    async ({ event, step, logger }) => {
+      return step.run("send-agent-assigned-email", async () => {
+        const config = getConfig();
+
+        const booking = await config.db.query.bookings.findFirst({
+          where: eq(bookings.id, event.data.bookingId),
+        });
+        if (!booking) return { sent: false, reason: "booking_missing" };
+        if (booking.status === "cancelled" || booking.status === "completed") {
+          return { sent: false, reason: "not_live" };
+        }
+
+        const [customer, agent, tz] = await Promise.all([
+          config.db.query.users.findFirst({
+            where: eq(users.id, booking.userId),
+            columns: { email: true },
+          }),
+          config.db.query.users.findFirst({
+            where: eq(users.id, event.data.agentUserId),
+            columns: { fullName: true },
+          }),
+          resolveDisplayTz(config.db, booking.departureAirport),
+        ]);
+        if (!customer?.email) {
+          logger.info(`Booking ${booking.id}: customer has no email; skipping.`);
+          return { sent: false, reason: "no_email" };
+        }
+
+        // The BOOKING's zone, never the server's (docs/TIME.md). A window
+        // rendered in UTC is four or five hours wrong in the unsafe direction.
+        const windowLabel =
+          booking.pickupWindowStart && booking.pickupWindowEnd
+            ? formatWindowInAirportTz(
+                booking.pickupWindowStart,
+                booking.pickupWindowEnd,
+                tz,
+              )
+            : "to be scheduled";
+
+        const message = buildAgentAssignedEmail({
+          to: customer.email,
+          bookingRef: booking.ref,
+          paxName: booking.paxName,
+          agentGivenName: agent?.fullName?.trim().split(/\s+/)[0] ?? null,
+          windowLabel,
+          ...(tripUrlFor(booking.id) === undefined
+            ? {}
+            : { tripUrl: tripUrlFor(booking.id)! }),
+        });
+
+        try {
+          await config.notifier.sendEmail(message);
+        } catch (error) {
+          await config.opsAlerter.alert({
+            severity: "warning",
+            title: `Agent-assigned email failed for booking ${booking.id}`,
+            detail: { bookingId: booking.id, error: String(error) },
+          });
+          return { sent: false, reason: "send_failed" };
+        }
+        return { sent: true, bookingId: booking.id };
+      });
+    },
+  );
+
+  /* ------------------------------------------------------------------ */
+  /* 9. "Your bags are sealed — choose your driver"                      */
+  /* ------------------------------------------------------------------ */
+
+  /**
+   * ONE EMAIL FOR TWO MATRIX ROWS. `verified_sealed` is simultaneously the
+   * moment the last seal goes on and the moment the driver shortlist opens
+   * (`DRIVER_SELECTABLE_STATUSES`), so a "bags sealed" summary and a "choose
+   * your driver" prompt would arrive seconds apart. They are one message.
+   *
+   * The seal numbers are read HERE rather than carried on the event, because
+   * an event payload is a snapshot and a seal is evidence the agent could
+   * still have corrected between the transition and the send.
+   */
+  const bagsSealedEmail = inngest.createFunction(
+    {
+      id: "bags-sealed-email",
+      name: "Tell the customer their bags are sealed and a driver is theirs to pick",
+      triggers: [bagsSealedEvent],
+    },
+    async ({ event, step, logger }) => {
+      return step.run("send-bags-sealed-email", async () => {
+        const config = getConfig();
+
+        const booking = await config.db.query.bookings.findFirst({
+          where: eq(bookings.id, event.data.bookingId),
+        });
+        if (!booking) return { sent: false, reason: "booking_missing" };
+        if (booking.status === "cancelled") return { sent: false, reason: "cancelled" };
+
+        const [customer, sealed] = await Promise.all([
+          config.db.query.users.findFirst({
+            where: eq(users.id, booking.userId),
+            columns: { email: true },
+          }),
+          config.db
+            .select({ ordinal: bags.ordinal, sealId: bags.sealId })
+            .from(bags)
+            .where(eq(bags.bookingId, booking.id))
+            // By ordinal: a booking's bags share a created_at to the
+            // millisecond, so any other order is a non-deterministic tie and
+            // "Bag 1" would move between renders of the same email.
+            .orderBy(bags.ordinal),
+        ]);
+        if (!customer?.email) {
+          logger.info(`Booking ${booking.id}: customer has no email; skipping.`);
+          return { sent: false, reason: "no_email" };
+        }
+
+        const sealIds = sealed
+          .map((row) => row.sealId)
+          .filter((seal): seal is string => Boolean(seal));
+
+        const message = buildBagsSealedEmail({
+          to: customer.email,
+          bookingRef: booking.ref,
+          paxName: booking.paxName,
+          bagCount: sealed.length,
+          sealIds,
+          ...(tripUrlFor(booking.id) === undefined
+            ? {}
+            : { tripUrl: tripUrlFor(booking.id)! }),
+        });
+
+        try {
+          await config.notifier.sendEmail(message);
+        } catch (error) {
+          await config.opsAlerter.alert({
+            severity: "warning",
+            title: `Bags-sealed email failed for booking ${booking.id}`,
+            detail: { bookingId: booking.id, error: String(error) },
+          });
+          return { sent: false, reason: "send_failed" };
+        }
+        return { sent: true, bookingId: booking.id, bagCount: sealed.length };
+      });
+    },
+  );
+
+  /* ------------------------------------------------------------------ */
+  /* 10. "We're on it" — the customer half of an exception               */
+  /* ------------------------------------------------------------------ */
+
+  /**
+   * The same event as the ops alert, a completely different message.
+   *
+   * Ops gets the reason because they can act on it. The customer gets none of
+   * it, on purpose: the internal reason is written for an operator, it can
+   * name staff or a payment provider, and it is frequently wrong in the first
+   * minute because an exception is raised before anybody has looked. What the
+   * customer needs is that a human now owns their booking.
+   *
+   * A SEPARATE FUNCTION rather than a second send inside the ops one, because
+   * an ops alert that fails must still be retried on its own — Inngest retries
+   * a function, and a combined handler would re-send whichever half already
+   * succeeded.
+   */
+  const exceptionCustomerEmail = inngest.createFunction(
+    {
+      id: "exception-customer-email",
+      name: "Tell the customer we have hit a snag",
+      triggers: [exceptionRaised],
+    },
+    async ({ event, step, logger }) => {
+      return step.run("send-customer-exception-email", async () => {
+        const supportEmail = options.supportEmail;
+        if (!supportEmail) {
+          // Better to say nothing than to hand somebody an address nobody
+          // reads at the moment they most need a reply.
+          logger.info("No support address configured; skipping customer exception email.");
+          return { sent: false, reason: "no_support_email" };
+        }
+
+        const config = getConfig();
+        const booking = await config.db.query.bookings.findFirst({
+          where: eq(bookings.id, event.data.bookingId),
+        });
+        if (!booking) return { sent: false, reason: "booking_missing" };
+
+        const customer = await config.db.query.users.findFirst({
+          where: eq(users.id, booking.userId),
+          columns: { email: true },
+        });
+        if (!customer?.email) {
+          logger.info(`Booking ${booking.id}: customer has no email; skipping.`);
+          return { sent: false, reason: "no_email" };
+        }
+
+        const message = buildCustomerExceptionEmail({
+          to: customer.email,
+          bookingRef: booking.ref,
+          paxName: booking.paxName,
+          supportEmail,
+          ...(tripUrlFor(booking.id) === undefined
+            ? {}
+            : { tripUrl: tripUrlFor(booking.id)! }),
+        });
+
+        try {
+          await config.notifier.sendEmail(message);
+        } catch (error) {
+          await config.opsAlerter.alert({
+            severity: "warning",
+            title: `Customer exception email failed for booking ${booking.id}`,
+            detail: { bookingId: booking.id, error: String(error) },
+          });
+          return { sent: false, reason: "send_failed" };
+        }
+        return { sent: true, bookingId: booking.id };
+      });
+    },
+  );
+
   return [
     bookingConfirmationEmail,
     pickupReminder,
@@ -816,6 +1072,9 @@ export function createKooleeFunctions(
     driverSelectedEmail,
     bagdropDeliveredEmail,
     driverPoolEmptyOpsAlert,
+    agentAssignedEmail,
+    bagsSealedEmail,
+    exceptionCustomerEmail,
   ];
 }
 

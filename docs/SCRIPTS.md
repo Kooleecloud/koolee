@@ -26,14 +26,16 @@ Run everything from the **repo root** unless noted.
 
 ### Database
 
-| Command            |    Connects?    | Does                                                       |
-| ------------------ | :-------------: | ---------------------------------------------------------- |
-| `pnpm db:generate` |     **no**      | Diff the schema, write a new migration file                |
-| `pnpm db:status`   | yes (read-only) | Drift report. **Safe against production**                  |
-| `pnpm db:migrate`  |       yes       | Apply pending migrations over `DIRECT_DATABASE_URL`        |
-| `pnpm db:studio`   |       yes       | drizzle-kit Studio                                         |
-| `pnpm seed`        |       yes       | Idempotent reference data: airports, cutoffs, pricing rule |
-| `pnpm seed:local`  |       yes       | Same seed, **pinned to the local stack**                   |
+| Command                                    |    Connects?    | Does                                                       |
+| ------------------------------------------ | :-------------: | ---------------------------------------------------------- |
+| `pnpm db:generate`                         |     **no**      | Diff the schema, write a new migration file                |
+| `pnpm db:status`                           | yes (read-only) | Drift report. **Safe against production**                  |
+| `pnpm db:migrate`                          |       yes       | Apply pending migrations over `DIRECT_DATABASE_URL`        |
+| `pnpm db:studio`                           |       yes       | drizzle-kit Studio                                         |
+| `pnpm seed`                                |       yes       | Idempotent reference data: airports, cutoffs, pricing rule |
+| `pnpm seed:local`                          |       yes       | Same seed, **pinned to the local stack**                   |
+| `pnpm --filter @koolee/db bootstrap:staff` |       yes       | Mint the **first** staff account on a DB that has none     |
+| `pnpm --filter @koolee/db create:staff`    |       yes       | Create a whole dev staff roster (2 admins + 5 agents)      |
 
 ⚠️ Everything above except `db:generate` reads `packages/db/.env`, which points
 at the **hosted** project. See [ENVIRONMENT.md §6](ENVIRONMENT.md#6--the-sharpest-edge-packagesdbenv-points-at-hosted).
@@ -174,6 +176,82 @@ by design** — seeding known passwords into a hosted project would be a standin
 backdoor.
 
 Detail: [packages/core/docs/local-test-env.md](../packages/core/docs/local-test-env.md).
+
+### 3.4 — Bootstrapping staff on a hosted database
+
+The same refusal makes a fresh hosted project unbootstrappable: `pnpm seed`
+skips the staff roster on any non-local Supabase host, and the admin console's
+invite flow needs an admin session to reach. `bootstrap:staff` is the one-time
+escape hatch, and it is safe on hosted because it carries **no credentials of
+its own** — you supply the email and password at the call site, so nothing
+about the account is knowable from this repository (it rejects a password
+shorter than 12 characters or one matching the seeded `koolee-*-dev-N` shape).
+
+```bash
+SUPABASE_URL='https://<ref>.supabase.co' \
+SUPABASE_SERVICE_ROLE_KEY='<service_role key>' \
+DATABASE_URL='postgresql://postgres.<ref>:<pw>@...pooler.supabase.com:6543/postgres' \
+BOOTSTRAP_EMAIL='you@example.com' \
+BOOTSTRAP_PASSWORD='<something you choose>' \
+pnpm --filter @koolee/db bootstrap:staff
+```
+
+It creates the GoTrue user with `email_confirm` already set, then upserts
+`public.users` and `staff_members` **against the same auth id** — that id
+equality is the entire join. Invite everyone else from `/staff` afterwards.
+
+### 3.5 — Creating a whole dev roster
+
+`create:staff` is the bulk sibling: one positional argument (the database
+URL) and it stands up 2 admins + 5 agents, printing the generated passwords
+once at the end. Generated — not published in the source like `seed.ts`'s
+roster — is what makes it safe to point at a hosted dev project.
+
+```bash
+SUPABASE_SERVICE_ROLE_KEY='<service_role key>' \
+pnpm --filter @koolee/db create:staff -- \
+  'postgresql://postgres.<ref>:<pw>@...pooler.supabase.com:6543/postgres'
+```
+
+The Supabase project is **derived** from the connection string — a Supavisor
+URL carries the project ref in its username — so the auth users and the
+`public.users` rows pointing at them cannot end up in different projects.
+Only the service-role key has to be supplied, and for a local target it is
+read out of the `.env.test` that `pnpm test:env:up` writes.
+
+| Flag                    | Default        | Does                                                     |
+| ----------------------- | -------------- | -------------------------------------------------------- |
+| `--admins <n>`          | `2`            | How many admin accounts                                  |
+| `--agents <n>`          | `5`            | How many agent accounts (all get `can_drive`)            |
+| `--domain <d>`          | `koolee.local` | Email domain for the generated addresses                 |
+| `--password <pw>`       | generated      | One shared password for every account (min 8 chars)      |
+| `--password-prefix <p>` | generated      | Predictable passwords: `<p>-admin-1`, `<p>-agent-3`      |
+| `--reset-existing`      | off            | Reset an existing account's password instead of skipping |
+| `--zones`               | off            | Round-robin every covered ZIP across the created agents  |
+
+`--password-prefix dev` gives you `dev-admin-1` … `dev-agent-5` — memorable
+for a roster you sign into all day. A predictable password is only as private
+as its pattern and the pattern is in the source, so the prefix is yours to
+choose rather than hardcoded; against a non-local database the script prints a
+warning rather than refusing.
+
+Idempotent, and it does not touch an account that already exists unless you
+pass `--reset-existing` — so running it against local will not clobber the
+seeded `koolee-*-dev-N` passwords. Without `--zones` the agents have no
+coverage, which means auto-assign will not pick them.
+
+Each account's `users` + `staff_members` rows go in **one transaction**, and
+the run ends by reading `staff_members` back and printing it. Both exist
+because `users.role` is not the authorization boundary — `requireStaffRole`
+consults `staff_members` and nothing else, so an account with only a `users`
+row signs in successfully and is then refused by every page. A per-account
+failure (most often a leftover `public.users` row holding the same email under
+a different id) is reported and skipped rather than aborting the roster.
+
+**Passwords live in `auth.users`, not in `public.users`.** Copying
+`public.users` + `staff_members` between databases moves role assignments and
+nothing else: the rows point at auth ids that do not exist on the target, so
+GoTrue reports "invalid login credentials" for every one of them.
 
 ---
 

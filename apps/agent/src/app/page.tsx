@@ -11,6 +11,7 @@ import {
 } from "@koolee/core";
 
 import { JobCard } from "@/components/job/job-card";
+import { LiveTasks } from "@/components/live-tasks";
 import { AgentMain } from "@/components/shell/agent-main";
 import { GpsPinger } from "@/components/shift/gps-pinger";
 import {
@@ -128,6 +129,8 @@ export default async function AgentHomePage() {
 
   return (
     <AgentMain>
+      {/* A task assigned mid-shift appears here without a pull-to-refresh. */}
+      <LiveTasks bookingIds={jobs.map((job) => job.bookingId)} stage={`jobs:${jobs.length}`} />
       <header className="flex flex-col gap-1">
         <h1 className="font-display text-3xl font-semibold text-navy-800">Today</h1>
         <p className="text-sm text-muted-foreground">{summary}</p>

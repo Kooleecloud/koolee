@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { AssignedTasks, PickupTask, VerificationTask } from "@koolee/core";
 
-import { groupJobs } from "./job";
+import { finishedJobs, groupIntoSections, groupJobs, type Job } from "./job";
 
 /**
  * `groupJobs` is presentation over two task tables, and the thing worth
@@ -114,5 +114,127 @@ describe("groupJobs", () => {
     expect(groupJobs(tasksOf({ pickup: [pickup({ status: "failed" })] }))[0]!.state).toBe(
       "problem",
     );
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* Sections                                                            */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The schedule's buckets.
+ *
+ * The failure this guards is a driver not seeing something: work that falls
+ * out of every bucket, or an overdue stop quietly filed under a future day
+ * because "today" was computed in the server's zone rather than the airport's.
+ */
+
+const TZ = "America/New_York";
+
+/** Airport-local day bounds, faked deterministically for the test. */
+const dayBounds = (instant: Date, tz: string) => {
+  expect(tz).toBe(TZ);
+  const day = instant.toISOString().slice(0, 10);
+  // 04:00Z–04:00Z the next day stands in for a New York calendar day, which
+  // is close enough to real EDT for the boundary cases below and completely
+  // deterministic.
+  return {
+    start: new Date(`${day}T04:00:00Z`),
+    end: new Date(`${day}T27:59:59Z`.replace("T27", "T23")),
+  };
+};
+const localDay = (instant: Date) => instant.toISOString().slice(0, 10);
+
+const job = (over: Partial<Job> = {}): Job => ({
+  bookingId: over.bookingId ?? "b-x",
+  booking: BOOKING as Job["booking"],
+  tz: TZ,
+  phases: [],
+  startsAt: null,
+  next: null,
+  state: "upcoming",
+  ...over,
+});
+
+const NOW = new Date("2026-06-12T15:00:00Z");
+
+describe("groupIntoSections", () => {
+  it("puts every unfinished job in exactly one bucket", () => {
+    const jobs = [
+      job({ bookingId: "problem", state: "problem", startsAt: NOW }),
+      job({ bookingId: "overdue", startsAt: new Date("2026-06-11T15:00:00Z") }),
+      job({ bookingId: "today", startsAt: new Date("2026-06-12T18:00:00Z") }),
+      job({ bookingId: "later", startsAt: new Date("2026-06-14T18:00:00Z") }),
+      job({ bookingId: "done", state: "done", startsAt: NOW }),
+    ];
+
+    const s = groupIntoSections(jobs, NOW, dayBounds, localDay);
+    expect(s.problems.map((j) => j.bookingId)).toEqual(["problem"]);
+    expect(s.overdue.map((j) => j.bookingId)).toEqual(["overdue"]);
+    expect(s.today.map((j) => j.bookingId)).toEqual(["today"]);
+    expect(s.upcoming.flatMap((d) => d.jobs.map((j) => j.bookingId))).toEqual(["later"]);
+
+    // Nothing lost, nothing duplicated — the property that actually matters.
+    const placed = [
+      ...s.problems,
+      ...s.overdue,
+      ...s.today,
+      ...s.upcoming.flatMap((d) => d.jobs),
+    ].map((j) => j.bookingId);
+    expect(placed.sort()).toEqual(["later", "overdue", "problem", "today"]);
+  });
+
+  it("keeps finished work off the schedule entirely", () => {
+    const jobs = [job({ bookingId: "done", state: "done", startsAt: NOW })];
+    const s = groupIntoSections(jobs, NOW, dayBounds, localDay);
+    expect(s.problems.concat(s.overdue, s.today)).toHaveLength(0);
+    expect(s.upcoming).toHaveLength(0);
+  });
+
+  it("shows a problem as a problem even when it is overdue", () => {
+    // Ordering of the checks, pinned: a failed stop from yesterday belongs at
+    // the top of the screen, not filed under "Overdue" with the merely late.
+    const jobs = [
+      job({ bookingId: "x", state: "problem", startsAt: new Date("2026-06-01T15:00:00Z") }),
+    ];
+    const s = groupIntoSections(jobs, NOW, dayBounds, localDay);
+    expect(s.problems).toHaveLength(1);
+    expect(s.overdue).toHaveLength(0);
+  });
+
+  it("files an unscheduled job under Today rather than dropping it", () => {
+    // "Someday" is not a bucket anybody looks at. Somebody has to see it.
+    const s = groupIntoSections([job({ bookingId: "x" })], NOW, dayBounds, localDay);
+    expect(s.today.map((j) => j.bookingId)).toEqual(["x"]);
+  });
+
+  it("groups upcoming work one entry per day", () => {
+    const jobs = [
+      job({ bookingId: "a", startsAt: new Date("2026-06-14T14:00:00Z") }),
+      job({ bookingId: "b", startsAt: new Date("2026-06-14T18:00:00Z") }),
+      job({ bookingId: "c", startsAt: new Date("2026-06-15T14:00:00Z") }),
+    ];
+    const s = groupIntoSections(jobs, NOW, dayBounds, localDay);
+    expect(s.upcoming.map((d) => d.key)).toEqual(["2026-06-14", "2026-06-15"]);
+    expect(s.upcoming[0]!.jobs.map((j) => j.bookingId)).toEqual(["a", "b"]);
+  });
+
+  it("uses the JOB's zone for the day boundary, never the server's", () => {
+    // The whole reason `dayBounds` is a parameter. `dayBounds` above asserts
+    // it is handed the job's tz; a server-local implementation would not be.
+    expect(() =>
+      groupIntoSections([job({ startsAt: NOW, tz: TZ })], NOW, dayBounds, localDay),
+    ).not.toThrow();
+  });
+});
+
+describe("finishedJobs", () => {
+  it("returns only finished work, most recent first", () => {
+    const jobs = [
+      job({ bookingId: "old", state: "done", startsAt: new Date("2026-06-01T14:00:00Z") }),
+      job({ bookingId: "open", startsAt: NOW }),
+      job({ bookingId: "new", state: "done", startsAt: new Date("2026-06-10T14:00:00Z") }),
+    ];
+    expect(finishedJobs(jobs).map((j) => j.bookingId)).toEqual(["new", "old"]);
   });
 });

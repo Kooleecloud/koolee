@@ -132,15 +132,79 @@ decision, purging bytes is a retention decision.
 
 ### Where it appears
 
-| App     | Uploads                                  | Displays                                             |
-| ------- | ---------------------------------------- | ---------------------------------------------------- |
-| `web`   | `/dashboard/profile` → "Profile picture" | own profile; the assigned agent on the trip page     |
-| `agent` | `/account` → "Your photo"                | own account header; the customer on the visit screen |
-| `admin` | console settings sheet → Account         | own chrome (top bar + sheet); the staff table        |
+| App     | Uploads                                                          | Displays                                                        |
+| ------- | ---------------------------------------------------------------- | --------------------------------------------------------------- |
+| `web`   | `/dashboard/profile` → "Profile picture"                          | own profile; the assigned agent AND the selected driver on the trip page |
+| `agent` | `/account` → "Your photo"                                         | own account header; the customer on the visit screen            |
+| `admin` | console settings sheet → Account; **`/staff` → any staff photo**  | own chrome (top bar + sheet); the staff table                   |
 
 The console has no account route, so the settings sheet _is_ the account
 surface and the picker lives there rather than behind one more click to a page
 that would exist only to hold it.
+
+### Replacing somebody else's photo (2026-08-29)
+
+`/staff` has a **Photo** action per row, in a dialog rather than inline: a
+picker per row would put a dozen file inputs on one page, and this is a rare
+action with a real consequence. It exists because a face on a doorstep is
+operational — an agent with no photo is a stranger at a customer's door, and
+asking each of them to fix it themselves is how it stays broken.
+
+Two things differ from every other upload, and both follow from `0027`:
+
+1. **RLS cannot be the gate.** The insert policy is `your own folder, whoever
+   you are`, so a cross-folder write is refused — correctly, because that
+   policy is what stops a path-building bug writing into a stranger's folder.
+   The check therefore happens in code first: `canReplaceAvatarOf`
+   (packages/core) admits an **admin acting on a member of active staff**, and
+   nobody else.
+2. **It runs service-role**, only after that check, through
+   `uploadAvatarAsService` — the one place in the product that writes into
+   somebody else's folder.
+
+A **customer's** photo is deliberately out of reach from the console. It is
+their face; editing it would be a moderation capability this product has
+decided not to have in v1.
+
+---
+
+## 3.1 Who may SEE whose face
+
+Issuing a signed URL is an authorization decision — the URL is a bearer
+credential for a private object. Until F2 that decision was made by
+_construction_ (a path only reached a render because a join had already proved
+the relationship) and guarded by a comment on the signing helper saying "never
+call this with a path that arrived from a request".
+
+A comment is not a control.
+[`services/avatar-visibility.ts`](../../packages/core/src/services/avatar-visibility.ts)
+is: callers name subject **user ids** and a booking, never a path.
+
+| Viewer   | May see                                                            |
+| -------- | ------------------------------------------------------------------ |
+| anyone   | themselves                                                         |
+| customer | the agent and the driver assigned to **their own** booking         |
+| staff    | the customer of a booking **they have a task on**                  |
+| admin    | anyone                                                             |
+
+An unassigned agent cannot fetch a customer's face; a customer cannot fetch an
+agent who is not theirs; naming somebody else's booking id changes nothing.
+Fifteen integration tests cover exactly those refusals.
+
+**The one exception, named rather than hidden:** the driver **shortlist**. Four
+faces are shown before anybody is assigned, so no relationship exists yet — the
+authorization is `listCandidateDrivers` itself, which is ownership-checked,
+gated by `assertActionable`, and is the thing that decided to offer that driver
+at all. It has its own function (`signShortlistAvatarUrl`) so the exception
+shows up in a diff.
+
+**Known coarseness, deliberately left:** `0027`'s _Storage_ read policy admits
+any active staff member to any avatar folder, which is broader than the table
+above. Tightening it would break the agent seeing the customer at the door,
+object keys carry an unguessable uuid so folders are not enumerable, and the
+app never hands staff a path they were not entitled to. The fine-grained rule
+is enforced at **issuance**, in application code, which is where this codebase
+puts authorization anyway.
 
 ### The fallback is the design
 
