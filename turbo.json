@@ -6,7 +6,15 @@
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
-      "outputs": [".next/**", "!.next/cache/**", "dist/**"],
+      // `.next/dev/**` is Next 16's TURBOPACK DEV cache, not build output.
+      // Without that exclusion every `turbo build` tarred it into
+      // `.turbo/cache`: ~49 GB of dev cache across the three apps, archived
+      // again on every cache miss. Measured at 616 GB total (5,070 files =
+      // ~1,690 entries, a few dozen of them 18-19 GB each) on a disk that
+      // then failed the cache write on every task.
+      // Excluding `.next/cache/**` alone is not enough — the dev cache moved
+      // out from under it in Next 16.
+      "outputs": [".next/**", "!.next/cache/**", "!.next/dev/**", "dist/**"],
       "env": [
         "NEXT_PUBLIC_*",
         "DATABASE_URL",

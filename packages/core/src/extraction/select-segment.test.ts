@@ -4,7 +4,7 @@ import {
   deriveScope,
   normalizeSegment,
   selectSegment,
-  todayUtc,
+  todayAtServicedAirports,
 } from "./select-segment";
 import type { ExtractedSegment } from "./types";
 
@@ -194,8 +194,17 @@ describe("deriveScope", () => {
   });
 });
 
-describe("todayUtc", () => {
-  it("is the UTC calendar day", () => {
-    expect(todayUtc(new Date("2026-08-29T23:30:00Z"))).toBe("2026-08-29");
+describe("todayAtServicedAirports", () => {
+  it("is the calendar day at the NYC airports, not in UTC", () => {
+    // 23:30Z on the 29th is 19:30 in New York — still the 29th there, and
+    // the UTC answer happens to agree.
+    expect(todayAtServicedAirports(new Date("2026-08-29T23:30:00Z"))).toBe("2026-08-29");
+  });
+
+  it("does not roll the day over at 20:00 New York time", () => {
+    // 01:30Z on the 30th is 21:30 on the 29th in New York. The old UTC
+    // anchor said "2026-08-30" here, which classified a flight leaving
+    // later that same evening as already flown.
+    expect(todayAtServicedAirports(new Date("2026-08-30T01:30:00Z"))).toBe("2026-08-29");
   });
 });

@@ -13,9 +13,11 @@ import {
   dstTransitionNote,
   formatHourRangeInAirportTz,
   formatInstantInAirportTz,
+  getBookingActionability,
   getPickupContext,
   getVisitContext,
   VISIT_EVENT_TYPES,
+  type BookingActionability,
   type TaskKind,
   type VisitContext,
 } from "@koolee/core";
@@ -182,6 +184,36 @@ function DoorstepCard({
   );
 }
 
+/**
+ * What the gates decided, at the top of the screen the agent is looking at.
+ *
+ * Two states, and the difference between them is the whole point: "running
+ * late" sits above controls that STILL WORK, because a visit before the
+ * airline's bag drop closes is a visit worth making. "Blocked" sits above
+ * controls that will refuse, and says why — an agent who taps Arrive and gets
+ * a server error learns nothing they can act on, and neither does the
+ * customer standing in front of them.
+ */
+function ActionabilityNotice({ state }: { state: BookingActionability }) {
+  const blocked = state.blockedReason !== null;
+  const message = state.blockedReason ?? state.lateNotice;
+  if (!message) return null;
+
+  return (
+    <div
+      role="status"
+      className={
+        blocked
+          ? "flex items-start gap-2 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-900"
+          : "flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900"
+      }
+    >
+      <TriangleAlert aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
+      <p>{message}</p>
+    </div>
+  );
+}
+
 export default async function TaskDetailPage({
   params,
   searchParams,
@@ -214,6 +246,11 @@ export default async function TaskDetailPage({
     const pickupAvatarUrl = await signAvatarUrl(
       pickup.customer?.avatarStoragePath ?? null,
     );
+    const pickupState = await getBookingActionability(
+      core.db,
+      pickup.booking,
+      new Date(),
+    );
 
     const pickupView: PickupView = {
       taskId: pickup.task.id,
@@ -242,6 +279,7 @@ export default async function TaskDetailPage({
         {/* The same doorstep card as the verification visit — address, phone,
             flight — because a driver arriving for the pickup needs exactly the
             information a driver arriving for the visit needed. */}
+        <ActionabilityNotice state={pickupState} />
         <DoorstepCard context={pickup} customerAvatarUrl={pickupAvatarUrl} />
         <PickupFlow view={pickupView} />
       </AgentMain>
@@ -254,6 +292,7 @@ export default async function TaskDetailPage({
 
   const { task, booking, bags, timeline } = context;
   const { identityGate: gate } = context;
+  const visitState = await getBookingActionability(core.db, booking, new Date());
 
   // Signed here rather than in the client component: the URL is a bearer
   // credential for a photo of somebody's passport and must not outlive the
@@ -310,6 +349,8 @@ export default async function TaskDetailPage({
       <h1 className="sr-only">
         Verify and seal for {booking.paxName}, booking {booking.ref}
       </h1>
+
+      <ActionabilityNotice state={visitState} />
 
       <DoorstepCard context={context} customerAvatarUrl={customerAvatarUrl} />
 

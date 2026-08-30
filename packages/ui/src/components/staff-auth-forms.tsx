@@ -3,11 +3,13 @@
 import * as React from "react";
 import { useActionState } from "react";
 
+import { PASSWORD_MIN_LENGTH, PASSWORD_RULE_COPY } from "../lib/credentials";
 import { usePreservedFormValues } from "../lib/use-preserved-form";
 import { Button } from "./button";
 import { FormMessage } from "./form-message";
 import { Input } from "./input";
 import { Label } from "./label";
+import { PasswordField } from "./password-field";
 import { Spinner } from "./spinner";
 
 /**
@@ -64,21 +66,32 @@ export function StaffLoginForm({
     >
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="staff-email">Email</Label>
+        {/* `autoCapitalize`/`autoCorrect` off: a phone keyboard capitalising
+            the first letter of an address is the commonest way the value that
+            reaches the server differs from the one on the account. The server
+            normalizes regardless (`normalizeEmail`) — this stops the field
+            LOOKING wrong while it is typed. */}
         <Input
           id="staff-email"
           name="email"
           type="email"
           autoComplete="email"
+          autoCapitalize="off"
+          autoCorrect="off"
+          spellCheck={false}
           required
           placeholder="you@koolee.cloud"
         />
       </div>
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="staff-password">Password</Label>
-        <Input
+        {/* No `minLength` here, deliberately. A sign-in form must accept
+            whatever the account's password actually is; enforcing today's
+            floor at the door would lock out an older password AND tell an
+            attacker what the policy is before they have an account. */}
+        <PasswordField
           id="staff-password"
           name="password"
-          type="password"
           autoComplete="current-password"
           required
         />
@@ -129,6 +142,9 @@ export function PasswordResetForm({
           name="email"
           type="email"
           autoComplete="email"
+          autoCapitalize="off"
+          autoCorrect="off"
+          spellCheck={false}
           required
           placeholder="you@koolee.cloud"
         />
@@ -147,15 +163,16 @@ export function SetPasswordForm({ action }: { action: StaffAuthAction }) {
     <form action={formAction} className="flex flex-col gap-4">
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="new-password">New password</Label>
-        <Input
+        <PasswordField
           id="new-password"
           name="password"
-          type="password"
           autoComplete="new-password"
-          minLength={8}
+          // Same constant the server schema reads, so the browser and the
+          // action cannot disagree about what is acceptable.
+          minLength={PASSWORD_MIN_LENGTH}
           required
         />
-        <p className="text-xs text-muted-foreground">At least 8 characters.</p>
+        <p className="text-xs text-muted-foreground">{PASSWORD_RULE_COPY}</p>
       </div>
       {state.error ? <FormMessage>{state.error}</FormMessage> : null}
       <SubmitButton>{pending ? <Spinner /> : "Set password and continue"}</SubmitButton>

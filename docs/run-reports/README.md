@@ -19,5 +19,6 @@
 | [RUN-REPORT-6.md](RUN-REPORT-6.md)                           | Three parallel sessions merged: ticket extraction, design/brand, agreements editor + **version pinning**             |
 | [REPORT-tier4-preflight.md](REPORT-tier4-preflight.md)       | Read-only survey before Tier 4 — what actually existed, and the five facts that reshaped the design                  |
 | [RUN-REPORT-7.md](RUN-REPORT-7.md)                           | Tier 4 — driver role, shifts, customer driver selection, the pickup run, ETA + tracking; three dead tables dropped   |
+| [RUN-REPORT-8.md](RUN-REPORT-8.md)                           | Slice F1 — the staging extraction bug diagnosed to a silently different extractor, funnel ZIP sync, the actionability gates, auth polish. No migrations |
 | [VALIDATION-REPORT-tier1-2.md](VALIDATION-REPORT-tier1-2.md) | Independent validation pass over the Tier 1–2 work                                                                   |
 | [MIGRATION-NOTES.md](MIGRATION-NOTES.md)                     | The 10-phase dependency migration (Next 16 / Tailwind 4 / Stripe 22 / …)                                             |

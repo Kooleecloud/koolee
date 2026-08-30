@@ -165,6 +165,7 @@ describeIntegration("on-paid auto-assign (integration)", () => {
     return {
       userId,
       pickupAddressId: addressId,
+      quotedZip: "10001",
       ...window,
       flightNumber: "DL123",
       airlineIata: "DL",

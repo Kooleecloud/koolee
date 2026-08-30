@@ -25,7 +25,7 @@ import { TEST_AIRPORTS } from "../test-utils/airport-fixtures";
 
 import type { AgentSession } from "../auth/types";
 import { createCoreConfig, fixedClock, type CoreConfig } from "../config";
-import { NotFoundError } from "../errors";
+import { BookingNotActionableError, NotFoundError } from "../errors";
 import { FakePaymentProvider } from "../payments/fake";
 import {
   arriveAtVisit,
@@ -178,6 +178,7 @@ describeIntegration("agent verification visit (integration)", () => {
     const { booking } = await createBooking(config, {
       userId: customerId,
       pickupAddressId: address.id,
+      quotedZip: address.zip,
       ...windowFor(departureAt),
       flightNumber: "DL123",
       airlineIata: "DL",
@@ -360,6 +361,50 @@ describeIntegration("agent verification visit (integration)", () => {
         .set({ eventType: "tampered" })
         .where(eq(custodyEvents.id, events[0]!.id)),
     ).rejects.toThrow();
+  });
+
+  /**
+   * `now` is 2025-06-10T10:00Z and the flight leaves 2025-06-12T22:00Z, so
+   * the DL/JFK cutoff (45 minutes) falls at 21:15Z on the 12th. These two
+   * clocks sit either side of it.
+   */
+  const clockedAt = (instant: string) =>
+    createCoreConfig({ db, payments: provider, clock: fixedClock(new Date(instant)) });
+
+  it("still runs a visit that is late but before the airline's bag drop closes", async () => {
+    const { booking, task } = await assignedBooking(1);
+    // Two hours before the cutoff, and long past any pickup window.
+    const late = clockedAt("2025-06-12T19:15:00Z");
+
+    const context = await arriveAtVisit(late, agentSession, { taskId: task.id });
+
+    expect(context.task.status).toBe("in_progress");
+    // Late is a notice, not a refusal — the booking is untouched.
+    expect(
+      (await db.query.bookings.findFirst({ where: eq(bookings.id, booking.id) }))!.status,
+    ).toBe("agent_assigned");
+  });
+
+  it("refuses to start a visit once the airline's bag drop has closed", async () => {
+    const { booking, task } = await assignedBooking(1);
+    const missed = clockedAt("2025-06-12T21:30:00Z");
+
+    const error = await arriveAtVisit(missed, agentSession, { taskId: task.id }).then(
+      () => null,
+      (e: unknown) => e,
+    );
+
+    expect(error).toBeInstanceOf(BookingNotActionableError);
+    expect((error as BookingNotActionableError).phase).toBe("missed_cutoff");
+    // The blocked attempt is what hands it to ops.
+    expect(
+      (await db.query.bookings.findFirst({ where: eq(bookings.id, booking.id) }))!.status,
+    ).toBe("exception");
+    expect(
+      (await db.query.verificationTasks.findFirst({
+        where: eq(verificationTasks.id, task.id),
+      }))!.status,
+    ).toBe("assigned");
   });
 
   it("completion is refused while any bag is unsealed", async () => {

@@ -155,6 +155,7 @@ describeIntegration("passport verification (integration)", () => {
     const { booking } = await createBooking(config, {
       userId: customerId,
       pickupAddressId: address.id,
+      quotedZip: address.zip,
       pickupWindowStart: new Date(end.getTime() - HOUR),
       pickupWindowEnd: end,
       flightNumber: "DL123",

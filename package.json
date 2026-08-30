@@ -26,6 +26,7 @@
     "test:env:doctor": "./scripts/test-env.sh doctor",
     "test:db:setup": "./scripts/test-env.sh setup-test-db",
     "test:db:drop": "./scripts/test-env.sh drop-test-db",
+    "clean:cache": "./scripts/clean-cache.sh",
     "clean": "turbo run clean && rm -rf node_modules",
     "format": "prettier --write \"**/*.{ts,tsx,js,mjs,cjs,json,md,css}\"",
     "format:check": "prettier --check \"**/*.{ts,tsx,js,mjs,cjs,json,md,css}\"",

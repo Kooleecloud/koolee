@@ -166,6 +166,7 @@ describeIntegration("payment lifecycle (integration)", () => {
     const result = await createBooking(config, {
       userId,
       pickupAddressId: address.id,
+      quotedZip: "10001",
       ...window,
       flightNumber: "DL123",
       airlineIata: "DL",

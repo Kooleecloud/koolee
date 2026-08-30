@@ -22,7 +22,7 @@ import {
 
 import type { AgentSession } from "../auth/types";
 import { createCoreConfig, fixedClock, type CoreConfig } from "../config";
-import { ConflictError } from "../errors";
+import { BookingNotActionableError, ConflictError } from "../errors";
 import { FakePaymentProvider } from "../payments/fake";
 import { TEST_AIRPORTS } from "../test-utils/airport-fixtures";
 import { ensureAddress } from "./customers";
@@ -307,6 +307,67 @@ describeIntegration("pickup lifecycle (integration)", () => {
       "booking.completed",
       PICKUP_EVENT_TYPES.handover_confirmed,
     ]);
+  });
+
+  /* --- the lateness gate, and the carve-out it makes ---------------- */
+
+  /**
+   * `now` is 10:00Z and the flight leaves at 16:00Z, so the DL/JFK cutoff
+   * (45 minutes) falls at 15:15Z. This clock sits fifteen minutes past it.
+   */
+  const pastCutoff = () =>
+    createCoreConfig({
+      db,
+      payments: new FakePaymentProvider(),
+      opsAlerter: alerter,
+      clock: fixedClock(new Date("2025-06-10T15:30:00Z")),
+    });
+
+  it("refuses to start a pickup once the airline's bag drop has closed", async () => {
+    const { booking, task } = await assignedPickup(2);
+    const late = pastCutoff();
+
+    const error = await startPickupTravel(late, session, { taskId: task.id }).then(
+      () => null,
+      (e: unknown) => e,
+    );
+
+    expect(error).toBeInstanceOf(BookingNotActionableError);
+    expect((error as BookingNotActionableError).phase).toBe("missed_cutoff");
+    // Ops decides what happens to these bags, not the driver at the door.
+    expect(await statusOf(booking.id)).toBe("exception");
+    expect(await taskFor(booking.id)).toMatchObject({ status: "assigned" });
+  });
+
+  it("lets a driver already in transit finish the run past the cutoff", async () => {
+    // The carve-out. Bags in a van are safer at the airline — or back with
+    // ops — than in limbo, so nothing below the "start" line is gated. Ops
+    // still sees it: `cutoffRiskMonitor` scans in-transit bookings every five
+    // minutes and alerts on exactly this.
+    const { booking, bags: bagRows, task } = await assignedPickup(1);
+    await startPickupTravel(config, session, { taskId: task.id });
+
+    const late = pastCutoff();
+
+    // Re-tapping "start" is idempotent and must NOT now refuse the driver or
+    // raise an exception on a booking whose bags are already moving.
+    await expect(
+      startPickupTravel(late, session, { taskId: task.id }),
+    ).resolves.toEqual({ ok: true });
+
+    await scanSealAtPickup(late, session, {
+      taskId: task.id,
+      sealValue: bagRows[0]!.sealId!,
+    });
+    expect(await statusOf(booking.id)).toBe("in_transit");
+
+    await expect(deliverToBagdrop(late, session, { taskId: task.id })).resolves.toEqual({
+      ok: true,
+    });
+    await expect(
+      confirmAirlineHandover(late, session, { taskId: task.id }),
+    ).resolves.toEqual({ ok: true });
+    expect(await statusOf(booking.id)).toBe("completed");
   });
 
   it("stamps each scan with its bag and seal", async () => {

@@ -23,6 +23,18 @@ export {
 } from "./bookings";
 
 export {
+  assertActionable,
+  bookingActionability,
+  getBookingActionability,
+  type ActionabilitySubject,
+  type ActionName,
+  type BookingActionability,
+  type BookingActions,
+  type BookingPhase,
+  type BookingStanding,
+} from "./actionability";
+
+export {
   FALLBACK_DISPLAY_TZ,
   getDisplayZones,
   resolveDisplayTz,

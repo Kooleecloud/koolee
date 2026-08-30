@@ -19,6 +19,7 @@ import type { AgentSession } from "../auth/types";
 import type { CoreConfig } from "../config";
 import { emitDeliveredToBagdrop } from "../events/booking-events";
 import { ConflictError, NotFoundError } from "../errors";
+import { assertActionable } from "./actionability";
 import { applyTransition } from "./bookings";
 import { resolveDisplayTz } from "./display-tz";
 import { PICKUP_EVENT_TYPES } from "./pickup-events";
@@ -196,7 +197,13 @@ export async function startPickupTravel(
   const { db } = config;
   const context = await getPickupContext(db, session, input.taskId);
 
+  // Idempotency first, deliberately BEFORE the gate: a driver who has already
+  // set off is in the carve-out — the van keeps moving, and re-tapping the
+  // button must not now refuse them or raise an exception on a booking whose
+  // bags are already in transit.
   if (context.task.startedAt !== null) return { ok: true };
+
+  await assertActionable(config, context.booking, "startPickup", actorOf(session));
 
   if (context.booking.status === "verified_sealed") {
     const moved = await applyTransition(config, {

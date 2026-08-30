@@ -1,3 +1,4 @@
+import { TZDate } from "@date-fns/tz";
 import { AIRPORT_CODES, type AirportCode } from "@koolee/db";
 
 import type {
@@ -44,6 +45,12 @@ const AIRPORT_RE = /^[A-Z]{3}$/;
 
 /** IATA flight number: designator (UA, B6, 9W) + 1-4 digits. */
 const FLIGHT_RE = /^([A-Z]{2}|[A-Z]\d|\d[A-Z])(\d{1,4})$/;
+
+/** IATA airline designator on its own. */
+const AIRLINE_RE = /^([A-Z]{2}|[A-Z]\d|\d[A-Z])$/;
+
+/** A flight number the model split, leaving the designator next door. */
+const DIGITS_ONLY_RE = /^\d{1,4}$/;
 
 /**
  * US and its territories share the domestic bag-drop cutoff. A flight to
@@ -120,6 +127,21 @@ export function normalizeSegment(
     else dropped.push({ field: at(field), value, reason: "not an IATA airport code" });
   }
 
+  // Read the standalone airline code FIRST, because a flight number the
+  // model split across the two fields can only be reassembled with it.
+  const airline = text("airlineIata");
+  let standaloneAirline: string | undefined;
+  if (airline !== undefined) {
+    const code = airline.toUpperCase();
+    if (AIRLINE_RE.test(code)) standaloneAirline = code;
+    else
+      dropped.push({
+        field: at("airlineIata"),
+        value: airline,
+        reason: "not an IATA airline code",
+      });
+  }
+
   const flight = text("flightNumber");
   if (flight !== undefined) {
     // Airlines print "AI - 101" and "UA 1189"; the code is the same flight.
@@ -128,6 +150,16 @@ export function normalizeSegment(
     if (match) {
       segment.flightNumber = compact;
       segment.airlineIata = match[1];
+    } else if (DIGITS_ONLY_RE.test(compact) && standaloneAirline !== undefined) {
+      // A document printing "AI 191" routinely comes back as
+      // { airlineIata: "AI", flightNumber: "191" } — the designator moved to
+      // the field next door rather than going missing. Dropping the digits
+      // then loses the ONE field the airline-cutoff table is keyed by, on a
+      // form that has already filled in everything else, which is exactly
+      // the kind of gap a customer confirms without noticing. Four of the
+      // twelve Phase 0 fixtures took this branch.
+      segment.flightNumber = `${standaloneAirline}${compact}`;
+      segment.airlineIata = standaloneAirline;
     } else {
       dropped.push({
         field: at("flightNumber"),
@@ -140,16 +172,8 @@ export function normalizeSegment(
   // Only trust a standalone airline code when the flight number did not
   // already supply one — they disagree on codeshares, and the flight number
   // is the field the cutoff table is keyed by.
-  const airline = text("airlineIata");
-  if (airline !== undefined && segment.airlineIata === undefined) {
-    const code = airline.toUpperCase();
-    if (/^([A-Z]{2}|[A-Z]\d|\d[A-Z])$/.test(code)) segment.airlineIata = code;
-    else
-      dropped.push({
-        field: at("airlineIata"),
-        value: airline,
-        reason: "not an IATA airline code",
-      });
+  if (standaloneAirline !== undefined && segment.airlineIata === undefined) {
+    segment.airlineIata = standaloneAirline;
   }
 
   const departure = text("departureAtLocal");
@@ -310,7 +334,29 @@ export function deriveScope(
   return DOMESTIC_COUNTRIES.has(country) ? "domestic" : "international";
 }
 
-/** UTC `YYYY-MM-DD` — the "has this leg flown?" reference date. */
-export function todayUtc(now: Date): string {
-  return now.toISOString().slice(0, 10);
+/**
+ * `YYYY-MM-DD` at the serviced airports — the "has this leg flown?" anchor.
+ *
+ * It used to be the UTC date, which is a different day from 20:00 New York
+ * time onward: a customer uploading a round trip at 9 PM had tonight's
+ * departure classified as already flown, which flips
+ * `earliest_upcoming_serviced_origin` (high confidence) to
+ * `all_serviced_departures_past` (low) and can pick the wrong leg. Hosted
+ * runs UTC and a laptop does not, so it also made the two environments
+ * disagree for four hours a night.
+ *
+ * Eastern is the right zone and not an approximation: `selectSegment` only
+ * ever compares dates for legs departing JFK/LGA/EWR, and all three are
+ * Eastern. Held as a literal rather than imported from
+ * `services/display-tz` so extraction stays free of the database layer.
+ */
+const SERVICED_ORIGIN_TZ = "America/New_York";
+
+export function todayAtServicedAirports(now: Date): string {
+  // Built from `TZDate`'s own getters rather than date-fns `format`, which
+  // the lint rule bans outright for reading the SYSTEM zone — the ban is
+  // right even though a `TZDate` argument would have been safe here.
+  const zoned = new TZDate(now, SERVICED_ORIGIN_TZ);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${zoned.getFullYear()}-${pad(zoned.getMonth() + 1)}-${pad(zoned.getDate())}`;
 }

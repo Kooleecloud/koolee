@@ -1,21 +1,22 @@
 import type Anthropic from "@anthropic-ai/sdk";
 
 import {
-  deriveScope,
+  assembleOutcome,
+  cleanPaxName,
+  type ReadItinerary,
+} from "../read-result";
+import {
   normalizeSegment,
   selectSegment,
-  todayUtc,
+  todayAtServicedAirports,
   type DroppedField,
-  type SegmentSelection,
 } from "../select-segment";
 import {
   DOCUMENT_KINDS,
   type ExtractedSegment,
   type TicketDocumentKind,
   type TicketExtractionAttempt,
-  type TicketExtractionDiagnostics,
   type TicketExtractionOutcome,
-  type TicketExtractionResult,
   type TicketExtractor,
   type TicketFileInput,
 } from "../types";
@@ -115,12 +116,18 @@ const ITINERARY_TOOL: Anthropic.Tool = {
             flightNumber: {
               type: "string",
               description:
-                "The marketing flight number, e.g. AI144. Printed forms like 'AI - 101' and " +
-                "'UA 1189' are the same thing.",
+                "The marketing flight number for THIS segment, WITH its airline designator — " +
+                "'AI144', not '144'. Printed forms like 'AI - 101' and 'UA 1189' are the same " +
+                "thing. Take it from the row this segment is printed on: an itinerary that " +
+                "lists its legs out of order still prints each flight number beside its own " +
+                "route and time, and two segments of one journey almost never share a number. " +
+                "Omit the field rather than repeating another segment's.",
             },
             airlineIata: {
               type: "string",
-              description: "IATA airline code, e.g. AI, UA, B6.",
+              description:
+                "IATA airline code for THIS segment, e.g. AI, UA, B6. Give it as well as the " +
+                "full flight number, not instead of it.",
             },
             departureAtLocal: {
               type: "string",
@@ -168,6 +175,7 @@ Today's date is ${today}.
 How to read these documents:
 - Round-trip and multi-city tickets contain more than one segment. Record all of them, in the order they appear. Do not pick a favourite and do not leave one out — which segment matters is decided downstream, not by you.
 - Booking sites often print segments out of chronological order, and the extracted text layer can interleave the columns of a table. Trust the dates and the airport codes over the order things appear in.
+- Keep each segment's own values together. When a document prints its legs out of order, the flight number, the route and the departure time on one printed row all belong to the SAME segment — do not carry a flight number across to a leg it was not printed beside.
 - Times printed on e-tickets are local at the airport concerned. A value labelled as a duration ("15:30 Hrs", "Non Stop", "Duration") is never a departure time.
 - Terminal names, airport names and city names all need mapping to IATA codes. If a city has several airports and the document does not confirm which one, leave the code out rather than guessing.
 - Omit any field you cannot read. Never invent a value. Put anything you inferred or found ambiguous into "notes".`;
@@ -189,14 +197,8 @@ export interface ClaudeTicketExtractorOptions {
 }
 
 /** One model call plus everything we learned from it. */
-interface Pass {
+interface Pass extends ReadItinerary {
   attempt: TicketExtractionAttempt;
-  segments: ExtractedSegment[];
-  dropped: DroppedField[];
-  selection: SegmentSelection;
-  paxName?: string;
-  documentKind?: TicketDocumentKind;
-  readingNotes?: string;
 }
 
 export class ClaudeTicketExtractor implements TicketExtractor {
@@ -230,7 +232,7 @@ export class ClaudeTicketExtractor implements TicketExtractor {
   async extract(input: TicketFileInput): Promise<TicketExtractionOutcome> {
     const log =
       this.options.log ?? ((m: string) => console.warn(`[claude-extract] ${m}`));
-    const today = todayUtc(this.options.now?.() ?? new Date());
+    const today = todayAtServicedAirports(this.options.now?.() ?? new Date());
 
     const source = documentBlock(input);
     if (!source) {
@@ -336,53 +338,12 @@ export class ClaudeTicketExtractor implements TicketExtractor {
     best: Pass,
     attempts: TicketExtractionAttempt[],
   ): TicketExtractionOutcome {
-    const diagnostics: TicketExtractionDiagnostics = {
+    return assembleOutcome({
       extractor: this.name,
+      read: best,
       attempts,
-      segments: best.segments,
-      chosenIndex: best.selection.chosenIndex,
-      selectionReason: best.selection.reason,
-      droppedFields: best.dropped,
-      ...(best.readingNotes ? { readingNotes: best.readingNotes } : {}),
-    };
-
-    const chosen = best.selection.chosen;
-    const scope = deriveScope(chosen);
-    const result: TicketExtractionResult = {
-      ...(chosen?.flightNumber ? { flightNumber: chosen.flightNumber } : {}),
-      ...(chosen?.airlineIata ? { airlineIata: chosen.airlineIata } : {}),
-      ...(chosen?.departureAtLocal ? { departureAtLocal: chosen.departureAtLocal } : {}),
-      // Only a SERVICED origin ever reaches the form; `selectSegment` has
-      // already guaranteed it, and `nonServicedOrigin` carries the rest.
-      ...(best.selection.chosenOrigin
-        ? { departureAirport: best.selection.chosenOrigin }
-        : {}),
-      ...(chosen?.destinationAirport
-        ? { destinationAirport: chosen.destinationAirport }
-        : {}),
-      ...(best.paxName ? { paxName: best.paxName } : {}),
-      ...(scope ? { scope } : {}),
-      ...(best.documentKind ? { documentKind: best.documentKind } : {}),
-      ...(best.selection.nonServicedOrigin
-        ? { nonServicedOrigin: best.selection.nonServicedOrigin }
-        : {}),
-      ...(best.selection.alternatives.length > 0
-        ? { alternativeSegments: best.selection.alternatives }
-        : {}),
-      selectionReason: best.selection.reason,
-      confidence: best.selection.confidence,
-    };
-
-    // Nothing at all to show: no leg, no name. That is the manual-entry path.
-    // A ticket out of an airport we do not serve is NOT this case — it has a
-    // reason worth telling the customer, and the review form tells them.
-    if (!result.paxName && !result.flightNumber && !result.departureAtLocal) {
-      const reason =
-        attempts.at(-1)?.error ??
-        (best.segments.length === 0 ? "no flight details found" : "no usable segment");
-      return { status: "unreadable", reason, diagnostics };
-    }
-    return { status: "extracted", result, diagnostics };
+      ...(attempts.at(-1)?.error ? { unreadableReason: attempts.at(-1)!.error! } : {}),
+    });
   }
 }
 
@@ -432,7 +393,7 @@ function readItinerary(raw: unknown, today: string): Omit<Pass, "attempt"> {
 
   const selection = selectSegment(segments, { today });
 
-  const paxName = cleanName(record.paxName);
+  const paxName = cleanPaxName(record.paxName);
   if (record.paxName !== undefined && paxName === undefined) {
     dropped.push({
       field: "paxName",
@@ -460,26 +421,6 @@ function readItinerary(raw: unknown, today: string): Omit<Pass, "attempt"> {
     ...(documentKind ? { documentKind } : {}),
     ...(readingNotes ? { readingNotes } : {}),
   };
-}
-
-/** "ALVAREZ/JORDAN MR" → "Jordan Alvarez"; anything unusable → undefined. */
-function cleanName(raw: unknown): string | undefined {
-  if (typeof raw !== "string") return undefined;
-  const stripped = raw
-    .replace(/\((?:adult|child|infant)\)/gi, "")
-    .replace(/\b(mr|mrs|ms|miss|dr|master)\b\.?/gi, "")
-    .trim();
-  const ordered = stripped.includes("/")
-    ? stripped.split("/").reverse().join(" ")
-    : stripped;
-  const words = ordered.split(/\s+/).filter(Boolean);
-  if (words.length === 0) return undefined;
-  const name = words
-    .map((w) =>
-      /[a-z]/.test(w) ? w : w.charAt(0).toUpperCase() + w.slice(1).toLowerCase(),
-    )
-    .join(" ");
-  return name.length > 120 ? undefined : name;
 }
 
 /** Why the cheap pass is not good enough, or undefined when it is. */

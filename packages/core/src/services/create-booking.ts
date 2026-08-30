@@ -22,6 +22,7 @@ import {
   NotFoundError,
   PaymentFailedError,
   PricingRuleInvalidError,
+  QuoteZipMismatchError,
   SlotNotSellableError,
 } from "../errors";
 import type { PaymentAuth } from "../payments/types";
@@ -53,6 +54,11 @@ function sanitizeIanaZone(raw: string | null | undefined): string | null {
   }
 }
 
+/** ZIP+4 and whitespace are the same five-digit ZIP for this comparison. */
+function normalizeZip(zip: string): string {
+  return zip.trim().slice(0, 5);
+}
+
 /**
  * The booking orchestrator.
  *
@@ -82,6 +88,17 @@ export interface CreateBookingInput {
   userId: string;
   /** Must already exist and belong to `userId`. */
   pickupAddressId: string;
+  /**
+   * The ZIP this booking's coverage answer and price were computed for.
+   *
+   * Required, not optional, and checked against the pickup address's own ZIP
+   * before anything is written. The funnel takes a ZIP on the flight step and
+   * a full address two steps later; a caller that cannot say which ZIP it
+   * quoted has not established that the two are the same place, and ZIP is
+   * what selects coverage, the drive-time coordinate and the dispatch zone.
+   * See `QuoteZipMismatchError`.
+   */
+  quotedZip: string;
   /**
    * The clock-aligned one-hour pickup window the customer picked. Validated
    * against the flight's bookable band, the booking notice, and ops
@@ -154,6 +171,12 @@ export async function createBooking(
     throw new NotFoundError("Address", input.pickupAddressId);
   }
   assertInCoverage(address.zip);
+  // Coverage alone is not enough: two different covered ZIPs are two
+  // different places, with different agents and different drive times. The
+  // booking may only be written against the ZIP it was actually quoted for.
+  if (normalizeZip(address.zip) !== normalizeZip(input.quotedZip)) {
+    throw new QuoteZipMismatchError(input.quotedZip, address.zip);
+  }
 
   const cutoffRows = await db
     .select()

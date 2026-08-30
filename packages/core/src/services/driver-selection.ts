@@ -17,6 +17,7 @@ import {
 import type { CoreConfig } from "../config";
 import { emitDriverPoolEmpty, emitDriverSelected } from "../events/booking-events";
 import { ConflictError, InvalidInputError, NotAuthorizedError, NotFoundError } from "../errors";
+import { assertActionable } from "./actionability";
 import { toCoordinates, type Coordinates } from "../geo/coordinates";
 import type { EtaRange } from "../geo/eta";
 import { PICKUP_EVENT_TYPES } from "./pickup-events";
@@ -218,6 +219,9 @@ export async function listCandidateDrivers(
   const { db } = config;
   const { booking, pickup } = await loadSelectionContext(db, input.bookingId);
   assertSelectable(booking);
+  // A shortlist is an offer. Offering one on a booking whose bag drop has
+  // closed asks the customer to choose a driver who cannot make the flight.
+  await assertActionable(config, booking, "selectDriver");
 
   const rows = await eligibleShifts(db, pickup.zip);
 
@@ -320,6 +324,13 @@ export async function selectDriver(
     throw new NotAuthorizedError("That booking belongs to another account.");
   }
   assertSelectable(booking);
+  // Checked here as well as in `listCandidateDrivers`, not instead of it: a
+  // shortlist rendered before the cutoff is still on screen after it, and the
+  // submit is a reachable POST whatever the page shows.
+  await assertActionable(config, booking, "selectDriver", {
+    userId: input.userId,
+    role: "customer",
+  });
 
   const result = await db.transaction(async (tx) => {
     // Serialises every selection targeting THIS shift. `hashtextextended` is

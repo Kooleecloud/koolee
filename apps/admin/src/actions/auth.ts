@@ -4,6 +4,13 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { getActiveStaffRole } from "@koolee/core";
+import {
+  normalizeEmail,
+  PASSWORD_MAX_LENGTH,
+  PASSWORD_MIN_LENGTH,
+  PASSWORD_TOO_SHORT_COPY,
+  SIGN_IN_FAILED_COPY,
+} from "@koolee/ui/lib/credentials";
 
 import { optionalEnv } from "@/env";
 import { tryGetCore } from "@/lib/core";
@@ -25,6 +32,14 @@ export interface StaffAuthState {
   ok?: boolean;
 }
 
+/**
+ * Sign-in takes the password EXACTLY as typed and only checks it is not
+ * empty. Enforcing today's length floor at the door would lock out an account
+ * whose password predates it, and would tell an attacker what the policy is
+ * before they have an account. The floor is enforced where a password is SET
+ * (`passwordSchema` below), which is the only place it can be enforced
+ * without those two costs.
+ */
 const credentialsSchema = z.object({
   email: z.email(),
   password: z.string().min(1),
@@ -70,7 +85,12 @@ export async function signInStaff(
   form: FormData,
 ): Promise<StaffAuthState> {
   const parsed = credentialsSchema.safeParse({
-    email: String(form.get("email") ?? "").trim(),
+    // Normalized the same way the invite flow normalizes the address it
+    // creates (`staff/actions.ts` → `services/staff.ts`), which trimmed AND
+    // lowercased while this only trimmed. An admin inviting
+    // `Alice@Koolee.cloud` creates `alice@koolee.cloud`; signing in as what
+    // was typed has to resolve to the same account.
+    email: normalizeEmail(form.get("email")),
     password: String(form.get("password") ?? ""),
   });
   if (!parsed.success) {
@@ -88,7 +108,9 @@ export async function signInStaff(
     options: captchaOptions(captchaToken),
   });
   if (error || !data.user) {
-    return { error: "Email or password didn't match." };
+    // ONE message for "no such account" and "wrong password". Any difference
+    // between the two is an account-enumeration oracle.
+    return { error: SIGN_IN_FAILED_COPY };
   }
 
   // The role gate. A valid password on a role-less account is still a no.
@@ -120,7 +142,7 @@ export async function sendPasswordReset(
   form: FormData,
 ): Promise<StaffAuthState> {
   const parsed = resetSchema.safeParse({
-    email: String(form.get("email") ?? "").trim(),
+    email: normalizeEmail(form.get("email")),
   });
   if (!parsed.success) return { error: "Enter a valid email address." };
 
@@ -149,7 +171,11 @@ export async function sendPasswordReset(
   return { ok: true };
 }
 
-const passwordSchema = z.object({ password: z.string().min(8).max(128) });
+const passwordSchema = z.object({
+  // The same constants the form's `minLength` reads, so the browser and this
+  // action cannot disagree about what is acceptable.
+  password: z.string().min(PASSWORD_MIN_LENGTH).max(PASSWORD_MAX_LENGTH),
+});
 
 /**
  * Sets the password on the current session — the landing action for both
@@ -164,7 +190,7 @@ export async function updatePassword(
     password: String(form.get("password") ?? ""),
   });
   if (!parsed.success) {
-    return { error: "Password must be at least 8 characters." };
+    return { error: PASSWORD_TOO_SHORT_COPY };
   }
 
   const supabase = await getSupabaseServerClient();

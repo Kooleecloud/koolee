@@ -20,7 +20,11 @@ import { TicketExtractionDebug } from "@/components/ticket-extraction-debug";
 import { TicketUpload } from "@/components/ticket-upload";
 import { readDraft } from "@/lib/booking-draft";
 import { ticketExtractionDebugEnabled, tryGetCore } from "@/lib/core";
-import { describeAlternative, describePrefill } from "@/lib/ticket-prefill-copy";
+import {
+  describeAlternative,
+  describeItinerary,
+  describePrefill,
+} from "@/lib/ticket-prefill-copy";
 
 export const metadata = { title: "Your flight" };
 export const dynamic = "force-dynamic";
@@ -52,6 +56,10 @@ export default async function FlightStepPage({
   // form that quietly decided something and one that shows its work.
   const notice = fromTicket ? describePrefill(prefill) : null;
   const alternatives = fromTicket ? (prefill?.alternatives ?? []) : [];
+  // Every leg we read, not only the ones we can collect for. A three-leg
+  // itinerary that came back as one flight number is indistinguishable from a
+  // one-way ticket unless the form says what it read.
+  const itinerary = fromTicket ? describeItinerary(prefill) : [];
 
   // Extracted fields get an attention ring (sky, matching the info banner —
   // Tag Orange stays reserved for CTAs per the brand system).
@@ -127,6 +135,35 @@ export default async function FlightStepPage({
             upload — nothing is saved until you review and continue.
           </FormMessage>
         )
+      )}
+
+      {/* What we read, in full. Legs out of an airport we do not serve are
+          listed and explained rather than dropped — silently showing one leg
+          of three reads as a bad extraction even when the reading was right. */}
+      {itinerary.length > 0 && (
+        <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-sm">
+          <p className="font-medium text-slate-700">
+            We read {itinerary.length} flights on this ticket:
+          </p>
+          <ul className="mt-2 flex flex-col gap-1">
+            {itinerary.map((leg, index) => (
+              <li
+                key={`${leg.route}-${index}`}
+                className={
+                  leg.chosen ? "font-medium text-slate-900" : "text-slate-600"
+                }
+              >
+                <span className="tabular-nums">{leg.route}</span>
+                {leg.flightNumber ? ` · ${leg.flightNumber}` : ""}
+                {leg.stamp ? ` · ${leg.stamp}` : ""}
+                {leg.chosen ? " — filled in below" : ""}
+                {!leg.chosen && !leg.collectable
+                  ? " — not leaving New York, so we can't collect for it"
+                  : ""}
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
 
       {/* A round trip has a leg we did not pick. Rather than making the

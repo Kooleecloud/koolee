@@ -12,6 +12,7 @@ import {
 
 import type { CoreConfig } from "../config";
 import { InvalidInputError, NotAuthorizedError, NotFoundError } from "../errors";
+import { assertActionable } from "./actionability";
 
 /**
  * Versioned booking agreements.
@@ -152,6 +153,20 @@ export async function acceptAgreement(
   if (!booking || booking.userId !== input.userId) {
     throw new NotFoundError("Booking", input.bookingId);
   }
+  /*
+   * Actionability FIRST, then the status list.
+   *
+   * Status is not the whole answer — a `paid` booking whose flight left an
+   * hour ago is still `paid` — and the order matters for what the customer
+   * reads. A booking ops already owns gets "our team is sorting this out",
+   * not "this booking is exception". Late-but-savable is deliberately
+   * ALLOWED here: accepting the agreement is one of the two things that
+   * unblocks a late visit, so refusing it is refusing the rescue.
+   */
+  await assertActionable(config, booking, "acceptAgreement", {
+    userId: input.userId,
+    role: "customer",
+  });
   if (!AGREEMENT_ACCEPTABLE_STATUSES.includes(booking.status)) {
     throw new NotAuthorizedError(
       `This booking is ${booking.status}; the agreement can only be accepted before the pickup visit.`,

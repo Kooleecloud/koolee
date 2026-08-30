@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
+import { normalizeEmail } from "@koolee/ui/lib/credentials";
 import {
   attachEmail,
   completeProfile,
@@ -34,9 +35,12 @@ export interface ProfileActionState {
 const RATE_LIMIT_COPY = "Too many attempts — try again in a minute.";
 const EMAIL_TAKEN_COPY = "That email already belongs to another account.";
 
+/** See `emailField` in actions/auth.ts — same rule, same reason. */
+const emailField = z.preprocess(normalizeEmail, z.email());
+
 const profileSchema = z.object({
   fullName: z.string().min(1).max(120),
-  email: z.email().optional().or(z.literal("")),
+  email: emailField.optional().or(z.literal("")),
 });
 
 /**
@@ -63,7 +67,7 @@ export async function saveProfile(
 
   const parsed = profileSchema.safeParse({
     fullName: String(form.get("fullName") ?? "").trim(),
-    email: String(form.get("email") ?? "").trim(),
+    email: normalizeEmail(form.get("email")),
   });
   if (!parsed.success) {
     return { error: "Check the highlighted fields and try again." };
@@ -191,7 +195,7 @@ export async function resendEmailCode(): Promise<ProfileActionState> {
 }
 
 const confirmCodeSchema = z.object({
-  email: z.email(),
+  email: emailField,
   code: z.string().regex(/^\d{6}$/, "Enter the 6-digit code."),
 });
 
@@ -211,7 +215,7 @@ export async function confirmEmailCode(
   }
 
   const parsed = confirmCodeSchema.safeParse({
-    email: String(form.get("email") ?? "").trim().toLowerCase(),
+    email: normalizeEmail(form.get("email")),
     code: String(form.get("code") ?? "").trim(),
   });
   if (!parsed.success) {
