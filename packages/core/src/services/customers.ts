@@ -1,4 +1,4 @@
-import { and, eq, inArray, notExists } from "drizzle-orm";
+import { and, eq, inArray, isNull, notExists } from "drizzle-orm";
 import {
   addresses,
   bookings,
@@ -260,19 +260,33 @@ export interface AddressInput {
 /**
  * Finds an identical address for the user, or creates one.
  *
- * Deduplicating on the full address keeps repeat bookings from accumulating a
- * row per booking. Coverage is asserted here so an out-of-area address never
+ * Deduplicating on the address keeps repeat bookings from accumulating a row
+ * per booking. Coverage is asserted here so an out-of-area address never
  * reaches the database.
  *
- * COORDINATES. When the caller supplies none — which is every caller today,
- * because the funnel has no Places autocomplete — the ZIP's centroid is used
+ * THE DEDUPE KEY IS `(user_id, line1, line2, zip)`, and `line2` is in it on
+ * purpose. It used to be `(user_id, line1, zip)`, which collapsed two
+ * apartments at one street address into a single row: a customer who booked
+ * from Apt 4 and later from Apt 9 got Apt 4's row back, and a driver was sent
+ * to the wrong door. `city` stays OUT — it is derivable from the ZIP, and
+ * including it would mint a second row for "NYC" against "New York".
+ *
+ * COORDINATES. When the caller supplies none the ZIP's centroid is used
  * instead, read from `zip_centroids` rather than from the TS module so a
  * dataset refresh lands without a deploy. Coarse on purpose: it answers
- * "roughly how far is the driver", never "which door". A caller that DOES
- * supply coordinates always wins, so the day autocomplete ships this becomes
- * the fallback with no change here. A ZIP with no centroid leaves both
- * columns NULL, and the ETA seam renders "ETA on the way" rather than
- * inventing a position.
+ * "roughly how far is the driver", never "which door".
+ *
+ * A caller that DOES supply coordinates always wins — **including on an
+ * address that already exists.** The early return used to happen before the
+ * coordinate branch was ever reached, so once Places autocomplete shipped,
+ * every address a customer had used before would have kept its ZIP centroid
+ * forever and its `place_id` would have stayed null: the driver's map link
+ * would still be a free-text search on the one address most likely to be
+ * repeated. An existing row is now UPGRADED in place, and only when there is
+ * something better to write.
+ *
+ * A ZIP with no centroid leaves both columns NULL, and the ETA seam renders
+ * "ETA on the way" rather than inventing a position.
  */
 export async function ensureAddress(
   db: Database,
@@ -280,6 +294,7 @@ export async function ensureAddress(
   input: AddressInput,
 ): Promise<Address> {
   const zip = assertInCoverage(input.zip);
+  const line2 = input.line2?.trim() ? input.line2.trim() : null;
 
   const existing = await db
     .select()
@@ -288,13 +303,14 @@ export async function ensureAddress(
       and(
         eq(addresses.userId, userId),
         eq(addresses.line1, input.line1),
+        line2 === null ? isNull(addresses.line2) : eq(addresses.line2, line2),
         eq(addresses.zip, zip),
       ),
     )
     .limit(1);
 
   const found = existing[0];
-  if (found) return found;
+  if (found) return upgradeAddressPrecision(db, found, input);
 
   let lat = input.lat ?? null;
   let lng = input.lng ?? null;
@@ -315,7 +331,7 @@ export async function ensureAddress(
     .values({
       userId,
       line1: input.line1,
-      line2: input.line2 ?? null,
+      line2,
       city: input.city,
       state: input.state.toUpperCase(),
       zip,
@@ -327,6 +343,46 @@ export async function ensureAddress(
 
   if (!created) throw new Error("Insert of address returned no row");
   return created;
+}
+
+/**
+ * Replaces an existing address row's ZIP centroid with the precise point
+ * Places gave us, and fills in `place_id`.
+ *
+ * Only when there is something better to write, and only in the direction of
+ * MORE precision — this never clears a coordinate or a place id, because the
+ * caller that has none is the hand-typed path and it should not undo the
+ * autocomplete path's work. A row with nothing to gain is returned untouched,
+ * so the ordinary repeat booking still costs exactly one SELECT.
+ */
+async function upgradeAddressPrecision(
+  db: Database,
+  found: Address,
+  input: AddressInput,
+): Promise<Address> {
+  const patch: Partial<{ lat: number; lng: number; placeId: string }> = {};
+
+  const lat = input.lat ?? null;
+  const lng = input.lng ?? null;
+  // Both halves or neither: half a coordinate is not a point, and writing one
+  // over a centroid pair would leave the row pointing at the wrong place.
+  if (lat !== null && lng !== null && (found.lat !== lat || found.lng !== lng)) {
+    patch.lat = lat;
+    patch.lng = lng;
+  }
+  if (input.placeId && found.placeId !== input.placeId) {
+    patch.placeId = input.placeId;
+  }
+
+  if (Object.keys(patch).length === 0) return found;
+
+  const [updated] = await db
+    .update(addresses)
+    .set(patch)
+    .where(eq(addresses.id, found.id))
+    .returning();
+
+  return updated ?? found;
 }
 
 /**

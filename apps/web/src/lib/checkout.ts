@@ -105,6 +105,13 @@ export async function buildCheckoutSetup(
     city: draft.city,
     state: draft.state,
     zip: draft.zip,
+    // From Places, when the address step captured a suggestion. Absent falls
+    // back to the ZIP centroid inside `ensureAddress`; present UPGRADES an
+    // address row the customer has used before, which is the case that used
+    // to keep its centroid forever.
+    ...(draft.lat === undefined ? {} : { lat: draft.lat }),
+    ...(draft.lng === undefined ? {} : { lng: draft.lng }),
+    ...(draft.placeId === undefined ? {} : { placeId: draft.placeId }),
   });
 
   // The price the booking is actually written with. It has to be the same

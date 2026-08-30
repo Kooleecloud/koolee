@@ -12,10 +12,7 @@ export {
   CardContent,
 } from "./components/card";
 export { Input } from "./components/input";
-export {
-  PasswordField,
-  type PasswordFieldProps,
-} from "./components/password-field";
+export { PasswordField, type PasswordFieldProps } from "./components/password-field";
 export {
   Popover,
   PopoverTrigger,
@@ -106,6 +103,9 @@ export {
   type CustodyTimelineItem,
   type CustodyItemState,
 } from "./components/custody-timeline";
+/* The stage marker every progression in the product draws — see stage-dot.tsx. */
+export { StageDot, type StageDotProps, type StageState } from "./components/stage-dot";
+export { ProgressTrack, type ProgressTrackProps } from "./components/progress-track";
 
 /* Forms */
 export {
@@ -117,6 +117,11 @@ export {
   type PhoneInputProps,
 } from "./components/phone-input";
 export { OTPInput, type OTPInputProps } from "./components/otp-input";
+export {
+  AutocompleteField,
+  type AutocompleteFieldProps,
+  type AutocompleteSuggestion,
+} from "./components/autocomplete-field";
 export { Calendar, type CalendarProps } from "./components/calendar";
 export { DateTimeField, type DateTimeFieldProps } from "./components/date-time-field";
 export { NumberStepper, type NumberStepperProps } from "./components/number-stepper";
@@ -177,10 +182,7 @@ export {
 } from "./components/empty-state";
 export { Skeleton, PageSkeleton, type PageSkeletonProps } from "./components/skeleton";
 export { EnvStatusCard, type EnvStatusCardProps } from "./components/env-status-card";
-export {
-  PushEnableCard,
-  type PushEnableCardProps,
-} from "./components/push-enable-card";
+export { PushEnableCard, type PushEnableCardProps } from "./components/push-enable-card";
 export {
   useWebPush,
   type PushDiagnostics,

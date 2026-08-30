@@ -511,6 +511,17 @@ per-airport typical (`TYPICAL_AIRPORT_DISTANCE_KM`, which the public pricing
 page imports rather than copies). It replaced the literal `20` at four funnel
 call sites that disagreed with the marketing page by up to $2.70.
 
+**Places autocomplete** ([geo/places.ts](../packages/core/src/geo/places.ts)) is
+the third Google adapter and the same shape as the other two: plain `fetch`,
+no SDK, key as a value, never throws. `autocomplete(input, sessionToken)` and
+`details(placeId, sessionToken)`; the session token is billing, not plumbing —
+Google prices a whole typing session as one autocomplete plus one details call
+only when every request carries the same token. **The key never reaches a
+browser**: the funnel posts to [`/api/places`](../apps/web/src/app/api/places/route.ts),
+which requires a draft cookie, enforces a length floor and holds the key
+server-side. `details` returns null rather than guessing a missing component —
+a suggestion with no ZIP cannot be reconciled against the quoted ZIP.
+
 **Services** ([services/](../packages/core/src/services/)) are the app-facing
 API: `create-booking`, `windows` (window listing + blackout CRUD), `quote`,
 `bookings` (transitions + session-scoped reads), `dispatch`, `payment-intent`,
@@ -1018,8 +1029,9 @@ Detail: [ops-console.md](../apps/admin/docs/ops-console.md).
 **`packages/ui`** holds every shared component — layout (`AppShell`,
 `AppHeader`, `ContentColumn`, `Section`, `PageHeader`), primitives (Button,
 Card, Input, Select, Dialog, Badge, Popover, Calendar, `VerifiedIndicator`, …),
-form controls (`DateTimeField`, `NumberStepper`, `OTPInput`, `PhoneInput`), and
-domain components (`CustodyTimeline`, `BookingStatusBadge`, `PriceEstimator`,
+form controls (`DateTimeField`, `NumberStepper`, `OTPInput`, `PhoneInput`,
+`AutocompleteField`), and domain components (`CustodyTimeline`,
+`ProgressTrack`, `StageDot`, `BookingStatusBadge`, `PriceEstimator`,
 `SealMotif`).
 
 **The one third-party widget in the package is `Calendar`** — a
@@ -1054,13 +1066,24 @@ cosmetic one:
   capture preview, the ops bags card, and `CustodyTimeline` — so the customer's
   trip page inherits it. Has Storybook stories.
 
-**`CustodyTimeline` is the visual signature** — the same motif on the marketing
-custody section (`horizontal`) and the live trip page and ops trail
-(`vertical`), so the promise and the product are literally the same drawing.
-State reads through the dot: **navy** for a hand-off already banked, **seal
-orange, pulsing** for the one happening now, **hollow** for what is ahead; the
-rail is always sky. Exactly one dot is orange per timeline, which is what keeps
-orange meaning "this, now".
+**`StageDot` is the visual signature, and `CustodyTimeline` is its first
+consumer** — the same motif on the marketing custody section (`horizontal`),
+the live trip page and the ops trail (`vertical`), so the promise and the
+product are literally the same drawing. State reads through the dot: **navy**
+for a hand-off already banked, **seal orange, pulsing** for the one happening
+now, **hollow** for what is ahead; the rail is always sky. Exactly one dot is
+orange per timeline, which is what keeps orange meaning "this, now".
+
+**`ProgressTrack`** (2026-08-30) is the second consumer: a short fixed
+progression with a "you are here", used by the customer's driver run. It exists
+because the trip page was drawing its OWN strip — smaller dots, a different
+blue, a hairline rail and nothing at all marking the step in progress — on the
+same screen as the custody trail. Two progressions, one page, two visual
+languages, with the one describing what was happening right now the quieter of
+the two. The marker moved into `stage-dot.tsx` so neither component owns it.
+`ProgressTrack` is NOT `CustodyTimeline` (that renders a record of events that
+happened, with timestamps and proof photos) and NOT `MilestoneTrack` (the
+marketing chip row, which has no notion of a current position).
 
 ⚠️ Its dots rendered at **0×0 in the vertical orientation** until 2026-08-16: a
 bare `<span>` is `display:inline`, and width/height do not apply to

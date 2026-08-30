@@ -20,6 +20,10 @@ export {
 } from "./eta";
 export { createEtaEstimator, type EtaEstimatorConfig } from "./factory";
 export {
-  GoogleRoutesEtaEstimator,
-  type GoogleRoutesEtaEstimatorOptions,
-} from "./routes";
+  GooglePlacesClient,
+  MIN_AUTOCOMPLETE_INPUT,
+  type GooglePlacesClientOptions,
+  type PlaceAddress,
+  type PlaceSuggestion,
+} from "./places";
+export { GoogleRoutesEtaEstimator, type GoogleRoutesEtaEstimatorOptions } from "./routes";

@@ -309,3 +309,222 @@ preview errors into the production project).
 | `pnpm --filter @koolee/core test:integration` | 29 files passed / 1 skipped, 286 passed / 3 skipped — unchanged                                                        |
 | `turbo build --filter=@koolee/web`            | success                                                                                                                |
 | Migrations                                    | none generated, none applied                                                                                           |
+
+---
+
+## Phase 2 — Places autocomplete, and coordinates that survive a second booking
+
+### 2.1 The Places adapter and the proxy route
+
+[packages/core/src/geo/places.ts](../../packages/core/src/geo/places.ts) — the
+third Google adapter, deliberately the same shape as the Routes one: plain
+`fetch`, no SDK, key as a value, one field mask, never throws.
+`autocomplete(input, sessionToken)` and `details(placeId, sessionToken)`.
+
+**The key never reaches a browser.** Places' browser half wants a key
+restricted by HTTP referrer, which is a key anybody can read out of the bundle
+and spend. So the funnel posts to
+[`/api/places`](../../apps/web/src/app/api/places/route.ts) and the route holds
+the key. Verified against the production build rather than asserted: the
+client chunk contains the NAME `GOOGLE_MAPS_SERVER_KEY` (every app's env schema
+is in a client chunk and always has been) as
+`process.env.GOOGLE_MAPS_SERVER_KEY` — a runtime lookup that is `undefined` in
+a browser — while a public variable beside it, `NEXT_PUBLIC_PUSH_NOTIFICATIONS_ENABLED`,
+is inlined as the literal `"true"`. That difference IS the mechanism: Next
+inlines `NEXT_PUBLIC_*` and nothing else.
+
+**What guards a route that spends money.** It is reachable without a password,
+because the funnel is anonymous until the verify step. Three things:
+
+1. a **draft cookie is required** — somebody typing an address in the funnel
+   has one, a script pointed at the URL does not (httpOnly and same-site, so
+   this is a cost of entry, not a token to steal);
+2. a **length floor of 3 and a ceiling of 200** — every keystroke that reaches
+   Google is billed;
+3. **session tokens**, minted per typing session in the browser, passed through
+   unchanged, and retired after the details call — with one, Google prices the
+   whole session as a single autocomplete plus a single details request.
+
+No key in the environment ⇒ the route answers **204**, which the client treats
+as "no suggestions". Not a 500: an environment with no Maps key is a
+configuration, and the field works without it.
+
+The service area is a rectangle around the NYC metro (`locationRestriction`),
+so a customer typing "22 W" is offered doorsteps Koolee can reach. It is a
+bias for the list, **not** a coverage check — coverage is still
+`ALL_COVERAGE_ZIPS`, enforced server-side on submit where it has always been.
+
+13 tests in [places.test.ts](../../packages/core/src/geo/places.test.ts):
+request shape, the sub-minimum input that makes no call at all, the mapping,
+`details` returning **null when a component is missing** (a suggestion with no
+ZIP cannot be reconciled against the quoted ZIP, and guessing prices the wrong
+place), an address with no coordinates still returned, and every failure mode.
+
+### 2.2 The component, and the reuse question
+
+**Checked first, per the standing rule.** `packages/ui` had `Select` (a native
+`<select>`), `MultiSelect` (a `<details>` disclosure over a checkbox list) and
+`Popover`. Both selects answer "pick from a known set"; a typeahead's set is
+not known — it changes with every keystroke, arrives late, may be empty, and
+its value is the TEXT with a suggestion as an optional shortcut. Different
+control, so a new one — but split so the reusable half is reusable:
+
+| Piece                                                                                         | Owns                                                                                                                                                                                                                                   |
+| --------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`AutocompleteField`](../../packages/ui/src/components/autocomplete-field.tsx) (`@koolee/ui`) | open/closed, the highlight, arrow keys with wrap, Enter, Escape, Tab, outside-click dismissal (the `MultiSelect` idiom), the full ARIA combobox wiring, the in-field spinner. Storybook stories for suggesting / loading / no-matches. |
+| [`AddressAutocomplete`](../../apps/web/src/components/address-autocomplete.tsx) (`apps/web`)  | the 250 ms debounce, the session token, the fetch, request sequencing, and turning a chosen suggestion into the five structured fields                                                                                                 |
+
+**Two traps found while building it, both recorded in the code.**
+
+- _A fresh array every render silently kills the keyboard._ The natural way to
+  build `suggestions` is a `.map` inline, which hands over a new array
+  identity every render. Resetting the highlight on `[suggestions]` would then
+  reset it on **every** render and the arrow keys would do nothing at all,
+  with no error anywhere. `AutocompleteField` keys the reset on the joined
+  IDS, not the array; `AddressAutocomplete` memoizes as well.
+- _`setState` in an effect body is a cascading render_, and this repo's lint
+  rule refuses it (`react-hooks/set-state-in-effect`). Both components were
+  restructured rather than suppressed: the field adjusts state **during
+  render**, which React supports for exactly this case, and the app component
+  stores `{query, items}` as ONE piece of state so "what should be visible"
+  and "did a search settle with nothing" are comparisons rather than
+  synchronised state — which also removed a stale-suggestion flash between a
+  keystroke and its response.
+
+**Verified in a browser**, not only by typecheck (Storybook + Playwright over
+the bundled Chromium): the list opens on ArrowDown, two presses land the
+highlight on the second row, and the ARIA snapshot reads as a listbox with the
+active option marked.
+
+### 2.3 Coordinates that travel, and coordinates that expire
+
+The draft cookie gains `lat`, `lng`, `placeId`
+([booking-draft-schema.ts](../../apps/web/src/lib/booking-draft-schema.ts)) —
+no migration, because `booking_drafts` mirrors the cookie as opaque `jsonb`.
+
+**A hand edit clears them.** Coordinates that belong to a different address are
+worse than none: the price and the driver's map link would both point at the
+wrong door while looking exactly as confident as a correct one. So the form
+drops them on any address-field change, `submitPickup` writes all three
+**unconditionally** (`undefined` included, the same mechanism the ZIP-change
+path already uses to clear a chosen window), and the action never invents
+them. Half a coordinate is rejected as no coordinate.
+
+**The priced-ZIP guard is untouched**, exactly as the report required
+(§1.5(a)-(c)): a selected suggestion writes `line1/city/state/zip` through
+`setAddress`, and its ZIP meets `draft.quotedZip` on submit like any typed one.
+Report §6.2 predicted the reconcile dialog will fire MORE often now, because an
+authoritative ZIP disagrees with a hand-typed one more often than another hand
+-typed one does. That is left as it is, and it is the right trade: the dialog
+is one click, and the alternative is silently repricing a booking.
+
+`line2` is deliberately not filled from a suggestion. Places may know a unit
+number; the customer is the authority on their own buzzer.
+
+Saved addresses now carry `lat/lng/placeId` too, so re-using one does not throw
+away precision it already had.
+
+### 2.4 `ensureAddress` — the early return, and the dedupe key
+
+Report §6.3: the early return sat **before** the coordinate branch, so once
+autocomplete shipped, every address a customer had used before would keep its
+ZIP centroid forever and its `place_id` would stay null — on the one address
+most likely to be repeated. `ensureAddress` now UPGRADES a matching row:
+precise coordinates replace a centroid, `place_id` is filled, and **only when
+there is something better to write**, so an ordinary repeat booking still costs
+one SELECT. It never downgrades — a later hand-typed booking does not undo the
+autocomplete path's work.
+
+**One correctness fix beyond the brief, and it is why the upgrade needed
+care.** The dedupe key was `(user_id, line1, zip)`, which collapses two
+apartments at one street address into a single row: book from Apt 4, book again
+from Apt 9, get Apt 4's row back — and a driver at the wrong door. It is
+`(user_id, line1, line2, zip)` now, with a blank `line2` normalised to NULL so
+whitespace is not a second address. `city` stays out on purpose: it is
+derivable from the ZIP, and including it would mint a second row for "NYC"
+against "New York".
+
+7 integration tests in
+[ensure-address.integration.test.ts](../../packages/core/src/services/ensure-address.integration.test.ts)
+— centroid fallback, precise storage, the in-place upgrade with a row count of
+1, never downgrading, half a coordinate ignored, two apartments kept apart, and
+blank `line2`.
+
+### 2.5 The small consequences, spot-checked
+
+- The **agent's map link** already passed `query_place_id` when the address had
+  one ([job.ts:153-159](../../apps/agent/src/lib/job.ts#L153),
+  [tasks/[taskId]/page.tsx:104-106](../../apps/agent/src/app/tasks/%5BtaskId%5D/page.tsx#L104)).
+  Nothing to change — the payoff was built and waiting, and this is the slice
+  that starts writing the id.
+- The **customer trip page** reads `addresses.lat/lng` for the ETA and the
+  "N km away" label; precise coordinates only make both truer.
+- `resolveQuoteDistanceKm` prefers the address row's coordinates in
+  `checkout.ts`, so a Places-selected address is priced on its real distance
+  rather than its ZIP's centroid.
+
+---
+
+## Phase 2.5 — The reusability audit TD asked for
+
+> _"before writing any new component, check out the entire code. Do we have
+> anything similar that we can reuse? … the custody trail timeline looks
+> pretty good. But when the driver tracking starts, we are showing a timeline
+> that does not match the existing UI of the app."_
+
+**The audit.** Every progression-shaped surface in the three apps:
+
+| Surface                                 | Draws                                            | Verdict               |
+| --------------------------------------- | ------------------------------------------------ | --------------------- |
+| Customer trip page — custody trail      | `CustodyTimeline` (vertical)                     | shared                |
+| Admin booking detail — custody trail    | `CustodyTimeline` (vertical)                     | shared                |
+| Agent task record                       | `CustodyTimeline` (vertical)                     | shared                |
+| Marketing — how it works / home / about | `CustodyTimeline` (horizontal), `MilestoneTrack` | shared                |
+| **Customer trip page — driver run**     | **its own `<ol>`, in `trip-driver.tsx`**         | **the one exception** |
+
+A repo-wide grep for hand-rolled dots (`size-2*`/`size-3` + `rounded-full`)
+returned exactly two lines, both in that component. So the inconsistency TD saw
+was one component, not a pattern — and it was on the same screen as the shared
+one.
+
+**What it drew differently:** `size-2.5` against `size-3`; `bg-sky-500` for a
+done stage against navy-800; `bg-navy-200` for an upcoming one against a hollow
+ring; a 1px rail against a 2px one; and — the part that actually matters —
+**no marker at all for the step in progress**, where every other timeline in
+the product pulses seal orange. The screen telling a customer where their bags
+are _right now_ was the only one that did not say which stage was now.
+
+**The fix, in three pieces:**
+
+1. [`StageDot`](../../packages/ui/src/components/stage-dot.tsx) — the marker,
+   extracted from inside `custody-timeline.tsx` so neither component owns the
+   vocabulary. `CustodyItemState` is kept as an alias of `StageState`, so no
+   consumer changed.
+2. [`ProgressTrack`](../../packages/ui/src/components/progress-track.tsx) — a
+   short fixed progression with a current position, drawing `StageDot`. Its
+   rail follows the vertical timeline's rule (solid sky behind you, dashed
+   ahead), which is now one rule in both components. Four Storybook stories.
+3. `PickupProgress` in `trip-driver.tsx` is **20 lines of markup shorter** and
+   is now a one-line wrapper over `ProgressTrack`.
+
+`CustodyTimeline`'s own rendering is untouched — only the dot moved — so the
+marketing page's horizontal variant looks exactly as it did. That was
+deliberate: the goal was one vocabulary, not a redesign.
+
+**Verified in a browser** (Storybook + Playwright): the two components
+screenshotted side by side draw the identical navy / pulsing-orange / hollow
+markers at the same size. The driver strip's accessible tree reads five list
+items with "On the way" carrying `aria-current="step"` and its screen-reader
+"— current step".
+
+### 2.6 Gates
+
+| Gate                                          | Result                                                                                                                       |
+| --------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `turbo typecheck`                             | 6/6                                                                                                                          |
+| `turbo lint`                                  | 6/6                                                                                                                          |
+| `turbo test` (unit)                           | 6/6 — core **561** passed / 1 skipped (+13 Places), ui **107** (+3 components registered), web 134, admin 32, agent 24, db 8 |
+| `pnpm --filter @koolee/core test:integration` | **30** files passed / 1 skipped, **293** passed / 3 skipped (+7 `ensureAddress`)                                             |
+| `turbo build --filter=@koolee/web`            | success; client bundle checked for the Maps key (see 2.1)                                                                    |
+| Browser pass                                  | Storybook + Playwright: `ProgressTrack`, `CustodyTimeline` states, `AutocompleteField` keyboard nav                          |
+| Migrations                                    | none generated, none applied                                                                                                 |

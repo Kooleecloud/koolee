@@ -13,6 +13,7 @@ import {
   CardHeader,
   CardTitle,
   FormMessage,
+  ProgressTrack,
 } from "@koolee/ui";
 
 import {
@@ -245,58 +246,19 @@ export function DriverTracking({
 /**
  * Where the bags are, as a track with a current position.
  *
- * `MilestoneTrack` in @koolee/ui renders a progression but has no notion of
- * "you are here", which is the only thing this needs to say. Kept local to the
- * web app until a second app needs it — at which point it is lifted, per the
- * shared-component rule.
+ * This used to be a local component drawing its own dots and rails —
+ * `size-2.5`, `bg-sky-500` for done and `bg-navy-200` for not, a hairline
+ * connector, and NOTHING marking the step in progress. It sat on the same
+ * page as the custody trail, which draws `CustodyTimeline`'s navy and
+ * seal-orange markers, so a customer watching their bags met two different
+ * visual languages on one screen and the one describing what was happening
+ * right now was the quieter of the two.
+ *
+ * `ProgressTrack` in @koolee/ui is that strip, drawing the shared `StageDot`.
+ * The old comment here said `MilestoneTrack` "has no notion of you-are-here,
+ * which is the only thing this needs to say" — correct, and the answer was a
+ * component that does, not a private copy.
  */
 export function PickupProgress({ stepIndex }: { stepIndex: number }) {
-  return (
-    <ol className="flex flex-col gap-0 sm:flex-row sm:items-start sm:gap-0">
-      {PICKUP_STEPS.map((step, i) => {
-        const done = i < stepIndex;
-        const current = i === stepIndex;
-        return (
-          <li
-            key={step}
-            className="flex flex-1 items-center gap-3 sm:flex-col sm:items-start sm:gap-2"
-            aria-current={current ? "step" : undefined}
-          >
-            <div className="flex items-center gap-0 sm:w-full">
-              <span
-                className={
-                  done || current
-                    ? "size-2.5 shrink-0 rounded-full bg-sky-500"
-                    : "size-2.5 shrink-0 rounded-full bg-navy-200"
-                }
-                aria-hidden="true"
-              />
-              {i < PICKUP_STEPS.length - 1 ? (
-                <span
-                  className={
-                    done
-                      ? "hidden h-px flex-1 bg-sky-500 sm:block"
-                      : "hidden h-px flex-1 bg-navy-200 sm:block"
-                  }
-                  aria-hidden="true"
-                />
-              ) : null}
-            </div>
-            <span
-              className={
-                current
-                  ? "text-sm font-medium"
-                  : done
-                    ? "text-sm text-muted-foreground"
-                    : "text-sm text-navy-300"
-              }
-            >
-              {step}
-              {current ? <span className="sr-only"> — current step</span> : null}
-            </span>
-          </li>
-        );
-      })}
-    </ol>
-  );
+  return <ProgressTrack steps={PICKUP_STEPS} currentIndex={stepIndex} />;
 }
