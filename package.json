@@ -19,6 +19,7 @@
     "local:down": "./scripts/local.sh down",
     "local:reset": "./scripts/local.sh reset",
     "seed:local": "pnpm --filter @koolee/db seed:local",
+    "push:vapid": "pnpm --filter @koolee/core push:vapid",
     "test:env:up": "./scripts/test-env.sh up",
     "test:env:verify": "./scripts/test-env.sh verify",
     "test:env:reset": "./scripts/test-env.sh reset",

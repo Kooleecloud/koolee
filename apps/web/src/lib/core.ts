@@ -5,12 +5,14 @@ import {
   tryCreateRuntime,
   type CoreConfig,
   type NotifierConfig,
+  type PushSender,
   type PaymentProviderConfig,
   type TicketExtractorConfig,
 } from "@koolee/core";
 
-import { env, optionalEnv } from "@/env";
+import { env, optionalEnv, pushNotificationsEnabled } from "@/env";
 import { inngestEmitter } from "@/lib/event-emitter";
+import { createWebPushSender } from "@koolee/core/web-push";
 
 /**
  * Builds the injected `CoreConfig` from this app's validated environment.
@@ -87,10 +89,59 @@ export function resolveNotifierConfig(): NotifierConfig {
   return apiKey ? { kind: "resend", apiKey, from: env.RESEND_FROM } : { kind: "console" };
 }
 
+/**
+ * The assignment horizon, as a NUMBER of hours.
+ *
+ * Kept as a plain string in `env.ts` (every var there is optional and never
+ * throws) and parsed here, because the failure mode matters: a typo must fall
+ * back to the core default rather than boot the app with `NaN` hours, which
+ * would make `withinAssignmentHorizon` false for everything and quietly stop
+ * assigning anybody. Zero and negatives are rejected for the same reason —
+ * they are not a configuration anyone means.
+ */
+export function resolveAssignmentHorizonHours(): number | undefined {
+  const raw = optionalEnv("ASSIGNMENT_HORIZON_HOURS");
+  if (raw === undefined) return undefined;
+  const hours = Number(raw);
+  if (!Number.isFinite(hours) || hours <= 0) {
+    console.warn(
+      `[env] ASSIGNMENT_HORIZON_HOURS="${raw}" is not a positive number; using the default.`,
+    );
+    return undefined;
+  }
+  return hours;
+}
+
+/**
+ * The real web-push sender when all three VAPID values are present, otherwise
+ * nothing — `createRuntime` then falls back to `ConsolePushSender`, which logs
+ * and REPORTS SUCCESS. Production cannot reach the fallback: `env.ts` gates on
+ * all three at boot.
+ */
+function resolvePushSender(): { pushSender?: PushSender } {
+  const sender = createWebPushSender({
+    // Checked first, and it wins: with the switch off a fully configured
+    // environment still sends nothing.
+    enabled: pushNotificationsEnabled(),
+    publicKey: optionalEnv("VAPID_PUBLIC_KEY"),
+    privateKey: optionalEnv("VAPID_PRIVATE_KEY"),
+    subject: optionalEnv("VAPID_SUBJECT"),
+  });
+  return sender === null ? {} : { pushSender: sender };
+}
+
+/** `defaults` for `createRuntime`. Omitted keys keep the core default. */
+function resolveDefaults(): { assignmentHorizonHours?: number } {
+  const assignmentHorizonHours = resolveAssignmentHorizonHours();
+  return assignmentHorizonHours === undefined ? {} : { assignmentHorizonHours };
+}
+
 /** Throws when the database is not configured. Use in mutation paths. */
 export function getCore(): CoreConfig {
   return createRuntime({
     databaseUrl: env.DATABASE_URL,
+    defaults: resolveDefaults(),
+    ...resolvePushSender(),
     payments: resolvePaymentConfig(),
     extraction: resolveExtractionConfig(),
     notifications: resolveNotifierConfig(),
@@ -108,6 +159,8 @@ export function getCore(): CoreConfig {
 export function tryGetCore(): CoreConfig | null {
   return tryCreateRuntime({
     databaseUrl: env.DATABASE_URL,
+    defaults: resolveDefaults(),
+    ...resolvePushSender(),
     payments: resolvePaymentConfig(),
     extraction: resolveExtractionConfig(),
     notifications: resolveNotifierConfig(),

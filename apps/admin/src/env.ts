@@ -49,6 +49,56 @@ const schema = z.object({
   NEXT_PUBLIC_AGENT_APP_URL: optionalUrl,
 
   DATABASE_URL: optionalString,
+
+  // --- Web Push (VAPID) --------------------------------------------------
+  /**
+   * THE PUSH KILL SWITCH. `"true"` to enable; anything else (including unset)
+   * means OFF, in every environment.
+   *
+   * Push ships DISABLED. It is the one channel that fails silently and
+   * undetectably, so it is opt-in by explicit configuration rather than
+   * something you get by accident when a key happens to be present.
+   *
+   * ONE VARIABLE, NOT TWO. It is `NEXT_PUBLIC_` so the server and the browser
+   * read the SAME value — same pattern as NEXT_PUBLIC_LAUNCH_MODE. A
+   * server flag paired with a public twin is two things that can disagree,
+   * and this slice has already paid once for exactly that shape (the agent
+   * app held the public VAPID key but not the private one, so it registered
+   * devices and silently sent nothing). "Is push on" is not a secret.
+   *
+   * OFF means: `ConsolePushSender` regardless of the VAPID vars, every enable
+   * affordance hidden, and the VAPID boot gate waived. Stored subscriptions
+   * are left ALONE — flipping it back on resumes sends with no re-subscribe.
+   */
+  NEXT_PUBLIC_PUSH_NOTIFICATIONS_ENABLED: z
+    .enum(["true", "false"])
+    .default("false")
+    .catch("false"),
+  /**
+   * The SAME pair apps/web holds. All four are needed here because this app
+   * SENDS: `/api/push/test` pushes a test notification to your own devices,
+   * and without the private key the runtime falls back to
+   * `ConsolePushSender`, which logs a line and reports SUCCESS — so the
+   * "did you see it?" check asks about a notification that was never sent.
+   *
+   * Generate once with `pnpm push:vapid`; regenerating invalidates every
+   * stored subscription. See docs/features/f3-hosted-setup.md.
+   */
+  VAPID_PUBLIC_KEY: optionalString,
+  VAPID_PRIVATE_KEY: optionalString,
+  /** `mailto:` or `https:`. Apple REFUSES a push whose subject is neither. */
+  VAPID_SUBJECT: optionalString,
+  NEXT_PUBLIC_VAPID_PUBLIC_KEY: optionalString,
+
+  /**
+   * How many hours before a pickup window an agent is assigned to it.
+   *
+   * The console reads it so the board and the rail badges can tell "nobody
+   * has picked this up" apart from "the sweep has correctly not reached it
+   * yet". MUST match apps/web, which is where the assignment actually
+   * happens; unset or unparseable → the core default (48).
+   */
+  ASSIGNMENT_HORIZON_HOURS: optionalString,
   // DIRECT_DATABASE_URL is deliberately NOT read here: it is a hosted DDL
   // credential and belongs in packages/db/.env alone (see .env.example).
 
@@ -90,6 +140,13 @@ const raw = {
   NEXT_PUBLIC_AGENT_APP_URL: process.env.NEXT_PUBLIC_AGENT_APP_URL,
 
   DATABASE_URL: process.env.DATABASE_URL,
+  VAPID_PUBLIC_KEY: process.env.VAPID_PUBLIC_KEY,
+  VAPID_PRIVATE_KEY: process.env.VAPID_PRIVATE_KEY,
+  VAPID_SUBJECT: process.env.VAPID_SUBJECT,
+  NEXT_PUBLIC_VAPID_PUBLIC_KEY: process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY,
+  NEXT_PUBLIC_PUSH_NOTIFICATIONS_ENABLED:
+    process.env.NEXT_PUBLIC_PUSH_NOTIFICATIONS_ENABLED,
+  ASSIGNMENT_HORIZON_HOURS: process.env.ASSIGNMENT_HORIZON_HOURS,
 
   NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL,
   NEXT_PUBLIC_SUPABASE_ANON_KEY: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
@@ -136,6 +193,17 @@ export const isDev = env.NODE_ENV === "development";
 export const isProd = env.NODE_ENV === "production";
 
 /**
+ * The push kill switch. Default OFF — see the schema entry.
+ *
+ * Read by the runtime (which sender to build), the boot gate (whether VAPID
+ * is required) and the client surfaces (whether to offer enabling at all), so
+ * all three can never disagree about whether push is on.
+ */
+export function pushNotificationsEnabled(): boolean {
+  return env.NEXT_PUBLIC_PUSH_NOTIFICATIONS_ENABLED === "true";
+}
+
+/**
  * Fail-loud production gate (same `isProd` convention as apps/web).
  *
  * Each of these, absent, silently disables something ops depends on rather
@@ -166,6 +234,26 @@ export function assertProductionBootConfig(): void {
       "NEXT_PUBLIC_AGENT_APP_URL (agent invite links would land on the wrong app)",
     );
   }
+  /*
+   * Push, all four or none.
+   *
+   * Not "nice to have": the fallback is `ConsolePushSender`, which logs and
+   * REPORTS SUCCESS. Without these, every notification this app sends looks
+   * sent, nothing arrives, and the one mechanism built to detect that — the
+   * did-you-see-it check — is itself lying. Push is never load-bearing, so
+   * this does not block the product; it blocks the SILENT version of it.
+   */
+  const push = (
+    ["VAPID_PUBLIC_KEY", "VAPID_PRIVATE_KEY", "VAPID_SUBJECT", "NEXT_PUBLIC_VAPID_PUBLIC_KEY"] as const
+  ).filter((key) => !optionalEnv(key));
+  // Waived while push is off (the default): a console sender is the correct
+  // answer when the channel is deliberately disabled.
+  if (pushNotificationsEnabled() && push.length > 0 && push.length < 4) {
+    missing.push(
+      `${push.join(", ")} (push is half-configured: sends would silently log instead of delivering)`,
+    );
+  }
+
   if (missing.length > 0) {
     throw new Error(
       "Refusing to run the admin app in production with ops config missing:\n" +

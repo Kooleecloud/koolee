@@ -530,7 +530,7 @@ describeIntegration("pickup lifecycle (integration)", () => {
     const withoutDriver = await sealedBooking(2);
     const withDriver = await assignedPickup(2);
 
-    const board = await listBookingsBoard(db, {}, now);
+    const board = await listBookingsBoard(db, {}, { now });
     const rows = new Map(board.map((r) => [r.booking.id, r]));
 
     expect(rows.get(withoutDriver.booking.id)).toMatchObject({
@@ -556,7 +556,7 @@ describeIntegration("pickup lifecycle (integration)", () => {
       .set({ departureAt: new Date(now.getTime() + 72 * 3_600_000) })
       .where(eq(bookings.id, booking.id));
 
-    const [row] = await listBookingsBoard(db, {}, now);
+    const [row] = await listBookingsBoard(db, {}, { now });
     expect(row).toMatchObject({ atRisk: false, atRiskReason: null });
   });
 
@@ -570,7 +570,7 @@ describeIntegration("pickup lifecycle (integration)", () => {
     const withDriver = await assignedPickup(2);
     await db.update(bookings).set(window).where(eq(bookings.id, withDriver.booking.id));
 
-    const dashboard = await getOpsDashboard(db, "America/New_York", now);
+    const dashboard = await getOpsDashboard(db, "America/New_York", { now });
     expect(dashboard.awaitingDriverToday).toBe(1);
     // The agent-side count is a different failure and stays its own number.
     expect(dashboard.unassignedToday).toBe(0);

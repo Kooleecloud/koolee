@@ -150,6 +150,7 @@ one file per concern, re-exported through `index.ts`:
 | `slot-blocks.ts` | `slot_blocks`                                         |
 | `custody.ts`     | `custody_events`                                      |
 | `signals.ts`     | `booking_signals` _(the realtime doorbell)_           |
+| `push.ts`        | `push_subscriptions` _(one row per browser install)_  |
 | `tasks.ts`       | `verification_tasks`, `pickup_tasks`                  |
 | `billing.ts`     | `payments`, `pricing_rules`, `payment_webhook_events` |
 | `drafts.ts`      | `booking_drafts`                                      |
@@ -443,10 +444,28 @@ Email selection mirrors the payments factory: apps resolve `RESEND_API_KEY` /
 builders in [notifications/emails.ts](../packages/core/src/notifications/emails.ts),
 copy rules pinned by tests.
 
+**`PushSender`** ([notifications/push.ts](../packages/core/src/notifications/push.ts))
+mirrors `Notifier` exactly — interface, `ConsolePushSender` default,
+`RecordingPushSender` for tests. Unlike the notifier it is passed as an
+INSTANCE rather than a `{ kind }` config, for the same reason the Inngest
+emitter is: the real one
+([apps/web/src/lib/web-push-sender.ts](../apps/web/src/lib/web-push-sender.ts))
+needs the `web-push` library and three VAPID values, and core depends on
+neither. It NEVER throws — every caller is an Inngest step whose email is the
+real notification — prunes only on 404/410 (a 5xx is a provider having a bad
+afternoon, and pruning on it would unsubscribe people silently), and sets
+VAPID details per send rather than at module scope, because that is global
+mutable state in the library.
+
+`services/push-subscriptions.ts` holds storage, authorization (**a user
+manages only their own devices; the server derives the user from the session,
+never from a body**) and the `pushToUsers` / `pushToTargets` fan-out. The ops
+audience is DERIVED from active admin `staff_members` — no roster table.
+
 `CoreConfig` ([config.ts](../packages/core/src/config.ts)) is the bundle: db,
-payments, dispatcher, alerter, extractor, clock, and `defaults`
-(`CoreDefaults` — the window fences and currency). Apps build it once per
-request in their `lib/core.ts`.
+payments, dispatcher, alerter, extractor, pushSender, clock, and `defaults`
+(`CoreDefaults` — the window fences, `assignmentHorizonHours`, and currency).
+Apps build it once per request in their `lib/core.ts`.
 
 **Payments** ([payments/types.ts](../packages/core/src/payments/types.ts)) is
 the richest seam: `authorize`, `getAuth`, `updateAuthAmount`, `capture`,
@@ -484,6 +503,18 @@ idempotent (email, zip) upsert behind both capture surfaces — and
 path a booking takes to `paid` (webhook, return-page re-check, fake-provider
 inline) — never throws, never fails the payment path; the 0019 unique
 indexes referee the webhook/re-check race.
+
+**Assignment waits for a horizon.** `autoAssignOnPaid` assigns immediately
+only when the pickup window is within `defaults.assignmentHorizonHours`
+(default 48, env `ASSIGNMENT_HORIZON_HOURS`); beyond it the booking rests in
+`paid` with NO verification task and NO pickup task, and
+`assignEnteringHorizon` — the `assignment-horizon-sweep` cron — picks it up
+when the window comes into range. The predicate lives alone in
+[services/assignment-horizon.ts](../packages/core/src/services/assignment-horizon.ts)
+because three callers need it and two of them would otherwise form an import
+cycle: the sweep, the on-paid hook, and `dispatch.ts`'s at-risk flag, which
+must agree with the other two or the console shows red badges for work the
+system is correctly not doing yet.
 
 **`actionability` is the answer to "can this still be acted on?", and it is
 the only one.** Before it, five services each carried their own status array
@@ -535,6 +566,17 @@ A service is where ownership is enforced. Session-scoped reads are
 | `driver-selected-email`      | event `booking/driver_selected`     | yes — "your driver is on it", no ETA on purpose  |
 | `bagdrop-delivered-email`    | event `booking/delivered_to_bagdrop`| yes — the bags reached the airline's bag drop    |
 | `driver-pool-empty-ops-alert`| event `booking/driver_pool_empty`   | yes — to `OPS_ALERT_EMAIL`, one per booking/hour |
+| `assignment-horizon-sweep`   | `cron("*/5 * * * *")`               | yes — assigns bookings entering the 48h horizon  |
+
+**Push rides inside these functions, never beside them.** Eight moments send a
+push in their own `step.run`, placed AFTER the email step and never inside it:
+the email is the guaranteed channel, Inngest memoizes steps independently (so
+a retried email does not re-send the push), and the function still returns the
+email's result. Customer milestones all carry `booking:<id>` + `renotify`, so
+the latest REPLACES the previous — one live notification per booking. Staff
+work uses a per-task tag and stacks. Deep links come from
+[notifications/links.ts](../packages/core/src/notifications/links.ts), the same
+module the emails use.
 
 The three driver functions are registered in **core's** shared factory, not in
 the app that raises them. The agent app's Inngest client is send-only by design

@@ -33,8 +33,11 @@ import {
 
 import { CustodyTimeline } from "@/components/custody-timeline";
 import { TripLive } from "@/components/trip-live";
+import { TripPushPrompt } from "@/components/trip-push-prompt";
 import { CutoffCountdown } from "@/components/cutoff-countdown";
 import { withinCutoffHorizon } from "@/lib/cutoff-horizon";
+import { pushNotificationsEnabled } from "@/env";
+import { withinPushPromptWindow } from "@/lib/push-prompt-window";
 import {
   TripActionNeeded,
   type TripAgreementView,
@@ -362,6 +365,18 @@ export default async function TripPage({
         passport={passportView}
         actionable={preVisit}
       />
+
+      {/* Only on pickup day, and only while the booking is still live. The
+          window test is here rather than in the client component so the
+          server and the browser cannot disagree about whether the card
+          exists — same reasoning as the cutoff banner above. */}
+      {pushNotificationsEnabled() &&
+        isActive &&
+        withinPushPromptWindow(
+          booking.pickupWindowStart,
+          booking.pickupWindowEnd,
+          new Date(),
+        ) && <TripPushPrompt bookingId={booking.id} />}
 
       <Card>
         <CardHeader>

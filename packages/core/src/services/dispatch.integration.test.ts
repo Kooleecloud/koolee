@@ -516,7 +516,7 @@ describeIntegration("admin dispatch + overrides (integration)", () => {
     const unassigned = await paidBooking();
     const exception = await exceptionBooking();
 
-    const dashboard = await getOpsDashboard(db, "America/New_York", now);
+    const dashboard = await getOpsDashboard(db, "America/New_York", { now });
     const byStatus = Object.fromEntries(
       dashboard.todayByStatus.map((r) => [r.status, r.count]),
     );
@@ -526,7 +526,7 @@ describeIntegration("admin dispatch + overrides (integration)", () => {
     expect(dashboard.unassignedToday).toBe(1);
     expect(dashboard.exceptionsOpen).toBe(1);
 
-    const board = await listBookingsBoard(db, {}, now);
+    const board = await listBookingsBoard(db, {}, { now });
     expect(board).toHaveLength(3);
     const rowFor = (id: string) => board.find((r) => r.booking.id === id)!;
     // Paid + unassigned + window starts within the 12h horizon → at risk.
@@ -538,21 +538,21 @@ describeIntegration("admin dispatch + overrides (integration)", () => {
     expect(rowFor(exception.id).atRisk).toBe(false);
 
     // Filters narrow by status.
-    const exceptionsOnly = await listBookingsBoard(db, { statuses: ["exception"] }, now);
+    const exceptionsOnly = await listBookingsBoard(db, { statuses: ["exception"] }, { now });
     expect(exceptionsOnly.map((r) => r.booking.id)).toEqual([exception.id]);
 
     // Multi-select is an OR within the dimension.
     const twoStatuses = await listBookingsBoard(
       db,
       { statuses: ["exception", "paid"] },
-      now,
+      { now },
     );
     expect(new Set(twoStatuses.map((r) => r.booking.id))).toEqual(
       new Set([exception.id, unassigned.id]),
     );
 
     // An empty array clears the filter — it never means "match nothing".
-    const cleared = await listBookingsBoard(db, { statuses: [], airports: [] }, now);
+    const cleared = await listBookingsBoard(db, { statuses: [], airports: [] }, { now });
     expect(cleared).toHaveLength(3);
   });
 });

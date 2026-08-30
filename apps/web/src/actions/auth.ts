@@ -714,9 +714,16 @@ export async function attachEmailPostBooking(
   if (core) {
     try {
       await attachEmail(core.db, { authUserId: user.id, email, verified: false });
+      // Not a double-send risk: this card only renders for an account with NO
+      // email (book/confirmed/page.tsx), which is exactly the case where the
+      // `booking/confirmed` function already returned `no_email` and — being a
+      // memoized Inngest step — never re-runs. See docs/features/notifications.md.
       await sendBookingConfirmationEmail(core, {
         bookingId: parsed.data.bookingId,
         email,
+        // Core reads no env: the absolute origin the email's CTA links to is
+        // resolved here. Without it the customer got `/trips/<id>` in an inbox.
+        appOrigin: optionalEnv("NEXT_PUBLIC_APP_URL"),
       });
     } catch (dbError) {
       if (dbError instanceof ConflictError) {
