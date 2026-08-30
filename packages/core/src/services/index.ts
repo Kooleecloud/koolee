@@ -234,6 +234,7 @@ export {
   ensureAddress,
   ensureCustomerFromAuth,
   getCustomerById,
+  listUserNames,
   markEmailVerified,
   type AddressInput,
   type CompleteProfileInput,
@@ -305,6 +306,16 @@ export {
   setTicketUploadStatus,
   type CreateTicketUploadInput,
 } from "./ticket-uploads";
+
+export {
+  getStaffWorkHistory,
+  staffHistoryRange,
+  type StaffTaskKind,
+  type StaffTaskRow,
+  type StaffWorkCounts,
+  type StaffWorkHistory,
+  type StaffWorkHistoryQuery,
+} from "./staff-history";
 
 export {
   createStaffMember,

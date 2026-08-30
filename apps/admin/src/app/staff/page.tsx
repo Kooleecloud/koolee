@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { formatDistanceToNow } from "date-fns";
 import {
@@ -88,9 +89,16 @@ export default async function StaffPage() {
                         className={member.active ? undefined : "opacity-50"}
                       />
                       <div className="flex min-w-0 flex-col gap-0.5">
-                        <span className="truncate font-medium">
+                        {/* The name is the way in to this person's work
+                            history — counts, tasks and shifts — which used to
+                            be reachable only by cross-referencing ids by
+                            hand across three pages. */}
+                        <Link
+                          href={`/staff/${member.userId}`}
+                          className="truncate font-medium text-navy-800 underline decoration-transparent underline-offset-4 transition-colors hover:decoration-sky-400 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
+                        >
                           {member.fullName ?? member.email ?? member.userId}
-                        </span>
+                        </Link>
                         <span className="truncate text-xs text-muted-foreground">
                           {/* The name moved up to the primary line, so the
                             email — the thing an invite is actually addressed

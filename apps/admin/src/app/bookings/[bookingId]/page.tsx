@@ -15,6 +15,7 @@ import {
   PageHeader,
 } from "@koolee/ui";
 import {
+  avatarPathsForViewer,
   availableEvents,
   dstTransitionNote,
   EVENT_TYPES,
@@ -28,7 +29,10 @@ import {
   getBookingActionability,
   getBookingDetailForSession,
   listAgentWorkload,
+  listUserNames,
+  type AdminSession,
   type AgentWorkload,
+  type CoreConfig,
   type PriceBreakdown,
 } from "@koolee/core";
 
@@ -37,9 +41,10 @@ import { TransitionControls } from "@/components/transition-controls";
 import { ViewerLocalTime } from "@/components/viewer-local-time";
 import { tryGetCore } from "@/lib/core";
 import { getAdminSession } from "@/lib/session";
+import { signAvatarUrls } from "@/lib/avatars";
 import { getSupabaseAdminClient } from "@/lib/supabase/admin";
 
-import { CustodyTrail } from "./custody-trail";
+import { CustodyTrail, type CustodyActor } from "./custody-trail";
 import {
   AssignAgentForm,
   ReassignPickupForm,
@@ -154,6 +159,26 @@ export default async function BookingDetailPage({
     ...timeline.map((event) => event.photoUrl).filter((p): p is string => Boolean(p)),
   ];
   const signedUrls = await signPhotoUrls([...new Set(photoPaths)]);
+
+  /*
+   * WHO DID EACH THING, as a person.
+   *
+   * The trail identified every actor as eight hex characters, so
+   * reconstructing a disputed hand-off meant copying ids into the staff page
+   * one at a time. This is the artefact somebody reads while a customer is on
+   * the phone; a name and a face are what make it readable at that moment.
+   *
+   * Two batched queries for the whole trail, whatever its length — an actor
+   * lookup per event is one round trip per line on the page that has the most
+   * lines. An admin may see anyone (`avatarPathsForViewer`), so the resolution
+   * is authorized as such rather than by being on this page.
+   */
+  const actorIds = [
+    ...new Set(
+      timeline.map((event) => event.actorUserId).filter((id): id is string => Boolean(id)),
+    ),
+  ];
+  const actors = await resolveActors(core.db, session, actorIds);
 
   // The identity gate's two halves, read for display only. Ops cannot satisfy
   // either of them from here by design: the acceptance is the customer's act,
@@ -630,17 +655,64 @@ export default async function BookingDetailPage({
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Custody trail</CardTitle>
+          <CardTitle className="text-base">Trip history</CardTitle>
           <CardDescription>
             Append-only. {timeline.length} event{timeline.length === 1 ? "" : "s"} —
-            actor, timestamp, and evidence for every hand-off. Each line is a summary of
+            actor, timestamp, and evidence for every hand-off, including status
+            transitions and every assignment or reassignment. Each line is a summary of
             the stored row; expand <strong>Raw data</strong> for the record itself.
+            {/* Said out loud rather than left as an absence. There is no
+                notifications table and no local record of an Inngest run, so
+                "no email line" here does not mean no email was sent — it means
+                this database cannot know. Building a bookkeeping table on the
+                send path to make it knowable is the thing this slice
+                deliberately did not do. */}{" "}
+            <strong>Emails are not in this list:</strong> sends live in Inngest, not in
+            this database, so their absence here is not evidence they did not happen.
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <CustodyTrail events={timeline} signedUrls={signedUrls} tz={tz} />
+          <CustodyTrail
+            events={timeline}
+            signedUrls={signedUrls}
+            actors={actors}
+            tz={tz}
+          />
         </CardContent>
       </Card>
     </ConsoleMain>
   );
+}
+
+/**
+ * Names and faces for a set of actor ids.
+ *
+ * Lives here rather than in core because the SIGNING is app-side (core reads
+ * no env and holds no Supabase client) while the permission decision is core's
+ * — `avatarPathsForViewer` with an admin viewer, which is the same function
+ * the customer trip page and the agent visit screen go through. One rule, one
+ * place, three callers.
+ */
+async function resolveActors(
+  db: CoreConfig["db"],
+  session: AdminSession,
+  actorIds: readonly string[],
+): Promise<Map<string, CustodyActor>> {
+  if (actorIds.length === 0) return new Map();
+
+  const [names, paths] = await Promise.all([
+    listUserNames(db, actorIds),
+    avatarPathsForViewer(db, { viewer: session, subjectUserIds: actorIds }),
+  ]);
+  const signed = await signAvatarUrls([...paths.values()]);
+
+  const resolved = new Map<string, CustodyActor>();
+  for (const id of actorIds) {
+    const path = paths.get(id);
+    resolved.set(id, {
+      name: names.get(id) ?? null,
+      avatarUrl: path ? (signed.get(path) ?? null) : null,
+    });
+  }
+  return resolved;
 }

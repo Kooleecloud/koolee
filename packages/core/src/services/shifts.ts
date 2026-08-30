@@ -223,7 +223,11 @@ export interface ShiftRow {
  */
 export async function listShifts(
   db: Database,
-  options: { limit?: number } = {},
+  options: {
+    limit?: number;
+    /** Narrows to one person — the staff work-history view. */
+    staffUserId?: string;
+  } = {},
 ): Promise<ShiftRow[]> {
   const bagsOnBoardSql = sql<number>`(
     select coalesce(sum(b.bag_count), 0)::int
@@ -249,6 +253,11 @@ export async function listShifts(
     .from(driverShifts)
     .innerJoin(trucks, eq(trucks.id, driverShifts.truckId))
     .innerJoin(users, eq(users.id, driverShifts.staffUserId))
+    .where(
+      options.staffUserId === undefined
+        ? undefined
+        : eq(driverShifts.staffUserId, options.staffUserId),
+    )
     // Open shifts first (NULL sorts last under DESC NULLS LAST, so this is
     // spelled explicitly), then most recently started.
     .orderBy(sql`${driverShifts.endedAt} is not null`, desc(driverShifts.startedAt))

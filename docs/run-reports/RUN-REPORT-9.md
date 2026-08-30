@@ -733,3 +733,96 @@ worse than none.
 
 `turbo typecheck` 6/6 · `turbo lint` 6/6 · unit 5/5 (agent 19, was 12) ·
 core integration **242 passed / 3 skipped, 26 files** · `turbo build` 3/3.
+
+---
+
+## Phase 6 — Admin app: histories
+
+### 6.1 The booking's trip history
+
+The custody trail already carried every custody event, every status transition
+and every assignment/reassignment — the append-only log IS the journey, so
+nothing had to be assembled. Two things were missing.
+
+**Actors are people now.** Every line identified whoever did the thing as eight
+hex characters, so reconstructing a disputed hand-off meant copying ids into
+the staff page one at a time. The trail is what somebody reads while a customer
+is on the phone; a name and a face are what make it readable at that moment.
+Two batched queries resolve the whole trail whatever its length, and the id
+stays in the element's `title` — it is what you need when reconciling against a
+support ticket and never what you need when reading.
+
+The permission decision goes through **`avatarPathsForViewer` with an admin
+viewer** — the same function the customer trip page and the agent visit screen
+use. One rule, one place, three callers. Signing stays app-side because core
+holds no Supabase client.
+
+**Notifications are NOT in the list, and the card says so.** There is no
+notifications table and no local record of an Inngest run: sends live in
+Inngest Cloud. So the absence of an email line here is not evidence that no
+email was sent, and the card states that rather than letting a reader infer a
+zero. Building bookkeeping on the send path to make it knowable is exactly what
+the brief said not to do.
+
+### 6.2 Staff work history
+
+New route `/staff/[userId]`, reachable from the name in the staff table (which
+was previously a dead string).
+
+- **Counts by kind** — verification visits done, pickup runs done, still open,
+  failed. All four derived from `verification_tasks` / `pickup_tasks`. No
+  counter column, no `staff_stats` table: a counter on a write path has to be
+  kept in step with what it counts, which is how a number becomes confidently
+  wrong and stays that way.
+- **A date range**, as a GET form onto the same route. The range is in the URL,
+  so "what Nina did in June" is a link somebody can paste into a ticket.
+- **Every row links to its booking.**
+- **Shifts** (Tier 4's `driver_shifts`) on the same page, deliberately NOT
+  range-filtered: a driver's shift list is short, and reading "no shifts"
+  because a date box was set to last week is a worse answer than a few extra
+  rows.
+
+**The range reads when the work HAPPENED**, not when it was assigned:
+`coalesce(completed_at, scheduled_start)`. A task handed out in May and run in
+June belongs to June — filtering on `created_at` would answer a dispatch
+question, not a work-history one. Two tests pin exactly that.
+
+`listShifts` gained an optional `staffUserId`; nothing else changed about it.
+
+### 6.3 What cannot be derived, stated on the page
+
+The brief said: *if a count cannot be derived, say so rather than adding
+write-path bookkeeping*. Two things cannot:
+
+- **Emails sent** — no table, no local Inngest record (booking detail says so).
+- **Distance driven / time on the road** — `driver_positions` holds ONE mutable
+  row per driver with no history, by design and by standing rule; there is
+  nothing to integrate over. The staff page says any non-task fact is "absent
+  rather than zero".
+
+### 6.4 A `sql` binding trap worth recording
+
+The range predicate is a hand-written `coalesce(...)` fragment, and binding a
+`Date` into a raw drizzle `sql` template reaches postgres-js as a positional
+parameter with no type mapping — rejected outright with *"The string argument
+must be of type string"*. Drizzle's own operators do that mapping; a
+hand-written fragment has to say what it means, so the bounds go in as ISO
+strings with an explicit `::timestamptz`.
+
+### 6.5 Tests
+
+`staff-history.integration.test.ts` — 11 tests: verifications and pickups
+counted separately (one person often does both halves of one booking, at two
+times, and collapsing them makes "how many pickups" unanswerable); open and
+failed separated from done; **one person's history never contains another's**;
+the range reading completion rather than assignment, in both directions;
+the schedule fallback for unfinished work; the booking carried on every row so
+it can link; empty rather than a throw; and `staffHistoryRange` reading a date
+box as a whole inclusive UTC day while ignoring anything malformed — those
+values come from a query string, so a bad bound must widen the range, never
+throw a page away.
+
+### 6.6 Gates
+
+`turbo typecheck` 6/6 · `turbo lint` 6/6 · unit 5/5 · core integration
+**251 passed / 3 skipped, 27 files** · `turbo build` 3/3.

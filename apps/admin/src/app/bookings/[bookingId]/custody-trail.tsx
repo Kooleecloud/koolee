@@ -1,4 +1,4 @@
-import { Badge, CustodyTimeline, RawDataDisclosure } from "@koolee/ui";
+import { Avatar, Badge, CustodyTimeline, RawDataDisclosure } from "@koolee/ui";
 import { formatInstantInAirportTz, type CustodyEvent } from "@koolee/core";
 
 import { describeCustodyEvent } from "@/lib/custody-copy";
@@ -10,15 +10,30 @@ import { describeCustodyEvent } from "@/lib/custody-copy";
  *
  * Seconds are in the timestamp on purpose: reconstructing a disputed hand-off
  * turns on the order of two events that can land in the same minute.
+ *
+ * ACTORS ARE PEOPLE NOW, not eight hex characters. Every line used to identify
+ * whoever did the thing as `a3f19c02`, which meant reconstructing a hand-off
+ * involved copying ids into the staff page one at a time. The trail is the
+ * artefact somebody reads when a customer is disputing what happened, and a
+ * name and a face are what make it readable at that moment.
  */
+export interface CustodyActor {
+  name: string | null;
+  /** Short-lived signed URL, or null. `Avatar` falls back to initials. */
+  avatarUrl: string | null;
+}
+
 export function CustodyTrail({
   events,
   signedUrls,
+  actors,
   tz,
 }: {
   events: CustodyEvent[];
   /** storage path → short-lived signed URL, for evidence photos. */
   signedUrls: Map<string, string>;
+  /** actor user id → name and face. Missing ids fall back to the id itself. */
+  actors: Map<string, CustodyActor>;
   /** The booking's display zone — the trail must agree with the window above it. */
   tz: string;
 }) {
@@ -37,18 +52,14 @@ export function CustodyTrail({
                   {event.actorRole}
                 </Badge>
               ) : (
+                /* A null actor is the SYSTEM, and that is information: a
+                   payment capture has no person behind it, by design (the
+                   agent app holds no payment credentials). */
                 <Badge variant="secondary" className="text-[10px]">
                   system
                 </Badge>
               )}
-              {event.actorUserId ? (
-                <span
-                  className="font-mono text-[10px] text-muted-foreground"
-                  title={event.actorUserId}
-                >
-                  {event.actorUserId.slice(0, 8)}
-                </span>
-              ) : null}
+              {event.actorUserId ? <ActorChip actor={actors.get(event.actorUserId)} id={event.actorUserId} /> : null}
             </>
           ),
           meta: formatInstantInAirportTz(event.createdAt, tz),
@@ -66,5 +77,23 @@ export function CustodyTrail({
         };
       })}
     />
+  );
+}
+
+/**
+ * Who did it: a face, a name, and the id still one hover away.
+ *
+ * The id stays in the `title` rather than on screen. It is what you need when
+ * you are reconciling against a log or a support ticket, and it is never what
+ * you need when you are reading the trail.
+ */
+function ActorChip({ actor, id }: { actor: CustodyActor | undefined; id: string }) {
+  return (
+    <span className="inline-flex items-center gap-1.5" title={id}>
+      <Avatar size="xs" name={actor?.name ?? null} src={actor?.avatarUrl ?? null} alt="" />
+      <span className="text-[10px] text-muted-foreground">
+        {actor?.name ?? <span className="font-mono">{id.slice(0, 8)}</span>}
+      </span>
+    </span>
   );
 }

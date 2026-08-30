@@ -1,4 +1,4 @@
-import { and, eq, notExists } from "drizzle-orm";
+import { and, eq, inArray, notExists } from "drizzle-orm";
 import {
   addresses,
   bookings,
@@ -329,3 +329,29 @@ export async function ensureAddress(
   return created;
 }
 
+/**
+ * Display names for a set of user ids, keyed by id.
+ *
+ * For any surface that renders people it only has ids for — the console's
+ * custody trail is the first, where every actor used to read as eight hex
+ * characters. Users with no name on file are simply absent; the caller falls
+ * back to the id, which is still better than a blank.
+ */
+export async function listUserNames(
+  db: Database,
+  userIds: readonly string[],
+): Promise<Map<string, string>> {
+  const unique = [...new Set(userIds.filter(Boolean))];
+  if (unique.length === 0) return new Map();
+
+  const rows = await db
+    .select({ id: users.id, fullName: users.fullName, email: users.email })
+    .from(users)
+    .where(inArray(users.id, unique));
+
+  return new Map(
+    rows
+      .map((row) => [row.id, row.fullName?.trim() || row.email || ""] as const)
+      .filter(([, name]) => name.length > 0),
+  );
+}
