@@ -59,6 +59,8 @@ at the **hosted** project. See [ENVIRONMENT.md §6](ENVIRONMENT.md#6--the-sharpe
 | `pnpm dev:inngest`                            | Inngest dev server against `localhost:3000/api/inngest` |
 | `pnpm --filter @koolee/ui storybook`          | Storybook on `:6006`                                    |
 | `pnpm --filter @koolee/core test:integration` | Integration suites (see §4)                             |
+| `pnpm env:verify`                             | Does an environment have the variables its apps refuse to boot without? Reads NAMES, never values — see §8 |
+| `pnpm check:sw-headers`                       | Asserts `/sw.js` still gets `no-cache` + `Service-Worker-Allowed` after `withSentryConfig` composes the Next config. Both failure modes are silent |
 
 ### `pnpm clean:cache` — the one to run periodically
 
@@ -364,3 +366,51 @@ Target one with `pnpm --filter <name> <script>`, e.g.
 | Work on a shared component   | `pnpm --filter @koolee/ui storybook`                              |
 | Test webhooks locally        | `stripe listen --forward-to localhost:3000/api/webhooks/stripe`   |
 | Run background jobs locally  | `pnpm dev:inngest`                                                |
+
+---
+
+## 8. `pnpm env:verify` — the env pass, before deploying
+
+Production runs `NEXT_PUBLIC_LAUNCH_MODE=coming_soon`, which **exempts
+`apps/web` from most of its boot gates**. Flipping to `live` arms them all in
+one redeploy, so launch day would otherwise be the first time several of them
+ever fired — and a gate that fires is a deploy that does not serve. This asks
+the same question the boot does, without deploying.
+
+```bash
+pnpm env:verify --file apps/web/.env.local          # a dotenv-style file
+vercel env ls production | pnpm env:verify --stdin  # a Vercel scope
+pnpm env:verify                                     # the current process env
+```
+
+| Flag | Does |
+| --- | --- |
+| `--app web\|admin\|agent\|all` | Which app's requirements. Default `all` |
+| `--live` | Arm the launch-mode gates — **rehearse the flip before making it** |
+| `--push` | Arm the VAPID requirements |
+| `--strict` | Fail on `recommended` too, not just required |
+
+**It reads NAMES, never values.** Nothing is printed but a variable name and
+why it matters, so the output is safe to paste anywhere — and it proves a row
+EXISTS for a scope, not that the row holds the right value. That second
+question belongs to a deploy and to
+[cutover-rehearsal.md](runbooks/cutover-rehearsal.md).
+
+`--live` and `--push` are flags rather than inferences for the same reason: it
+cannot read `NEXT_PUBLIC_LAUNCH_MODE`'s value, only its presence.
+
+The inventory is [`scripts/env-manifest.json`](../scripts/env-manifest.json) —
+names and reasons, derived from the boot gates in `apps/*/src/env.ts`. **It is
+the prod env pass checklist**, and it is the file to update when a gate is
+added. It also carries a `forbidden` list: `apps/agent` must never hold
+`SUPABASE_SERVICE_ROLE_KEY` or `STRIPE_SECRET_KEY`, and a run that finds one
+exits non-zero.
+
+A worked example lives at
+[`docs/launch/env-sample-production.env`](launch/env-sample-production.env) —
+every value is the literal word `set`, which is all the checker needs:
+
+```bash
+pnpm env:verify --app web --file docs/launch/env-sample-production.env --live --push
+# ✓ apps/web: 17 required variables present
+```

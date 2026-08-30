@@ -28,6 +28,7 @@
     "test:db:setup": "./scripts/test-env.sh setup-test-db",
     "test:db:drop": "./scripts/test-env.sh drop-test-db",
     "check:sw-headers": "node scripts/check-sw-headers.mjs",
+    "env:verify": "node scripts/env-verify.mjs",
     "clean:cache": "./scripts/clean-cache.sh",
     "clean": "turbo run clean && rm -rf node_modules",
     "format": "prettier --write \"**/*.{ts,tsx,js,mjs,cjs,json,md,css}\"",

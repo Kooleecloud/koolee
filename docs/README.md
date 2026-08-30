@@ -20,6 +20,8 @@
 
 **Deciding what to build next** → [PROJECT-STATUS](../PROJECT-STATUS.md) → the 🧭 decision hooks scattered through [features/](features/) → [jobs §7 what's genuinely not done](features/jobs-and-notifications.md#7-what-is-genuinely-not-done).
 
+**Taking Koolee live** → [LAUNCH-CHECKLIST.md](LAUNCH-CHECKLIST.md) — the tracking instrument — then the [runbooks](runbooks/): [prod-bringup](runbooks/prod-bringup.md), [stripe-live-flip](runbooks/stripe-live-flip.md), [cutover-rehearsal](runbooks/cutover-rehearsal.md).
+
 ---
 
 ## 1 — By request ("I want to…")
@@ -76,6 +78,8 @@
 | Check whether prod is in sync    | [MIGRATIONS §5 drift report](MIGRATIONS.md#5-pnpm-dbstatus--the-drift-report)                                                                            |
 | Understand a schema decision     | [MIGRATIONS §7 conventions](MIGRATIONS.md#7-schema-conventions-worth-knowing-before-you-generate) · [../packages/db/README.md](../packages/db/README.md) |
 | Deploy a migration safely        | [MIGRATIONS §9](MIGRATIONS.md#9-deploying-a-migration)                                                                                                   |
+| Stand up production from nothing | [runbooks/prod-bringup.md](runbooks/prod-bringup.md)                                                                                                     |
+| Check an environment's variables | `pnpm env:verify` — [scripts/env-manifest.json](../scripts/env-manifest.json) is the checklist                                                            |
 | Fix a migration mess             | [MIGRATIONS §10 recovery playbook](MIGRATIONS.md#10-recovery-playbook)                                                                                   |
 
 ### Debug

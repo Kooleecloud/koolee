@@ -588,6 +588,67 @@ if (
         "VAPID_PUBLIC_KEY.",
     );
   }
+  /*
+   * MONEY. Four variables, no gate — until Tier 5. The pre-flight called this
+   * the notable hole (§2.4, §6.8): nothing refused a production boot with
+   * payments unconfigured.
+   *
+   * Each fails differently and none of them fails loudly:
+   *
+   *  - STRIPE_SECRET_KEY absent ⇒ `resolvePaymentConfig` returns the
+   *    IN-MEMORY FAKE provider. The pay step "works", a booking is confirmed,
+   *    and no card is ever charged.
+   *  - NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY absent while the secret is present
+   *    ⇒ `stripeCheckoutState()` is "misconfigured": the runtime would
+   *    authorize against real Stripe but the browser can never confirm.
+   *    Honest, but discovered by a customer rather than by the boot.
+   *  - STRIPE_WEBHOOK_SECRET absent ⇒ `verifyWebhook` refuses every delivery,
+   *    so nothing ever moves to `paid` and every booking sits unconfirmed
+   *    while Stripe's dashboard fills with failures nobody is watching.
+   *  - CRON_SECRET absent is the quiet one, and the worst. `/api/jobs/*` 503s
+   *    while the Inngest cron still runs, so bookings complete, bags move,
+   *    customers are happy — and AUTHORIZATIONS ARE NEVER CAPTURED. They
+   *    expire. The only symptom is money that does not arrive.
+   *
+   * Same exemptions as the block they sit in: coming-soon, no Supabase, and
+   * the build phase. A coming-soon deploy cannot take a payment, so it needs
+   * none of these.
+   */
+  if (!env.STRIPE_SECRET_KEY) {
+    throw new Error(
+      "STRIPE_SECRET_KEY is required in production: without it the runtime " +
+        "uses the in-memory FAKE payment provider, so the pay step succeeds, " +
+        "the booking is confirmed, and no card is ever charged. Set the key, " +
+        "or deploy with NEXT_PUBLIC_LAUNCH_MODE=coming_soon.",
+    );
+  }
+  if (!env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY) {
+    throw new Error(
+      "NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY is required in production: a live " +
+        "secret key with no publishable key puts the pay step into " +
+        "'misconfigured' — the server would authorize against real Stripe " +
+        "and the browser could never confirm. Both keys move in the SAME " +
+        "deploy, live and test alike.",
+    );
+  }
+  if (!env.STRIPE_WEBHOOK_SECRET) {
+    throw new Error(
+      "STRIPE_WEBHOOK_SECRET is required in production: `verifyWebhook` " +
+        "refuses an unsigned payload rather than trusting it, so every Stripe " +
+        "delivery is rejected and no booking ever reaches `paid`. It is the " +
+        "endpoint's OWN secret — a test-mode value against a live endpoint " +
+        "makes every event a signed 400.",
+    );
+  }
+  if (!env.CRON_SECRET) {
+    throw new Error(
+      "CRON_SECRET is required in production: without it /api/jobs/* refuses " +
+        "to run while the Inngest capture cron keeps going, so bookings " +
+        "complete and bags move and authorizations are never captured — they " +
+        "expire, and the only symptom is money that never arrives. Set any " +
+        "random string, or deploy with NEXT_PUBLIC_LAUNCH_MODE=coming_soon.",
+    );
+  }
 }
 
 /* ------------------------------------------------------------------ */

@@ -883,3 +883,110 @@ use is acceptance. The page stays `robots: noindex` and still carries its
 | `pnpm check:sw-headers`                       | 3/3                                                                           |
 | Browser pass                                  | `/pricing` + `/cutoffs` signed in, including one real save                    |
 | Migrations                                    | **none** — both surfaces edit tables that already existed                     |
+
+---
+
+## Phase 5 — The gates that were missing, and a way to check before deploying
+
+### 5.1 Four money gates
+
+Report §2.4's table had four rows marked **"not gated"**, and §6.8 called it
+the notable hole: nothing refused a production boot with payments
+unconfigured. They are in `apps/web`'s Gate C block now — same fail-closed
+mechanism, same three exemptions (coming-soon, no Supabase, the build phase).
+
+Each fails differently and none of them fails loudly:
+
+| Variable                             | What its absence does                                                                                                                                                                                                                |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `STRIPE_SECRET_KEY`                  | `resolvePaymentConfig` returns the **in-memory FAKE provider**. The pay step succeeds, the booking is confirmed, and no card is ever charged.                                                                                        |
+| `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` | With a secret present, the pay step is `"misconfigured"`: the server would authorize against real Stripe and the browser could never confirm. Honest — but discovered by a customer.                                                 |
+| `STRIPE_WEBHOOK_SECRET`              | `verifyWebhook` refuses every delivery, so nothing reaches `paid` and every booking sits unconfirmed while Stripe's dashboard fills with failures.                                                                                   |
+| `CRON_SECRET`                        | **The quiet one.** `/api/jobs/*` 503s while the Inngest cron keeps running, so bookings complete, bags move, customers are happy — and authorizations are never captured. They expire. The only symptom is money that never arrives. |
+
+10 new tests in `env.test.ts` (23 → 33): all four present boots; each one
+missing throws with its own name in the message; each one is waived under
+coming-soon; and all four stay optional outside production, which is the
+fresh-clone contract.
+
+`CRON_SECRET` also joins the admin and agent schemas — both now have exactly
+one machine route (`/api/observability/test-error`).
+
+### 5.2 `pnpm env:verify`
+
+[scripts/env-verify.mjs](../../scripts/env-verify.mjs) +
+[scripts/env-manifest.json](../../scripts/env-manifest.json).
+
+**The manifest IS the prod env pass checklist** — names and reasons, derived
+from the boot gates in `apps/*/src/env.ts`, in four buckets per app: `always`,
+`whenLive`, `whenPush`, `recommended`. It is the file to update when a gate is
+added.
+
+**It reads NAMES, never values.** That is what makes the output safe to paste
+anywhere and what makes `--stdin` against `vercel env ls` work at all (Vercel
+never prints values). It proves a row EXISTS for a scope; whether the row holds
+the right value belongs to a deploy and to the rehearsal. `--live` and
+`--push` are flags rather than inferences for the same reason.
+
+**It also has a `forbidden` list**, which turned out to be the most interesting
+part: `apps/agent` must never carry `SUPABASE_SERVICE_ROLE_KEY` or
+`STRIPE_SECRET_KEY` — a compromised agent device must not reach a credential
+that bypasses every policy, and that rule previously lived only as an absence
+in a schema and a sentence in `ENVIRONMENT.md`. A run that finds one exits
+non-zero.
+
+Three inputs: `--file <dotenv>`, `--stdin` (a `vercel env ls` table), or the
+process environment. A key with an EMPTY value counts as absent, which is
+exactly how `.env.example` ships and how a half-filled Vercel row behaves.
+
+Demonstrated against the sample at
+[docs/launch/env-sample-production.env](../launch/env-sample-production.env)
+(every value is the literal word `set`):
+
+```
+$ pnpm env:verify --app web --file docs/launch/env-sample-production.env --live --push
+mode: LIVE (launch-mode gates armed), push ON
+✓ apps/web: 17 required variables present
+
+$ pnpm env:verify --app agent --file docs/launch/env-sample-production.env --live
+✗ apps/agent
+   FORBIDDEN SUPABASE_SERVICE_ROLE_KEY — remove it from this app's scope
+   FORBIDDEN STRIPE_SECRET_KEY — remove it from this app's scope
+2 problem(s) …                                              # exit 1
+```
+
+### 5.3 Three runbooks
+
+| Runbook                                                  | What it is                                                                                                                                                                                          |
+| -------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [prod-bringup.md](../runbooks/prod-bringup.md)           | The ~50-step ordered list across 11 sections (database, storage, realtime, auth, Turnstile, Vercel, env, Inngest, Sentry, launch data, going live). **Every step marked [TD] or [CI]**, never both. |
+| [stripe-live-flip.md](../runbooks/stripe-live-flip.md)   | The exact keys, the new live webhook endpoint and its four event subscriptions, what verifies it, and the rollback.                                                                                 |
+| [cutover-rehearsal.md](../runbooks/cutover-rehearsal.md) | Nine sections, every step with its expected-evidence line. **Defined, not executed** — execution is TD's, post-merge.                                                                               |
+
+The contradictions from Phase 0.3 are resolved in place rather than repeated:
+the bring-up's Turnstile section states the subdomain rule correctly, and its
+reference-data step is the `SEED_ALLOW_HOSTED` one.
+
+Two things the runbooks say that were not written down anywhere before:
+
+- **`can_drive` defaults false**, and until it is granted there is no shift, no
+  driver shortlist, and every sealed booking reads "needs a driver". It is
+  step J7 rather than a footnote.
+- **`bootstrap:staff` is the only way in.** The seed's roster hard-refuses
+  non-local Supabase hosts and `/staff` invites need an admin session to
+  reach, so a fresh production project has no door until that command is run.
+
+Docs index, `SCRIPTS.md` (new §8 on `env:verify`) and a
+[runbooks README](../runbooks/README.md) all point at them.
+
+### 5.4 Gates
+
+| Gate                    | Result                                                                                    |
+| ----------------------- | ----------------------------------------------------------------------------------------- |
+| `turbo typecheck`       | 6/6                                                                                       |
+| `turbo lint`            | 6/6                                                                                       |
+| `turbo test` (unit)     | 6/6 — web **144** (+10 money gates), core 573/1 skipped, ui 107, admin 32, agent 24, db 8 |
+| `turbo build`           | 3/3                                                                                       |
+| `pnpm check:sw-headers` | 3/3                                                                                       |
+| `pnpm env:verify`       | demonstrated both ways: clean for web, exit-1 forbidden for agent                         |
+| Migrations              | none                                                                                      |
