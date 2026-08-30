@@ -149,6 +149,7 @@ one file per concern, re-exported through `index.ts`:
 | `slots.ts`       | `slots` _(legacy — see below)_                        |
 | `slot-blocks.ts` | `slot_blocks`                                         |
 | `custody.ts`     | `custody_events`                                      |
+| `signals.ts`     | `booking_signals` _(the realtime doorbell)_           |
 | `tasks.ts`       | `verification_tasks`, `pickup_tasks`                  |
 | `billing.ts`     | `payments`, `pricing_rules`, `payment_webhook_events` |
 | `drafts.ts`      | `booking_drafts`                                      |
@@ -193,7 +194,18 @@ keep their foreign key. Do not add to it — see Chapter 4.
 - `custody_events` is append-only, enforced by a database trigger that
   rejects `UPDATE` / `DELETE` / `TRUNCATE`. Corrections are new rows. This is
   the evidentiary spine of the product; if it were mutable it would be
-  worthless in a dispute.
+  worthless in a dispute. Since `0030` it also carries an AFTER INSERT trigger
+  that touches `booking_signals` — the only write path that is not a service
+  call, and deliberately so: ~20 services append custody events and none of
+  them should have to know a realtime table exists.
+- `booking_signals` is a DOORBELL, not data. One mutable row per booking, three
+  columns, overwritten in place, and the ONLY table in the product a browser
+  may read. A client learns that a booking changed and refetches through the
+  ordinary server path; nothing in a realtime payload is ever rendered. Same
+  "not evidence" rule as `driver_positions`, and for the same reason.
+  `0031` grants `SELECT` to `authenticated` — a policy without the grant is
+  silently dead, which cost this feature a whole verification pass. See
+  [features/realtime-signals.md](features/realtime-signals.md).
 - **Reuse before you build.** Check `packages/ui` before writing any input,
   control or layout piece, and lift one there as soon as a second app needs it.
   `DateTimeField` and `@koolee/ui/lib/photo` are the worked examples; see
@@ -459,8 +471,12 @@ API: `create-booking`, `windows` (window listing + blackout CRUD), `quote`,
 `payment-lifecycle`, `agent-visit`, `pickup` (the driver's run),
 `shifts` (clock on/off, the fleet, force-end), `driver-selection` (the
 customer's shortlist, the assignment, GPS upsert), `customers`, `addresses`,
-`booking-drafts`, `ticket-uploads`, `avatars`, `staff`, `tasks`, `webhooks`,
-`actionability`. Two more
+`booking-drafts`, `ticket-uploads`, `avatars`, `avatar-visibility` (whose face
+a viewer may see — the control that replaced a comment), `booking-signals`
+(the realtime doorbell's one explicit writer), `trips` (the customer's Upcoming
+/ Past split and what each booking is waiting on THEM for),
+`profile-completeness`, `staff-history` (derived counts, no bookkeeping),
+`staff`, `tasks`, `webhooks`, `actionability`. Two more
 modules sit beside `services/`: `waitlist/` (`recordWaitlistSignup` — the
 idempotent (email, zip) upsert behind both capture surfaces — and
 `notifyNewlyCoveredWaitlist`, the zone-opened sweep's engine) and

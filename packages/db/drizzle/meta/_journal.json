@@ -218,6 +218,13 @@
       "when": 1788058261673,
       "tag": "0030_booking_signals",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1788058262673,
+      "tag": "0031_booking_signals_grant",
+      "breakpoints": true
     }
   ]
 }

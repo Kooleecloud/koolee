@@ -133,19 +133,56 @@ its own browser client with its own cookie name (all three share one Supabase
 project). The parameter is typed structurally against the two methods used, so
 a real `SupabaseClient` satisfies it and the package takes no dependency.
 
-**Filtering.** The customer's trip page passes one booking id and gets a
-`booking_id=eq.<uuid>` filter. The agent's task views pass **none** — they
-watch everything RLS lets them see, because enumerating assigned bookings
-client-side is a long filter list that goes stale the moment ops assigns one
-more. That is a scoping convenience, not a security boundary: the boundary is
-still `getAssignedTask` refusing to resolve a task that is not theirs.
+**Filtering: always, and never "watch everything".** Every subscriber passes
+booking ids and gets one `booking_id=eq.<uuid>` filter per id.
+
+The first design had the agent's views subscribe UNFILTERED and let RLS decide
+what reached them — the reasoning being that enumerating assigned bookings
+client-side goes stale the moment ops assigns one more. **Measured in a
+browser, that does not work:** an unfiltered `postgres_changes` on an
+RLS-protected table reports `CHANNEL_ERROR`, while the identical filtered
+subscription connects and delivers in under three seconds. Supabase evaluates
+the policy per subscriber per row, and the unfiltered case is the one that
+falls over.
+
+So the server passes the ids it already has, and the staleness that argued
+against it is exactly what the polling fallback is for: a booking assigned in
+the last thirty seconds arrives on the next poll, and the re-render that
+follows puts it in the filter list. `bookingIds` is a REQUIRED prop, and an
+empty array means **poll-only** — a surface that does not know what it is
+showing gets the honest fallback rather than a socket that silently never
+fires.
+
+Filtering is scoping, not a security boundary: the boundary is still
+`getAssignedTask` refusing to resolve a task that is not theirs.
 
 ### Where it is wired
 
-| App     | Component     | Watches                | Effect                                     |
-| ------- | ------------- | ---------------------- | ------------------------------------------ |
-| `web`   | `TripLive`    | one booking            | whole trip page re-renders                 |
-| `agent` | `LiveTasks`   | all assigned (via RLS) | today, the schedule, and both task details |
+| App     | Component     | Watches                          | Effect                                     |
+| ------- | ------------- | -------------------------------- | ------------------------------------------ |
+| `web`   | `TripLive`    | one booking (trip page)          | whole trip page re-renders                 |
+| `web`   | `TripLive`    | none on `/trips` → poll-only     | the list refreshes on the fallback         |
+| `agent` | `LiveTasks`   | every booking the view is showing | today, the schedule, and both task details |
+
+### Two traps, both found by driving a browser
+
+**1. A client component that returns `null` never mounts.** In a Next 16 /
+Turbopack production build its module loads, its function body runs, and its
+effects never fire — so the entire realtime layer was inert in every built app
+and degraded silently to polling, which is precisely the failure the fallback
+is designed to hide. `TripLive` and `LiveTasks` therefore render
+`<span hidden aria-hidden="true" data-live-signal={status} />`. The attribute
+is not decoration either: it is how "is this page live or polling?" is
+answerable from the DOM rather than from console output in a debug build.
+
+**2. A policy grants nothing.** `0030` enabled RLS and wrote a correct policy,
+and no browser received a single event, because `authenticated` had no `SELECT`
+privilege on the table — RLS narrows what a role may already read and cannot
+widen it. `0031` grants it explicitly rather than relying on an environment's
+default privileges, which local and hosted disagree about. See that migration's
+header, and note that `custody_events` has carried the same shape since `0001`
+(RLS on, policies, published, no grant) — nothing subscribes to it, so it was
+deliberately left alone.
 
 `TripLive` sits at **page** level, not inside the driver card. The interval it
 replaces lived in `DriverTracking`, which meant the page went live only after a

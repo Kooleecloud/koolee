@@ -41,10 +41,9 @@ const ANNOUNCEMENTS: Record<string, string> = {
 
 export function TripLive({
   /**
-   * The booking to watch. OMITTED on the trips list, which watches everything
-   * the viewer may see — 0030's RLS policy scopes that to their own bookings,
-   * and enumerating ids for a list that can hold fifty of them would be a
-   * filter expression per row for no gain.
+   * The booking to watch. OMITTED on the trips list, which has no single
+   * booking and therefore runs on the polling fallback — see the hook's note
+   * on why "watch everything" is not an option.
    */
   bookingId,
   /** False once the booking is terminal — nothing left to watch. */
@@ -67,7 +66,7 @@ export function TripLive({
     [bookingId],
   );
 
-  useBookingSignal({
+  const status = useBookingSignal({
     client,
     bookingIds,
     onSignal: () => router.refresh(),
@@ -82,5 +81,26 @@ export function TripLive({
     else toast.success(message);
   });
 
-  return null;
+  /*
+   * RENDERS AN EMPTY SPAN, NOT `null`, AND THAT IS LOAD-BEARING.
+   *
+   * A client component that returns `null` is never committed in this app's
+   * production build (Next 16 / Turbopack): its module loads, its function
+   * body runs, and its effects NEVER FIRE. The whole realtime layer was
+   * therefore inert in every built app and silently degraded to the polling
+   * fallback — which is precisely the failure the fallback is designed to
+   * hide, so nothing looked broken. Measured both ways: with `null`, no
+   * WebSocket is ever constructed; with this span, the channel reports
+   * SUBSCRIBED in under a second.
+   *
+   * `data-live-signal` carries the transport the hook actually settled on, so
+   * "is this page live or is it polling?" is answerable by looking at the DOM
+   * rather than by reading console output that only exists in a debug build.
+   * That is how this bug was finally pinned down, and how a regression will be.
+   *
+   * Found by driving two real browsers, not by any test in this repo — a
+   * typecheck, a lint and 250 integration tests all passed over the broken
+   * version. See RUN-REPORT-9 §V.
+   */
+  return <span hidden aria-hidden="true" data-live-signal={status} />;
 }

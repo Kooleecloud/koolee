@@ -72,7 +72,7 @@ export default async function SchedulePage({
 
   return (
     <AgentMain>
-      <LiveTasks stage={`jobs:${jobs.length}`} />
+      <LiveTasks bookingIds={jobs.map((job) => job.bookingId)} stage={`jobs:${jobs.length}`} />
 
       <header className="flex flex-col gap-3">
         <h1 className="font-display text-3xl font-semibold text-navy-800">

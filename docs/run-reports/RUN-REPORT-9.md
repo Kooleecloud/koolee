@@ -826,3 +826,252 @@ throw a page away.
 
 `turbo typecheck` 6/6 · `turbo lint` 6/6 · unit 5/5 · core integration
 **251 passed / 3 skipped, 27 files** · `turbo build` 3/3.
+
+---
+
+## §V — The verification pass, and the two bugs it found
+
+Everything below was done by driving two real browsers against **production
+builds** of all three apps (`next build` + `next start` on 3010/3011/3012),
+with the local Supabase stack. It is recorded as its own section because it
+found two defects that a full green board did not.
+
+### V.0 How, given Turnstile
+
+The staff and customer sign-in forms are gated by a LIVE Turnstile site key,
+which will not issue a token for `localhost`, so the login UI cannot be driven
+here. Local GoTrue has captcha disabled, so sessions were minted through the
+password / phone-OTP grants and written into each app's own
+`@supabase/ssr` cookie (`sb-koolee-{web,agent,admin}-auth`). **Nothing about
+the apps was changed to make this work** — no bypass, no test-only branch.
+
+The Playwright MCP browser profile was already in use, so the pass ran over raw
+CDP against Playwright's bundled Chromium in a scratch profile.
+
+### V.1 BUG — a client component that returns `null` never mounts
+
+`TripLive` and `LiveTasks` both returned `null`; they exist for their effects.
+In a Next 16 / Turbopack **production build** their modules load, their function
+bodies run, and **their effects never fire**.
+
+The whole realtime layer was therefore inert in every built app. And it looked
+fine: the polling fallback picked everything up, which is exactly the failure
+the fallback is designed to hide. The first two-window run "passed" — the
+agent's gate unlocked without a reload — **40.6 seconds** after the customer
+accepted, which is the 30-second poll plus a render, not a socket.
+
+Measured both ways, twice each: with `return null`, no WebSocket is ever
+constructed; with a rendered `<span>`, the channel reports `SUBSCRIBED` in
+under a second. Both components now render
+`<span hidden aria-hidden="true" data-live-signal={status} />`, and the
+attribute earns its place: it makes "is this page live or polling?" answerable
+from the DOM instead of from console output in a debug build.
+
+**Nothing in this repository could have caught it.** Typecheck, lint, 99 UI
+unit tests and 250 integration tests all passed over the broken version.
+
+### V.2 BUG — an RLS policy grants nothing
+
+With the components mounting, the sockets connected and still **no browser
+received a single event**.
+
+`0030` was correct in every part anybody would look at: the policy, the
+SECURITY DEFINER function, `REPLICA IDENTITY FULL`, publication membership. A
+service-role subscriber received changes; an `authenticated` one did not.
+
+`authenticated` held only `REFERENCES / TRIGGER / TRUNCATE` on
+`booking_signals` — **no `SELECT`**. Row-level security NARROWS what a role may
+already read; it cannot widen it. Realtime's per-row check failed before the
+policy was ever consulted, silently, with zero rows and no error —
+indistinguishable from "nothing changed".
+
+`0031_booking_signals_grant.sql` grants `SELECT` to `authenticated` and to
+nobody else, **explicitly** rather than relying on Supabase's default
+privileges, which local and hosted disagree about (§3.1 counts 154 grants per
+role — measured on hosted; the local stack has none). That is the same
+local-vs-hosted divergence `0016` exists to stop repeating.
+
+Written as a NEW migration, never an edit to `0030`, per the standing rule.
+
+**Noted and deliberately not fixed:** `custody_events` has carried the same
+shape since `0001` — RLS on, two policies, in the publication, no `SELECT`
+grant — so its subscription has never been able to deliver either. Nothing
+subscribes to it (the customer timeline is server-rendered), and opening a
+table nobody reads from a browser would be a privilege change with no feature
+behind it.
+
+### V.3 DESIGN CHANGE — no unfiltered subscriptions
+
+Phase 0 had the agent's views subscribe with **no filter** and let RLS decide
+what reached them, on the reasoning that enumerating assigned bookings
+client-side goes stale.
+
+It does not work. An unfiltered `postgres_changes` on an RLS-protected table
+reports `CHANNEL_ERROR` in the browser, while the identical **filtered**
+subscription connects and delivers in under three seconds — reproduced from
+Node as well, where a filtered agent subscription received events and the
+policy function returned `true` for that agent and booking. Supabase evaluates
+the policy per subscriber per row; the unfiltered case is the one that falls
+over.
+
+`bookingIds` is now a **required** prop, and an empty array means **poll-only**
+rather than "watch everything" — a surface that does not know what it is
+showing gets the honest fallback instead of a socket that silently never fires.
+The staleness that argued against filtering is what the fallback is for: a
+booking assigned in the last thirty seconds arrives on the next poll, and the
+re-render that follows puts it in the filter list.
+
+### V.4 The two-window evidence
+
+Customer trip page (980×1000) and the agent's schedule (430×900), one booking
+between them, side by side, neither touched. A custody event lands the way
+every service writes one.
+
+```
+TRANSPORT  customer: live   agent: live
+BASELINE   customer timeline entries: 23
+POKE
+CUSTOMER updated without reload after ms: 3047  -> entries 24
+AGENT    issued RSC refetches after the signal: 7
+CONSOLE ERRORS: []
+```
+
+**3.0 seconds against a 30-second fallback**, in both windows, with no
+interaction. A single-window measurement of the same chain gave **2.9 s**.
+
+Supporting measurements, all from the same session:
+
+| Check | Result |
+|---|---|
+| trigger fires on a real service write | `booking_signals.updated_at` = the custody event's instant, `touched_by` = the acting agent |
+| owning customer receives the change | ✅ (Node + browser) |
+| a DIFFERENT customer receives it | ❌ correctly — RLS isolates |
+| `can_watch_booking(agent, booking)` | `true` for the assigned agent |
+| agent's filtered subscription | `SUBSCRIBED` + event received |
+| all four live surfaces on load | `data-live-signal="live"` |
+| a finished task's live layer | `polling` — correct: `enabled={!view.done}` |
+
+**One honest caveat.** Across repeated runs on the local Realtime container,
+one two-window run had the agent refetch while the customer did not, and one
+had both miss. Both recovered on the next run and on the fallback. The local
+container had been restarted and hammered by this session; the same chain is
+deterministic from Node and single-window. It is called out here rather than
+smoothed over, and it is the one thing worth confirming on hosted — where
+Realtime runs a different configuration. It is also exactly the case the
+polling fallback exists for.
+
+### V.5 The page sweep
+
+Eleven surfaces, production builds, real sessions. All 200, all rendering the
+content they claim:
+
+```
+OK  web door           ("Upload your ticket" found)
+OK  web manual         ("Pickup ZIP" found)
+OK  web read-failed    (the non-blaming line found)
+OK  web trips home     ("Upcoming" found)
+OK  web profile        ("Your profile" found)
+OK  agent today
+OK  agent schedule     ("To do" found)
+OK  agent history      ("History" found)
+OK  admin staff        ("Staff" found)
+OK  admin bookings
+OK  staff history      counts ✓  shifts ✓  date range ✓
+```
+
+Console errors: none. (Two `%c%d font-size:0` lines are React DevTools' own
+badge, present before this slice.)
+
+The admin booking page was checked specifically for Phase 6: the **Trip
+history** card is present and its actor chips resolve to real names
+(`Leo Vargas` / `Nina Petrov` / `Alex Morgan`) rather than hex fragments.
+
+---
+
+## Phase 7 — Docs and close-out
+
+### 7.1 New and updated documentation
+
+| Doc | What |
+|---|---|
+| `docs/features/realtime-signals.md` | **new** — the signal-only rule, the table, the one policy, the client hook, and both traps from §V |
+| `docs/features/notifications.md` | **new** — the living matrix, the decisions inside it, idempotency keys, where each event is raised, the copy rules |
+| `docs/features/f2-hosted-setup.md` | **new** — TD's steps: two migrations, one dashboard check, no env vars, and the smoke tests in order |
+| `docs/features/booking-funnel.md` | §9.0 — the door, the three modes, the two kinds of failure |
+| `docs/features/storage-and-avatars.md` | §3.1 — who may see whose face, and replacing a staff photo |
+| `PROJECT-STATUS.md` | F2 rows, snapshot entry, four new §7 standing rules |
+| `docs/CODEBASE-MAP.md` | `booking_signals`, the realtime chapter pointer, the new services |
+
+### 7.2 The five embedded decisions, at close-out
+
+1. **Realtime is a signal, never a source of truth** — implemented and encoded
+   in three places (the migration header, the feature doc, a §7 rule). Nothing
+   renders a payload.
+2. **Web push OUT** — held; no push code. Backlogged.
+3. **SMS parked** — held; the matrix carries the column, the code carries
+   nothing.
+4. **Photos** — **adjusted**, and the adjustment is the whole of Phase 4: the
+   bucket, the column, the downscale, the initials fallback and three upload
+   surfaces already shipped with `0026`/`0027`. Built the two things that were
+   actually missing instead of renaming what exists.
+5. **Profile completeness** — implemented as specified, with the per-booking
+   exclusion enforced by a test.
+
+### 7.3 Deferred, with reasons
+
+| Item | Why |
+|---|---|
+| Web push for the agent PWA | Decision #2. Its own item. |
+| SMS | A2P registration, not code. |
+| A notifications/`email_sends` table | Would be bookkeeping on the send path. The console says sends live in Inngest instead of implying a zero. |
+| Offline outbox for custody capture | Real correctness questions; a half-built one is worse than none. The app says "you're offline" and queues nothing. |
+| `custody_events` SELECT grant | Its subscription has never worked and nothing subscribes. Opening a table nobody reads is a privilege change with no feature behind it. |
+| Orphaned avatar objects | Same retention sweep bag and passport photos are waiting on. |
+| Old `.next` dev-cache growth | Unrelated; `turbo.json`'s exclusion from F1 holds. |
+
+---
+
+## Final gate
+
+| Gate | Result |
+|---|---|
+| `turbo typecheck` | **6/6** |
+| `turbo lint` | **6/6** |
+| Unit (`pnpm test`) | **5/5 packages** — core 486 (+1 skipped), web 109, ui 99, admin 27, agent 19 |
+| Core integration (`koolee_test`) | **251 passed, 3 skipped, 27 files** |
+| `turbo build` | **3/3** |
+| `pnpm db:status` (local) | **32 of 32, matched by content hash — in sync** |
+| Browser pass | 11 surfaces at 200, zero console errors; two-window realtime at **3.0 s** |
+
+**Databases touched: LOCAL ONLY.** `127.0.0.1:54322` for migrations and the
+seed, the disposable `koolee_test` for the integration tier. Hosted was never
+contacted and `DIRECT_DATABASE_URL` was never overridden.
+
+**Migrations added: `0030` and `0031`, LOCAL ONLY.** Hosted is TD's step —
+[docs/features/f2-hosted-setup.md](../features/f2-hosted-setup.md).
+
+**No new environment variables**, in any app or in core.
+
+### Test-data footprint on the local dev database
+
+The verification pass used the existing seeded accounts and real product
+actions against pre-existing dev bookings. It left behind, on `KOO-2JT6V`
+only: one sealed bag (`KLS-891872`), a completed verification visit, and eight
+`booking.agent_reassigned` custody rows tagged `{"probe": "f2-…"}` used to time
+the live updates. All of it is append-only evidence on a dev booking, and the
+probe rows are labelled so they are recognisable as probes.
+
+### Commits on `feat/f2-live-ux`
+
+One per phase, in order:
+
+| Commit | Phase |
+|---|---|
+| `feat(realtime): a doorbell, not a data path` | 0 |
+| `feat(notifications): the four messages that were missing` | 1 |
+| `feat(funnel): the ticket is the door, the form is the alternative` | 2 |
+| `feat(web): a trips home worth landing on, and a checklist that disappears` | 3 |
+| `feat(photos): issuance you cannot get wrong, and a photo an admin can fix` | 4 |
+| `feat(agent): a schedule ordered by attention, and a history that is a record` | 5 |
+| `feat(admin): histories that name people, and counts nobody has to maintain` | 6 |
+| `fix(realtime): the layer was inert, and docs to close the slice` | 7 + §V |

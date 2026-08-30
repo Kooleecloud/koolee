@@ -8,12 +8,26 @@ import { getSupabaseBrowserClient } from "@/lib/supabase/browser";
 /**
  * Live task views for the field app.
  *
- * NO BOOKING IDS ARE PASSED. The agent watches every booking they are assigned
- * to, and 0030's RLS policy is what decides which those are — enumerating them
- * client-side would be a long filter list that goes stale the moment ops
- * assigns one more. The socket carries no data we render, so the policy is a
- * scoping convenience rather than a security boundary; the boundary is still
- * `getAssignedTask` refusing to resolve a task that is not theirs.
+ * THE BOOKING IDS ARE PASSED, and that was not the first design.
+ *
+ * This started as an UNFILTERED subscription — watch the whole table and let
+ * 0030's RLS policy decide what reaches you — on the reasoning that
+ * enumerating ids client-side goes stale the moment ops assigns one more.
+ * Measured in a browser, that subscription does not work: an unfiltered
+ * `postgres_changes` on an RLS-protected table reports CHANNEL_ERROR, while
+ * the identical filtered subscription on the customer's page connects and
+ * delivers in under three seconds. Supabase evaluates the policy per
+ * subscriber per row, and the unfiltered case is the one that falls over.
+ *
+ * So the server passes the ids it already has (`listAssignedTasks` returned
+ * them to render the page), and the staleness that argued against this is
+ * exactly what the polling fallback is for: a booking assigned in the last
+ * thirty seconds that is not yet in the filter list arrives on the next poll,
+ * and the re-render that follows puts it in the list.
+ *
+ * The socket still carries no data we render, so this is scoping, not a
+ * security boundary; the boundary is still `getAssignedTask` refusing to
+ * resolve a task that is not theirs.
  *
  * WHAT THIS FIXES AT THE DOOR. The identity gate unlocks when the customer
  * accepts the agreement — which they often do while the agent is standing
@@ -32,6 +46,8 @@ const ANNOUNCEMENTS: Record<string, string> = {
 };
 
 export function LiveTasks({
+  /** The bookings this view is showing. See the note above on why not "all". */
+  bookingIds,
   enabled = true,
   /**
    * Opaque milestone key computed on the SERVER, or null on views with no
@@ -41,14 +57,16 @@ export function LiveTasks({
    */
   stage = null,
 }: {
+  bookingIds: readonly string[];
   enabled?: boolean;
   stage?: string | null;
 }) {
   const router = useRouter();
   const client = getSupabaseBrowserClient();
 
-  useBookingSignal({
+  const status = useBookingSignal({
     client,
+    bookingIds,
     onSignal: () => router.refresh(),
     enabled,
   });
@@ -67,5 +85,26 @@ export function LiveTasks({
     if (message) toast.success(message);
   });
 
-  return null;
+  /*
+   * RENDERS AN EMPTY SPAN, NOT `null`, AND THAT IS LOAD-BEARING.
+   *
+   * A client component that returns `null` is never committed in this app's
+   * production build (Next 16 / Turbopack): its module loads, its function
+   * body runs, and its effects NEVER FIRE. The whole realtime layer was
+   * therefore inert in every built app and silently degraded to the polling
+   * fallback — which is precisely the failure the fallback is designed to
+   * hide, so nothing looked broken. Measured both ways: with `null`, no
+   * WebSocket is ever constructed; with this span, the channel reports
+   * SUBSCRIBED in under a second.
+   *
+   * `data-live-signal` carries the transport the hook actually settled on, so
+   * "is this page live or is it polling?" is answerable by looking at the DOM
+   * rather than by reading console output that only exists in a debug build.
+   * That is how this bug was finally pinned down, and how a regression will be.
+   *
+   * Found by driving two real browsers, not by any test in this repo — a
+   * typecheck, a lint and 250 integration tests all passed over the broken
+   * version. See RUN-REPORT-9 §V.
+   */
+  return <span hidden aria-hidden="true" data-live-signal={status} />;
 }

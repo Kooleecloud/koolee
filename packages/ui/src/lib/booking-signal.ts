@@ -68,14 +68,22 @@ export interface UseBookingSignalOptions {
    */
   client: BookingSignalClient | null;
   /**
-   * Bookings to watch. EMPTY means "everything the viewer may see" — the
-   * agent's task list, where RLS on `booking_signals` is the filter and
-   * enumerating ids client-side would be both long and stale.
+   * Bookings to watch. One `postgres_changes` filter per id.
+   *
+   * REQUIRED, AND EMPTY MEANS POLL-ONLY — not "watch everything". An
+   * unfiltered subscription on an RLS-protected table was the first design
+   * here and it does not work: measured in a browser, it reports
+   * CHANNEL_ERROR while the identical filtered subscription connects and
+   * delivers in under three seconds. Supabase evaluates the policy per
+   * subscriber per row, and the unfiltered case is the one that falls over.
+   * A surface that does not know which bookings it is showing therefore gets
+   * the polling fallback, honestly, rather than a socket that silently never
+   * fires.
    *
    * Pass a stable array; the hook keys its subscription on the sorted join,
    * so a new array literal with the same ids does not resubscribe.
    */
-  bookingIds?: readonly string[];
+  bookingIds: readonly string[];
   /** Refetch. Called debounced, and once on every (re)connect. */
   onSignal: () => void;
   /** Poll cadence. Set 0 to disable — only for a page that is already static. */
@@ -125,7 +133,7 @@ export function useBookingSignal({
    */
   const [socket, setSocket] = React.useState<{ key: string; live: boolean } | null>(null);
 
-  const watching = enabled && client !== null;
+  const watching = enabled && client !== null && key !== "";
   const status: BookingSignalStatus = !watching
     ? "polling"
     : socket?.key !== key
@@ -137,7 +145,8 @@ export function useBookingSignal({
   /* --- the socket ------------------------------------------------- */
 
   React.useEffect(() => {
-    if (!enabled || !client) return;
+    // No ids is not "watch everything" — see the prop's note. It is poll-only.
+    if (!enabled || !client || key === "") return;
 
     let timer: ReturnType<typeof setTimeout> | null = null;
     let cancelled = false;
@@ -151,33 +160,24 @@ export function useBookingSignal({
       }, SIGNAL_DEBOUNCE_MS);
     };
 
-    const ids = key ? key.split(",") : [];
+    const ids = key.split(",");
     // A channel name unique to what is watched: two components watching
     // different bookings must not share (and therefore close) one channel.
-    const channel = client.channel(`booking-signal:${key || "assigned"}`);
+    const channel = client.channel(`booking-signal:${key}`);
 
-    if (ids.length === 0) {
-      // No filter — RLS decides what this session may see. The agent's list.
+    // One handler per id. `postgres_changes` takes a single filter
+    // expression, so a set of bookings is a set of handlers on one channel.
+    for (const id of ids) {
       channel.on(
         "postgres_changes",
-        { event: "*", schema: "public", table: BOOKING_SIGNAL_TABLE },
+        {
+          event: "*",
+          schema: "public",
+          table: BOOKING_SIGNAL_TABLE,
+          filter: `booking_id=eq.${id}`,
+        },
         fire,
       );
-    } else {
-      // One handler per id. `postgres_changes` takes a single filter
-      // expression, so a set of bookings is a set of handlers on one channel.
-      for (const id of ids) {
-        channel.on(
-          "postgres_changes",
-          {
-            event: "*",
-            schema: "public",
-            table: BOOKING_SIGNAL_TABLE,
-            filter: `booking_id=eq.${id}`,
-          },
-          fire,
-        );
-      }
     }
 
     channel.subscribe((state: string) => {

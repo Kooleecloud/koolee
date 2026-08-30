@@ -56,6 +56,37 @@ package-specific in `packages/<pkg>/docs/`. Nothing new accumulates at the root.
 
 ## 3. Snapshot — where we are right now
 
+- **Slice F2 shipped: the product went live, in both senses (2026-08-30,
+  `feat/f2-live-ux`).** Rows 85–91. Migrations **0030 + 0031, LOCAL ONLY** —
+  the hosted apply is TD's step
+  ([docs/features/f2-hosted-setup.md](docs/features/f2-hosted-setup.md)), and
+  there are **no new environment variables** in any app or in core. The
+  customer's trip page and the agent's task views now update without a reload,
+  and the architecture rule behind that is the important part: **realtime is a
+  signal, never a source of truth.** Supabase says THAT a booking changed; the
+  client refetches through the ordinary server path, so Drizzle stays the only
+  read path and the worst an RLS mistake can do is cause a wasted refetch.
+  `booking_signals` is one row per booking, three columns, one SELECT policy —
+  and the writer is a TRIGGER on `custody_events`, so roughly twenty services
+  signal correctly without knowing the table exists, the same
+  covered-by-construction move the exception emit had to learn.
+  Four notification gaps closed (agent assigned, bags sealed + choose your
+  driver as ONE email, a customer-facing exception that carries no reason).
+  The funnel opens on the ticket instead of the form. `/trips` splits Upcoming
+  from Past — where Past means "nothing left to watch", so a `paid` booking for
+  yesterday's plane belongs there. Photo issuance moved from a comment
+  ("never pass a path from a request") to a control that takes user ids. The
+  agent's schedule is ordered by attention with a read-only History twin, and
+  the console's histories name people instead of hex fragments.
+  **Two bugs were found by driving real browsers that a fully green board did
+  not:** a client component returning `null` never mounts in a production build
+  (so the entire realtime layer was inert and degrading silently to polling),
+  and an RLS policy grants nothing — `authenticated` had no `SELECT` on the new
+  table, so Realtime's per-row check failed before the policy was consulted.
+  Measured after both fixes: **3.0 s** end to end, two windows, against a 30 s
+  fallback. Full record, including the verification pass:
+  [docs/run-reports/RUN-REPORT-9.md](docs/run-reports/RUN-REPORT-9.md).
+
 - **Slice F1 shipped: three reported bugs, and the gates that were missing
   (2026-08-29, `fix/f1-gates-and-bugs`).** Rows 80–84. **No migrations.** The
   staging extraction bug turned out not to be an extraction bug: `apps/web`
@@ -417,6 +448,13 @@ the linked row is the current behaviour)
 | 82 | Terminal-state and lateness gates: one actionability service (2026-08-29) | ✅ | `fix/f1-gates-and-bugs`: five services each carried their own status array and **none knew about time** — a `paid` booking whose flight left an hour ago is still `paid`, so it kept accepting agreements, taking passport uploads and offering a driver shortlist. `services/actionability.ts` answers it once, on two axes kept deliberately separate: **standing** (`active`/`in_transit`/`handed_over`/`exception`/`terminal`) and **phase** (`before_window_end`/`running_late`/`missed_cutoff`/`departed`). Twenty minutes past the pickup window is late and salvageable; twenty past the bag-drop cutoff is not. Late-but-savable keeps every action and shows a notice on all three surfaces; past the cutoff blocks all five and raises the existing exception path **exactly once** — not by counting, but because `applyTransition` guards `WHERE status = from`. A driver already in transit is carved out by construction. **No migration, no new column** — every anchor already exists. 18 unit + 17 integration tests |
 | 83 | Auth polish: one password rule, one email rule, a show/hide toggle (2026-08-29) | ✅ | `fix/f1-gates-and-bugs`: `PasswordField` in `packages/ui` (type=button so revealing does not submit; `tabIndex={-1}` so it is not between the field and Sign in; `aria-pressed` + a label that changes) on all three staff password inputs. The rules moved to one dependency-free `@koolee/ui/lib/credentials`: the form's `minLength` and the server's zod schema now read the SAME constant. Email normalization was genuinely inconsistent — the admin invite trimmed AND lowercased, sign-in and password reset only trimmed, and `saveProfile` only trimmed — so `normalizeEmail` is applied at every parse boundary in all three apps, on the schema (`z.preprocess`) where the input is an object. Sign-in returns ONE message for "no such account" and "wrong password". Verified in a real browser over CDP |
 | 84 | 616 GB of turbo cache, and the line that caused it (2026-08-29) | ✅ | `fix/f1-gates-and-bugs`: `turbo build` succeeded and then failed its cache write on `No space left on device` — `.turbo/cache` held **616 GB** on a volume with 1.5 GB free (5,070 files ≈ 1,690 entries — turbo writes three per entry — with a few dozen of them 18–19 GB each). `outputs` excluded `.next/cache/**` but not `.next/dev/**`, and Next 16 keeps its turbopack DEV cache there, so every build on a checkout where anyone had run `pnpm dev` archived 38 GB of it. One exclusion; three full app builds now produce **37 MB**. Any other machine that has built this repo has the same pile — `rm -rf .turbo/cache` |
+| 85 | Realtime: a doorbell, never a data path (2026-08-30) | ✅ | `feat/f2-live-ux`: the customer trip page and the agent's task views update with no reload. Supabase says THAT a booking changed; the client refetches through the ordinary server path, so Drizzle stays the only read path and an RLS mistake costs a wasted refetch. `booking_signals` (0030) is one row per booking, three columns, ONE SELECT policy through a SECURITY DEFINER function; the writer is a trigger on `custody_events` so ~20 services signal without knowing the table exists. 0031 adds the `SELECT` grant the policy is useless without. [realtime-signals.md](docs/features/realtime-signals.md) |
+| 86 | The four notifications that were missing (2026-08-30) | ✅ | `feat/f2-live-ux`: "your agent is <name>", "bags sealed — choose your driver" (one email for two moments that fire at the same instant), and a customer-facing exception email carrying NO reason — a separate function on the same event, because the internal reason is written for an operator and is often wrong in the first minute. In-app, `useAnnounceChange` toasts the first time a server-computed stage moves and is silent on mount. Living matrix: [notifications.md](docs/features/notifications.md) |
+| 87 | The funnel opens on the ticket, not the form (2026-08-30) | ✅ | `feat/f2-live-ux`: `/book/flight` is a drop area; manual entry is a link below it, framed as an equal path. `flightEntryMode` is a pure function because one of its rules is a hazard — somebody stepping back to edit must never be sent to an upload screen. A file we will never accept is retryable in place; one we accepted and could not READ drops into the manual form with a non-blaming line. [booking-funnel.md §9.0](docs/features/booking-funnel.md) |
+| 88 | Trips home, and a checklist that disappears (2026-08-30) | ✅ | `feat/f2-live-ux`: Upcoming (soonest first, needs-action badges) and Past — where Past means "nothing left to watch", so a `paid` booking for yesterday's plane belongs there whatever its status says. `listCustomerTrips` costs one query per fact, not one per booking, and reuses the PURE `bookingActionability`. Profile completeness excludes the agreement and the passport on purpose: they are per-booking, and counting them would make a finished profile un-finishable |
+| 89 | Photo issuance you cannot get wrong (2026-08-30) | ✅ | `feat/f2-live-ux`: `signAvatarUrlForViewer(path)` took a raw storage path and a comment saying never to pass one from a request. Callers now name subject user IDS and a booking; `avatarPathsForViewer` decides. An admin can replace any STAFF photo (service-role after `canReplaceAvatarOf`, because 0027's policy admits your own folder only); a customer's photo stays out of reach. [storage-and-avatars.md §3.1](docs/features/storage-and-avatars.md) |
+| 90 | The agent's day, ordered by attention (2026-08-30) | ✅ | `feat/f2-live-ux`: problems, overdue, today, then a group per day — finished work moved to a History twin on the same route rather than a fourth bottom tab. The task page renders its record instead of its controls when nothing is left: one view, two modes. Verifying the immutability claim found `confirmVisitIdentity` had NO actionability gate at all and could append to a booking delivered days earlier |
+| 91 | Admin histories that name people (2026-08-30) | ✅ | `feat/f2-live-ux`: the custody trail identified every actor as eight hex characters; it resolves names and faces now, through the same `avatarPathsForViewer` every other surface uses. `/staff/[userId]` is new — counts by kind, a date range that lives in the URL, rows linking to bookings, shifts beside them, all DERIVED from task rows with no bookkeeping table. What cannot be derived (email sends) is stated on the page rather than implied as a zero |
 ---
 
 ## 5. Timeline (condensed)
@@ -475,6 +513,60 @@ user-confirmed values persist. `ANTHROPIC_API_KEY` present = Claude
 ---
 
 ## 7. Standing constraints (do not relearn these)
+
+- **Realtime is a SIGNAL, never a source of truth.** Supabase tells a client
+  that a booking changed; the client refetches through the ordinary server
+  path. Nothing in a realtime payload is ever rendered — the moment something
+  is, Drizzle has stopped being the only read path and an RLS mistake has
+  become a disclosure instead of a wasted refetch. RLS exists on ONE table
+  (`booking_signals`, 0030) with ONE SELECT policy; never enable it on a domain
+  table to make a feature easier. Live must always DEGRADE to the polling
+  fallback, never gate: a customer whose socket failed must not be the last to
+  know their driver arrived.
+- **An RLS policy grants nothing.** Row-level security narrows what a role may
+  already read; it cannot widen it. A policy on a table `authenticated` has no
+  `SELECT` on fails before the policy is consulted — silently, with zero rows
+  and no error. Every new client-readable table needs BOTH, stated explicitly
+  in the migration rather than inherited from an environment's default
+  privileges (local and hosted disagree; see 0031, and 0016 for the same
+  lesson). Cost: the whole F2 realtime layer, invisible to 250 integration
+  tests, because the integration tier runs on the direct connection where RLS
+  and grants are both irrelevant.
+- **Never subscribe to `postgres_changes` without a filter.** An unfiltered
+  subscription on an RLS-protected table reports `CHANNEL_ERROR`; the identical
+  filtered one connects and delivers in under three seconds. `useBookingSignal`
+  requires `bookingIds`, and an empty array means POLL-ONLY rather than "watch
+  everything" — a surface that does not know what it is showing gets the honest
+  fallback, not a socket that silently never fires.
+- **A client component that returns `null` never mounts.** In a Next 16 /
+  Turbopack production build its module loads, its body runs, and its effects
+  NEVER FIRE. Any component that exists purely for an effect must render
+  something — `TripLive` and `LiveTasks` render
+  `<span hidden aria-hidden="true" data-live-signal={status} />`, and that
+  attribute is also how "live or polling?" is answered from the DOM. Typecheck,
+  lint and every test passed over the broken version; only a browser found it.
+- **Photo issuance names PEOPLE, never paths.** `avatarPathsForViewer` takes
+  subject user ids and a booking and returns only what the relationship
+  permits: a customer sees the agent and driver on their OWN booking, staff see
+  the customer of a booking they have a task on, an admin sees anyone. The one
+  exception is the driver shortlist, which has its own named function because
+  no relationship exists yet and `listCandidateDrivers` is the authorization.
+  Never re-add a signing helper that accepts a raw storage path.
+- **An admin may replace a STAFF photo, never a customer's.** 0027's policy
+  admits your own folder only, so the check cannot be RLS — it is
+  `canReplaceAvatarOf` in core, and the service-role write happens only after
+  it. Editing a customer's face is a moderation capability this product has
+  decided not to have.
+- **Profile completeness is per-PERSON; agreements and passports are
+  per-BOOKING.** Counting a booking obligation in the profile checklist would
+  make a finished profile un-finishable — every new booking would un-complete
+  it — and would tell somebody their profile is incomplete when it is not.
+  Per-booking prompts live on the trip, from `services/trips.ts`.
+- **Counts in the console are DERIVED, never bookkept.** No counter column, no
+  `staff_stats` table; a counter on a write path is a thing that has to be kept
+  in step with what it counts, which is how a number becomes confidently wrong.
+  What cannot be derived is SAID — email sends live in Inngest, and the booking
+  history states that rather than letting an absent line read as a zero.
 
 - **The ticket extractor is chosen by ONE env var, and the fallback is not a
   peer of the real one.** No `ANTHROPIC_API_KEY` ⇒ the in-process heuristic,
