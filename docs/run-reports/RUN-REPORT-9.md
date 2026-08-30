@@ -510,3 +510,106 @@ own bookings. A needs-action badge appearing without a reload is the point.
 
 `turbo typecheck` 6/6 · `turbo lint` 6/6 · unit 5/5 (core 486) ·
 core integration **223 passed / 3 skipped, 24 files** · `turbo build` 3/3.
+
+---
+
+## Phase 4 — Profile photos, cross-app
+
+### 4.1 Most of this was already shipped — the flagged adjustment
+
+The prompt specified a new private bucket `profile-photos`, a new
+`users.profile_photo_path` column, a browser downscale, an initials fallback
+and three upload surfaces. **All of that shipped in the storage/avatars slice**
+(migration `0026`/`0027`, PR #24). What exists:
+
+| Specified | What is actually there |
+|---|---|
+| bucket `profile-photos` | bucket **`avatars`**, private, 3 MiB limit, 1 h signed URLs |
+| `users.profile_photo_path` | **`users.avatar_storage_path`** (0027) |
+| browser downscale | `downscalePhoto` via the shared `AvatarUploader` |
+| one current photo, replace = new object | exactly that, `upsert: false`, old object orphaned for the same retention sweep passports wait on |
+| initials fallback | `Avatar` — initials on a name-derived tint, and it falls back on LOAD FAILURE too, which matters because signed URLs expire in an hour |
+| customer + agent + admin own-profile upload | all three |
+
+Rebuilding any of it under new names would have been a migration and a
+rename for no behaviour change. **Two things were genuinely missing**, and this
+phase built those.
+
+### 4.2 Missing #1 — the admin could not replace a staff photo
+
+Now a **Photo** action per row on `/staff`, in a dialog (a picker per row would
+put a dozen file inputs on one page; this is a rare action with a real
+consequence). It reuses `AvatarUploader` unchanged — same downscale, same
+limits read from the bucket spec — and differs by one query parameter.
+
+Two things follow from `0027` and both are in the route's header:
+
+1. **RLS cannot be the gate.** The insert policy is "your own folder, whoever
+   you are", so a cross-folder write is refused — correctly, since that policy
+   is what stops a path-building bug writing into a stranger's folder. The
+   check moves into code: `canReplaceAvatarOf` admits an admin acting on a
+   member of **active staff**, and nobody else.
+2. **It runs service-role**, only after that check, through
+   `uploadAvatarAsService` — the one place in the product that writes into
+   somebody else's folder.
+
+A **customer's** photo is deliberately unreachable from the console. It is
+their face, and editing it would be the moderation capability decision #4 said
+v1 does not have.
+
+### 4.3 Missing #2 — issuance was a convention, not a control
+
+`signAvatarUrlForViewer(path)` took a raw storage path and carried a comment
+saying "never call this with a path that arrived from a request". That comment
+was standing in for an authorization rule nothing enforced and no test covered.
+
+`services/avatar-visibility.ts` is the rule:
+
+| Viewer | May see |
+|---|---|
+| anyone | themselves |
+| customer | the agent and driver on **their own** booking |
+| staff | the customer of a booking **they have a task on** |
+| admin | anyone |
+
+The web helper is now `signAvatarUrlsForBooking({ db, viewer, bookingId,
+subjectUserIds })` — **there is no signature it can be handed a path with**. It
+resolves through `avatarPathsForViewer` and signs only what comes back; a
+subject the viewer may not see is absent from the map and renders as initials,
+identical to having no photo, which is not a disclosure either.
+
+`AssignedAgent` gained a `userId` so the trip page can ask by identity rather
+than being handed a path.
+
+**The one exception is named rather than hidden.** The driver **shortlist**
+shows four faces before anybody is assigned, so no relationship exists yet;
+`listCandidateDrivers` — ownership-checked and `assertActionable`-gated — is
+the authorization, and `signShortlistAvatarUrl` exists as its own function so
+that exception appears in a diff.
+
+**Known coarseness, left deliberately and written down:** `0027`'s Storage read
+policy admits any active staff member to any avatar folder, which is broader
+than the table above. Tightening it would break the agent seeing the customer
+at the door; keys carry an unguessable uuid so folders are not enumerable; and
+the app never hands staff a path they were not entitled to. The fine-grained
+rule is enforced at issuance, in application code, which is where this codebase
+puts authorization anyway.
+
+### 4.4 Tests
+
+`avatar-visibility.integration.test.ts` — 15 tests, and the ones that matter
+are all refusals: an **unassigned agent** cannot fetch the customer's face; a
+customer cannot fetch an agent who is not theirs; naming somebody else's
+booking id changes nothing; a customer with no booking named gets nothing; and
+nobody is visible before anybody is assigned. Plus the replacement rules — an
+admin may replace a staff photo, may NOT replace a customer's, may not touch a
+deactivated staff member's, and an agent may replace nobody's but their own.
+
+The upload/replace path and the downscale are covered by the existing
+`buckets.test.ts` and `AvatarUploader` (which downscales before it ever posts,
+and previews the downscaled file so what you see is what is stored).
+
+### 4.5 Gates
+
+`turbo typecheck` 6/6 · `turbo lint` 6/6 · unit 5/5 · core integration
+**238 passed / 3 skipped, 25 files** · `turbo build` 3/3.

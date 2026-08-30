@@ -20,6 +20,7 @@ import { tryGetCore } from "@/lib/core";
 import { getAdminSession } from "@/lib/session";
 
 import { DeactivateStaffButton, InviteStaffForm } from "./staff-forms";
+import { StaffPhotoDialog } from "./staff-photo-dialog";
 
 export const metadata = { title: "Staff" };
 export const dynamic = "force-dynamic";
@@ -111,6 +112,18 @@ export default async function StaffPage() {
                       ) : (
                         <Badge variant="warning">deactivated</Badge>
                       )}
+                      {/* An admin may replace any staff photo — see
+                          `canReplaceAvatarOf`. A customer's photo is
+                          deliberately out of reach from here. */}
+                      <StaffPhotoDialog
+                        userId={member.userId}
+                        name={member.fullName ?? member.email}
+                        currentUrl={
+                          member.avatarStoragePath
+                            ? (avatarUrls.get(member.avatarStoragePath) ?? null)
+                            : null
+                        }
+                      />
                       {member.active ? (
                         <DeactivateStaffButton userId={member.userId} />
                       ) : null}

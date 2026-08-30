@@ -1,12 +1,13 @@
 import { NextResponse } from "next/server";
 import {
   AVATAR_UPLOAD_COPY,
+  canReplaceAvatarOf,
   clearUserAvatar,
   handleAvatarUpload,
   setUserAvatar,
 } from "@koolee/core";
 
-import { uploadAvatar } from "@/lib/avatars";
+import { uploadAvatar, uploadAvatarAsService } from "@/lib/avatars";
 import { tryGetCore } from "@/lib/core";
 import { getAdminSession } from "@/lib/session";
 
@@ -15,16 +16,41 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 /**
- * The operator's profile picture.
+ * Profile pictures from the console — the operator's own, and any staff
+ * member's.
  *
- * Byte-for-byte the same flow as the customer and agent routes, because all
- * three post to `AvatarUploader` and run `handleAvatarUpload`. Only the
- * session resolution differs: this one requires an active `staff_members` row
- * with role `admin`, re-checked per request like every other console surface,
- * so a deactivated operator cannot still change the face the console shows.
+ * The own-photo path is byte-for-byte the same flow as the customer and agent
+ * routes: all three post to `AvatarUploader` and run `handleAvatarUpload`.
+ * Only the session resolution differs — this one requires an active
+ * `staff_members` row with role `admin`, re-checked per request, so a
+ * deactivated operator cannot still change the face the console shows.
+ *
+ * THE ON-BEHALF PATH (`?userId=`) is the one thing the console can do that no
+ * other app can, and it needs two things the own-photo path does not:
+ *
+ *  1. **A code-side authorization check.** Migration 0027's insert policy is
+ *     "your own folder, whoever you are", so RLS refuses a cross-folder write
+ *     and cannot be the gate. `canReplaceAvatarOf` is: an admin, acting on a
+ *     member of ACTIVE STAFF. A customer's photo is out of reach on purpose —
+ *     it is their face, and editing it would be a moderation capability this
+ *     product has decided not to have in v1.
+ *  2. **The service-role client**, for the same reason. It is used only after
+ *     the check above, never before.
+ *
+ * The object key is still built from the SUBJECT's id (`handleAvatarUpload`
+ * derives it from `deps.userId`), so `setUserAvatar`'s own prefix assertion
+ * still holds and a bug here fails loudly rather than pointing one person's
+ * profile at another person's face.
  */
 
 const UNAVAILABLE = "Profile pictures aren't available in this environment yet.";
+const NOT_PERMITTED = "You can only change a photo for a member of staff.";
+
+/** The subject of this request: the operator, or a staff member they may edit. */
+async function resolveSubject(request: Request, viewerUserId: string) {
+  const requested = new URL(request.url).searchParams.get("userId");
+  return { subjectUserId: requested?.trim() || viewerUserId, onBehalf: Boolean(requested) };
+}
 
 export async function POST(request: Request) {
   const session = await getAdminSession();
@@ -34,6 +60,11 @@ export async function POST(request: Request) {
 
   const core = tryGetCore();
   if (!core) return NextResponse.json({ error: UNAVAILABLE }, { status: 503 });
+
+  const { subjectUserId, onBehalf } = await resolveSubject(request, session.userId);
+  if (onBehalf && !(await canReplaceAvatarOf(core.db, session, subjectUserId))) {
+    return NextResponse.json({ error: NOT_PERMITTED }, { status: 403 });
+  }
 
   let file: { data: Uint8Array; mimeType: string } | null = null;
   try {
@@ -51,10 +82,15 @@ export async function POST(request: Request) {
 
   const outcome = await handleAvatarUpload(
     {
-      userId: session.userId,
-      storage: { upload: (input) => uploadAvatar(input) },
+      userId: subjectUserId,
+      storage: {
+        // Own photo goes over the anon key so RLS stays the gate; somebody
+        // else's cannot, and has already passed the check above.
+        upload: (input) =>
+          onBehalf ? uploadAvatarAsService(input) : uploadAvatar(input),
+      },
       recordAvatar: async (storagePath) => {
-        await setUserAvatar(core.db, { userId: session.userId, storagePath });
+        await setUserAvatar(core.db, { userId: subjectUserId, storagePath });
       },
     },
     file,
@@ -66,7 +102,7 @@ export async function POST(request: Request) {
   return NextResponse.json({ ok: true });
 }
 
-export async function DELETE() {
+export async function DELETE(request: Request) {
   const session = await getAdminSession();
   if (!session) {
     return NextResponse.json({ error: "Please sign in first." }, { status: 401 });
@@ -75,8 +111,16 @@ export async function DELETE() {
   const core = tryGetCore();
   if (!core) return NextResponse.json({ error: UNAVAILABLE }, { status: 503 });
 
+  const { subjectUserId, onBehalf } = await resolveSubject(request, session.userId);
+  if (onBehalf && !(await canReplaceAvatarOf(core.db, session, subjectUserId))) {
+    return NextResponse.json({ error: NOT_PERMITTED }, { status: 403 });
+  }
+
   try {
-    await clearUserAvatar(core.db, session.userId);
+    // Clears the POINTER, never the object — same rule as everywhere else:
+    // removing a picture is a display decision, purging bytes is a retention
+    // decision, and they are not the same request.
+    await clearUserAvatar(core.db, subjectUserId);
   } catch (error) {
     console.error("[avatars] clear failed", error);
     return NextResponse.json(

@@ -65,6 +65,13 @@ export {
 } from "./display-tz";
 
 export {
+  avatarPathForViewer,
+  avatarPathsForViewer,
+  canReplaceAvatarOf,
+  type AvatarVisibilityQuery,
+} from "./avatar-visibility";
+
+export {
   clearUserAvatar,
   getUserAvatarPath,
   listUserAvatarPaths,

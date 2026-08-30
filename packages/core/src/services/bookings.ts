@@ -192,6 +192,12 @@ export async function getBookingForSession(
  * `getBookingAssignment` instead.
  */
 export interface AssignedAgent {
+  /**
+   * The staff user id. Carried so a caller can ask
+   * `avatarPathsForViewer` for their face by IDENTITY rather than being
+   * handed a storage path — see `services/avatar-visibility.ts`.
+   */
+  userId: string;
   givenName: string | null;
   taskStatus: TaskStatus;
   /**
@@ -260,6 +266,7 @@ export async function getBookingDetailForSession(
       db.query.addresses.findFirst({ where: eq(addresses.id, booking.pickupAddressId) }),
       db
         .select({
+          userId: users.id,
           fullName: users.fullName,
           avatarStoragePath: users.avatarStoragePath,
           taskStatus: verificationTasks.status,
@@ -303,6 +310,7 @@ export async function getBookingDetailForSession(
     pickupAddress: addressRow ?? null,
     assignedAgent: assignee
       ? {
+          userId: assignee.userId,
           givenName: assignee.fullName?.trim().split(/\s+/)[0] ?? null,
           taskStatus: assignee.taskStatus,
           avatarStoragePath: assignee.avatarStoragePath,

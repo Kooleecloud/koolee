@@ -45,7 +45,7 @@ import {
   type DriverCandidateView,
   type SelectedDriverView,
 } from "@/components/trip-driver";
-import { signAvatarUrlForViewer } from "@/lib/avatars";
+import { signAvatarUrlsForBooking, signShortlistAvatarUrl } from "@/lib/avatars";
 import { pickupStepIndexFor } from "@/lib/pickup-progress";
 import { signBagPhotoUrls } from "@/lib/bag-photos";
 import { tryGetCore } from "@/lib/core";
@@ -125,13 +125,28 @@ export default async function TripPage({
     bagDropCutoffAt: cutoffAt,
   } = result;
 
-  // The agent's face, signed SERVICE-ROLE: the customer is not staff, so
-  // 0027's read policy refuses this under their own session — correctly, since
-  // the only reason they may see it is that core just resolved this agent as
-  // the one assigned to this booking.
-  const agentAvatarUrl = await signAvatarUrlForViewer(
-    assignedAgent?.avatarStoragePath ?? null,
-  );
+  /*
+   * The faces on this booking, resolved by RELATIONSHIP rather than by path.
+   *
+   * The customer is not staff, so 0027's read policy refuses these under their
+   * own session — correctly. The service-role mint is behind
+   * `avatarPathsForViewer`, which takes user IDS and a booking and returns
+   * only what the relationship permits: for a customer, the agent assigned to
+   * the visit and the driver assigned to the pickup, and nobody else. A
+   * subject they may not see is simply absent, which renders as initials.
+   *
+   * Resolved AFTER the ownership check above, and in one call for both people.
+   */
+  const selectedDriver = await getSelectedDriver(core.db, booking.id);
+  const relatedAvatars = await signAvatarUrlsForBooking({
+    db: core.db,
+    viewer: session,
+    bookingId: booking.id,
+    subjectUserIds: [assignedAgent?.userId, selectedDriver?.staffUserId],
+  });
+  const agentAvatarUrl = assignedAgent
+    ? (relatedAvatars.get(assignedAgent.userId) ?? null)
+    : null;
 
   const isActive = !["completed", "cancelled"].includes(booking.status);
   /*
@@ -192,7 +207,6 @@ export default async function TripPage({
    * no driver to choose and nothing to track, and asking for a shortlist would
    * be a query per render for a card that does not exist yet.
    */
-  const selectedDriver = await getSelectedDriver(core.db, booking.id);
   const canChooseDriver =
     (DRIVER_SELECTABLE_STATUSES as readonly string[]).includes(booking.status) &&
     selectedDriver === null &&
@@ -214,7 +228,10 @@ export default async function TripPage({
     candidates.map(async (candidate) => ({
       shiftId: candidate.shiftId,
       givenName: candidate.givenName,
-      avatarUrl: await signAvatarUrlForViewer(candidate.avatarStoragePath),
+      // The shortlist is its own issuance path — nobody is assigned yet, so
+      // there is no relationship to resolve. `listCandidateDrivers` above IS
+      // the authorization; see `signShortlistAvatarUrl`.
+      avatarUrl: await signShortlistAvatarUrl(candidate.avatarStoragePath),
       truckName: candidate.truckName,
       availableCapacity: candidate.availableCapacity - booking.bagCount,
       outOfZone: candidate.outOfZone,
@@ -226,7 +243,7 @@ export default async function TripPage({
   const driverView: SelectedDriverView | null = selectedDriver
     ? {
         givenName: selectedDriver.givenName,
-        avatarUrl: await signAvatarUrlForViewer(selectedDriver.avatarStoragePath),
+        avatarUrl: relatedAvatars.get(selectedDriver.staffUserId) ?? null,
         truckName: selectedDriver.truckName,
         etaLabel: formatEtaRange(
           selectedDriver.position && pickupAddress?.lat != null && pickupAddress.lng != null
