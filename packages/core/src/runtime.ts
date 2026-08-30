@@ -13,6 +13,7 @@ import type { EventEmitter } from "./events/emitter";
 import { createTicketExtractor, type TicketExtractorConfig } from "./extraction/factory";
 import { createNotifier, type NotifierConfig } from "./notifications/factory";
 import type { Notifier, OpsAlerter } from "./notifications/notifier";
+import type { PushSender } from "./notifications/push";
 import { createPaymentProvider, type PaymentProviderConfig } from "./payments/factory";
 
 /**
@@ -43,6 +44,13 @@ export interface RuntimeOptions {
    */
   notifications?: NotifierConfig;
   notifier?: Notifier;
+  /**
+   * Web Push sender. Passed as an INSTANCE, not a declarative config, for the
+   * same reason the Inngest emitter is: the real one needs the `web-push`
+   * library and three VAPID values, and core must not depend on either.
+   * Omitted → `ConsolePushSender`.
+   */
+  pushSender?: PushSender;
   /**
    * Declarative emitter selection for the credential-free choices. The real
    * queue adapter needs an event key and a client, so apps pass it as an
@@ -86,6 +94,7 @@ export function createRuntime(options: RuntimeOptions): CoreConfig {
       : options.notifications !== undefined
         ? { notifier: createNotifier(options.notifications) }
         : {}),
+    ...(options.pushSender === undefined ? {} : { pushSender: options.pushSender }),
     ...(options.emitter !== undefined
       ? { emitter: options.emitter }
       : options.events !== undefined
