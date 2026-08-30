@@ -35,6 +35,21 @@ export {
 } from "./actionability";
 
 export {
+  listCustomerTrips,
+  type CustomerTrips,
+  type ListCustomerTripsOptions,
+  type TripNeed,
+  type TripSummary,
+} from "./trips";
+
+export {
+  profileCompleteness,
+  type ProfileCompleteness,
+  type ProfileGap,
+  type ProfileSubject,
+} from "./profile-completeness";
+
+export {
   getBookingSignal,
   latestSignalFor,
   touchBookingSignal,

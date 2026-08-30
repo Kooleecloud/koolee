@@ -40,23 +40,32 @@ const ANNOUNCEMENTS: Record<string, string> = {
 };
 
 export function TripLive({
+  /**
+   * The booking to watch. OMITTED on the trips list, which watches everything
+   * the viewer may see — 0030's RLS policy scopes that to their own bookings,
+   * and enumerating ids for a list that can hold fifty of them would be a
+   * filter expression per row for no gain.
+   */
   bookingId,
   /** False once the booking is terminal — nothing left to watch. */
-  active,
+  active = true,
   /**
    * Opaque milestone key, computed on the server. Null announces nothing.
    * A stage NOT in `ANNOUNCEMENTS` still refreshes the page — it simply does
    * so quietly, which is the default and the right one.
    */
-  stage,
+  stage = null,
 }: {
-  bookingId: string;
-  active: boolean;
-  stage: string | null;
+  bookingId?: string;
+  active?: boolean;
+  stage?: string | null;
 }) {
   const router = useRouter();
   const client = getSupabaseBrowserClient();
-  const bookingIds = React.useMemo(() => [bookingId], [bookingId]);
+  const bookingIds = React.useMemo(
+    () => (bookingId ? [bookingId] : []),
+    [bookingId],
+  );
 
   useBookingSignal({
     client,

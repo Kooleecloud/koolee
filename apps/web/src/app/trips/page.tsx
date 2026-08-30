@@ -1,8 +1,6 @@
 import Link from "next/link";
 import { formatDistanceToNow } from "date-fns";
-import { Plane } from "lucide-react";
 import {
-  BookingStatusBadge,
   Button,
   Card,
   CardContent,
@@ -16,17 +14,18 @@ import {
 } from "@koolee/ui";
 import { redirect } from "next/navigation";
 import {
-  formatInstantInAirportTz,
-  formatWindowInAirportTz,
   getBookingDraft,
-  getDisplayZones,
-  listBookingsForSession,
-  zoneFor,
-  type Booking,
+  getCustomerById,
+  listCustomerTrips,
+  profileCompleteness,
+  type CustomerTrips,
 } from "@koolee/core";
 
 import { discardDraft } from "@/app/trips/actions";
 import { ConfirmActionForm } from "@/components/confirm-action-form";
+import { ProfileCompletenessCard } from "@/components/profile-completeness-card";
+import { TripLive } from "@/components/trip-live";
+import { PastTripCard, UpcomingTripCard } from "@/components/trip-card";
 import { getAuthUser } from "@/lib/auth";
 import { bookingDraftSchema, type TypedBookingDraft } from "@/lib/booking-draft-schema";
 import { BOOKING_STEPS, draftHasProgress, nextIncompleteStep } from "@/lib/booking-steps";
@@ -36,28 +35,44 @@ import { customerSessionFromAuthUser } from "@/lib/session";
 export const metadata = { title: "My Trips" };
 export const dynamic = "force-dynamic";
 
+/**
+ * The post-login landing page.
+ *
+ * It used to be one undifferentiated list, newest booking first, with a
+ * cancelled trip from March sitting above tomorrow's pickup and nothing on any
+ * card saying which of them needed something from the customer. Three changes,
+ * all of them about ORDER OF ATTENTION:
+ *
+ *  1. **Upcoming and Past are separate.** Past is anything terminal or whose
+ *     flight has gone — see `listCustomerTrips`, which owns that judgement.
+ *  2. **Upcoming is soonest first**, not newest first. What is about to happen
+ *     matters more than what was booked most recently.
+ *  3. **Needs-action badges** on the card, driven by F1's actionability
+ *     service. A customer with an unaccepted agreement used to find out when
+ *     an agent was standing at their door unable to proceed.
+ *
+ * The trip page keeps its URL; this only organises the way in.
+ */
 export default async function TripsPage() {
   // The proxy gates this route; re-check here so the query is always scoped.
   const authUser = await getAuthUser();
   if (!authUser || authUser.isAnonymous) redirect("/login?returnTo=%2Ftrips");
 
   const core = tryGetCore();
+  const session = customerSessionFromAuthUser(authUser);
 
-  let bookings: Booking[] = [];
-  // Airport code → IANA zone. A trips list can span airports, so the zone is
-  // resolved per booking rather than assumed — and one query covers the lot.
-  let zones: Record<string, string> = {};
+  let trips: CustomerTrips = { upcoming: [], past: [] };
   let unavailable = core === null;
+  let missing: ReturnType<typeof profileCompleteness>["missing"] = [];
 
   if (core) {
     try {
-      // Session-scoped in core: a customer session can only ever list its own.
-      [bookings, zones] = await Promise.all([
-        listBookingsForSession(core.db, customerSessionFromAuthUser(authUser), {
-          limit: 50,
-        }),
-        getDisplayZones(core.db),
+      const [loaded, userRow] = await Promise.all([
+        listCustomerTrips(core.db, session, new Date()),
+        getCustomerById(core.db, authUser.id).catch(() => null),
       ]);
+      trips = loaded;
+      missing = profileCompleteness(userRow).missing;
     } catch {
       unavailable = true;
     }
@@ -80,15 +95,33 @@ export default async function TripsPage() {
     }
   }
 
+  const nothingAtAll =
+    trips.upcoming.length === 0 && trips.past.length === 0 && draft === null;
+
   return (
-    <>
-      <PageHeader title="My Trips" />
+    <div className="flex flex-col gap-8">
+      {/* No booking id: this list watches everything RLS lets the viewer see,
+          which for a customer is exactly their own bookings. A needs-action
+          badge appearing here without a reload is the point. */}
+      <TripLive />
+
+      <PageHeader
+        title="My Trips"
+        actions={
+          <CTAButton asChild>
+            <Link href="/book">Book a pickup</Link>
+          </CTAButton>
+        }
+      />
+
+      {/* Renders nothing when the profile is done — see the component. */}
+      <ProfileCompletenessCard missing={missing} />
 
       {draft && <DraftCard draft={draft} updatedAt={draftUpdatedAt} />}
 
       {unavailable ? (
         <DatabaseNotConfigured />
-      ) : bookings.length === 0 && !draft ? (
+      ) : nothingAtAll ? (
         <EmptyState
           title="No trips yet"
           description="Book a pickup and your live chain-of-custody timeline will appear here."
@@ -98,69 +131,57 @@ export default async function TripsPage() {
             </CTAButton>
           }
         />
-      ) : bookings.length === 0 ? null : (
-        <ul className="flex flex-col gap-3">
-          {bookings.map((booking) => {
-            const tz = zoneFor(zones, booking.departureAirport);
-            const window =
-              booking.pickupWindowStart && booking.pickupWindowEnd
-                ? formatWindowInAirportTz(
-                    booking.pickupWindowStart,
-                    booking.pickupWindowEnd,
-                    tz,
-                  )
-                : booking.pickupWindowStart
-                  ? formatInstantInAirportTz(booking.pickupWindowStart, tz)
-                  : "Not scheduled yet";
-            return (
-              <li key={booking.id}>
-                <Card asChild interactive>
-                  <Link href={`/trips/${booking.id}`} className="flex flex-col gap-4 p-5">
-                    <span className="flex items-start justify-between gap-4">
-                      <span className="flex flex-col gap-1">
-                        <span className="font-display font-semibold text-navy-800">
-                          {booking.flightNumber} · {booking.departureAirport}
-                        </span>
-                        <span className="flex items-center gap-1.5 text-sm text-muted-foreground">
-                          <Plane aria-hidden className="size-3.5 shrink-0 text-sky-700" />
-                          {formatInstantInAirportTz(booking.departureAt, tz)}
-                        </span>
-                      </span>
-                      <BookingStatusBadge status={booking.status} />
-                    </span>
+      ) : (
+        <>
+          <section className="flex flex-col gap-3">
+            <h2 className="font-display text-lg font-semibold text-navy-800">
+              Upcoming
+            </h2>
+            {trips.upcoming.length === 0 ? (
+              /* Not apologetic: somebody with only past trips is a returning
+                 customer, and the right thing to say to them is "book the
+                 next one", not "you have nothing". */
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">Nothing booked right now</CardTitle>
+                  <CardDescription>
+                    Your next pickup will show up here with a live timeline the moment
+                    it&apos;s confirmed.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <CTAButton asChild>
+                    <Link href="/book">Book a pickup</Link>
+                  </CTAButton>
+                </CardContent>
+              </Card>
+            ) : (
+              <ul className="flex flex-col gap-3">
+                {trips.upcoming.map((trip) => (
+                  <li key={trip.booking.id}>
+                    <UpcomingTripCard trip={trip} />
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
 
-                    <dl className="grid grid-cols-2 gap-x-4 gap-y-3 border-t border-border pt-4 text-sm sm:grid-cols-3">
-                      <TripFact label="Pickup window" value={window} />
-                      <TripFact label="Passenger" value={booking.paxName} />
-                      <TripFact
-                        label="Bags"
-                        value={`${booking.bagCount} ${booking.bagCount === 1 ? "bag" : "bags"}`}
-                      />
-                      {/* "Total", not "Paid" — a booking can sit unpaid, and
-                        `priceCents` is the quote either way. */}
-                      <TripFact
-                        label="Total"
-                        value={`$${(booking.priceCents / 100).toFixed(2)} ${booking.currency.toUpperCase()}`}
-                      />
-                      <TripFact label="Reference" value={booking.ref} />
-                    </dl>
-                  </Link>
-                </Card>
-              </li>
-            );
-          })}
-        </ul>
+          {trips.past.length > 0 && (
+            <section className="flex flex-col gap-3">
+              <h2 className="font-display text-lg font-semibold text-navy-800">
+                Past trips
+              </h2>
+              <ul className="flex flex-col gap-2">
+                {trips.past.map((trip) => (
+                  <li key={trip.booking.id}>
+                    <PastTripCard trip={trip} />
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+        </>
       )}
-    </>
-  );
-}
-
-/** One labelled fact inside a trip card. */
-function TripFact({ label, value }: { label: string; value: string }) {
-  return (
-    <div>
-      <dt className="text-xs text-muted-foreground">{label}</dt>
-      <dd className="mt-0.5 font-medium text-navy-800">{value}</dd>
     </div>
   );
 }
@@ -183,7 +204,7 @@ function DraftCard({
     BOOKING_STEPS.find((step) => step.href === nextHref)?.label ?? "Review & pay";
 
   return (
-    <Card className="mb-6 border-sky-200 bg-sky-50/50">
+    <Card className="border-sky-200 bg-sky-50/50">
       <CardHeader>
         <CardTitle className="text-base">
           Booking in progress

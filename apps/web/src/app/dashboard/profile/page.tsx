@@ -14,9 +14,11 @@ import {
   getCustomerById,
   listAddressesForSession,
   listBookingsForSession,
+  profileCompleteness,
   type Address,
 } from "@koolee/core";
 
+import { ProfileCompletenessCard } from "@/components/profile-completeness-card";
 import { getAuthUser } from "@/lib/auth";
 import { signAvatarUrl } from "@/lib/avatars";
 import { tryGetCore } from "@/lib/core";
@@ -113,6 +115,11 @@ export default async function ProfilePage() {
         title="Your profile"
         subtitle="Your contact details, how your name appears, and your saved pickup addresses."
       />
+
+      {/* The same card as the trips home, at the top of the page that holds
+          the controls: it ticks items off as they are done and disappears
+          when there is nothing left, which is the whole design. */}
+      <ProfileCompletenessCard missing={profileCompleteness(userRow).missing} />
 
       <AvatarCard currentUrl={avatarUrl} name={userRow?.fullName ?? (paxName || null)} />
 

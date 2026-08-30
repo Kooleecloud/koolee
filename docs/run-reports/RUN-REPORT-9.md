@@ -409,3 +409,104 @@ instructed.
 `turbo typecheck` 6/6 · `turbo lint` 6/6 · web unit 109 passed (was 95) ·
 full unit 5/5 packages · core integration 212 passed / 3 skipped ·
 `turbo build` 3/3.
+
+---
+
+## Phase 3 — Customer post-login: trips home, profile, completeness
+
+### 3.1 What was already there
+
+The profile area is one coherent page already: `/dashboard/profile` holds the
+avatar, the name form, the verified contact rows and the address book, and
+`/dashboard/addresses` redirects into it. The address book already has list,
+add, edit-label and **delete-with-in-use-guard** (`deleteAddressForSession`
+refuses an address any booking references, because that address is part of an
+evidentiary record). No new settings were invented, as instructed.
+
+What was missing: the completeness card, and a trips home worth landing on.
+
+### 3.2 `listCustomerTrips` — one service, one query per fact
+
+`/trips` was one undifferentiated list, newest-booking-first, with a cancelled
+trip from March able to sit above tomorrow's pickup, and nothing on any card
+saying which of them needed something from the customer.
+
+The new service ([services/trips.ts](../../packages/core/src/services/trips.ts))
+returns `{ upcoming, past }`, each row carrying the booking, its zone, its
+**actionability** and its **needs**.
+
+**Why a service and not page code.** Three facts have to come together for
+every row and only one of them is on the booking row. A page assembling that
+itself would either get it wrong or do it N times, and the moment a second
+surface asks "what does this booking still want from me?" the logic forks.
+
+**One query per fact, never one per booking.** `getBookingActionability` reads
+the cutoff table on every call — fine for a trip page, fifty round-trips for a
+list. The cutoff matrix is 128 rows, so it comes back whole and the **pure**
+`bookingActionability` runs per booking. Same function, same two axes, no
+second rule engine. That is the standing §7 rule ("answered in exactly one
+place") honoured rather than worked around.
+
+### 3.3 Past means "nothing left to watch", not "the status is final"
+
+A cancelled or completed booking is obviously done. So is one whose **flight
+has departed**, whatever its status says: a `paid` booking for yesterday's
+plane is not upcoming, and leaving it at the top under that heading is how a
+history list becomes untrustworthy. `isPast` is
+`standing === "terminal" || phase === "departed"` — both axes, which is exactly
+why F1 refused to collapse them.
+
+Upcoming sorts **soonest first** (window if present, else departure); past
+sorts most-recent-departure first.
+
+### 3.4 Needs are not statuses
+
+`TripNeed` is `accept_agreement | choose_driver | upload_passport`, and every
+one is gated on `actionability.can.*` FIRST. A booking past its bag-drop cutoff
+asks for nothing — a test pins that, because asking somebody to accept an
+agreement for a pickup that can no longer happen is worse than saying nothing.
+
+`upload_passport` is always last and rendered in a muted badge: it is the only
+one that does not block a pickup, and the agent checks the passport at the door
+either way.
+
+### 3.5 Completeness, and the line it draws
+
+`profileCompleteness` is a **pure function over a user row**: verified phone,
+verified email, display name, profile photo. An unverified channel counts
+exactly as a missing one — a number on file that was never verified is worth
+nothing when a driver is at the kerb.
+
+The interesting half is what is NOT in it. Accepting the agreement and
+pre-uploading a passport are **per-booking**: they pin to a booking
+(`agreement_acceptances` is UNIQUE on `booking_id`), a customer with three
+trips has three answers, and putting them here would make a finished profile
+**un-finishable** — every new booking would un-complete it. A test asserts that
+no gap name contains "agreement", "passport", "driver" or "booking".
+
+`ProfileCompletenessCard` renders **nothing** when complete. A checklist that
+is permanently visible and permanently satisfied is furniture. It lists exactly
+what is missing, each row linking to the control that fixes it, and appears on
+both the trips home (the landing) and the profile page (where the controls
+are), so it ticks items off as they are done.
+
+### 3.6 The trips home is live too
+
+`TripLive` gained an optional `bookingId`. Omitted — which is how the list uses
+it — it watches everything RLS admits, and for a customer that is exactly their
+own bookings. A needs-action badge appearing without a reload is the point.
+
+### 3.7 Tests
+
+- `profile-completeness.test.ts` — 7 tests, including the no-per-booking-items
+  guard and a null user (the page renders before `getCustomerById` has ever
+  succeeded on a fresh account; a throw there would be a blank trips home).
+- `trips.integration.test.ts` — 11 tests on `koolee_test`: the split on both
+  axes, soonest-first ordering, each need appearing and clearing, "asks for
+  NOTHING past the cutoff", another customer's trips never appearing, the
+  booking's zone on every row, and empty lists rather than a throw.
+
+### 3.8 Gates
+
+`turbo typecheck` 6/6 · `turbo lint` 6/6 · unit 5/5 (core 486) ·
+core integration **223 passed / 3 skipped, 24 files** · `turbo build` 3/3.
