@@ -32,7 +32,7 @@ Run everything from the **repo root** unless noted.
 | `pnpm db:status`                           | yes (read-only) | Drift report. **Safe against production**                  |
 | `pnpm db:migrate`                          |       yes       | Apply pending migrations over `DIRECT_DATABASE_URL`        |
 | `pnpm db:studio`                           |       yes       | drizzle-kit Studio                                         |
-| `pnpm seed`                                |       yes       | Idempotent reference data: airports, cutoffs, pricing rule |
+| `pnpm seed`                                | **local only**  | Reference data. REFUSES a non-local host — see §3.6        |
 | `pnpm seed:local`                          |       yes       | Same seed, **pinned to the local stack**                   |
 | `pnpm --filter @koolee/db bootstrap:staff` |       yes       | Mint the **first** staff account on a DB that has none     |
 | `pnpm --filter @koolee/db create:staff`    |       yes       | Create a whole dev staff roster (2 admins + 5 agents)      |
@@ -252,6 +252,41 @@ a different id) is reported and skipped rather than aborting the roster.
 `public.users` + `staff_members` between databases moves role assignments and
 nothing else: the rows point at auth ids that do not exist on the target, so
 GoTrue reports "invalid login credentials" for every one of them.
+
+### 3.6 — Why `pnpm seed` refuses a non-local database
+
+Two independent refusals live in the seed, and they protect different things.
+
+| Refusal | Protects | Bypass |
+| --- | --- | --- |
+| The **staff/customer roster** skips any non-local *Supabase* host (§3.3) | Known passwords becoming a standing backdoor | **None.** Use `bootstrap:staff` (§3.4) |
+| The **whole seed** refuses any non-local *database* host ([seed-guard.ts](../packages/db/src/seed-guard.ts)) | Verified airline cutoffs and tuned launch prices | `SEED_ALLOW_HOSTED=1`, brand-new projects only |
+
+The second one is newer and less obvious. `pnpm seed` is idempotent with
+respect to **itself**, not with respect to a human's work: it resets all 128
+`airline_cutoffs` rows to the placeholder 45/60 minutes (overwriting `source`,
+which is where the provenance of a verified value lives) and rewrites the
+active `pricing_rules` row field by field to the hardcoded `launch-v1`
+numbers. Both are exactly what ops replaces by hand before real sales, and the
+cutoff matrix decides whether a pickup can make its flight — so the failure is
+silent, undiffable and safety-critical.
+
+Launch data therefore has one home, and it is not this script:
+
+| Data | Where it is entered |
+| --- | --- |
+| Airline cutoffs | admin `/cutoffs` |
+| Pricing rule | admin `/pricing` |
+| Booking agreement | admin `/agreements` |
+| Fleet, staff, zones, `can_drive` | admin `/trucks`, `/staff`, `/zones`, `/shifts` |
+| Coverage ZIPs | `packages/db/src/coverage-zips.ts` — code, so a deploy |
+
+The refusal names the host it refused and what it would have destroyed. If the
+target really is a project with nothing to lose, say so out loud:
+
+```bash
+SEED_ALLOW_HOSTED=1 DATABASE_URL='<hosted pooled url>' pnpm seed
+```
 
 ---
 

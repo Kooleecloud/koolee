@@ -90,10 +90,17 @@ alone.
 ## 3. Seed the reference data
 
 ```bash
-DATABASE_URL='<hosted pooled url>' pnpm seed
+# Brand-new project only. `pnpm seed` refuses a non-local host without this,
+# because it resets the 128 airline-cutoff rows to 45/60 and rewrites the
+# active pricing rule — see packages/db/src/seed-guard.ts and MIGRATIONS.md §9.
+SEED_ALLOW_HOSTED=1 DATABASE_URL='<hosted pooled url>' pnpm seed
 ```
 
-Idempotent, as always. What is new in this slice:
+Idempotent with respect to **itself**, not to ops's work: on a project where
+somebody has verified cutoffs or set launch prices, do NOT run this — enter
+those values at the console (`/cutoffs`, `/pricing`) and see
+[docs/runbooks/prod-bringup.md](../runbooks/prod-bringup.md). What is new in
+this slice:
 
 - **ZIP centroids** — 837 rows, reconciled on every run. The seed is what keeps
   the table current after 0028's snapshot; `packages/db/src/zip-centroids.ts`

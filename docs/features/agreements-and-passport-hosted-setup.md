@@ -148,8 +148,10 @@ exactly one of the following before it can take a booking through pickup:
   pinning it applies to bookings made from its effective date onward, and any
   booking that has already accepted keeps the version it accepted.
 - **Dev only — run the seed**, which upserts the placeholder v1
-  (`pnpm seed` against that project). The placeholder says so in its own last
-  line and must not be what a real customer agrees to.
+  (`pnpm seed`, local only — it refuses a non-local host, and
+  `SEED_ALLOW_HOSTED=1` is for a brand-new project on day one). The
+  placeholder says so in its own last line and must not be what a real
+  customer agrees to.
 
 Verify:
 

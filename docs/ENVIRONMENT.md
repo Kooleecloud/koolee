@@ -344,9 +344,13 @@ visible in the codebase:
   dev, and prod's crons start running against the dev database. Separate
   per-environment signing keys are what make this safe: Inngest routes a sync by
   the key that authenticated it. Sync URL: `https://dev.koolee.cloud/api/inngest`.
-- **Turnstile: two widgets**, one per hostname (`koolee.cloud`,
-  `dev.koolee.cloud`). Hostname entries already cover subdomains, so adding the
-  apex to the dev widget would silently make it valid for production. Ad-hoc
+- **Turnstile: two widgets**, one per environment. Each widget must list
+  **every hostname that mounts it** — an entry covers that hostname and its
+  OWN subdomains only, so `dev.admin.koolee.cloud` is NOT covered by
+  `dev.koolee.cloud` (it sits under `admin.koolee.cloud`). That belief is what
+  caused the `110200` outage; the full list and the reasoning are in §5.2, and
+  this line used to contradict it. Never add the apex `koolee.cloud` to the
+  dev widget — it would let dev answer for production. Ad-hoc
   `*.vercel.app` previews **cannot** pass the captcha: `vercel.app` is on the
   Public Suffix List, and the secret is a single per-Supabase-project value, so
   it cannot be varied per branch. Treat those URLs as UI review only and test

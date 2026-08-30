@@ -288,7 +288,10 @@ Details: [ENVIRONMENT.md §4](ENVIRONMENT.md#4-fail-closed-boot-gates).
 
 1. `pnpm db:status` against the target — **read the `Target host:` line**.
 2. Apply migrations over the **direct** connection.
-3. `pnpm seed` if the project is new (airports, cutoffs, pricing rule).
+3. `SEED_ALLOW_HOSTED=1 pnpm seed` if the project is **brand new** (airports,
+   cutoffs, pricing rule — all placeholders). The seed refuses a non-local
+   host without that variable: it overwrites verified cutoffs and tuned
+   prices. On a live project, launch data is entered at the admin console.
 4. Set per-app env, including the Stripe webhook secret.
 5. Point the Stripe webhook endpoint at the deployed web app.
 6. Verify the boot assertions pass — a failed assertion is the _intended_

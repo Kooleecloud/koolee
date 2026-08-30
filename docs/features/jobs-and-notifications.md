@@ -28,8 +28,10 @@ throw.**
 
 **Status (2026-08-23): email side effects are REAL** — Resend when
 `RESEND_API_KEY` is present, console otherwise. SMS remains the console
-fallback (the Twilio adapter is a later work item), and the driver ETA in the
-cutoff monitor is still a fixed estimate.
+fallback (the Twilio adapter is a later work item). The driver ETA in the
+cutoff monitor is **not** a fixed estimate: since Tier 4 the monitor asks the
+`EtaEstimator` seam and takes its pessimistic `maxMinutes` end
+(`packages/core/src/jobs/functions.ts`).
 
 ---
 
@@ -47,9 +49,12 @@ until 2026-08-23. Emission lives in
   webhook, the `/book/return` re-check, and the fake-provider inline path —
   each keyed on "THIS call performed the move" (`WebhookOutcome.movedTo`,
   `movedToPaid`), so redeliveries, refreshes, and lost races never re-fire.
-- `booking/exception_raised` fires from the webhook payment-cancelled path.
-  ⚠️ Admin-raised exceptions do **not** emit yet — apps/admin has no Inngest
-  client (tracked in PROJECT-STATUS #16).
+- `booking/exception_raised` fires from **`applyTransition` in core** and the
+  webhook handler's `moveBooking` — the two choke points a booking row can
+  reach `exception` through. Admin-raised exceptions therefore DO emit:
+  `apps/admin` injects an `inngestEmitter` (`apps/admin/src/lib/core.ts`) for
+  exactly that reason. Never re-add an emit at a call site — six of seven
+  paths went silent for a whole slice that way.
 
 ### 2.1 — Booking confirmation email
 
@@ -229,9 +234,10 @@ Honest state, so you can plan against it:
 
 - **SMS side effects are stubbed** — reminder/custody SMS logs to console;
   no Twilio adapter yet. (Email is real as of 2026-08-23.)
-- **Driver ETA is a fixed estimate**, so the cutoff monitor under-alerts.
-- **Admin-raised exceptions don't emit** `booking/exception_raised` — only
-  the webhook payment-cancelled path does.
+- **Driver ETA is an estimate from ZIP centroids and an average speed**, not
+  a routing provider. It is deliberately pessimistic, which makes the cutoff
+  monitor alert EARLY rather than late — see the ETA note in
+  [PROJECT-STATUS §7](../../PROJECT-STATUS.md).
 - **AeroAPI flight lookup is stubbed.**
 
 Tracked in [PROJECT-STATUS.md](../../PROJECT-STATUS.md).

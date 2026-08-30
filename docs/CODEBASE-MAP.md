@@ -1188,8 +1188,13 @@ pins are asserted in a test so a refactor cannot quietly break them.
    the target and read what it reports; it is read-only and safe against
    production. See [PROJECT-STATUS §3.1](../PROJECT-STATUS.md) for why
    content hash, and never row count, is the authority._
-2. Seed reference data if the project is new (`pnpm seed` with the hosted URL:
-   airports, cutoffs, pricing rule).
+2. Seed reference data **only if the project is brand new**:
+   `SEED_ALLOW_HOSTED=1 pnpm seed` with the hosted URL (airports, ZIP
+   centroids, placeholder cutoffs, placeholder pricing rule). The seed refuses
+   a non-local host without that variable because it OVERWRITES verified
+   cutoffs and tuned prices — on a project already carrying real values, enter
+   them at the console instead (`/cutoffs`, `/pricing`, `/agreements`). See
+   [docs/runbooks/prod-bringup.md](runbooks/prod-bringup.md).
 3. Set per-app env per the [README matrix](../README.md), including the
    Stripe webhook secret.
 4. Point the Stripe webhook endpoint at the deployed web app.
