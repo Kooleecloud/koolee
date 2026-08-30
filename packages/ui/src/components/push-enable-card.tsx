@@ -75,9 +75,42 @@ type VerifyState =
  * the list is static copy rather than something the page detects. Ordered by
  * how often it is the actual cause (from the POC's debugging notes).
  */
-function remediationFor(browser: string, standalone: boolean): React.ReactNode {
+function remediationFor(
+  browser: string,
+  standalone: boolean,
+  arrived: boolean,
+): React.ReactNode {
   const isApple = browser.startsWith("Safari");
   const isIos = browser === "Safari (iOS)";
+
+  // The service worker told us it received and raised this push. That halves
+  // the problem: delivery works, and something on THIS device is refusing to
+  // draw it. Without this signal the list below is a guess.
+  if (arrived) {
+    return (
+      <>
+        <strong>The notification reached this browser</strong> — the service
+        worker received it and raised it, so delivery is working and something
+        on this device is hiding it:
+        <ol className="mt-2 ml-4 flex list-decimal flex-col gap-1">
+          <li>
+            <strong>Your Mac or PC is blocking {browser}.</strong> On macOS:
+            System&nbsp;Settings → Notifications → {browser} → Allow
+            notifications. Quit {browser} completely and reopen it afterwards.
+          </li>
+          <li>
+            <strong>Focus or Do Not Disturb is on</strong>, so it was held
+            rather than shown.
+          </li>
+          <li>
+            <strong>The alert style is &ldquo;None&rdquo;.</strong> Open
+            Notification Centre — if it is sitting in there, everything works
+            and only the on-screen banner was suppressed.
+          </li>
+        </ol>
+      </>
+    );
+  }
 
   if (isIos && !standalone) {
     return (
@@ -91,30 +124,35 @@ function remediationFor(browser: string, standalone: boolean): React.ReactNode {
 
   return (
     <>
-      The notification was sent and your browser accepted it, so something on this
-      device is hiding it. In order of likelihood:
+      The server sent it, but <strong>it never reached this browser</strong> —
+      so this is a delivery problem, not a System Settings one. In order of
+      likelihood:
       <ol className="mt-2 ml-4 flex list-decimal flex-col gap-1">
         <li>
-          <strong>Your Mac or PC is blocking {browser}.</strong> On macOS:{" "}
-          System&nbsp;Settings → Notifications → {browser} → Allow notifications. You
-          may need to quit {browser} completely and reopen it afterwards.
+          <strong>This browser lost its connection to the push service.</strong>{" "}
+          Turn notifications off and on again here — that re-registers the
+          device.
         </li>
         <li>
-          <strong>Focus or Do Not Disturb is on.</strong> Notifications are being held
-          rather than shown.
+          <strong>{browser} was fully quit.</strong> On macOS a quit browser
+          receives nothing; Safari and iOS still do, via Apple&apos;s service.
         </li>
         <li>
-          <strong>The alert style is set to &ldquo;None&rdquo;.</strong> Check
-          Notification Centre — if the test is sitting in there, everything works and
-          only the on-screen banner was suppressed.
+          <strong>A firewall or VPN is blocking the push service.</strong>{" "}
+          Chrome and Edge need a long-lived connection to Google&apos;s
+          servers.
         </li>
         {isApple ? null : (
           <li>
-            <strong>A work profile is blocking them.</strong> A managed browser can
-            switch notifications off outright.
+            <strong>A work profile is blocking them.</strong> A managed browser
+            can switch notifications off outright.
           </li>
         )}
       </ol>
+      <p className="mt-2">
+        It is also worth checking Notification Centre — if it is sitting in
+        there, it did arrive and only the banner was suppressed.
+      </p>
     </>
   );
 }
@@ -128,10 +166,16 @@ function PushEnableCard({
 }: PushEnableCardProps) {
   const push = useWebPush({ vapidPublicKey });
   const [verifyState, setVerifyState] = React.useState<VerifyState>("idle");
+  /** `lastPushAt` at the moment we asked, so "arrived" means "arrived SINCE". */
+  const [askedAt, setAskedAt] = React.useState<number | null>(null);
+
+  const arrivedSinceAsking =
+    askedAt !== null && push.lastPushAt !== null && push.lastPushAt >= askedAt;
 
   const runVerification = React.useCallback(async () => {
     if (!verify) return;
     setVerifyState("sending");
+    setAskedAt(Date.now());
     const outcome = await verify().catch(() => false as const);
     if (outcome === "not_configured" || outcome === "no_subscription") {
       setVerifyState(outcome);
@@ -206,6 +250,12 @@ function PushEnableCard({
               won&apos;t reach you and we need to fix it now rather than during a
               pickup.
             </p>
+            {arrivedSinceAsking ? (
+              <p className="text-sm text-muted-foreground">
+                (It did reach this browser — so if you saw nothing, the fix is
+                on this device rather than in Koolee.)
+              </p>
+            ) : null}
             <div className="flex gap-2">
               <Button
                 size="sm"
@@ -250,7 +300,11 @@ function PushEnableCard({
 
         {verifyState === "failed" ? (
           <div className="flex flex-col gap-2 rounded-md border border-warning/40 bg-warning/10 p-3 text-sm">
-            {remediationFor(push.diagnostics.browser, push.diagnostics.standalone)}
+            {remediationFor(
+              push.diagnostics.browser,
+              push.diagnostics.standalone,
+              arrivedSinceAsking,
+            )}
             <div>
               <Button size="sm" variant="ghost" onClick={() => void runVerification()}>
                 Send another test

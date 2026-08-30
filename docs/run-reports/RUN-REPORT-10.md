@@ -1089,3 +1089,67 @@ three new flag tests, `apps/web/src/env.test.ts`,
 | `@koolee/core test:integration` | **286 passed**, 3 skipped ✅ |
 | `turbo build` | **3/3** ✅ |
 | `pnpm db:status` | **33/33**, in sync ✅ |
+
+
+---
+
+## Phase 8 — Making the failure diagnosable
+
+TD, after the Phase 6 fix: still no notifications locally.
+
+### 8.1 What the running server actually reports
+
+Checked rather than guessed, against the live dev server, signed in as
+`agent@koolee.local`:
+
+| Question | Answer |
+|---|---|
+| Kill switch live in the server process? | **yes** — the enable card renders |
+| Real sender wired? | **yes** — `/api/push/test` returns 200, and it returns 503 unless `pushSender.delivers` |
+| VAPID keys distributed? | **yes** — all four values in all three `.env.local` files |
+| What the send reports | `{ targeted: 4, sent: 4, failed: 0, pruned: 0 }` |
+
+Four live subscriptions on that user, all accepted by FCM, none rejected.
+A key mismatch would have been `403` and a dead registration `410`, so the
+**server half is correct and the credentials match** — which is as far as
+server-side evidence can go. Whether a given device then displays anything is
+exactly the thing no API reports.
+
+### 8.2 The gap, and closing it
+
+Two failures look identical from the page and have opposite fixes:
+
+- the push **never reached this browser** — a delivery problem (a stale
+  registration, a quit browser, a firewall);
+- it **reached the browser and the OS refused to draw it** — System Settings,
+  Focus, an alert style of "None".
+
+Nothing in the product could tell them apart, so the remediation list was a
+guess in likelihood order and half of it was always wrong.
+
+The POC had the answer and it was dropped as debug scaffolding: the service
+worker `postMessage`s open pages when it raises a notification. Restored in
+all three workers as a `koolee-push` / `push-received` message; `useWebPush`
+exposes `lastPushAt`; the card records `askedAt` when it fires the test, so
+"arrived" means "arrived SINCE we asked" rather than "at some point".
+
+The did-you-see-it flow now branches on it:
+
+- **arrived, and you saw nothing** → "The notification reached this browser" +
+  the macOS/Focus/alert-style list. Delivery works; the device is hiding it.
+- **never arrived** → "it never reached this browser — this is a delivery
+  problem, not a System Settings one" + re-register, quit-browser, firewall.
+
+This does not make `showNotification` honest — it still means CREATED, not
+displayed, and no browser API will ever say otherwise. It splits the problem
+in half, which is the most any in-browser signal can do.
+
+Verified end to end in a headed browser: a push delivered to the worker both
+raised the notification and produced
+`{ source: "koolee-push", type: "push-received", tag: "verification-task:t-9" }`
+on the page.
+
+### 8.3 Gates
+
+typecheck 6/6 · lint 6/6 · unit 807 · core integration 286 (3 skipped) ·
+builds 3/3.

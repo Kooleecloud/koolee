@@ -68,6 +68,15 @@ export interface UseWebPushResult {
   subscribed: boolean;
   /** This device's endpoint, once subscribed — the id for verify/unsubscribe. */
   endpoint: string | null;
+  /**
+   * When the service worker last told us a push ARRIVED at this browser.
+   *
+   * The one signal that splits "it never got here" from "it got here and the
+   * OS refused to draw it" — the two failures that look identical from the
+   * page and have completely different fixes. Null means nothing has arrived
+   * since this page loaded, which is NOT the same as "nothing was sent".
+   */
+  lastPushAt: number | null;
   busy: boolean;
   error: string | null;
   diagnostics: PushDiagnostics;
@@ -167,6 +176,7 @@ export function useWebPush(options: UseWebPushOptions = {}): UseWebPushResult {
   const [subscribed, setSubscribed] = useState(false);
   const [endpoint, setEndpoint] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [lastPushAt, setLastPushAt] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [diagnostics, setDiagnostics] = useState<PushDiagnostics>(INITIAL_DIAGNOSTICS);
 
@@ -222,6 +232,21 @@ export function useWebPush(options: UseWebPushOptions = {}): UseWebPushResult {
       cancelled = true;
     };
   }, [serviceWorkerUrl]);
+
+  // The worker posts a message on every push it raises. Listening is what
+  // makes a failure diagnosable rather than a guess.
+  useEffect(() => {
+    if (typeof navigator === "undefined" || !("serviceWorker" in navigator)) return;
+
+    const onMessage = (event: MessageEvent) => {
+      const data = event.data as { source?: string; type?: string; at?: number } | null;
+      if (data?.source !== "koolee-push" || data.type !== "push-received") return;
+      setLastPushAt(data.at ?? Date.now());
+    };
+
+    navigator.serviceWorker.addEventListener("message", onMessage);
+    return () => navigator.serviceWorker.removeEventListener("message", onMessage);
+  }, []);
 
   const subscribe = useCallback(async (): Promise<boolean> => {
     setError(null);
@@ -345,6 +370,7 @@ export function useWebPush(options: UseWebPushOptions = {}): UseWebPushResult {
     permission,
     subscribed,
     endpoint,
+    lastPushAt,
     busy,
     error,
     diagnostics,

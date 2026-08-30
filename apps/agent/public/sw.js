@@ -82,6 +82,31 @@ self.addEventListener("fetch", (event) => {
 /* ------------------------------------------------------------------ */
 
 /**
+ * Tell any open page that a push ARRIVED.
+ *
+ * Without this the most important question in the whole feature is
+ * unanswerable: when somebody says "I saw nothing", there is no way to tell
+ * "the push never reached this browser" (a delivery problem — keys, network,
+ * a stale subscription) from "it reached the browser and the OS refused to
+ * draw it" (System Settings, Focus, an alert style of None). Those have
+ * completely different fixes, and guessing between them is how an afternoon
+ * disappears.
+ *
+ * `showNotification` resolving still means CREATED, not displayed — this does
+ * not fix that and cannot. It splits the problem in half, which is the most
+ * any in-browser signal can do.
+ */
+async function broadcast(payload) {
+  const clients = await self.clients.matchAll({
+    type: "window",
+    includeUncontrolled: true,
+  });
+  for (const client of clients) {
+    client.postMessage({ source: "koolee-push", at: Date.now(), ...payload });
+  }
+}
+
+/**
  * EVERY notification is raised HERE, never from the page.
  *
  * A page can only show a notification while the page is alive. The service
@@ -126,7 +151,12 @@ self.addEventListener("push", (event) => {
   // `waitUntil` keeps the worker alive until the notification actually
   // exists. Without it the worker can be killed mid-flight and nothing
   // appears — with every log line still reporting success.
-  event.waitUntil(self.registration.showNotification(data.title || "Koolee", options));
+  event.waitUntil(
+    (async () => {
+      await self.registration.showNotification(data.title || "Koolee", options);
+      await broadcast({ type: "push-received", tag: options.tag, title: data.title });
+    })(),
+  );
 });
 
 /** Focus an open tab rather than opening a second copy of the app. */
