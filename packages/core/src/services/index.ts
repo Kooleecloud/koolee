@@ -153,15 +153,37 @@ export {
 
 export {
   addAgentZones,
+  assignEnteringHorizon,
   autoAssignBooking,
+  autoAssignOnPaid,
   listAgentZones,
   removeAgentZone,
   type AgentZoneCoverage,
   type AutoAssignInput,
   type AutoAssignResult,
   type AutoAssignSkipReason,
+  type HorizonSweepResult,
   type ZoneMutationResult,
 } from "./auto-assign";
+
+export {
+  assignmentHorizonEnd,
+  withinAssignmentHorizon,
+} from "./assignment-horizon";
+
+export {
+  deletePushSubscription,
+  listAdminPushTargets,
+  listPushSubscriptionsForUser,
+  listPushTargets,
+  markPushSubscriptionVerified,
+  prunePushSubscriptions,
+  pushToTargets,
+  pushToUsers,
+  savePushSubscription,
+  type PushFanOutResult,
+  type SavePushSubscriptionInput,
+} from "./push-subscriptions";
 
 export {
   confirmAirlineHandover,
@@ -355,4 +377,9 @@ export {
   type QuoteBookingPriceResult,
 } from "./quote";
 
-export { sendBookingConfirmationEmail } from "./confirmation-email";
+export {
+  assembleBookingConfirmationEmail,
+  sendBookingConfirmationEmail,
+  type AssembleConfirmationEmailInput,
+  type SendConfirmationEmailInput,
+} from "./confirmation-email";
