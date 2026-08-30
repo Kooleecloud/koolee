@@ -80,7 +80,7 @@ Legend: ● required for the feature to work · ○ optional/degrades · — not
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY`      |  ●  |   ●   |   ●   | Supabase → Settings → API → anon public key                                                                                                                            |
 | `SUPABASE_SERVICE_ROLE_KEY`          |  ●  | **—** |   ●   | Supabase → Settings → API → service_role. **Never in agent** (§5)                                                                                                      |
 | `AUTH_SCHEMA_AVAILABLE`              |  ○  |   —   |   —   | `"false"` only for bare local Postgres with no GoTrue                                                                                                                  |
-| `NEXT_PUBLIC_TURNSTILE_SITE_KEY`     |  ●  |   —   |   —   | Cloudflare → Turnstile → Site key (invisible mode)                                                                                                                     |
+| `NEXT_PUBLIC_TURNSTILE_SITE_KEY`     |  ●  |   ●   |   ●   | Cloudflare → Turnstile → Site key (invisible mode). **Same key in all three apps per environment** — see §5.2                                                          |
 | `OTP_LOG_HMAC_KEY`                   |  ●  |   —   |   —   | `openssl rand -hex 32`. **Min 32 chars**                                                                                                                               |
 | `CRON_SECRET`                        |  ●  |   —   |   —   | Any random string. Protects `/api/jobs/*`                                                                                                                              |
 | `STRIPE_SECRET_KEY`                  |  ●  |   —   |   ○   | Stripe → Developers → API keys (admin needs it for refunds)                                                                                                            |
@@ -169,6 +169,17 @@ Supabase; Supabase calls Twilio.
 **5.2 — The Turnstile _secret_ key.** Only the **site** key is app env. The
 secret lives in Supabase dashboard → Auth → Attack Protection. Supabase verifies
 the `captchaToken` the app forwards, so **this app never calls `siteverify`**.
+
+Corollary, learned the hard way: **CAPTCHA protection is a Supabase PROJECT
+setting, not a per-app one.** Enabling it for the customer funnel also gated
+GoTrue's `/token?grant_type=password` and `/recover`, which are the staff apps'
+sign-in and password-reset calls — both started failing with
+`captcha protection: request disallowed (no captcha_token found)`. So agent and
+admin now mount a Turnstile widget too and forward `captchaToken` the same way
+web does. Because the secret is a single per-project value, all three apps must
+use the **same site key** for a given environment; a different widget's token
+fails siteverify. Turnstile hostname entries cover subdomains, so the existing
+`koolee.cloud` / `dev.koolee.cloud` widgets already cover the staff subdomains.
 
 **5.3 — `SUPABASE_SERVICE_ROLE_KEY` in `apps/agent`.** Deliberately absent, and
 this is a design decision, not an oversight: the agent app runs on a shared,

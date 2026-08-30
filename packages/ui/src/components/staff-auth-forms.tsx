@@ -38,9 +38,17 @@ function SubmitButton({ children }: { children: React.ReactNode }) {
 export function StaffLoginForm({
   action,
   resetHref,
+  captchaSlot,
 }: {
   action: StaffAuthAction;
   resetHref: string;
+  /**
+   * Turnstile widget, injected by the app (the site key is app env, and this
+   * package reads none). It writes a single-use token into a hidden field the
+   * server action forwards to Supabase as `options.captchaToken`. Optional:
+   * with no site key the app passes nothing and the form is unchanged.
+   */
+  captchaSlot?: React.ReactNode;
 }) {
   const [state, formAction, pending] = useActionState(action, {});
   // A wrong password must not wipe the email the user typed (React 19
@@ -75,6 +83,7 @@ export function StaffLoginForm({
           required
         />
       </div>
+      {captchaSlot}
       {state.error ? <FormMessage>{state.error}</FormMessage> : null}
       <SubmitButton>{pending ? <Spinner /> : "Sign in"}</SubmitButton>
       <a
@@ -87,15 +96,21 @@ export function StaffLoginForm({
   );
 }
 
-export function PasswordResetForm({ action }: { action: StaffAuthAction }) {
+export function PasswordResetForm({
+  action,
+  captchaSlot,
+}: {
+  action: StaffAuthAction;
+  /** See `StaffLoginForm`. `/recover` is captcha-gated the same way. */
+  captchaSlot?: React.ReactNode;
+}) {
   const [state, formAction, pending] = useActionState(action, {});
   const { formRef, captureValues } = usePreservedFormValues(state);
 
   if (state.ok) {
     return (
       <FormMessage variant="success">
-        If that address has an account, a reset link is on its way. Check your
-        inbox.
+        If that address has an account, a reset link is on its way. Check your inbox.
       </FormMessage>
     );
   }
@@ -118,6 +133,7 @@ export function PasswordResetForm({ action }: { action: StaffAuthAction }) {
           placeholder="you@koolee.cloud"
         />
       </div>
+      {captchaSlot}
       {state.error ? <FormMessage>{state.error}</FormMessage> : null}
       <SubmitButton>{pending ? <Spinner /> : "Send reset link"}</SubmitButton>
     </form>

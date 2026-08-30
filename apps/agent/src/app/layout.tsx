@@ -1,5 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import Link from "next/link";
+import { Analytics } from "@vercel/analytics/next";
+import { SpeedInsights } from "@vercel/speed-insights/next";
 import { AppHeader, Toaster } from "@koolee/ui";
 import { brandFontClassName } from "@koolee/ui/fonts";
 
@@ -60,6 +62,8 @@ export default async function RootLayout({
         {session ? <AgentTabBar /> : null}
         <ServiceWorkerRegistrar />
         <Toaster position="top-center" />
+        <Analytics />
+        <SpeedInsights />
       </body>
     </html>
   );

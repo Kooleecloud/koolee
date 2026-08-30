@@ -1,6 +1,8 @@
 import type { Metadata, Viewport } from "next";
 import { cookies } from "next/headers";
 import Link from "next/link";
+import { Analytics } from "@vercel/analytics/next";
+import { SpeedInsights } from "@vercel/speed-insights/next";
 import { AppHeader, Toaster } from "@koolee/ui";
 import { brandFontClassName } from "@koolee/ui/fonts";
 
@@ -89,6 +91,8 @@ export default async function RootLayout({
           </div>
         )}
         <Toaster />
+        <Analytics />
+        <SpeedInsights />
       </body>
     </html>
   );

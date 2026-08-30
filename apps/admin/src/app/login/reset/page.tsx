@@ -11,6 +11,7 @@ import {
   PasswordResetForm,
 } from "@koolee/ui";
 
+import { TurnstileField } from "@/components/auth/turnstile-field";
 import { sendPasswordReset } from "@/actions/auth";
 
 export const metadata = { title: "Reset password" };
@@ -32,7 +33,10 @@ export default function ResetPasswordPage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <PasswordResetForm action={sendPasswordReset} />
+          <PasswordResetForm
+            action={sendPasswordReset}
+            captchaSlot={<TurnstileField />}
+          />
         </CardContent>
       </Card>
     </ContentColumn>
