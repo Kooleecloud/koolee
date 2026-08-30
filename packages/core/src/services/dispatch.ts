@@ -11,6 +11,7 @@ import {
   inArray,
   isNull,
   lt,
+  lte,
   or,
   sql,
   type SQL,
@@ -33,9 +34,10 @@ import {
 
 import type { TransitionActor } from "../booking/state-machine";
 import type { AdminSession } from "../auth/types";
-import type { CoreConfig } from "../config";
+import { DEFAULTS, type CoreConfig } from "../config";
 import { emitAgentAssigned } from "../events/booking-events";
 import { airportLocalDayBounds } from "../slots/cutoff";
+import { withinAssignmentHorizon } from "./assignment-horizon";
 import { applyTransition } from "./bookings";
 import { OPEN_TASK_STATUSES } from "./tasks";
 import { cancelBookingWithRefund } from "./payment-lifecycle";
@@ -72,6 +74,26 @@ export async function listActiveAgents(db: Database): Promise<ActiveAgent[]> {
 export interface AssignAgentInput {
   bookingId: string;
   agentUserId: string;
+  /**
+   * Refuse if somebody else got there first, instead of reassigning.
+   *
+   * For the AUTOMATIC callers (`autoAssignBooking`, and through it the
+   * on-paid hook and the horizon sweep), whose documented rule is that they
+   * never reassign. That rule used to be enforced by a check in
+   * `autoAssignBooking` that ran BEFORE the zone lookup and the load counts —
+   * several round trips before the write — so a second sweep could pass the
+   * check, watch the first one commit, and then take the UPDATE branch here
+   * and move the booking to a different agent. The 0019 unique index does not
+   * referee that, because nobody inserts.
+   *
+   * With this set the decision is re-made INSIDE the transaction, where it
+   * can see a committed winner. Two writers that both read before either
+   * commits still both INSERT, and there the unique index does referee.
+   *
+   * A dispatcher clicking Assign leaves it unset: reassignment is exactly
+   * what they mean.
+   */
+  neverReassign?: boolean;
 }
 
 export type AssignAgentResult =
@@ -147,13 +169,26 @@ export async function assignAgentToBooking(
     };
   }
 
+  /** Thrown inside the transaction; converted to a `conflict` result below. */
+  class ConcurrentAssignment extends Error {}
+
   try {
     await db.transaction(async (tx) => {
-      if (existing) {
+      // Re-read under the transaction. `existing` above was read before the
+      // zone lookup and the load counts, which is several round trips of
+      // opportunity for a concurrent writer to finish.
+      const current = await tx.query.verificationTasks.findFirst({
+        where: eq(verificationTasks.bookingId, booking.id),
+      });
+      if (input.neverReassign && current?.assigneeUserId) {
+        throw new ConcurrentAssignment();
+      }
+
+      if (current) {
         await tx
           .update(verificationTasks)
           .set({ assigneeUserId: input.agentUserId, status: "assigned" })
-          .where(eq(verificationTasks.id, existing.id));
+          .where(eq(verificationTasks.id, current.id));
       } else {
         await tx.insert(verificationTasks).values({
           bookingId: booking.id,
@@ -185,10 +220,19 @@ export async function assignAgentToBooking(
       }
     });
   } catch (error) {
-    // The on-paid race (Stripe webhook vs /book/return re-check): both
-    // callers passed the existence check above, and the 0019 unique index
-    // refused the second insert. The winner owns the assignment — report
-    // "already assigned", never a failure of the payment path.
+    // Lost the race to a writer that had already COMMITTED — seen by the
+    // re-read inside the transaction.
+    if (error instanceof ConcurrentAssignment) {
+      return {
+        ok: false,
+        error: "Already assigned by a concurrent writer.",
+        conflict: true,
+      };
+    }
+    // Lost the race to a writer that had NOT yet committed: both passed the
+    // existence check, both inserted, and the 0019 unique index refused the
+    // second. The winner owns the assignment — report "already assigned",
+    // never a failure of the payment path.
     if (pgErrorCode(error) === "23505") {
       return {
         ok: false,
@@ -325,10 +369,35 @@ export async function resolveExceptionBooking(
 /* Ops dashboard + board                                                */
 /* ------------------------------------------------------------------ */
 
+/**
+ * Everything the console needs to tell "nobody has done this yet" apart from
+ * "the system has correctly not started this yet".
+ *
+ * `assignmentHorizonHours` is passed rather than defaulted for the same reason
+ * `tz` is: a wrong value here is not a crash, it is a badge that quietly lies.
+ * Callers read it from `config.defaults` so the console and the sweep cannot
+ * disagree about where the line is.
+ */
+export interface BoardContext {
+  /** Read as "now". Defaults to the real clock. */
+  now?: Date;
+  /** See `CoreDefaults.assignmentHorizonHours`. Defaults to `DEFAULTS`. */
+  assignmentHorizonHours?: number;
+}
+
 export interface OpsDashboard {
   /** Bookings whose pickup window starts today, by status. */
   todayByStatus: Array<{ status: Booking["status"]; count: number }>;
-  /** Paid bookings with a window today and no assigned verification task. */
+  /**
+   * Paid bookings with a window today, INSIDE the assignment horizon, and no
+   * assigned verification task.
+   *
+   * The horizon clause is not redundant with "today": at the default 48 hours
+   * every window today is inside it, but the horizon is configuration. Set
+   * `ASSIGNMENT_HORIZON_HOURS=6` and tonight's 11 PM pickup is legitimately
+   * unassigned at 9 AM — counting it here would page an operator about work
+   * the sweep is going to do at 5 PM.
+   */
   unassignedToday: number;
   /**
    * Sealed bookings with a window today whose bags nobody is coming for —
@@ -356,8 +425,11 @@ export interface OpsDashboard {
 export async function getOpsDashboard(
   db: Database,
   tz: string,
-  now: Date = new Date(),
+  ctx: BoardContext = {},
 ): Promise<OpsDashboard> {
+  const now = ctx.now ?? new Date();
+  const horizonHours = ctx.assignmentHorizonHours ?? DEFAULTS.assignmentHorizonHours;
+  const horizonEnd = new Date(now.getTime() + horizonHours * 3_600_000);
   const { start: dayStart, end: dayEnd } = airportLocalDayBounds(now, tz);
 
   const todayByStatus = await db
@@ -380,6 +452,8 @@ export async function getOpsDashboard(
         eq(bookings.status, "paid"),
         gte(bookings.pickupWindowStart, dayStart),
         lt(bookings.pickupWindowStart, dayEnd),
+        // Unassigned BY DESIGN beyond the horizon — not a problem to count.
+        lte(bookings.pickupWindowStart, horizonEnd),
         isNull(verificationTasks.assigneeUserId),
       ),
     );
@@ -593,8 +667,10 @@ function orderFor(sort: BoardSort | undefined): SQL[] {
 export async function listBookingsBoard(
   db: Database,
   filter: BoardFilter = {},
-  now: Date = new Date(),
+  ctx: BoardContext = {},
 ): Promise<BoardRow[]> {
+  const now = ctx.now ?? new Date();
+  const horizonHours = ctx.assignmentHorizonHours ?? DEFAULTS.assignmentHorizonHours;
   const conditions = [
     filter.statuses?.length ? inArray(bookings.status, filter.statuses) : undefined,
     filter.airports?.length
@@ -646,7 +722,13 @@ export async function listBookingsBoard(
       row.booking.status === "paid" &&
       !row.assigneeUserId &&
       row.slotStart !== null &&
-      row.slotStart.getTime() - now.getTime() < AT_RISK_HORIZON_MS;
+      row.slotStart.getTime() - now.getTime() < AT_RISK_HORIZON_MS &&
+      // Beyond the assignment horizon there is nothing wrong: the sweep has
+      // not reached this booking yet and is not supposed to have. At the
+      // default 48h this never bites (12h < 48h), which is precisely why it
+      // has to be written down — a shortened horizon would otherwise turn
+      // every correctly-deferred booking into a red badge.
+      withinAssignmentHorizon(row.slotStart, now, horizonHours);
 
     const noDriver =
       (DRIVER_AWAITED_STATUSES as readonly string[]).includes(row.booking.status) &&

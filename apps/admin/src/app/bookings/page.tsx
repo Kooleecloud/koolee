@@ -200,14 +200,19 @@ export default async function BookingsPage({
       const filterTz =
         airports.length === 1 ? zoneFor(zones, airports[0]!) : OPS_CONSOLE_TZ;
 
-      rows = await listBookingsBoard(core.db, {
-        ...(statuses.length > 0 ? { statuses } : {}),
-        ...(airports.length > 0 ? { airports } : {}),
-        ...(today ? { day: { on: now, tz: filterTz } } : {}),
-        ...(search ? { search } : {}),
-        sort: { key: sortKey, direction: sortDir },
-        limit: 200,
-      });
+      rows = await listBookingsBoard(
+        core.db,
+        {
+          ...(statuses.length > 0 ? { statuses } : {}),
+          ...(airports.length > 0 ? { airports } : {}),
+          ...(today ? { day: { on: now, tz: filterTz } } : {}),
+          ...(search ? { search } : {}),
+          sort: { key: sortKey, direction: sortDir },
+          limit: 200,
+        },
+        // Beyond the horizon a booking is unassigned by design, not at risk.
+        { now, assignmentHorizonHours: core.defaults.assignmentHorizonHours },
+      );
     } catch {
       unavailable = true;
     }

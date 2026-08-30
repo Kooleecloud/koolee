@@ -26,6 +26,7 @@ import { OPS_CONSOLE_TZ } from "@/lib/airport-tz";
 import { getConsoleDashboard } from "@/lib/console-dashboard";
 import { tryGetCore } from "@/lib/core";
 import { getAdminSession } from "@/lib/session";
+import { NotificationsCard } from "./notifications-card";
 
 export const dynamic = "force-dynamic";
 
@@ -100,11 +101,16 @@ export default async function AdminHomePage() {
     // Both degrade to their own empty states; neither is worth failing the
     // landing page over.
     [upcoming, workload] = await Promise.all([
-      listBookingsBoard(core.db, {
-        day: { on: now, tz: OPS_CONSOLE_TZ },
-        sort: { key: "window", direction: "asc" },
-        limit: 50,
-      }).catch(() => []),
+      listBookingsBoard(
+        core.db,
+        {
+          day: { on: now, tz: OPS_CONSOLE_TZ },
+          sort: { key: "window", direction: "asc" },
+          limit: 50,
+        },
+        // Beyond the horizon a booking is unassigned by design, not at risk.
+        { now, assignmentHorizonHours: core.defaults.assignmentHorizonHours },
+      ).catch(() => []),
       listAgentWorkload(core.db, { on: now, tz: OPS_CONSOLE_TZ }).catch(() => []),
     ]);
   }
@@ -316,6 +322,8 @@ export default async function AdminHomePage() {
             </Card>
           </div>
 
+          {/* Last: configured once, then never looked at again. */}
+          <NotificationsCard />
         </>
       )}
     </ConsoleMain>

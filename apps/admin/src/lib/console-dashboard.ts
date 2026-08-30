@@ -22,5 +22,9 @@ import { tryGetCore } from "@/lib/core";
 export const getConsoleDashboard = cache(async (): Promise<OpsDashboard | null> => {
   const core = tryGetCore();
   if (!core) return null;
-  return getOpsDashboard(core.db, OPS_CONSOLE_TZ).catch(() => null);
+  // The horizon comes from the runtime, never a literal: the console and
+  // the assignment sweep must agree about what "unassigned" means.
+  return getOpsDashboard(core.db, OPS_CONSOLE_TZ, {
+    assignmentHorizonHours: core.defaults.assignmentHorizonHours,
+  }).catch(() => null);
 });
