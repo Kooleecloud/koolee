@@ -12,11 +12,23 @@
 
 ## 0. The short version
 
-| # | Step | Where | Blocking? |
+| # | Step | Who | Blocking? |
 |---|---|---|---|
-| 1 | Apply migrations `0030` + `0031` | CI on merge, or by hand | **yes** |
-| 2 | Confirm `booking_signals` is in the `supabase_realtime` publication | Supabase dashboard | no — degrades to polling |
-| 3 | Nothing else | — | — |
+| 1 | Apply migrations `0030` + `0031` | **CI on merge** | **yes** |
+| 2 | Add `booking_signals` to the `supabase_realtime` publication | **CI** — the migration does it | no — degrades to polling |
+| 3 | Verify the four things in §1 | human, once, read-only | no |
+| 4 | Smoke-test §3 — especially the two-window check | human, two browser tabs | no |
+
+**There is no manual SQL and no dashboard step.** `0030` contains the
+`ALTER PUBLICATION supabase_realtime ADD TABLE public.booking_signals`, and
+that is not a new trick: `0001` does the identical thing for `custody_events`
+and is applied on both hosted projects (PROJECT-STATUS §3.1, verified 21/21 by
+content hash). The migration role can alter that publication on hosted —
+already proven.
+
+What is left for a human is **verification and a smoke test**, and the
+verification is not ceremony: the one failure mode this slice already paid for
+is a step that silently no-ops. See §1's grant check.
 
 **No new environment variables**, in any app or in core. That is a claim worth
 checking rather than trusting: the browser clients use
@@ -83,16 +95,20 @@ fix; see its header.
 
 ---
 
-## 2. Realtime must be on for the table
+## 2. Realtime — CI does it; you confirm it
 
-`0030` adds `booking_signals` to the `supabase_realtime` publication and sets
-`REPLICA IDENTITY FULL`, which is everything SQL can do. Confirm in the
-dashboard under **Database → Replication** that the `supabase_realtime`
-publication is enabled and lists `booking_signals`.
+`0030` sets `REPLICA IDENTITY FULL` and runs
+`ALTER PUBLICATION supabase_realtime ADD TABLE public.booking_signals`, guarded
+on the publication existing. Nothing to click.
 
-If it does not, every client falls back to polling every 30 seconds. That is a
-degradation, not an outage, and it is the intended shape of that failure — but
-it is worth not shipping.
+Confirm afterwards, either with the §1 query or in the dashboard under
+**Database → Replication**, that the publication lists `booking_signals`.
+
+The block is a no-op if `supabase_realtime` does not exist — which is the right
+behaviour on plain Postgres and the wrong one to discover on a hosted project
+where Realtime was never enabled at the project level. If the table is not
+listed, every client falls back to polling every 30 seconds: a degradation, not
+an outage, and the intended shape of that failure — but worth not shipping.
 
 ---
 
