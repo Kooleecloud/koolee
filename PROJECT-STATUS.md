@@ -9,7 +9,7 @@
 > commit/PR. When new work is spec'd, add a row + a spec section before
 > writing code. Keep detail in the linked docs; this file stays a map.
 
-**Last updated:** 2026-08-29 · **Active branch:** `fix/f1-gates-and-bugs`
+**Last updated:** 2026-08-30 · **Active branch:** `feat/f3-push-and-dispatch-timing`
 
 ---
 
@@ -55,6 +55,38 @@ package-specific in `packages/<pkg>/docs/`. Nothing new accumulates at the root.
 ---
 
 ## 3. Snapshot — where we are right now
+
+- **Slice F3 in flight: notifications leave the tab, and dispatch stopped
+  running months early (2026-08-30, `feat/f3-push-and-dispatch-timing`).**
+  Rows 92–96. Migration **0032, LOCAL ONLY** — hosted is TD's step
+  ([docs/features/f3-hosted-setup.md](docs/features/f3-hosted-setup.md)), and
+  this one DOES bring new environment variables: a VAPID trio plus a public
+  key in all three apps, gated at production boot. Three things landed.
+  **(a) Web push — SHIPPED DISABLED**, behind
+  `NEXT_PUBLIC_PUSH_NOTIFICATIONS_ENABLED` (default `false`, every
+  environment), on the explicit understanding that it is *never
+  load-bearing*: a `201` from a push service means accepted, not delivered,
+  and no API anywhere reports whether the OS actually drew anything, so email
+  and the realtime signal remain the guaranteed channels and the only real
+  verification is asking a human. Eight moments are wired inside the existing
+  Inngest functions, each in its own step after the email; customer milestones
+  collapse onto one notification per booking while staff work stacks.
+  **(b) Deferred assignment**: paying in March for a June flight used to name
+  an agent in March. Assignment now waits for a 48-hour horizon, a `*/5` sweep
+  picks bookings up as they come into range, and the console's at-risk logic
+  learned that "unassigned beyond the horizon" is not a problem. **(c)** The
+  confirmation email stopped having two versions — the guest who added an
+  email after paying was getting a hand-rolled body with a *relative* trip
+  link. Two things were found along the way: the agent PWA's service worker
+  had **never registered in any environment** (the §7 null-return trap, again),
+  and `getNotifications()` does not list a notification the platform could not
+  draw — which answers the POC's open question and confirms the ask-a-human
+  design. A third was found by TD, in review, after the slice reported itself
+  green: the agent and admin apps held the PUBLIC VAPID key but not the
+  private one, so they registered devices and then fell back to
+  `ConsolePushSender` — **which logs and reports success** — and the
+  did-you-see-it check, whose whole purpose is catching silent non-delivery,
+  was asking about notifications that had never been sent. Rows 97–98.
 
 - **Slice F2 shipped: the product went live, in both senses (2026-08-30,
   `feat/f2-live-ux`).** Rows 85–91. Migrations **0030 + 0031, LOCAL ONLY** —
@@ -455,6 +487,13 @@ the linked row is the current behaviour)
 | 89 | Photo issuance you cannot get wrong (2026-08-30) | ✅ | `feat/f2-live-ux`: `signAvatarUrlForViewer(path)` took a raw storage path and a comment saying never to pass one from a request. Callers now name subject user IDS and a booking; `avatarPathsForViewer` decides. An admin can replace any STAFF photo (service-role after `canReplaceAvatarOf`, because 0027's policy admits your own folder only); a customer's photo stays out of reach. [storage-and-avatars.md §3.1](docs/features/storage-and-avatars.md) |
 | 90 | The agent's day, ordered by attention (2026-08-30) | ✅ | `feat/f2-live-ux`: problems, overdue, today, then a group per day — finished work moved to a History twin on the same route rather than a fourth bottom tab. The task page renders its record instead of its controls when nothing is left: one view, two modes. Verifying the immutability claim found `confirmVisitIdentity` had NO actionability gate at all and could append to a booking delivered days earlier |
 | 91 | Admin histories that name people (2026-08-30) | ✅ | `feat/f2-live-ux`: the custody trail identified every actor as eight hex characters; it resolves names and faces now, through the same `avatarPathsForViewer` every other surface uses. `/staff/[userId]` is new — counts by kind, a date range that lives in the URL, rows linking to bookings, shifts beside them, all DERIVED from task rows with no bookkeeping table. What cannot be derived (email sends) is stated on the page rather than implied as a zero |
+| 92 | One confirmation email, two dispatch points (2026-08-30) | ✅ | `feat/f3-push-and-dispatch-timing`: the guest-adds-email-after-payment path hand-rolled its own plain-text body carrying `Track your pickup: /trips/<id>` — **a relative path, in an inbox**. No booking ref, no price breakdown, no address, no agreement nudge. Whoever paid as a guest got the materially worse email and nothing said so. `assembleBookingConfirmationEmail` is now the single place a booking row becomes a message; the Inngest function and the Server Action are two dispatch points over it, differing only in what they do when a send fails. `tripUrlFor` lifted to `notifications/links.ts`. The idempotency question was TRACED, not guessed: the card only renders for an account with no email, which is exactly when Inngest returned a memoized `no_email` — no double-send exists, so no guard was built. [RUN-REPORT-10 §0](docs/run-reports/RUN-REPORT-10.md) |
+| 93 | Assignment waits for a horizon (2026-08-30) | ✅ | `feat/f3-push-and-dispatch-timing`: paying in March for a June flight named an agent **in March** — a task nobody could act on sat in somebody's list for three months, against a roster that would have changed. `assignmentHorizonHours` (default 48, env `ASSIGNMENT_HORIZON_HOURS`) defers BOTH task creations; a `*/5` sweep assigns on horizon entry, refereed by 0019's unique index so concurrent runs collapse to one. The at-risk logic learned the difference: beyond the horizon is **not** a problem, and the same row at the same instant reads `atRisk:false` at a 1h horizon and `no_agent` at 48h. Deferring the pickup task is safe *by construction* — driver selection needs `verified_sealed`, which a deferred booking cannot have reached. [RUN-REPORT-10 §1](docs/run-reports/RUN-REPORT-10.md) |
+| 94 | Web push, on a channel that is never load-bearing (2026-08-30) | ✅ | `feat/f3-push-and-dispatch-timing`: migration **0032** (`push_subscriptions`, unique on `endpoint` ALONE so a device that changes hands MOVES rather than duplicating), a `PushSender` seam mirroring `Notifier`, the real `web-push` sender in apps/web, and route handlers in all three apps — route handlers rather than Server Actions because `pushsubscriptionchange` can only `fetch` a URL. Eight moments wired inside the existing Inngest functions, each in its own step after the email. Customer milestones collapse onto one notification per booking; staff work stacks. A `201` from a push service means accepted, not delivered, so **email and the in-app signal stay the guaranteed channels**. [f3-hosted-setup.md](docs/features/f3-hosted-setup.md) |
+| 95 | The agent PWA's service worker had never registered (2026-08-30) | ✅ | `feat/f3-push-and-dispatch-timing`: `ServiceWorkerRegistrar` returned `null` — the exact §7 trap F2 paid for — **and** returned early unless `NODE_ENV === "production"`. Nothing in dev by design, nothing in production by accident: the offline shell it exists to install has never installed, in any environment, since it shipped. Found while wiring push, which needs the same worker. It renders `<span hidden data-sw={state} />` now, and that attribute is how registration is confirmed from the DOM. |
+| 96 | "Did you see it?" — the only push verification that exists (2026-08-30) | ✅ | `feat/f3-push-and-dispatch-timing`: `showNotification` resolving means the notification was CREATED, not displayed. macOS with the browser switched off in System Settings reports success at every layer and draws nothing; so do Focus, an alert style of "None", and an enterprise policy. **No API on any platform reports it.** The agent app sends a real push through the full pipeline after enabling and asks a human, stamping `verified_at` on a Yes and showing platform-aware remediation on a No. Confirmed in a headed browser that `getNotifications()` does NOT list a notification the platform could not draw — so it is not a detection signal either. |
+| 97 | The did-you-see-it check was itself lying (2026-08-30) | ✅ | `feat/f3-push-and-dispatch-timing`: found by TD in review, after the slice reported itself green. `WebPushSender` lived in `apps/web`, so the agent and admin runtimes had **no real sender** and fell back to `ConsolePushSender` — which logs one line and returns `{ sent: n, failed: 0 }`. Their `/api/push/test` read those counts, answered `accepted: true`, and the card asked "Did a notification just appear?" about a push that never left the process. Fixes: the sender moved to `@koolee/core/web-push` (one implementation, three consumers, deliberately OUT of the barrel so Node-only crypto cannot reach a client bundle); `PushSender.delivers` makes "a log line is not a delivery" a type-level fact; the test route returns **503 `not_configured`** rather than pretending; `pnpm push:vapid` now distributes to all three apps idempotently, reusing any existing pair; and the card distinguishes "nothing was sent" from "you did not see it", because those have completely different fixes. |
+| 98 | Push ships DISABLED (2026-08-30) | ✅ | `feat/f3-push-and-dispatch-timing`: `NEXT_PUBLIC_PUSH_NOTIFICATIONS_ENABLED`, default `false` in every environment. Off ⇒ console sender regardless of VAPID, every enable affordance hidden, VAPID boot gate waived (a prod deploy that has never heard of VAPID boots clean). **Email and in-app realtime are untouched** — they carry the product. ONE variable rather than a server/public pair, following `NEXT_PUBLIC_LAUNCH_MODE`: two flags that can disagree is the exact shape of row 97. Subscriptions are never touched by the switch, so flipping it back on resumes delivery with nobody re-subscribing. |
 ---
 
 ## 5. Timeline (condensed)
@@ -622,6 +661,65 @@ user-confirmed values persist. `ANTHROPIC_API_KEY` present = Claude
   its turbopack dev cache there, not under `.next/cache/`, and without the
   exclusion every build archives it. Measured at 616 GB, with `.next/dev`
   standing at 39 GB (web) + 6.2 GB (admin) + 4.0 GB (agent) at the time.
+- **Push is NEVER load-bearing.** A `201` from a push service means the
+  message was accepted, not delivered, and there is no API on any platform
+  that reports whether the operating system actually drew a notification —
+  permission granted, push delivered, worker fired and `showNotification`
+  resolved is all compatible with an empty screen (an OS per-app switch,
+  Focus, an alert style of "None", an enterprise policy). Every moment that
+  pushes therefore ALSO has an email or a live screen, `PushSender.send`
+  never throws, and every send sits in its own Inngest step AFTER the email
+  so a dead provider cannot fail, retry or duplicate the guaranteed channel.
+  The only verification that exists is asking a human, which is what the
+  agent app's did-you-see-it step is for. Confirmed in a headed browser:
+  `registration.getNotifications()` does not list a notification the platform
+  could not draw, so it is not a detection signal either.
+- **Push ships DISABLED and is opt-in per environment**
+  (`NEXT_PUBLIC_PUSH_NOTIFICATIONS_ENABLED`, default `false`). ONE variable,
+  `NEXT_PUBLIC_` so server and browser read the same value — a server flag
+  plus a public twin is two things that can disagree, which is precisely the
+  shape of the bug below. Off ⇒ console sender regardless of VAPID, no enable
+  affordances, VAPID boot gate waived. Stored subscriptions are never touched
+  by the switch: flipping it back on resumes delivery with no re-subscribe.
+  Never truncate `push_subscriptions` to "turn push off" — that is the one
+  action nobody can undo without every person re-enabling by hand.
+- **A fallback that reports SUCCESS is worse than one that fails.**
+  `ConsolePushSender` logs a line and returns `{ sent: n, failed: 0 }`, so an
+  app with no real sender has a pipeline that looks perfect and delivers
+  nothing — which is exactly what happened to the agent and admin apps, whose
+  "did you see it?" check then asked about notifications that were never sent.
+  **Every app that sends needs the full credential set**, not just the public
+  half that lets it register devices. Counts cannot answer "was that real";
+  `PushSender.delivers` can, and anything reporting delivery to a HUMAN must
+  consult it rather than the counts.
+- **Notifications are raised from the SERVICE WORKER, never from the page.**
+  A page can only show one while it is alive; the worker is woken with every
+  tab closed. One path covers focused, backgrounded, other-tab and
+  tab-closed — no branching, nothing to dedupe, and no case that only appears
+  in production. Corollaries that have each already cost somebody a day: a
+  same-tag notification REPLACES the one showing and, without `renotify`, does
+  so SILENTLY (which looks exactly like total delivery failure while the logs
+  say "sent"); `userVisibleOnly: true` is mandatory or the subscription is
+  revoked; a `pushsubscriptionchange` handler is not optional, because without
+  it a rotated subscription kills push permanently while the UI still says
+  "subscribed"; and `/sw.js` must be served `no-cache` with
+  `Service-Worker-Allowed: /`. Permission is ONE-SHOT and must only ever be
+  requested from a user gesture.
+- **A scope gets exactly ONE service worker.** The agent PWA already had one
+  for its offline shell, so F3's push listeners were MERGED into that file.
+  Registering a second worker at scope `/` would have replaced it and taken
+  the offline shell with it, silently.
+- **An agent is assigned at a HORIZON, not at payment**
+  (`defaults.assignmentHorizonHours`, default 48, env
+  `ASSIGNMENT_HORIZON_HOURS`). Beyond it a paid booking rests with no
+  verification task and no pickup task — which is correct, and which the
+  console must be told: `withinAssignmentHorizon` gates both the board's
+  `no_agent` flag and `unassignedToday`, or a shortened horizon turns every
+  correctly-deferred booking into a red badge and teaches operators to ignore
+  badges. Both task creations defer together; that is safe by construction
+  because driver selection requires `verified_sealed`, which a deferred
+  booking cannot have reached. The `*/5` sweep is idempotent through 0019's
+  unique index and invisible to already-assigned bookings by construction.
 - Copy rules: "delivered to your airline's bag drop" — never overclaim, no
   fabricated numbers ([README](README.md)).
 - **Documentation lives under `docs/`, never in the repo root.** The only two

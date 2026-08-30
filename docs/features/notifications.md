@@ -1,7 +1,8 @@
 # The notification matrix
 
 > **Every moment Koolee tells somebody something, on which channel, and why
-> the gaps are gaps.** Baseline: `feat/f2-live-ux`. ← [Features index](README.md)
+> the gaps are gaps.** Baseline: `feat/f3-push-and-dispatch-timing`.
+> ← [Features index](README.md)
 >
 > This is the living table. For how the jobs are wired and served read
 > [jobs-and-notifications.md](jobs-and-notifications.md); for the live-update
@@ -11,30 +12,42 @@
 
 ## 1. The matrix
 
+> **Push ships DISABLED.** Every entry in the Push column below is behind
+> `NEXT_PUBLIC_PUSH_NOTIFICATIONS_ENABLED`, which defaults to `false` in every
+> environment — so as things stand, none of them send. With the flag off the
+> moments log instead, the enable affordances do not render, and **email and
+> in-app are unaffected**: they are the guaranteed channels and they carry the
+> product on their own. See
+> [f3-hosted-setup.md §0](f3-hosted-setup.md).
+
 **In-app** means the screen updates itself through the realtime signal — no
 reload, no tap. A ✱ marks the few that also raise a toast, because the screen
 grew something that needs a decision. **Email** is the `Notifier` seam (Resend
-in production, console in dev). **SMS** is parked.
+in production, console in dev). **Push** is the `PushSender` seam, and it is
+**never load-bearing**: every row that has a push also has an email or a live
+screen, because a `201` from a push service means accepted, not delivered.
+**SMS** is parked.
 
-| Moment | Customer in-app | Customer email | Agent / driver in-app | SMS |
-|---|---|---|---|---|
-| Booking confirmed (paid) | live | `booking-confirmation-email` | verification task appears | parked |
-| Agent assigned | live | **`agent-assigned-email`** — "Nina is on your pickup" | — | parked |
-| Agreement accepted | live card | — | gate unlocks ✱ | parked |
-| Passport uploaded / confirmed | live card | — | gate unlocks ✱ | parked |
-| Visit started (agent arrived) | live timeline | — | — | parked |
-| Bags sealed → `verified_sealed` | live timeline + shortlist ✱ | **`bags-sealed-email`** — seal numbers + "choose your driver" | — | parked |
-| Driver selectable | (same moment — see below) | (same email) | — | parked |
-| Driver selected | live | `driver-selected-email` | pickup task is theirs ✱ | parked |
-| Picked up / in transit | live timeline + moving ETA ✱ | — | — | parked |
-| Delivered to bag drop | live ✱ | `bagdrop-delivered-email` | — | parked |
-| Exception raised | live status ✱ | **`exception-customer-email`** — generic | live notice | parked |
-| Exception raised (ops) | — | `exception-ops-alert-email` — full reason | — | — |
-| No driver could be offered (ops) | — | `driver-pool-empty-ops-alert` | — | — |
-| Running late / missed cutoff | live notice | — | live notice | parked |
-| Pre-window reminder (T−2h) | — | `booking-pickup-reminder` | — | console until Twilio |
+| Moment | Customer in-app | Customer email | Push *(off by default)* | Agent / driver in-app | SMS |
+|---|---|---|---|---|---|
+| Booking confirmed (paid) | live | `booking-confirmation-email` | — | verification task appears | parked |
+| Agent assigned | live | `agent-assigned-email` — "Nina is on your pickup" | **customer** (collapse) + **the assigned agent** (stack) | — | parked |
+| Agreement accepted | live card | — | — | gate unlocks ✱ | parked |
+| Passport uploaded / confirmed | live card | — | — | gate unlocks ✱ | parked |
+| Visit started (agent arrived) | live timeline | — | — | — | parked |
+| Bags sealed → `verified_sealed` | live timeline + shortlist ✱ | `bags-sealed-email` — seal numbers + "choose your driver" | **customer** (collapse) | — | parked |
+| Driver selectable | (same moment — see below) | (same email) | (same push) | — | parked |
+| Driver selected | live | `driver-selected-email` | **customer** (collapse) + **the shift's driver** (stack) | pickup task is theirs ✱ | parked |
+| Picked up / in transit | live timeline + moving ETA ✱ | — | — | — | parked |
+| Delivered to bag drop | live ✱ | `bagdrop-delivered-email` | **customer** (collapse) | — | parked |
+| Exception raised | live status ✱ | `exception-customer-email` — generic | — | live notice | parked |
+| Exception raised (ops) | — | `exception-ops-alert-email` — full reason | **every active admin** (stack) | — | — |
+| No driver could be offered (ops) | — | `driver-pool-empty-ops-alert` | **every active admin** (collapse) | — | — |
+| Running late / missed cutoff | live notice | — | — | live notice | parked |
+| Pre-window reminder (T−2h) | — | `booking-pickup-reminder` | — | — | console until Twilio |
 
-**Bold** rows are new in F2.
+**Bold** entries in the Push column are new in F3, and all of them are
+currently inert — the switch is off.
 
 ---
 
@@ -92,6 +105,53 @@ says the photo is on the trip page and links there.
   sent by a timer, with no action attached.
 - **Visit started.** The customer is standing next to the agent.
 - **Driver selected, to the customer.** They just did it.
+
+### Push collapses for a customer and stacks for staff
+
+Every customer milestone carries the SAME tag, `booking:<id>`. "Nina is your
+agent" is REPLACED by "your bags are sealed", which is replaced by "your bags
+are at the bag drop" — one live notification per booking, showing where the
+bags ARE rather than a stack of everywhere they have been. `renotify: true`
+is what makes the replacement re-alert: **without it a same-tag replacement is
+completely silent**, which looks exactly like total delivery failure while
+every server log says "sent".
+
+Staff notifications stack, because they are WORK rather than status. A second
+assigned visit is a second job, and a replaced notification would be a visit
+nobody knows about.
+
+The two ops moments disagree with each other on purpose. An **exception** gets
+a unique tag: two bookings in exception are two problems, and collapsing would
+hide the second one — the exact failure the alert exists to prevent. An
+**empty driver pool** gets a stable tag plus `renotify`: that is one booking
+with a staffing problem that recurs until somebody rosters a driver, and
+stacking would bury the console under repeats of one fact.
+
+### Nothing sensitive travels in a push
+
+Names and `bookings.ref` only. No address, no ZIP, nothing passport-shaped —
+a push payload is decrypted onto a lock screen that may be face-up on a table.
+Asserted in `jobs/push-moments.integration.test.ts` against the fixture's real
+street and ZIP.
+
+### The ops push does not depend on OPS_ALERT_EMAIL
+
+Different channel, different people. An unset ops inbox is no reason to leave
+everyone's phone silent, so the push audience is derived independently: every
+active admin in `staff_members` who has a subscription. No notification-role
+column, no recipients table — a roster on a write path is a thing that has to
+be kept in step with what it counts.
+
+### Push is verified by ASKING A HUMAN
+
+There is no API on any platform that reports whether a notification was
+actually drawn. Permission can be granted, the push delivered, the service
+worker fired and `showNotification` resolved with the screen staying empty —
+an OS per-app switch, Focus, an alert style of "None", an enterprise policy.
+The agent app therefore sends a real test push after enabling and asks Yes/No,
+writing `push_subscriptions.verified_at` on a Yes and showing platform-aware
+remediation on a No. The ops console skips the step: desktop staff have the
+board in front of them, and the board is already the channel.
 
 ### SMS is parked, and the column stays
 
