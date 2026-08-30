@@ -58,11 +58,12 @@ cp apps/agent/.env.example apps/agent/.env.local
 cp apps/admin/.env.example apps/admin/.env.local
 ```
 
-⚠️ **The root `.env.example` is stale.** It is missing five vars that
-`apps/web/src/env.ts` actually reads: `NEXT_PUBLIC_TURNSTILE_SITE_KEY`,
-`OTP_LOG_HMAC_KEY`, `CRON_SECRET`, `AUTH_SCHEMA_AVAILABLE`, and admin's
-`NEXT_PUBLIC_AGENT_APP_URL`. Trust the per-app examples and the `env.ts` files
-over the root template until it is refreshed.
+⚠️ **The root `.env.example` is a reference, not a working file.** Nothing
+reads it — Next loads only `apps/<app>/.env.local` — so it drifts silently, and
+has done twice. Refreshed against the three schemas on 2026-08-29; the per-app
+examples and the `env.ts` files remain the source of truth. Keep the root
+template for the connection-string shapes it documents inline (§6), not as a
+checklist.
 
 ---
 
@@ -74,8 +75,9 @@ Legend: ● required for the feature to work · ○ optional/degrades · — not
 | ------------------------------------ | :-: | :---: | :---: | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `NEXT_PUBLIC_APP_URL`                |  ○  |   ○   |   ○   | Own origin. Dev: `:3000` / `:3001` / `:3002`                                                                                                                           |
 | `NEXT_PUBLIC_AGENT_APP_URL`          |  —  |   —   |   ●   | Agent app's origin. Invite links land there                                                                                                                            |
+| `NEXT_PUBLIC_LAUNCH_MODE`            |  ○  |   —   |   —   | `coming_soon` closes /login, /trips, /dashboard and refuses OTP sends. Unset or `live` = fully live (§6.6)                                                             |
 | `DATABASE_URL`                       |  ●  |   ●   |   ●   | Supabase → Settings → Database → **Connection pooling, Transaction mode, port 6543**                                                                                   |
-| `DIRECT_DATABASE_URL`                |  ○  |   ○   |   ○   | Same page → **Direct connection, port 5432**. Migrations only                                                                                                          |
+| `DIRECT_DATABASE_URL`                |  —  |   —   |   —   | **Not app env.** `packages/db/.env` only — a hosted DDL credential no app reads (§6)                                                                                   |
 | `NEXT_PUBLIC_SUPABASE_URL`           |  ●  |   ●   |   ●   | Supabase → Settings → API → Project URL                                                                                                                                |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY`      |  ●  |   ●   |   ●   | Supabase → Settings → API → anon public key                                                                                                                            |
 | `SUPABASE_SERVICE_ROLE_KEY`          |  ●  | **—** |   ●   | Supabase → Settings → API → service_role. **Never in agent** (§5)                                                                                                      |
@@ -86,7 +88,7 @@ Legend: ● required for the feature to work · ○ optional/degrades · — not
 | `STRIPE_SECRET_KEY`                  |  ●  |   —   |   ○   | Stripe → Developers → API keys (admin needs it for refunds)                                                                                                            |
 | `STRIPE_WEBHOOK_SECRET`              |  ●  |   —   |   —   | Stripe → Webhooks, or `stripe listen` locally                                                                                                                          |
 | `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` |  ●  |   —   |   —   | Stripe → Developers → API keys                                                                                                                                         |
-| `INNGEST_EVENT_KEY`                  |  ○  |   —   |   —   | Inngest Cloud → Events. Not needed for `pnpm dev:inngest`                                                                                                              |
+| `INNGEST_EVENT_KEY`                  |  ○  |   ○   |   ○   | Inngest Cloud → Events. web serves the registry; agent and admin only SEND. Not needed for `pnpm dev:inngest`                                                          |
 | `INNGEST_SIGNING_KEY`                |  ○  |   —   |   —   | Inngest Cloud → Deploy → Signing key                                                                                                                                   |
 | `RESEND_API_KEY`                     |  ○  |   —   |   —   | Resend dashboard. **Required in production** (boot gate) — without it email degrades to console                                                                        |
 | `RESEND_FROM`                        |  ○  |   —   |   —   | RFC 5322 From. Defaults to Resend's sandbox sender; set to the verified domain for real sends                                                                          |

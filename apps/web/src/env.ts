@@ -41,8 +41,8 @@ const schema = z.object({
   // --- Database (Supabase Postgres) -------------------------------------
   /** Supavisor transaction-mode pooler, port 6543. Runtime queries. */
   DATABASE_URL: optionalString,
-  /** Direct connection, port 5432. Migrations only. */
-  DIRECT_DATABASE_URL: optionalString,
+  // DIRECT_DATABASE_URL is deliberately NOT read here: it is a hosted DDL
+  // credential and belongs in packages/db/.env alone (see .env.example).
 
   // --- Supabase (auth, Realtime, Storage) --------------------------------
   NEXT_PUBLIC_SUPABASE_URL: optionalUrl,
@@ -137,7 +137,6 @@ const raw = {
   NEXT_PUBLIC_LAUNCH_MODE: process.env.NEXT_PUBLIC_LAUNCH_MODE,
 
   DATABASE_URL: process.env.DATABASE_URL,
-  DIRECT_DATABASE_URL: process.env.DIRECT_DATABASE_URL,
 
   NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL,
   NEXT_PUBLIC_SUPABASE_ANON_KEY: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
@@ -186,8 +185,6 @@ export class MissingEnvError extends Error {
 const HINTS: Partial<Record<EnvKey, string>> = {
   DATABASE_URL:
     "Supabase → Project Settings → Database → Connection pooling (Transaction mode, port 6543).",
-  DIRECT_DATABASE_URL:
-    "Supabase → Project Settings → Database → Direct connection (port 5432). Migrations only.",
   STRIPE_SECRET_KEY: "Stripe Dashboard → Developers → API keys.",
   STRIPE_WEBHOOK_SECRET:
     "Stripe Dashboard → Developers → Webhooks, or `stripe listen` for local dev.",
@@ -388,7 +385,7 @@ export function describeEnvStatus(): ServiceStatus[] {
       service: "Postgres (Supabase)",
       configured: has("DATABASE_URL"),
       fallback: "Pages that read data render an empty state.",
-      keys: ["DATABASE_URL", "DIRECT_DATABASE_URL"],
+      keys: ["DATABASE_URL"],
     },
     {
       service: "Supabase client (Realtime/Storage)",

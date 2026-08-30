@@ -10,16 +10,19 @@
       "env": [
         "NEXT_PUBLIC_*",
         "DATABASE_URL",
-        "DIRECT_DATABASE_URL",
+        "AUTH_SCHEMA_AVAILABLE",
         "SUPABASE_SERVICE_ROLE_KEY",
         "OTP_LOG_HMAC_KEY",
         "STRIPE_SECRET_KEY",
         "STRIPE_WEBHOOK_SECRET",
         "INNGEST_*",
         "RESEND_API_KEY",
+        "RESEND_FROM",
+        "OPS_ALERT_EMAIL",
         "AEROAPI_KEY",
         "GOOGLE_MAPS_API_KEY",
         "ANTHROPIC_API_KEY",
+        "TICKET_EXTRACTION_DEBUG",
         "SENTRY_DSN",
         "CRON_SECRET"
       ]
