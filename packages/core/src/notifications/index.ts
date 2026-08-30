@@ -15,6 +15,11 @@ export {
 } from "./dispatcher";
 
 export { createNotifier, type NotifierConfig } from "./factory";
+export {
+  SentryOpsAlerter,
+  type SentryCaptureEvent,
+  type SentryOpsAlerterOptions,
+} from "./sentry-alerter";
 export { ResendNotifier, ResendSendError } from "./resend";
 export * from "./emails";
 export { adminBookingUrlFor, taskUrlFor, tripUrlFor } from "./links";

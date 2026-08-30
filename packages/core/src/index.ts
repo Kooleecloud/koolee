@@ -15,6 +15,7 @@ export * from "./geo";
 export * from "./waitlist";
 export * from "./services";
 export * from "./notifications";
+export * from "./observability";
 export * from "./events";
 
 /**

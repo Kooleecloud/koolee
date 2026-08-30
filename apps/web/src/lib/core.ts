@@ -1,9 +1,12 @@
 import "server-only";
 
+import * as Sentry from "@sentry/nextjs";
 import {
   createRuntime,
+  SentryOpsAlerter,
   tryCreateRuntime,
   type CoreConfig,
+  type OpsAlerter,
   type EtaEstimatorConfig,
   type NotifierConfig,
   type PushSender,
@@ -151,12 +154,33 @@ function resolveDefaults(): { assignmentHorizonHours?: number } {
   return assignmentHorizonHours === undefined ? {} : { assignmentHorizonHours };
 }
 
+/**
+ * Ops alerts go to Sentry when there is a DSN, and to the console either way.
+ *
+ * `SentryOpsAlerter` (core) holds the mapping and — the part that matters —
+ * swallows its own failures: twelve of the seventeen `opsAlerter.alert` call
+ * sites are unwrapped Inngest steps, so an alerter that throws would turn "we
+ * could not tell ops about a failed email" into a failing, retrying job.
+ *
+ * `captureEvent` is passed as a plain function rather than the SDK, because
+ * `packages/core` may not depend on `@sentry/nextjs`.
+ */
+function resolveOpsAlerter(): { opsAlerter?: OpsAlerter } {
+  if (!optionalEnv("NEXT_PUBLIC_SENTRY_DSN")) return {};
+  return {
+    opsAlerter: new SentryOpsAlerter({
+      capture: (event) => Sentry.captureEvent(event),
+    }),
+  };
+}
+
 /** Throws when the database is not configured. Use in mutation paths. */
 export function getCore(): CoreConfig {
   return createRuntime({
     databaseUrl: env.DATABASE_URL,
     defaults: resolveDefaults(),
     ...resolvePushSender(),
+    ...resolveOpsAlerter(),
     payments: resolvePaymentConfig(),
     extraction: resolveExtractionConfig(),
     notifications: resolveNotifierConfig(),
@@ -177,6 +201,7 @@ export function tryGetCore(): CoreConfig | null {
     databaseUrl: env.DATABASE_URL,
     defaults: resolveDefaults(),
     ...resolvePushSender(),
+    ...resolveOpsAlerter(),
     payments: resolvePaymentConfig(),
     extraction: resolveExtractionConfig(),
     notifications: resolveNotifierConfig(),

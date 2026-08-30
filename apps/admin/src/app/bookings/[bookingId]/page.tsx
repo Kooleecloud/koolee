@@ -41,6 +41,7 @@ import { TransitionControls } from "@/components/transition-controls";
 import { ViewerLocalTime } from "@/components/viewer-local-time";
 import { tryGetCore } from "@/lib/core";
 import { getAdminSession } from "@/lib/session";
+import { tagBooking } from "@/lib/sentry";
 import { signAvatarUrls } from "@/lib/avatars";
 import { getSupabaseAdminClient } from "@/lib/supabase/admin";
 
@@ -131,6 +132,9 @@ export default async function BookingDetailPage({
   );
   if (!detail) notFound();
   const { booking, timeline, bags, payments, tz } = detail;
+  // Same ref the customer's trip page and the agent's task tag with, so one
+  // KOO-XXXXX pulls all three apps' errors together.
+  tagBooking({ ref: booking.ref, id: booking.id, userId: session.userId });
   // Non-null only on the two DST nights, when the wall-clock label is
   // ambiguous (two 1 AMs) or has a hole in it (no 2 AM).
   const windowNote = booking.pickupWindowStart

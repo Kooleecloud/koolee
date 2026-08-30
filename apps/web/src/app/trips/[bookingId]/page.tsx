@@ -53,6 +53,7 @@ import { signAvatarUrlsForBooking, signShortlistAvatarUrl } from "@/lib/avatars"
 import { pickupStepIndexFor } from "@/lib/pickup-progress";
 import { signBagPhotoUrls } from "@/lib/bag-photos";
 import { tryGetCore } from "@/lib/core";
+import { tagBooking } from "@/lib/sentry";
 import { signPassportPhotoUrl } from "@/lib/passport-photos";
 import { getCustomerSession } from "@/lib/session";
 
@@ -128,6 +129,11 @@ export default async function TripPage({
     tz,
     bagDropCutoffAt: cutoffAt,
   } = result;
+
+  // From here on, anything this render throws carries the booking's ref. One
+  // KOO-XXXXX typed into Sentry pulls the customer's errors, the agent app's
+  // and the console's together — which is the whole reason support has a ref.
+  tagBooking({ ref: booking.ref, id: booking.id, userId: session.userId });
 
   /*
    * The faces on this booking, resolved by RELATIONSHIP rather than by path.

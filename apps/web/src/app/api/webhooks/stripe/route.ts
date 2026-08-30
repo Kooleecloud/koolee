@@ -4,6 +4,7 @@ import { getBooking, handlePaymentEvent, WebhookVerificationError } from "@koole
 import { emitBookingConfirmed } from "@/lib/booking-events";
 
 import { getCore } from "@/lib/core";
+import { captureHandled, tagBooking } from "@/lib/sentry";
 
 /**
  * Stripe webhook endpoint.
@@ -48,6 +49,10 @@ export async function POST(request: Request): Promise<NextResponse> {
     throw error;
   }
 
+  // Whatever happens below carries the booking, so a failed capture is one
+  // search away from the customer's own errors.
+  if (event.bookingId) tagBooking({ id: event.bookingId });
+
   try {
     const outcome = await handlePaymentEvent(core, event);
 
@@ -68,8 +73,12 @@ export async function POST(request: Request): Promise<NextResponse> {
     // "we chose not to act on this event" is not a failure worth retrying.
     return NextResponse.json({ received: true, ...outcome });
   } catch (error: unknown) {
-    // A genuine processing failure — let Stripe redeliver.
+    // A genuine processing failure — let Stripe redeliver. Recorded as well as
+    // logged: this is the money path, and a 500 here is a payment event nobody
+    // acted on. The redelivery may well succeed, which is exactly why the
+    // first failure has to leave a trace somewhere a person looks.
     console.error("[stripe-webhook] handler failed", error);
+    captureHandled(error, { route: "stripe-webhook", eventType: event.type });
     return NextResponse.json({ error: "Handler failed" }, { status: 500 });
   }
 }

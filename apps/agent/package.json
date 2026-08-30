@@ -15,6 +15,7 @@
     "@koolee/core": "workspace:*",
     "@koolee/ui": "workspace:*",
     "@marsidev/react-turnstile": "^1.5.4",
+    "@sentry/nextjs": "^10.72.0",
     "@supabase/ssr": "^0.12.4",
     "@supabase/supabase-js": "^2.111.0",
     "@vercel/analytics": "^2.0.1",

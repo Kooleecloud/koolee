@@ -1,9 +1,12 @@
 import "server-only";
 
+import * as Sentry from "@sentry/nextjs";
 import {
   createRuntime,
+  SentryOpsAlerter,
   tryCreateRuntime,
   type CoreConfig,
+  type OpsAlerter,
   type PushSender,
 } from "@koolee/core";
 import { createWebPushSender } from "@koolee/core/web-push";
@@ -35,6 +38,26 @@ function resolvePushSender(): { pushSender?: PushSender } {
 }
 
 /**
+ * Ops alerts go to Sentry when there is a DSN, and to the console either way.
+ *
+ * `SentryOpsAlerter` (core) holds the mapping and — the part that matters —
+ * swallows its own failures: twelve of the seventeen `opsAlerter.alert` call
+ * sites are unwrapped Inngest steps, so an alerter that throws would turn "we
+ * could not tell ops about a failed email" into a failing, retrying job.
+ *
+ * `captureEvent` is passed as a plain function rather than the SDK, because
+ * `packages/core` may not depend on `@sentry/nextjs`.
+ */
+function resolveOpsAlerter(): { opsAlerter?: OpsAlerter } {
+  if (!optionalEnv("NEXT_PUBLIC_SENTRY_DSN")) return {};
+  return {
+    opsAlerter: new SentryOpsAlerter({
+      capture: (event) => Sentry.captureEvent(event),
+    }),
+  };
+}
+
+/**
  * Builds the injected `CoreConfig` from this app's validated environment.
  * `packages/core` reads no environment variables.
  *
@@ -48,6 +71,7 @@ export function getCore(): CoreConfig {
   return createRuntime({
     databaseUrl: env.DATABASE_URL,
     ...resolvePushSender(),
+    ...resolveOpsAlerter(),
     payments: { kind: "fake", currency: "usd" },
     // `reportVisitException` raises `booking/exception_raised` from inside
     // core; this adapter is what turns it into an ops alert email. Without
@@ -61,6 +85,7 @@ export function tryGetCore(): CoreConfig | null {
   return tryCreateRuntime({
     databaseUrl: env.DATABASE_URL,
     ...resolvePushSender(),
+    ...resolveOpsAlerter(),
     payments: { kind: "fake", currency: "usd" },
     emitter: inngestEmitter,
   });

@@ -29,6 +29,7 @@ import { tryGetCore } from "@/lib/core";
 import { signAvatarUrl } from "@/lib/avatars";
 import { signPassportPhotoUrl } from "@/lib/passport-photos";
 import { getAgentSession } from "@/lib/session";
+import { tagBooking } from "@/lib/sentry";
 
 import { PickupFlow, type PickupView } from "./pickup-flow";
 import { VisitFlow, type VisitView } from "./visit-flow";
@@ -245,6 +246,13 @@ export default async function TaskDetailPage({
     const pickup = await getPickupContext(core.db, session, taskId).catch(() => null);
     if (!pickup) notFound();
 
+    // Same ref the customer's trip page and the console tag with.
+    tagBooking({
+      ref: pickup.booking.ref,
+      id: pickup.booking.id,
+      userId: session.userId,
+    });
+
     const pickupAvatarUrl = await signAvatarUrl(
       pickup.customer?.avatarStoragePath ?? null,
     );
@@ -316,6 +324,7 @@ export default async function TaskDetailPage({
 
   const { task, booking, bags, timeline } = context;
   const { identityGate: gate } = context;
+  tagBooking({ ref: booking.ref, id: booking.id, userId: session.userId });
   const visitState = await getBookingActionability(core.db, booking, new Date());
 
   // Signed here rather than in the client component: the URL is a bearer

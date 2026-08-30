@@ -1024,6 +1024,61 @@ Detail: [ops-console.md](../apps/admin/docs/ops-console.md).
 
 ---
 
+## Chapter 10.5 — Observability (Sentry)
+
+**Policy in core, SDK in the apps.** Three apps each carry their own
+`@sentry/nextjs` instance reporting to their own project — that part cannot be
+shared. What must not be three-of is the POLICY, so
+[`packages/core/src/observability/sentry.ts`](../packages/core/src/observability/sentry.ts)
+holds `sentryOptions()`, the tag names and the severity map, imports nothing
+from Sentry, and is reachable as `@koolee/core/observability`.
+
+⚠️ **That subpath is load-bearing.** `instrumentation-client.ts` pulls the app's
+`lib/sentry.ts` into the BROWSER bundle; importing the `@koolee/core` barrel
+there reaches `postgres`, `stripe` and `unpdf`, and the build fails with four
+"Can't resolve 'fs' / 'net' / 'tls' / 'perf_hooks'" errors that never mention
+Sentry.
+
+Per app: `src/instrumentation.ts` (Node + edge, plus `onRequestError` — the
+only thing that records an error thrown inside a server component, a route
+handler or a server action), `src/instrumentation-client.ts`,
+`src/sentry.server.config.ts`, `src/sentry.edge.config.ts`,
+`src/lib/sentry.ts` (`options`, `tagBooking`, `captureHandled`), and
+`src/app/global-error.tsx`.
+
+**`global-error.tsx` is the root boundary and it did not exist anywhere.**
+`error.tsx` renders INSIDE the root layout, so a failure in that layout escapes
+it entirely. The global one renders its own `<html>`/`<body>` with inline
+styles, because the stylesheet is part of what may have failed.
+
+**The settings that are policy, not defaults:** `tracesSampleRate: 0` (an error
+tracker, not an APM — and traces are the expensive half of the bill) and
+`sendDefaultPii: false` (it would attach IPs, cookies and headers to every
+event, on a product whose database deliberately holds no passport fields and
+hashes OTP destinations). `booking_ref` and `user_id` are the correlation keys
+and both are opaque — `tagBooking` sets them on the customer trip page, the
+agent task page, the admin booking detail and the Stripe webhook, so one
+`KOO-XXXXX` pulls a booking's errors across all three projects.
+
+**`SentryOpsAlerter`** ([notifications/sentry-alerter.ts](../packages/core/src/notifications/sentry-alerter.ts))
+replaces `ConsoleOpsAlerter` when a DSN is present, and logs to the console as
+well — the console line is the record that survives a dead transport. It
+**swallows its own failures, and that is a hard rule**: twelve of the
+seventeen `opsAlerter.alert` call sites are unwrapped Inngest steps, so an
+alerter that threw would turn "we could not tell ops about a failed email" into
+a failing, retrying job.
+
+**Terminal Inngest failures** are captured by one `inngest/function.failed`
+handler in `apps/web/src/lib/inngest.ts` rather than an `onFailure` per
+function, so a function added later is covered without anybody opting it in.
+
+⚠️ **`withSentryConfig` wraps a config whose `headers()` is the only reason web
+push works.** `scripts/check-sw-headers.mjs` imports each composed config and
+asserts `/sw.js` still carries `no-cache` and `Service-Worker-Allowed: /`;
+`pnpm check:sw-headers` runs it. Both failure modes are silent.
+
+---
+
 ## Chapter 11 — UI package & brand
 
 **`packages/ui`** holds every shared component — layout (`AppShell`,

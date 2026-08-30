@@ -127,7 +127,37 @@ const schema = z.object({
    * locally: the dev server accepts unauthenticated sends.
    */
   INNGEST_EVENT_KEY: optionalString,
-  SENTRY_DSN: optionalString,
+  /**
+   * Shared secret for machine-triggered routes. This app has exactly one:
+   * `/api/observability/test-error`, which proves Sentry is wired after a
+   * deploy. Absent ⇒ that route refuses to run, the same way apps/web's cron
+   * routes do.
+   */
+  CRON_SECRET: optionalString,
+
+  // --- Observability -----------------------------------------------------
+  /**
+   * Sentry's DSN, and deliberately `NEXT_PUBLIC_`.
+   *
+   * ONE variable for both runtimes, for the same reason the push kill switch
+   * is one: a server-only `SENTRY_DSN` plus a public twin is two things that
+   * can disagree, and the failure — the browser half silently reporting
+   * nothing while the server half looks healthy — is invisible. A DSN is not a
+   * secret; it is in every client bundle by design, and it grants nothing but
+   * the ability to send events to one project.
+   *
+   * Absent ⇒ the SDK initialises with no DSN and drops everything, which is
+   * what a fresh clone and every local run do.
+   */
+  NEXT_PUBLIC_SENTRY_DSN: optionalString,
+  /**
+   * Source-map upload, BUILD TIME ONLY — never read at runtime. All three
+   * absent (a laptop build) means the upload step is skipped silently and
+   * stack traces in Sentry stay minified.
+   */
+  SENTRY_ORG: optionalString,
+  SENTRY_PROJECT: optionalString,
+  SENTRY_AUTH_TOKEN: optionalString,
 });
 
 export type Env = z.infer<typeof schema>;
@@ -155,7 +185,11 @@ const raw = {
 
   STRIPE_SECRET_KEY: process.env.STRIPE_SECRET_KEY,
   INNGEST_EVENT_KEY: process.env.INNGEST_EVENT_KEY,
-  SENTRY_DSN: process.env.SENTRY_DSN,
+  CRON_SECRET: process.env.CRON_SECRET,
+  NEXT_PUBLIC_SENTRY_DSN: process.env.NEXT_PUBLIC_SENTRY_DSN,
+  SENTRY_ORG: process.env.SENTRY_ORG,
+  SENTRY_PROJECT: process.env.SENTRY_PROJECT,
+  SENTRY_AUTH_TOKEN: process.env.SENTRY_AUTH_TOKEN,
 };
 
 export const env: Env = schema.parse(raw);
@@ -174,6 +208,13 @@ const HINTS: Partial<Record<EnvKey, string>> = {
   DATABASE_URL:
     "Supabase → Project Settings → Database → Connection pooling (Transaction mode, port 6543).",
   STRIPE_SECRET_KEY: "Stripe Dashboard → Developers → API keys. Needed for refunds.",
+  CRON_SECRET: "Any random string; protects /api/observability/test-error.",
+  NEXT_PUBLIC_SENTRY_DSN:
+    "Sentry → Project → Settings → Client Keys (DSN). Public by design; one per app, per environment.",
+  SENTRY_ORG: "Sentry → Settings → Organization slug. Build time only.",
+  SENTRY_PROJECT: "Sentry → Project → Settings → Name (slug). Build time only.",
+  SENTRY_AUTH_TOKEN:
+    "Sentry → Settings → Auth Tokens, scope `project:releases`. Build time only; uploads source maps.",
 };
 
 export function requireEnv(key: EnvKey): string {
@@ -308,9 +349,9 @@ export function describeEnvStatus(): ServiceStatus[] {
     },
     {
       service: "Sentry",
-      configured: has("SENTRY_DSN"),
-      fallback: "Errors log to console.",
-      keys: ["SENTRY_DSN"],
+      configured: has("NEXT_PUBLIC_SENTRY_DSN"),
+      fallback: "Errors and ops alerts log to console only — nothing is recorded.",
+      keys: ["NEXT_PUBLIC_SENTRY_DSN"],
     },
   ];
 }

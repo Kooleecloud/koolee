@@ -528,3 +528,188 @@ items with "On the way" carrying `aria-current="step"` and its screen-reader
 | `turbo build --filter=@koolee/web`            | success; client bundle checked for the Maps key (see 2.1)                                                                    |
 | Browser pass                                  | Storybook + Playwright: `ProgressTrack`, `CustodyTimeline` states, `AutocompleteField` keyboard nav                          |
 | Migrations                                    | none generated, none applied                                                                                                 |
+
+---
+
+## Phase 3 — Sentry, three apps, three projects
+
+Starting state (report §2.7): thirteen lines mentioning Sentry across the repo,
+**not one of them code that runs**. No dependency, no `instrumentation.ts`, no
+`global-error.tsx` anywhere, and `SENTRY_DSN` read by nothing but a dev status
+panel. Every error path in the product terminated at `console.*` (§2.3).
+
+### 3.1 The dependency, and the wrap
+
+`@sentry/nextjs` **10.72.0** in all three apps — a NEW dependency, not a bump.
+Its peer range is `^13.2.0 || ^14.0 || ^15.0.0-rc.0 || ^16.0.0-0`, so Next
+16.2.12 is supported. It pulls `@sentry/{core,node,react,browser-utils,
+server-utils,vercel-edge,opentelemetry}`, the bundler plugin and `rollup` —
+160 packages. `@sentry/cli` needs a postinstall (it downloads a platform
+binary), so `pnpm-workspace.yaml`'s `allowBuilds` gains it: without it a build
+**with** `SENTRY_AUTH_TOKEN` set fails at the upload step and one without it is
+unaffected, which is exactly the shape of a bug that only appears in CI.
+
+Files per app: `src/instrumentation.ts` (Node + edge + `onRequestError`),
+`src/instrumentation-client.ts`, `src/sentry.server.config.ts`,
+`src/sentry.edge.config.ts`, `src/lib/sentry.ts`, `src/app/global-error.tsx`,
+`src/app/api/observability/test-error/route.ts`.
+
+**`onRequestError` is the one that matters most** and is easy to miss: it is
+the only hook that records an error thrown inside a server component render, a
+route handler or a server action. `error.tsx` is a CLIENT boundary and never
+sees the original.
+
+**`global-error.tsx` existed in no app.** `error.tsx` renders inside the root
+layout, so a failure in that layout escapes it entirely. The new one renders
+its own `<html>`/`<body>` with inline styles — the stylesheet is part of what
+may have failed. All three `error.tsx` files gained a `captureException`
+beside the existing `console.error`; both, deliberately.
+
+### 3.2 The riskiest line, and the gate that watches it
+
+`withSentryConfig` now wraps all three `next.config.mjs` exports. Those configs
+carry the `/sw.js` header rule that is **the only reason web push works**, and
+both of its failure modes are silent: a cached `sw.js` means the browser keeps
+running the OLD worker so every change appears to do nothing, and without
+`Service-Worker-Allowed: /` the worker never claims the root scope.
+
+So the wrap is not asserted, it is **checked**:
+[`scripts/check-sw-headers.mjs`](../../scripts/check-sw-headers.mjs)
+(`pnpm check:sw-headers`) imports each COMPOSED config, calls `headers()`, and
+fails loudly if the `/sw.js` rule or either header is gone. It runs in a
+second. Verified twice over — the script passes for all three apps, and a real
+`curl -D -` against `next start` on the built app returns both headers.
+
+Two options were dropped rather than migrated: `disableLogger` and
+`automaticVercelMonitors` are deprecated in SDK 10 in favour of a `webpack.*`
+namespace and these apps build with Turbopack. The first is a small bundle
+saving; the second instruments Vercel's own cron runner, which Koolee does not
+use (Inngest owns the four crons). Neither is worth a deprecation warning on
+every build.
+
+### 3.3 Config, and the variable that is deliberately public
+
+`NEXT_PUBLIC_SENTRY_DSN` — **one** variable for both runtimes, replacing the
+server-only `SENTRY_DSN` that nothing read. The reasoning is this repo's own,
+from the push kill switch: a server flag plus a public twin is two things that
+can disagree, and here the failure (the browser half silently reporting
+nothing while the server half looks healthy) is invisible. A DSN is not a
+secret — it ships in the client bundle by design and grants nothing but the
+ability to send events to one project.
+
+`SENTRY_ORG` / `SENTRY_PROJECT` / `SENTRY_AUTH_TOKEN` are **build time only**,
+for source-map upload, with `deleteSourcemapsAfterUpload` so a public `.js.map`
+never hands out the client source. Absent ⇒ the step is skipped and `silent`
+keeps it quiet outside CI.
+
+Policy lives in [`@koolee/core/observability`](../../packages/core/src/observability/sentry.ts):
+`tracesSampleRate: 0` (an error tracker, not an APM — and traces are the
+expensive half of the bill) and `sendDefaultPii: false` (it would attach IPs,
+cookies and headers to every event, on a product that deliberately stores no
+passport fields and hashes OTP destinations). `environment` defaults to
+`"development"` rather than undefined, because an untagged event in a shared
+project is one nobody can filter out. `tunnelRoute: true` routes browser events
+through the app's own origin so an ad blocker cannot silently take client-side
+reporting with it.
+
+⚠️ **One trap, and it cost a build:** `lib/sentry.ts` must import
+`@koolee/core/observability`, never the `@koolee/core` barrel.
+`instrumentation-client.ts` pulls that file into the browser bundle, and the
+barrel reaches `postgres`, `stripe` and `unpdf` — the build fails with four
+`Can't resolve 'fs' / 'net' / 'tls' / 'perf_hooks'` errors that never mention
+Sentry. The note is in all three files.
+
+### 3.4 Tagging
+
+`tagBooking({ref, id, userId})` sets `booking_ref`, `booking_id` and `user_id`
+on the current scope. Wired where a booking is known at the top of an
+operation: the customer trip page, the agent task page (both the pickup and
+verification branches), the admin booking detail, and the Stripe webhook.
+`bookings.ref` is display-and-support only and never an authorization key —
+a tag is exactly what it was minted for.
+
+The Stripe webhook also gained a `captureHandled` on its 500 path. That branch
+already logged; it is the money path, a redelivery may well succeed, and the
+first failure has to leave a trace somewhere a person looks.
+
+### 3.5 `SentryOpsAlerter`
+
+[notifications/sentry-alerter.ts](../../packages/core/src/notifications/sentry-alerter.ts),
+selected in all three `lib/core.ts` when a DSN is present. Severity maps
+`critical → fatal`, `warning → warning` (report §2.2's catalogue: 17 sites, 12
+in jobs, 5 in services, and `info` never used) — `fatal` keeps critical
+distinguishable so a paging rule can be written against it. `bookingRef` and
+`bookingId` are promoted out of the detail into tags; the whole detail still
+rides along as `extra`.
+
+**It logs to the console as well**, first, before the capture is attempted. The
+console line is the record that survives a dead transport, a rate limit and an
+unconfigured DSN.
+
+**The hard rule from the report is a test.** Twelve of the seventeen call sites
+are unwrapped Inngest steps, so an alerter that throws there fails the step and
+triggers a retry — turning "we could not tell ops about a failed email" into
+"the email function is now failing and retrying". `alert()` catches everything
+its transport throws, and `sentry-alerter.test.ts` proves a throwing transport
+resolves normally **and** that the console record is still written.
+
+Core never imports `@sentry/nextjs`: the app passes `capture` as a plain
+function, the same way credentials are passed as values.
+
+### 3.6 Terminal Inngest failures
+
+One handler on `inngest/function.failed`
+(`capture-terminal-failures`, in `apps/web/src/lib/inngest.ts`) rather than an
+`onFailure` on each of the fifteen functions — Inngest emits that event for
+every exhausted function in the app, so a function added next year is covered
+without anybody opting it in. Same reasoning that put the
+`booking/exception_raised` emit inside `applyTransition`. It captures at
+`fatal` with the function id and the booking id, and stops there: a
+retry-exhausted job is not something this process can fix.
+
+The registry is **16 functions** now, up from 15.
+
+### 3.7 Verification
+
+`POST /api/observability/test-error` in each app, guarded by `CRON_SECRET` (the
+guard `/api/jobs/*` already uses — `CRON_SECRET` is added to the admin and
+agent schemas, which now have one machine route each). It captures a MESSAGE
+and returns 200 with the event id and the `environment`/`release` a person
+should expect to see beside it in Sentry. Deliberately not Sentry's own
+scaffolded page-that-throws: a deployed 500-generator anybody can hit is an
+alert-noise generator, and a route that threw would also be captured twice.
+
+Exercised against the real built server (`next start`, port 3111):
+
+```
+POST /api/observability/test-error                      → 403
+POST … -H 'x-cron-secret: wrong'                        → 403
+POST … -H 'x-cron-secret: <correct>'                    → 200
+  {"sent":false,"eventId":"670aca8d…","expect":{"environment":"development","release":null}}
+GET /sw.js  → Cache-Control: no-cache, no-store, must-revalidate
+              Service-Worker-Allowed: /
+```
+
+`sent: false` with an event id **is** the DSN-less dry assertion the slice
+prompt asked for: the SDK mints an id and drops the event, which is exactly how
+a local run should behave.
+
+**One deviation, recorded rather than skipped.** The prompt asked for a test
+error per runtime including the client. There is no client trigger, because the
+only place to put one on a deployed app is a publicly reachable "throw an
+error" affordance — an alert-noise and support-ticket generator — and the
+client boundary is exercised by any real error anyway. The checklist verifies
+the browser half by evaluating `!!window.__SENTRY__` on the deployed app, which
+proves the client SDK initialised with the deployed DSN.
+
+### 3.8 Gates
+
+| Gate                                          | Result                                                                                        |
+| --------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| `turbo typecheck`                             | 6/6                                                                                           |
+| `turbo lint`                                  | 6/6                                                                                           |
+| `turbo test` (unit)                           | 6/6 — core **573** passed / 1 skipped (+12 Sentry), ui 107, web 134, admin 32, agent 24, db 8 |
+| `pnpm --filter @koolee/core test:integration` | 30 files passed / 1 skipped, 293 passed / 3 skipped                                           |
+| `turbo build`                                 | **3/3**                                                                                       |
+| `pnpm check:sw-headers`                       | 3/3, and confirmed again over HTTP against `next start`                                       |
+| Migrations                                    | none generated, none applied                                                                  |
