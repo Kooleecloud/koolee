@@ -5,6 +5,8 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { getActiveStaffRole } from "@koolee/core";
 import {
+  CAPTCHA_FAILED_COPY,
+  isCaptchaError,
   normalizeEmail,
   PASSWORD_MAX_LENGTH,
   PASSWORD_MIN_LENGTH,
@@ -47,9 +49,6 @@ const credentialsSchema = z.object({
 
 const NO_ACCESS_COPY =
   "That account doesn't have agent access. Ask an admin to invite you.";
-
-const CAPTCHA_FAILED_COPY =
-  "We couldn't confirm you're human. Refresh the page and try again.";
 
 /**
  * Turnstile is verified by SUPABASE, not by us: the browser mints a single-use
@@ -108,6 +107,22 @@ export async function signInStaff(
     options: captchaOptions(captchaToken),
   });
   if (error || !data.user) {
+    /*
+     * A CAPTCHA REJECTION IS NOT A CREDENTIAL FAILURE, and saying it is cost
+     * hours once (2026-08-30). The deployed app reached GoTrue with no token
+     * — `NEXT_PUBLIC_TURNSTILE_SITE_KEY` was absent on the server, so the
+     * pre-flight guard above was inert — and every attempt came back
+     * `captcha_failed`. This line reported "Email or password didn't match"
+     * over a password that was demonstrably correct, and the only way to find
+     * out was to read the project's auth logs.
+     *
+     * The reset path below already drew this distinction; sign-in never did.
+     * It is NOT an enumeration risk for the same reason it is not there: a
+     * captcha rejection does not depend on whether the account exists.
+     */
+    if (isCaptchaError(error?.message)) {
+      return { error: CAPTCHA_FAILED_COPY };
+    }
     // ONE message for "no such account" and "wrong password". Any difference
     // between the two is an account-enumeration oracle.
     return { error: SIGN_IN_FAILED_COPY };
@@ -166,7 +181,7 @@ export async function sendPasswordReset(
     // an address has an account. A captcha rejection is not account-dependent,
     // and answering "check your inbox" for a mail that was never sent is
     // exactly how this failure stayed invisible until someone read the logs.
-    if (/captcha/i.test(error.message)) return { error: CAPTCHA_FAILED_COPY };
+    if (isCaptchaError(error.message)) return { error: CAPTCHA_FAILED_COPY };
   }
   return { ok: true };
 }

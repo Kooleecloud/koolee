@@ -48,6 +48,40 @@ export const PASSWORD_TOO_SHORT_COPY = `Password must be at least ${PASSWORD_MIN
 export const SIGN_IN_FAILED_COPY = "Email or password didn't match.";
 
 /**
+ * The message when the bot check, not the credentials, is what failed.
+ *
+ * Shared for the same reason the two above are: it was written out twice, in
+ * both staff apps, and the two copies were free to drift.
+ */
+export const CAPTCHA_FAILED_COPY =
+  "We couldn't confirm you're human. Refresh the page and try again.";
+
+/**
+ * Was this GoTrue error the CAPTCHA rather than the credentials?
+ *
+ * THIS EXISTS BECAUSE THE ANSWER WAS ONCE "who cares" (2026-08-30). A
+ * deployed staff app reached GoTrue with no Turnstile token —
+ * `NEXT_PUBLIC_TURNSTILE_SITE_KEY` was absent on the server, so the app's own
+ * pre-flight guard was inert — and every attempt came back
+ * `400 captcha protection: request disallowed (no captcha_token found)`.
+ * The sign-in action reported "Email or password didn't match" over a
+ * password that was provably correct, and the only way to find out was to
+ * read the Supabase project's auth logs. Hours.
+ *
+ * NOT AN ENUMERATION RISK, which is the reason it is safe to distinguish at
+ * all: a captcha rejection does not depend on whether the account exists, so
+ * telling the truth about it leaks nothing. Everything that IS
+ * account-dependent still collapses to `SIGN_IN_FAILED_COPY`.
+ *
+ * Matches on the message rather than a code because supabase-js surfaces
+ * GoTrue's `error_code` inconsistently across versions, and the human-readable
+ * string has carried the word "captcha" throughout.
+ */
+export function isCaptchaError(message: string | null | undefined): boolean {
+  return typeof message === "string" && /captcha/i.test(message);
+}
+
+/**
  * Trim, lowercase, collapse internal whitespace away.
  *
  * The local part of an address is case-SENSITIVE per RFC 5321, and in

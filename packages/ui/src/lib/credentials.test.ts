@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  isCaptchaError,
   normalizeEmail,
   PASSWORD_MAX_LENGTH,
   PASSWORD_MIN_LENGTH,
@@ -50,5 +51,31 @@ describe("the sign-in failure message", () => {
     // is an account-enumeration oracle.
     expect(SIGN_IN_FAILED_COPY).toBe("Email or password didn't match.");
     expect(SIGN_IN_FAILED_COPY).not.toMatch(/no account|not found|unknown|incorrect password/i);
+  });
+});
+
+describe("isCaptchaError", () => {
+  it("recognises the message GoTrue actually sends", () => {
+    // Verbatim from a dev project's auth log, 2026-08-30 — the failure that
+    // spent hours looking like a wrong password.
+    expect(
+      isCaptchaError("captcha protection: request disallowed (no captcha_token found)"),
+    ).toBe(true);
+    expect(isCaptchaError("captcha verification process failed")).toBe(true);
+    expect(isCaptchaError("Captcha protection: request disallowed")).toBe(true);
+  });
+
+  it("leaves a real credential failure alone", () => {
+    // These must keep collapsing to one message: the difference between
+    // "no such account" and "wrong password" is an enumeration oracle.
+    expect(isCaptchaError("Invalid login credentials")).toBe(false);
+    expect(isCaptchaError("Email not confirmed")).toBe(false);
+    expect(isCaptchaError("User not found")).toBe(false);
+  });
+
+  it("is safe on an absent message", () => {
+    expect(isCaptchaError(undefined)).toBe(false);
+    expect(isCaptchaError(null)).toBe(false);
+    expect(isCaptchaError("")).toBe(false);
   });
 });
