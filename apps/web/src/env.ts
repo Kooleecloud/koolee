@@ -120,12 +120,76 @@ const schema = z.object({
    */
   OPS_ALERT_EMAIL: optionalString,
   /**
+   * How many hours before a pickup window an agent is assigned to it.
+   *
+   * A booking bought months ahead used to get an agent the moment the card
+   * cleared. Beyond this horizon a paid booking rests with no verification
+   * task and no pickup task; the five-minute assignment-horizon sweep picks it up
+   * when its window comes into range. Unset or unparseable → the core default
+   * (48). A number, not a policy: changing it is a config change only.
+   */
+  ASSIGNMENT_HORIZON_HOURS: optionalString,
+  /**
    * RFC 5322 From for transactional email. The default is Resend's sandbox
    * sender — fine for dev/testing, but real deliveries need a verified
    * domain: set RESEND_FROM to e.g. `Koolee <notify@koolee.com>` once the
    * domain's DKIM/SPF records are in place (see the manual-setup doc).
    */
   RESEND_FROM: z.string().default("Koolee <onboarding@resend.dev>"),
+
+
+  /**
+   * Absolute origins of the two STAFF apps.
+   *
+   * Used for ONE thing: the deep link on a push sent to an agent, a driver or
+   * ops. The Inngest functions run in this app, so this is where those links
+   * have to be built. Absent → the push still goes, without a link.
+   */
+  NEXT_PUBLIC_AGENT_APP_URL: optionalUrl,
+  NEXT_PUBLIC_ADMIN_APP_URL: optionalUrl,
+
+  // --- Web Push (VAPID) --------------------------------------------------
+  /**
+   * THE PUSH KILL SWITCH. `"true"` to enable; anything else (including unset)
+   * means OFF, in every environment.
+   *
+   * Push ships DISABLED. It is the one channel that fails silently and
+   * undetectably, so it is opt-in by explicit configuration rather than
+   * something you get by accident when a key happens to be present.
+   *
+   * ONE VARIABLE, NOT TWO. It is `NEXT_PUBLIC_` so the server and the browser
+   * read the SAME value — same pattern as NEXT_PUBLIC_LAUNCH_MODE. A
+   * server flag paired with a public twin is two things that can disagree,
+   * and this slice has already paid once for exactly that shape (the agent
+   * app held the public VAPID key but not the private one, so it registered
+   * devices and silently sent nothing). "Is push on" is not a secret.
+   *
+   * OFF means: `ConsolePushSender` regardless of the VAPID vars, every enable
+   * affordance hidden, and the VAPID boot gate waived. Stored subscriptions
+   * are left ALONE — flipping it back on resumes sends with no re-subscribe.
+   */
+  NEXT_PUBLIC_PUSH_NOTIFICATIONS_ENABLED: z
+    .enum(["true", "false"])
+    .default("false")
+    .catch("false"),
+  /**
+   * VAPID keypair identifying Koolee to every push service (FCM for Chrome,
+   * Mozilla autopush, APNs for Safari). Generate ONCE with `pnpm push:vapid`.
+   *
+   * REGENERATING INVALIDATES EVERY STORED SUBSCRIPTION — every device silently
+   * stops receiving notifications while its UI still says "subscribed", and
+   * everyone has to re-enable by hand. The keygen script refuses to overwrite
+   * an existing pair for exactly that reason.
+   *
+   * The public key is ALSO exposed as NEXT_PUBLIC_VAPID_PUBLIC_KEY, because
+   * the browser needs it at `pushManager.subscribe` time. It is a public key;
+   * shipping it to the client is the design, not a leak.
+   */
+  VAPID_PUBLIC_KEY: optionalString,
+  VAPID_PRIVATE_KEY: optionalString,
+  /** `mailto:` or `https:`. Apple REFUSES a push whose subject is neither. */
+  VAPID_SUBJECT: optionalString,
+  NEXT_PUBLIC_VAPID_PUBLIC_KEY: optionalString,
 
   // --- Third-party data --------------------------------------------------
   AEROAPI_KEY: optionalString,
@@ -184,6 +248,16 @@ const raw = {
   RESEND_API_KEY: process.env.RESEND_API_KEY,
   RESEND_FROM: process.env.RESEND_FROM,
   OPS_ALERT_EMAIL: process.env.OPS_ALERT_EMAIL,
+  ASSIGNMENT_HORIZON_HOURS: process.env.ASSIGNMENT_HORIZON_HOURS,
+
+  NEXT_PUBLIC_AGENT_APP_URL: process.env.NEXT_PUBLIC_AGENT_APP_URL,
+  NEXT_PUBLIC_ADMIN_APP_URL: process.env.NEXT_PUBLIC_ADMIN_APP_URL,
+  VAPID_PUBLIC_KEY: process.env.VAPID_PUBLIC_KEY,
+  VAPID_PRIVATE_KEY: process.env.VAPID_PRIVATE_KEY,
+  VAPID_SUBJECT: process.env.VAPID_SUBJECT,
+  NEXT_PUBLIC_VAPID_PUBLIC_KEY: process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY,
+  NEXT_PUBLIC_PUSH_NOTIFICATIONS_ENABLED:
+    process.env.NEXT_PUBLIC_PUSH_NOTIFICATIONS_ENABLED,
 
   AEROAPI_KEY: process.env.AEROAPI_KEY,
   GOOGLE_MAPS_API_KEY: process.env.GOOGLE_MAPS_API_KEY,
@@ -276,6 +350,17 @@ export const isProd = env.NODE_ENV === "production";
  */
 export function isComingSoon(): boolean {
   return env.NEXT_PUBLIC_LAUNCH_MODE === "coming_soon";
+}
+
+/**
+ * The push kill switch. Default OFF — see the schema entry.
+ *
+ * Read by the runtime (which sender to build), the boot gate (whether VAPID
+ * is required) and the client surfaces (whether to offer enabling at all), so
+ * all three can never disagree about whether push is on.
+ */
+export function pushNotificationsEnabled(): boolean {
+  return env.NEXT_PUBLIC_PUSH_NOTIFICATIONS_ENABLED === "true";
 }
 
 /**
@@ -411,6 +496,54 @@ if (
         "multi-leg itinerary, and has been measured mis-reading passenger " +
         "names and departure times. Set the key, or deploy with " +
         "NEXT_PUBLIC_LAUNCH_MODE=coming_soon.",
+    );
+  }
+  /*
+   * Web push, all three or none.
+   *
+   * Without them `createWebPushSender` returns null and the runtime falls back
+   * to `ConsolePushSender` — which logs and reports SUCCESS, so every send
+   * "works" and no device ever rings. Same class of silent degradation as the
+   * three above, and worse here because it is the channel a driver relies on
+   * with the tab closed.
+   *
+   * Push is never load-bearing (§7): email and the in-app signal still arrive.
+   * This gate exists so the channel is either configured or deliberately
+   * absent, never accidentally inert.
+   *
+   * WAIVED when the kill switch is off, which is the default. "Push is
+   * deliberately disabled" is the one case where a console sender is the
+   * right answer, so a production deploy with push off needs no VAPID vars
+   * at all and boots clean.
+   */
+  if (
+    env.NEXT_PUBLIC_PUSH_NOTIFICATIONS_ENABLED === "true" &&
+    (!env.VAPID_PUBLIC_KEY || !env.VAPID_PRIVATE_KEY || !env.VAPID_SUBJECT)
+  ) {
+    throw new Error(
+      "VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY and VAPID_SUBJECT are required in " +
+        "production: without all three, web push silently degrades to console " +
+        "logging — every send reports success and no device receives anything. " +
+        "Generate a pair ONCE with `pnpm push:vapid` (regenerating invalidates " +
+        "every stored subscription), or deploy with " +
+        "NEXT_PUBLIC_LAUNCH_MODE=coming_soon.",
+    );
+  }
+  /*
+   * Checked separately because it is a DIFFERENT variable that has to carry
+   * the same value, and forgetting it is the likely mistake: a server that can
+   * send with a browser that can never subscribe is a configuration nobody
+   * means.
+   */
+  if (
+    env.NEXT_PUBLIC_PUSH_NOTIFICATIONS_ENABLED === "true" &&
+    !env.NEXT_PUBLIC_VAPID_PUBLIC_KEY
+  ) {
+    throw new Error(
+      "NEXT_PUBLIC_VAPID_PUBLIC_KEY is required in production: the browser " +
+        "needs the VAPID public key to subscribe, so without it nobody can " +
+        "ever enable notifications. Set it to the same value as " +
+        "VAPID_PUBLIC_KEY.",
     );
   }
 }

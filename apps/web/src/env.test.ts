@@ -69,12 +69,69 @@ describe("env — assertProductionSecurityConfig boot gate", () => {
     // Ticket extraction (§4.3c): without it the funnel silently swaps the
     // model adapter for the text-layer heuristic and keeps saying "extracted".
     vi.stubEnv("ANTHROPIC_API_KEY", "sk-ant-test");
+    // Web push (F3): without the keys every send reports success and no
+    // device ever rings. The switch has to be ON here, or the VAPID gate is
+    // waived and the assertions below would pass vacuously.
+    vi.stubEnv("NEXT_PUBLIC_PUSH_NOTIFICATIONS_ENABLED", "true");
+    vi.stubEnv("VAPID_PUBLIC_KEY", "vapid-public");
+    vi.stubEnv("VAPID_PRIVATE_KEY", "vapid-private");
+    vi.stubEnv("VAPID_SUBJECT", "mailto:ops@koolee.cloud");
+    vi.stubEnv("NEXT_PUBLIC_VAPID_PUBLIC_KEY", "vapid-public");
   }
 
   it("boots when the production security config is complete", async () => {
     stubCompleteProdConfig();
     vi.resetModules();
     await expect(import("./env")).resolves.toBeDefined();
+  });
+
+  it("boots with push DISABLED and no VAPID vars at all — the default posture", async () => {
+    // Push ships off. A production deploy that has never heard of VAPID must
+    // come up clean: the gate exists to catch a channel that is accidentally
+    // inert, not to force everyone to configure a channel they have not
+    // turned on.
+    stubCompleteProdConfig();
+    vi.stubEnv("NEXT_PUBLIC_PUSH_NOTIFICATIONS_ENABLED", "false");
+    for (const key of [
+      "VAPID_PUBLIC_KEY",
+      "VAPID_PRIVATE_KEY",
+      "VAPID_SUBJECT",
+      "NEXT_PUBLIC_VAPID_PUBLIC_KEY",
+    ]) {
+      vi.stubEnv(key, "");
+    }
+    vi.resetModules();
+    await expect(import("./env")).resolves.toBeDefined();
+  });
+
+  it("boots with push UNSET and no VAPID vars — unset means off", async () => {
+    stubCompleteProdConfig();
+    vi.stubEnv("NEXT_PUBLIC_PUSH_NOTIFICATIONS_ENABLED", "");
+    for (const key of ["VAPID_PUBLIC_KEY", "VAPID_PRIVATE_KEY", "VAPID_SUBJECT"]) {
+      vi.stubEnv(key, "");
+    }
+    vi.resetModules();
+    await expect(import("./env")).resolves.toBeDefined();
+  });
+
+  it("throws when the VAPID keys are missing on a live prod boot", async () => {
+    // The fallback is `ConsolePushSender`, which LOGS AND REPORTS SUCCESS —
+    // so without this gate every notification "sends" and nothing rings.
+    for (const key of ["VAPID_PUBLIC_KEY", "VAPID_PRIVATE_KEY", "VAPID_SUBJECT"]) {
+      stubCompleteProdConfig();
+      vi.stubEnv(key, "");
+      vi.resetModules();
+      await expect(import("./env")).rejects.toThrow(/VAPID/);
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("throws when the browser-side VAPID key is missing", async () => {
+    // A server that can send with a browser that can never subscribe.
+    stubCompleteProdConfig();
+    vi.stubEnv("NEXT_PUBLIC_VAPID_PUBLIC_KEY", "");
+    vi.resetModules();
+    await expect(import("./env")).rejects.toThrow(/NEXT_PUBLIC_VAPID_PUBLIC_KEY/);
   });
 
   it("throws at import when RESEND_API_KEY is missing on a live prod boot", async () => {
