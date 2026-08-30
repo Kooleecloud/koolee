@@ -180,8 +180,31 @@ sign-in and password-reset calls — both started failing with
 admin now mount a Turnstile widget too and forward `captchaToken` the same way
 web does. Because the secret is a single per-project value, all three apps must
 use the **same site key** for a given environment; a different widget's token
-fails siteverify. Turnstile hostname entries cover subdomains, so the existing
-`koolee.cloud` / `dev.koolee.cloud` widgets already cover the staff subdomains.
+fails siteverify.
+
+**The hostname list is per-widget, and an entry covers only ITS OWN
+subdomains.** An earlier revision of this section claimed the
+`dev.koolee.cloud` entry "already covers the staff subdomains". It does not,
+and the staff apps failed on it: `dev.admin.koolee.cloud` reads
+`dev` · `admin` · `koolee.cloud`, so it is a subdomain of **`admin.koolee.cloud`**,
+not of `dev.koolee.cloud`. The widget refused it with client-side error
+**`110200` — unknown domain**, which the browser then follows with a
+`postMessage` origin mismatch and a `400` on
+`challenges.cloudflare.com/cdn-cgi/challenge-platform/…` — both downstream of
+the refusal, not separate faults.
+
+Every hostname that mounts the widget must be listed on the widget itself
+(Cloudflare → Turnstile → the widget → Settings → Hostname Management):
+
+| Environment | Widget hostnames |
+| ----------- | ---------------- |
+| Production  | `koolee.cloud` · the prod agent host · the prod admin host |
+| Dev         | `dev.koolee.cloud` · `dev.agent.koolee.cloud` · `dev.admin.koolee.cloud` |
+
+Adding the apex `koolee.cloud` to the DEV widget would cover all of them in one
+entry and must not be done — it would let the dev widget answer for production.
+`localhost` is accepted without an entry, which is why this reproduces only on
+a hosted host and never on a laptop.
 
 **5.3 — `SUPABASE_SERVICE_ROLE_KEY` in `apps/agent`.** Deliberately absent, and
 this is a design decision, not an oversight: the agent app runs on a shared,

@@ -10,6 +10,7 @@ import {
   FALLBACK_DISPLAY_TZ,
   listBookableWindows,
   OutOfCoverageError,
+  QuoteZipMismatchError,
   recordWaitlistSignup,
   resolveDisplayTz,
   SlotNotSellableError,
@@ -46,6 +47,12 @@ export interface ActionState {
   error?: string;
   /** Set when the ZIP is outside the service area, to show the email capture. */
   outOfCoverageZip?: string;
+  /**
+   * Set when the address entered at the pickup step is in a different ZIP
+   * from the one the quote was built for. Not an error — the form offers to
+   * re-quote for the new ZIP, or to go back and use another address.
+   */
+  zipMismatch?: { quotedZip: string; addressZip: string };
   ok?: boolean;
 }
 
@@ -285,6 +292,10 @@ export async function submitFlight(
   // this confirmation and is never read by any booking-write path.
   const next = await writeDraft({
     zip: coverage.zip,
+    // The quote and the coverage answer the customer is about to see are
+    // built from THIS ZIP. Recorded so the pickup step can tell whether the
+    // address they type two steps later is the same place.
+    quotedZip: coverage.zip,
     flightNumber,
     airlineIata,
     departureAirport,
@@ -316,6 +327,7 @@ export async function submitPickup(
   _prev: ActionState,
   form: FormData,
 ): Promise<ActionState> {
+  const draft = await readDraft();
   const line1 = str(form, "line1");
   const line2 = str(form, "line2");
   const city = str(form, "city");
@@ -340,6 +352,27 @@ export async function submitPickup(
         };
   }
 
+  /*
+   * Reconcile the address ZIP with the one the quote was built for.
+   *
+   * Both ZIPs pass coverage here — that is the point. Two covered ZIPs are
+   * still two different places: `zip_centroids` gives each its own
+   * coordinate, which is where every drive-time estimate starts, and
+   * `agent_zones` maps each to a different agent. Silently taking the new one
+   * changed the pickup location, the dispatch zone and (once the Maps seam is
+   * real) the price, without the customer being told any of it had happened.
+   *
+   * The customer decides, in one click: re-quote for the address they typed,
+   * or go back and use an address in the ZIP they were quoted for. The button
+   * that re-quotes posts `confirmZipChange`, which is why this is one action
+   * and not two.
+   */
+  const quotedZip = draft.quotedZip ?? draft.zip;
+  const changingZip = Boolean(quotedZip) && !sameZip(quotedZip!, coverage.zip);
+  if (changingZip && str(form, "confirmZipChange") !== "1") {
+    return { zipMismatch: { quotedZip: quotedZip!, addressZip: coverage.zip } };
+  }
+
   const next = await writeDraft({
     line1,
     ...(line2 ? { line2 } : {}),
@@ -347,10 +380,22 @@ export async function submitPickup(
     state,
     zip: coverage.zip,
     bagCount,
+    // Re-quoting means this ZIP is now the one the price is computed for.
+    // The chosen window goes with it: its lead-time price and its drive-time
+    // headroom were both derived from the old location, the same reason
+    // `submitFlight` clears the window when the flight moves.
+    ...(changingZip
+      ? { quotedZip: coverage.zip, windowStart: undefined, windowEnd: undefined }
+      : { quotedZip: quotedZip ?? coverage.zip }),
   });
   await syncDraftRow();
 
   redirect(nextIncompleteStep(next));
+}
+
+/** ZIP+4 and whitespace are the same five-digit ZIP for this comparison. */
+function sameZip(a: string, b: string): boolean {
+  return a.trim().slice(0, 5) === b.trim().slice(0, 5);
 }
 
 /* ------------------------------------------------------------------ */
@@ -486,6 +531,14 @@ export async function confirmBooking(
     }
     if (error instanceof OutOfCoverageError) {
       return { error: "That address is outside our service area." };
+    }
+    if (error instanceof QuoteZipMismatchError) {
+      // Unreachable through the funnel — the pickup step reconciles the two
+      // ZIPs before this action can be reached. It is here because a server
+      // action stays a reachable POST whatever the form renders.
+      return {
+        error: `Your pickup address is in ${error.addressZip} but this booking was priced for ${error.quotedZip}. Go back to the pickup step and confirm the address.`,
+      };
     }
     if (error instanceof ConflictError) {
       return { error: error.message };

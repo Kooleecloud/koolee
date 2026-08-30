@@ -14,6 +14,7 @@ import {
 import {
   AIRPORT_CODES,
   type PrefillAlternative,
+  type PrefillLeg,
   type TicketPrefill,
 } from "@/lib/booking-draft-schema";
 
@@ -175,10 +176,44 @@ export async function handleTicketUpload(
     ...(alternativesFor(result.alternativeSegments).length > 0
       ? { alternatives: alternativesFor(result.alternativeSegments) }
       : {}),
+    ...readBackFor(result.legs, result.chosenLegIndex),
     confidence: result.confidence,
     uploadId: row.id,
   };
   return { ok: true, uploadId: row.id, prefill, ...(diagnostics ? { diagnostics } : {}) };
+}
+
+/**
+ * Every leg as read, trimmed to what the read-back list needs, together with
+ * the index of the chosen one INSIDE that trimmed list.
+ *
+ * The two are computed in one place because dropping a leg shifts the index:
+ * a leg with no readable origin cannot be rendered (an empty row shows
+ * nothing), and returning the core result's index alongside a filtered array
+ * would silently mark the wrong flight as the one being booked.
+ */
+function readBackFor(
+  segments: ExtractedSegment[] | undefined,
+  chosenLegIndex: number | undefined,
+): { legs?: PrefillLeg[]; chosenLegIndex?: number } {
+  const legs: PrefillLeg[] = [];
+  let chosen: number | undefined;
+
+  (segments ?? []).slice(0, 6).forEach((segment, index) => {
+    if (!segment.originAirport) return;
+    if (index === chosenLegIndex) chosen = legs.length;
+    legs.push({
+      departureAirport: segment.originAirport,
+      ...(segment.destinationAirport
+        ? { destinationAirport: segment.destinationAirport }
+        : {}),
+      ...(segment.flightNumber ? { flightNumber: segment.flightNumber } : {}),
+      ...(segment.departureAtLocal ? { departureAtLocal: segment.departureAtLocal } : {}),
+    });
+  });
+
+  if (legs.length === 0) return {};
+  return { legs, ...(chosen !== undefined ? { chosenLegIndex: chosen } : {}) };
 }
 
 /**

@@ -48,6 +48,23 @@ export const prefillAlternativeSchema = z.object({
 
 export type PrefillAlternative = z.infer<typeof prefillAlternativeSchema>;
 
+/**
+ * One leg of the itinerary as READ, for the read-back list. Three fields and
+ * a route: enough to recognise a flight, small enough that six of them fit
+ * the cookie beside everything else.
+ */
+export const prefillLegSchema = z.object({
+  departureAirport: z.string().length(3),
+  destinationAirport: z.string().length(3).optional(),
+  flightNumber: z.string().min(2).max(10).optional(),
+  departureAtLocal: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/)
+    .optional(),
+});
+
+export type PrefillLeg = z.infer<typeof prefillLegSchema>;
+
 export const ticketPrefillSchema = z.object({
   flightNumber: z.string().min(2).max(10).optional(),
   airlineIata: z.string().min(2).max(3).optional(),
@@ -82,6 +99,15 @@ export const ticketPrefillSchema = z.object({
   nonServicedOrigin: z.string().length(3).optional(),
   /** Other NYC-departing legs on the same ticket, for the swap offer. */
   alternatives: z.array(prefillAlternativeSchema).max(2).optional(),
+  /**
+   * Every leg read off the ticket, in print order — read-only, so the
+   * customer can see that a three-leg itinerary was read as three legs.
+   * Includes the legs departing airports we do not serve, which is exactly
+   * the half `alternatives` cannot carry.
+   */
+  legs: z.array(prefillLegSchema).max(6).optional(),
+  /** Index into `legs` of the leg prefilled above. */
+  chosenLegIndex: z.number().int().min(0).max(5).optional(),
   confidence: z.enum(["high", "low"]),
   uploadId: z.uuid().optional(),
 });
@@ -112,6 +138,18 @@ export const bookingDraftSchema = z.object({
   city: z.string().min(1).max(100).optional(),
   state: z.string().length(2).optional(),
   zip: z.string().min(5).max(10).optional(),
+  /**
+   * The ZIP the coverage answer and the price were computed FOR.
+   *
+   * Set on the flight step, where the customer first tells us where their
+   * bags are and gets told "yes, we come to you". `zip` above then becomes
+   * the ADDRESS's ZIP two steps later, and the two are allowed to differ only
+   * for as long as it takes the pickup step to reconcile them — after which
+   * they are equal, and `createBooking` refuses the booking if they are not.
+   * Kept as its own field rather than inferred, because "which ZIP were you
+   * quoted?" has no answer once one value has overwritten the other.
+   */
+  quotedZip: z.string().min(5).max(10).optional(),
 
   bagCount: z.number().int().min(1).max(10).optional(),
   /**

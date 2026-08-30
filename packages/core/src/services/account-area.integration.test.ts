@@ -148,6 +148,7 @@ describeIntegration("customer account area (integration)", () => {
     return createBooking(config, {
       userId,
       pickupAddressId: address.id,
+      quotedZip: address.zip,
       ...windowFor(departureAt),
       flightNumber: "DL123",
       airlineIata: "DL",

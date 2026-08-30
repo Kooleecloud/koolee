@@ -163,6 +163,7 @@ describeIntegration("payment intent lifecycle (integration)", () => {
     return {
       userId,
       pickupAddressId: addressId,
+      quotedZip: "10001",
       ...window,
       flightNumber: "DL123",
       airlineIata: "DL",

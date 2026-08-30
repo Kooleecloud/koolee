@@ -11,6 +11,7 @@ import {
 import type { AgentSession } from "../auth/types";
 import type { CoreConfig } from "../config";
 import { ConflictError, NotFoundError } from "../errors";
+import { assertActionable } from "./actionability";
 
 /**
  * Passport verification — manual, human, and free.
@@ -140,6 +141,13 @@ export async function recordCustomerUpload(
   if (!booking || booking.userId !== input.userId) {
     throw new NotFoundError("Booking", input.bookingId);
   }
+
+  // Same reasoning as `acceptAgreement`: a booking past its bag-drop cutoff
+  // is not one a passport photo can rescue, and one that is merely late is.
+  await assertActionable(config, booking, "uploadPassport", {
+    userId: input.userId,
+    role: "customer",
+  });
 
   const row = await ensureRow(db, booking.id);
   if (!REPLACEABLE_STATUSES.has(row.status)) {

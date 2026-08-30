@@ -172,6 +172,7 @@ describeIntegration("booking/exception_raised emission (integration)", () => {
     const { booking } = await createBooking(config, {
       userId: customerId,
       pickupAddressId: address.id,
+      quotedZip: address.zip,
       ...windowFor(departureAt),
       flightNumber: "DL123",
       airlineIata: "DL",

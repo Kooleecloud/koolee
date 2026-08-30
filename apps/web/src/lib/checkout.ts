@@ -110,6 +110,10 @@ export async function buildCheckoutSetup(
     input: {
       userId: userRow.id,
       pickupAddressId: address.id,
+      // The ZIP the price on screen was computed for. `quotedZip` falls back
+      // to `zip` for a draft cookie minted before the field existed, where
+      // the two were by construction the same value.
+      quotedZip: draft.quotedZip ?? draft.zip,
       pickupWindowStart: new Date(draft.windowStart),
       pickupWindowEnd: new Date(draft.windowEnd),
       flightNumber: draft.flightNumber,

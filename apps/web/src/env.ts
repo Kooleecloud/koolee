@@ -362,6 +362,32 @@ if (
         "inbox address, or deploy with NEXT_PUBLIC_LAUNCH_MODE=coming_soon.",
     );
   }
+  /*
+   * The third silent degradation, and the one that cost the most: without a
+   * key, `resolveExtractionConfig` quietly returns the in-process heuristic
+   * extractor instead of Claude. Uploads still succeed, still report
+   * "extracted", and still prefill the review form — with a passenger name
+   * taken from a heading, a departure time taken from a printed DURATION,
+   * and no second leg at all on a round trip. Nothing in the UI, the logs or
+   * the response distinguishes it from a good read. Measured over twelve
+   * ticket fixtures the heuristic was confidently wrong on five of them
+   * where the Claude adapter was right on all twelve
+   * (docs/run-reports/RUN-REPORT-8.md, Phase 0).
+   *
+   * The heuristic stays as the zero-credentials local experience. It is not
+   * a production fallback, and this is what stops it becoming one by
+   * accident.
+   */
+  if (!env.ANTHROPIC_API_KEY) {
+    throw new Error(
+      "ANTHROPIC_API_KEY is required in production: ticket extraction would " +
+        "silently fall back to the in-process heuristic reader, which cannot " +
+        "read a photographed ticket at all, reports only one leg of a " +
+        "multi-leg itinerary, and has been measured mis-reading passenger " +
+        "names and departure times. Set the key, or deploy with " +
+        "NEXT_PUBLIC_LAUNCH_MODE=coming_soon.",
+    );
+  }
 }
 
 /* ------------------------------------------------------------------ */
@@ -437,7 +463,9 @@ export function describeEnvStatus(): ServiceStatus[] {
     {
       service: "Anthropic",
       configured: has("ANTHROPIC_API_KEY"),
-      fallback: "Ticket-PDF extraction is out of scope for this scaffold.",
+      fallback:
+        "Ticket extraction falls back to the text-layer heuristic: no " +
+        "photographed tickets, one leg only, every field low-confidence.",
       keys: ["ANTHROPIC_API_KEY"],
     },
     {

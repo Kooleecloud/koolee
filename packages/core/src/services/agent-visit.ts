@@ -20,6 +20,7 @@ import type { AgentSession } from "../auth/types";
 import type { CoreConfig } from "../config";
 import { ConflictError, NotFoundError } from "../errors";
 import { getBookingAgreementState, type BookingAgreementState } from "./agreements";
+import { assertActionable } from "./actionability";
 import { applyTransition } from "./bookings";
 import { resolveDisplayTz } from "./display-tz";
 import { confirmPassport, getPassportVerification } from "./passport";
@@ -313,6 +314,10 @@ export async function arriveAtVisit(
 ): Promise<VisitContext> {
   const { db } = config;
   const context = await getVisitContext(db, session, input.taskId, config.clock.now());
+  // Arriving is the visit's first forward step. Late-but-savable still runs
+  // (the agent sees a "running late" notice instead); past the bag drop it
+  // does not, and the attempt raises the exception ops resolves.
+  await assertActionable(config, context.booking, "startVisit", actorOf(session));
 
   const alreadyArrived = context.timeline.some(
     (e) => e.eventType === VISIT_EVENT_TYPES.arrived,

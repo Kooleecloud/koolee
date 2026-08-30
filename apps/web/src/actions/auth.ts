@@ -3,6 +3,7 @@
 import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { z } from "zod";
+import { normalizeEmail } from "@koolee/ui/lib/credentials";
 import {
   attachEmail,
   attachVerifiedPhone,
@@ -297,9 +298,21 @@ export async function ensureDraftSession(
 /* 2. Send OTP (Screen A submit; also /login)                           */
 /* ------------------------------------------------------------------ */
 
+/**
+ * Every email this file accepts, normalized BEFORE it is validated.
+ *
+ * `z.email()` alone rejects "  Alice@Koolee.cloud " for the whitespace and
+ * then hands back the mixed case unchanged, so each call site was lowercasing
+ * on its own — four times in this file, and `saveProfile` in the dashboard
+ * did not do it at all. `preprocess` puts the normalization on the schema,
+ * which is the one place that cannot be forgotten. Same helper the staff
+ * apps' sign-in and the admin invite use.
+ */
+const emailField = z.preprocess(normalizeEmail, z.email());
+
 const sendOtpSchema = z.object({
   phone: z.string().min(3).max(25).optional(),
-  email: z.email().optional(),
+  email: emailField.optional(),
   turnstileToken: z.string().nullable(),
   /** "upgrade" = funnel gate (anonymous → permanent). "signin" = /login or the phone-conflict flow. */
   intent: z.enum(["upgrade", "signin"]),
@@ -341,7 +354,7 @@ export async function sendOtp(
 
   /* --- email path ---------------------------------------------------- */
   if (parsed.data.email) {
-    const email = parsed.data.email.toLowerCase();
+    const email = parsed.data.email;
     const counter = await bumpSendCounter(email);
     if (!counter.allowed) {
       return { ok: false, code: "resend_capped", message: RATE_LIMIT_COPY };
@@ -584,7 +597,7 @@ export async function verifyOtp(
 /* ------------------------------------------------------------------ */
 
 const magicLinkSchema = z.object({
-  email: z.email(),
+  email: emailField,
   turnstileToken: z.string().nullable(),
   next: z.string().optional(),
 });
@@ -614,7 +627,7 @@ export async function sendMagicLink(
   const next = sanitizeReturnTo(parsed.data.next) ?? "/trips";
 
   const { error } = await supabase.auth.signInWithOtp({
-    email: parsed.data.email.toLowerCase(),
+    email: parsed.data.email,
     options: {
       shouldCreateUser: false,
       emailRedirectTo: `${origin}/auth/callback?next=${encodeURIComponent(next)}`,
@@ -638,7 +651,7 @@ export async function sendMagicLink(
     return { ok: false, code: "provider_error", message: error.message };
   }
 
-  return { ok: true, email: parsed.data.email.toLowerCase() };
+  return { ok: true, email: parsed.data.email };
 }
 
 /* ------------------------------------------------------------------ */
@@ -646,7 +659,7 @@ export async function sendMagicLink(
 /* ------------------------------------------------------------------ */
 
 const attachEmailSchema = z.object({
-  email: z.email(),
+  email: emailField,
   bookingId: z.uuid(),
 });
 
@@ -660,7 +673,7 @@ export async function attachEmailPostBooking(
   if (!parsed.success) {
     return { ok: false, code: "invalid_input", message: "Enter a valid email address." };
   }
-  const email = parsed.data.email.toLowerCase();
+  const email = parsed.data.email;
 
   const supabase = await getSupabaseServerClient();
   if (!supabase) {

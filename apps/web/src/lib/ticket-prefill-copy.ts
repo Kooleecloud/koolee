@@ -1,4 +1,4 @@
-import type { TicketPrefill } from "@/lib/booking-draft-schema";
+import { AIRPORT_CODES, type PrefillLeg, type TicketPrefill } from "@/lib/booking-draft-schema";
 
 /**
  * The sentence the review form shows above a ticket-filled form.
@@ -97,6 +97,42 @@ export function describePrefill(prefill: TicketPrefill | undefined): PrefillNoti
     default:
       return null;
   }
+}
+
+/**
+ * One row of the read-back list: the route, the flight, and whether this is a
+ * leg we can collect bags for.
+ *
+ * `collectable` is not "is this the chosen leg" — a round trip has two New
+ * York departures and only one of them is prefilled, and both are collectable.
+ * The list has to say which legs the product can serve so that "we only filled
+ * in one of your three legs" reads as a boundary rather than a failure.
+ */
+export interface ReadBackLeg {
+  route: string;
+  flightNumber?: string;
+  stamp?: string;
+  chosen: boolean;
+  collectable: boolean;
+}
+
+export function describeItinerary(
+  prefill: TicketPrefill | undefined,
+): ReadBackLeg[] {
+  const legs = prefill?.legs ?? [];
+  if (legs.length < 2) return [];
+  const serviced = AIRPORT_CODES as readonly string[];
+  return legs.map((leg: PrefillLeg, index: number) => ({
+    route: leg.destinationAirport
+      ? `${leg.departureAirport} → ${leg.destinationAirport}`
+      : leg.departureAirport,
+    ...(leg.flightNumber ? { flightNumber: leg.flightNumber } : {}),
+    ...(formatLocalStamp(leg.departureAtLocal)
+      ? { stamp: formatLocalStamp(leg.departureAtLocal)! }
+      : {}),
+    chosen: index === prefill?.chosenLegIndex,
+    collectable: serviced.includes(leg.departureAirport),
+  }));
 }
 
 /** "the EWR → DEL leg on Sep 12, 1:15 PM" — the swap button's label. */

@@ -26,10 +26,16 @@ export {
   deriveScope,
   normalizeSegment,
   selectSegment,
-  todayUtc,
+  todayAtServicedAirports,
   type DroppedField,
   type SegmentSelection,
 } from "./select-segment";
+
+export {
+  assembleOutcome,
+  cleanPaxName,
+  type ReadItinerary,
+} from "./read-result";
 
 export { FAKE_EXTRACTION_RESULT, FakeTicketExtractor } from "./fake";
 export { HeuristicTicketExtractor } from "./heuristic";

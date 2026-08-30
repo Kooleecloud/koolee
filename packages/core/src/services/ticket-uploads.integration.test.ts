@@ -191,6 +191,7 @@ describeIntegration("ticket uploads (integration)", () => {
     const { booking } = await createBooking(config, {
       userId: user!.id,
       pickupAddressId: address.id,
+      quotedZip: address.zip,
       ...windowFor(departureAt),
       flightNumber: confirmed.flightNumber,
       airlineIata: confirmed.airlineIata,

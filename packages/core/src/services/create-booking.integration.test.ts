@@ -23,7 +23,11 @@ import {
 import { TEST_AIRPORTS } from "../test-utils/airport-fixtures";
 
 import { createCoreConfig, type CoreConfig } from "../config";
-import { OutOfCoverageError, SlotNotSellableError } from "../errors";
+import {
+  OutOfCoverageError,
+  QuoteZipMismatchError,
+  SlotNotSellableError,
+} from "../errors";
 import { FakePaymentProvider } from "../payments/fake";
 import { errorChainMessage, pgErrorCode } from "../test-utils/db-errors";
 import { createBooking } from "./create-booking";
@@ -183,6 +187,7 @@ describeIntegration("createBooking (integration)", () => {
   const input = (over: Partial<Parameters<typeof createBooking>[1]> = {}) => ({
     userId,
     pickupAddressId: addressId,
+    quotedZip: "10001",
     ...validWindow,
     flightNumber: "dl123",
     airlineIata: "dl",
@@ -456,6 +461,64 @@ describeIntegration("createBooking (integration)", () => {
     ).rejects.toThrow(OutOfCoverageError);
 
     expect(await db.select().from(bookings)).toHaveLength(0);
+  });
+
+  /*
+   * The funnel takes a ZIP on the flight step (the quote and the coverage
+   * answer are built from it) and a full address two steps later. Both ZIPs
+   * below are inside the service area — that is the point. Two covered ZIPs
+   * are still two different places, with different `zip_centroids`
+   * coordinates and different `agent_zones` rows, and the booking may only be
+   * written against the ZIP it was priced for. The pickup step reconciles
+   * this in the UI; this is the guarantee behind it.
+   */
+  it("refuses an address in a different ZIP from the one it was quoted for", async () => {
+    const [elsewhere] = await db
+      .insert(addresses)
+      .values({
+        userId,
+        line1: "200 Joralemon St",
+        city: "Brooklyn",
+        state: "NY",
+        zip: "11201",
+      })
+      .returning();
+
+    const error = await rejectionOf(
+      createBooking(config, input({ pickupAddressId: elsewhere!.id })),
+    );
+
+    expect(error).toBeInstanceOf(QuoteZipMismatchError);
+    expect((error as QuoteZipMismatchError).quotedZip).toBe("10001");
+    expect((error as QuoteZipMismatchError).addressZip).toBe("11201");
+    expect(await db.select().from(bookings)).toHaveLength(0);
+  });
+
+  it("accepts the same booking once the quote is updated to the new ZIP", async () => {
+    const [elsewhere] = await db
+      .insert(addresses)
+      .values({
+        userId,
+        line1: "200 Joralemon St",
+        city: "Brooklyn",
+        state: "NY",
+        zip: "11201",
+      })
+      .returning();
+
+    const result = await createBooking(
+      config,
+      input({ pickupAddressId: elsewhere!.id, quotedZip: "11201" }),
+    );
+
+    expect(result.booking.status).toBe("paid");
+  });
+
+  it("treats a ZIP+4 as the same ZIP it was quoted for", async () => {
+    // "10001-2345" and "10001" are one place; a customer whose autofill adds
+    // the +4 must not be told their address moved.
+    const result = await createBooking(config, input({ quotedZip: "10001-2345" }));
+    expect(result.booking.status).toBe("paid");
   });
 
   it("refuses an address belonging to another user", async () => {

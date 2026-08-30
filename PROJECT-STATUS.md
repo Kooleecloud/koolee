@@ -9,7 +9,7 @@
 > commit/PR. When new work is spec'd, add a row + a spec section before
 > writing code. Keep detail in the linked docs; this file stays a map.
 
-**Last updated:** 2026-08-29 · **Active branch:** `feat/driver-pickup`
+**Last updated:** 2026-08-29 · **Active branch:** `fix/f1-gates-and-bugs`
 
 ---
 
@@ -56,6 +56,32 @@ package-specific in `packages/<pkg>/docs/`. Nothing new accumulates at the root.
 
 ## 3. Snapshot — where we are right now
 
+- **Slice F1 shipped: three reported bugs, and the gates that were missing
+  (2026-08-29, `fix/f1-gates-and-bugs`).** Rows 80–84. **No migrations.** The
+  staging extraction bug turned out not to be an extraction bug: `apps/web`
+  falls back to an in-process heuristic reader whenever `ANTHROPIC_API_KEY` is
+  unset, and does it silently — the upload still succeeds, still reports
+  `extracted`, and still prefills the form. Reproduced across twelve ticket
+  fixtures, the heuristic claimed HIGH confidence on seven of the ten it read
+  and was **wrong on five of those seven**: a printed flight DURATION read as
+  a departure time, a date of issue paired with a departure time from a
+  different row, `"Basis. In Case Of"` returned as the passenger name, and
+  never more than one leg. All three of TD's symptoms, from one env var. It is
+  now a **fail-closed production boot gate**, the heuristic is a real segment
+  extractor that is never confident, and the Claude path went from 8/12 to
+  **12/12** once a flight number the model split across two fields stopped
+  being discarded. Second: the funnel never reconciled the quoted ZIP with the
+  address ZIP — two covered ZIPs are two different `zip_centroids` coordinates
+  and two different `agent_zones` rows — so `createBooking` now takes a
+  **required** `quotedZip`. Third: `services/actionability.ts` is the one place
+  that answers "can this booking still be acted on?", on two axes (standing ×
+  phase) that are deliberately not collapsed, because twenty minutes past the
+  pickup window is salvageable and twenty past the bag-drop cutoff is not.
+  Also: a **616 GB** turbo cache traced to one missing exclusion in
+  `turbo.json`. Hosted steps are TD's:
+  [docs/features/f1-hosted-setup.md](docs/features/f1-hosted-setup.md) — an
+  API key, two Turnstile hostnames, and `rm -rf .turbo/cache`. Full record:
+  [docs/run-reports/RUN-REPORT-8.md](docs/run-reports/RUN-REPORT-8.md).
 - **Tier 4 shipped: the driver half of the job (2026-08-29, `feat/driver-pickup`).**
   Rows 74–79. A booking's life used to stop dead at `verified_sealed`: four
   state-machine transitions had no production caller, nothing ever advanced a
@@ -386,6 +412,11 @@ the linked row is the current behaviour)
 | 77 | The customer picks their driver (2026-08-29) | ✅ | `feat/driver-pickup`: up to four candidates — on shift + cleared to drive + covers the ZIP + has room (`capacity − bags on board ≥ this booking's bags`, **bags not task count**), emptiest truck first. `agent_zones` is SHARED with agents, not renamed: the role discriminator moved to read time. Widening past the zone happens only when the in-zone pass is EMPTY, never to pad a short list, and widened results say so. `selectDriver` runs in one transaction behind **one** `pg_advisory_xact_lock` on the shift — one, so no lock-order rule is needed and no deadlock is possible (the released shift is not locked because releasing only ever ADDS capacity). Integration test: two customers, a three-bag van, two bags each, concurrent — exactly one wins and the van is not overloaded. |
 | 78 | The pickup lifecycle gets its first production caller (2026-08-29) | ✅ | `feat/driver-pickup`: `mark_awaiting_pickup`, `start_transit`, `deliver_to_bagdrop` and `complete` had **no production caller at all**, nothing ever advanced a `pickup_tasks` row, and the agent's pickup screen was a card headed "Not in the app yet". Now: set off → per-bag seal scan → in transit → at the bag drop → the airline has them. Custody moves on the LAST bag, never earlier. A seal from another booking is refused loudly (it WOULD resolve — `bags.seal_id` is unique operation-wide), appends `pickup.seal_mismatch` and pages ops. Every step is idempotent, because the agent app is an offline-prone PWA and a tap that times out gets tapped again. |
 | 79 | The board learned to see a booking nobody is coming for (2026-08-29) | ✅ | `feat/driver-pickup`: every at-risk surface read `verification_tasks` only, so a booking with its bags sealed on a doorstep and no driver on it looked healthy. `BoardRow.atRiskReason` now says WHICH — `no_agent` or `no_driver` — and `OpsDashboard.awaitingDriverToday` is a SEPARATE count from `unassignedToday`, because one needs an agent sent to a door and the other needs a van. New console surfaces: `/trucks` (fleet CRUD, `reserved_spaces` labelled "not yet enforced"), `/shifts` (who is out, force-end with a required reason, grant/revoke `can_drive`), a Driver column on the board, and a Pickup-run card with reassignment that reuses `selectDriver`'s exact lock and recount. |
+| 80 | Ticket extraction: the staging bug was a silently different extractor (2026-08-29) | ✅ | `fix/f1-gates-and-bugs`: TD's three symptoms off staging — one leg from a multi-leg itinerary, wrong traveler name, wrong flight times — are all properties of the **heuristic** extractor, which `resolveExtractionConfig()` returns whenever `ANTHROPIC_API_KEY` is unset. Reproduced on twelve fixtures: it reported `confidence: "high"` on seven of the ten it read and was **wrong on five of those seven** — a printed DURATION (`15:30 Hrs`) read as a departure time, a date of issue paired with a departure time from another row, `"Basis. In Case Of"` returned as the passenger. It also emitted no diagnostics and never a second leg. `ANTHROPIC_API_KEY` is now a **fail-closed production boot gate** beside `RESEND_API_KEY`/`OPS_ALERT_EMAIL`. The heuristic is rewritten as a segment extractor sharing `selectSegment` + `assembleOutcome`, and is **never** high confidence: five wrong answers presented as fact → zero, with two documents now honestly `unreadable`. On the Claude path, a flight number the model split across `airlineIata`/`flightNumber` (`AI` + `191`) was being DROPPED on 4 of 12 fixtures — the one field the cutoff table is keyed by — and one leg's number was reused for another on a scrambled layout; both fixed, 12/12 correct. Plus `legs` on the result so the form shows every leg it read, an airport-local "has this flown?" anchor (was UTC — wrong for four hours a night), and `maxDuration` on the upload route. 18 fixture regression tests. Full diagnosis: [RUN-REPORT-8](docs/run-reports/RUN-REPORT-8.md) §0 |
+| 81 | Funnel ZIP sync: the address ZIP must be the ZIP that was quoted (2026-08-29) | ✅ | `fix/f1-gates-and-bugs`: the funnel takes a ZIP on the flight step (coverage + quote) and a full address two steps later, and nothing reconciled them — **any covered ZIP was accepted and silently replaced the quoted one**. Both passing coverage is why nothing complained; they are still two different places, with their own `zip_centroids` coordinate (where every drive-time estimate starts) and their own `agent_zones` row (who gets dispatched). The pickup step now shows "This address is in 11201, but your quote was for 10001" with two one-click ways out, and `createBooking` takes a **required** `quotedZip` — a caller that cannot say which ZIP it quoted has not established the two are the same place. `QuoteZipMismatchError`. No migration |
+| 82 | Terminal-state and lateness gates: one actionability service (2026-08-29) | ✅ | `fix/f1-gates-and-bugs`: five services each carried their own status array and **none knew about time** — a `paid` booking whose flight left an hour ago is still `paid`, so it kept accepting agreements, taking passport uploads and offering a driver shortlist. `services/actionability.ts` answers it once, on two axes kept deliberately separate: **standing** (`active`/`in_transit`/`handed_over`/`exception`/`terminal`) and **phase** (`before_window_end`/`running_late`/`missed_cutoff`/`departed`). Twenty minutes past the pickup window is late and salvageable; twenty past the bag-drop cutoff is not. Late-but-savable keeps every action and shows a notice on all three surfaces; past the cutoff blocks all five and raises the existing exception path **exactly once** — not by counting, but because `applyTransition` guards `WHERE status = from`. A driver already in transit is carved out by construction. **No migration, no new column** — every anchor already exists. 18 unit + 17 integration tests |
+| 83 | Auth polish: one password rule, one email rule, a show/hide toggle (2026-08-29) | ✅ | `fix/f1-gates-and-bugs`: `PasswordField` in `packages/ui` (type=button so revealing does not submit; `tabIndex={-1}` so it is not between the field and Sign in; `aria-pressed` + a label that changes) on all three staff password inputs. The rules moved to one dependency-free `@koolee/ui/lib/credentials`: the form's `minLength` and the server's zod schema now read the SAME constant. Email normalization was genuinely inconsistent — the admin invite trimmed AND lowercased, sign-in and password reset only trimmed, and `saveProfile` only trimmed — so `normalizeEmail` is applied at every parse boundary in all three apps, on the schema (`z.preprocess`) where the input is an object. Sign-in returns ONE message for "no such account" and "wrong password". Verified in a real browser over CDP |
+| 84 | 616 GB of turbo cache, and the line that caused it (2026-08-29) | ✅ | `fix/f1-gates-and-bugs`: `turbo build` succeeded and then failed its cache write on `No space left on device` — `.turbo/cache` held **616 GB across 5,070 entries**, 18–19 GB each, on a volume with 1.5 GB free. `outputs` excluded `.next/cache/**` but not `.next/dev/**`, and Next 16 keeps its turbopack DEV cache there, so every build on a checkout where anyone had run `pnpm dev` archived 38 GB of it. One exclusion; three full app builds now produce **37 MB**. Any other machine that has built this repo has the same pile — `rm -rf .turbo/cache` |
 ---
 
 ## 5. Timeline (condensed)
@@ -445,6 +476,59 @@ user-confirmed values persist. `ANTHROPIC_API_KEY` present = Claude
 
 ## 7. Standing constraints (do not relearn these)
 
+- **The ticket extractor is chosen by ONE env var, and the fallback is not a
+  peer of the real one.** No `ANTHROPIC_API_KEY` ⇒ the in-process heuristic,
+  which cannot read a photographed ticket at all, and which measured
+  confidently wrong on five of twelve fixtures. It is a **production boot
+  gate** in `apps/web/src/env.ts` for that reason. The heuristic must never
+  return `confidence: "high"` — that is a statement about the METHOD, not
+  about any one document — and it must never assemble its own result: both
+  adapters stop at reading and `assembleOutcome` decides the leg, so a change
+  to selection cannot apply to one adapter and not the other.
+- **A departure time is only ever taken from a date and a clock time printed
+  on the SAME row.** E-tickets print durations (`15:30 Hrs`) beside departure
+  times and a date of issue above them; pairing across rows is how a flight
+  leaving 14 September was recorded as leaving 12 August. An unpaired date
+  yields no time at all — a blank the customer fills in beats a midday guess.
+- **A booking is only ever written against the ZIP it was QUOTED for.**
+  `CreateBookingInput.quotedZip` is required, not optional: a caller that
+  cannot name the ZIP its price and coverage answer were computed for has not
+  established that the quote and the address are the same place. Two covered
+  ZIPs are still two `zip_centroids` coordinates and two `agent_zones` rows.
+- **"Can this booking still be acted on?" is answered in exactly one place**
+  (`services/actionability.ts`), on two axes that must stay separate:
+  **standing** (lifecycle) and **phase** (position against the pickup window,
+  the bag-drop cutoff and departure). Collapsing them loses the case the
+  product cares about — late but savable. Never re-add a status array to a
+  service to answer a time question. The gates enforce in core; UI reflects
+  and never substitutes.
+- **After the pickup window but before the airline cutoff, everything still
+  works.** Accepting the agreement and uploading a passport are the two things
+  that unblock a late visit; blocking them there is refusing the rescue. Only
+  the CUTOFF blocks.
+- **A driver already holding the bags is never stopped by a gate, and never
+  needs an exemption.** The five gated actions all belong to the phase before
+  custody transfers, so `scanSealAtPickup` / `deliverToBagdrop` /
+  `confirmAirlineHandover` are outside the gate by construction. Keep the
+  idempotency check in `startPickupTravel` BEFORE `assertActionable`. Ops
+  visibility for that case is `cutoffRiskMonitor`'s job — do not add a second
+  alert.
+- **A Turnstile hostname entry covers that hostname and its OWN subdomains
+  only.** `dev.admin.koolee.cloud` is under `admin.koolee.cloud`, not under
+  `dev.koolee.cloud` — which is why the staff apps failed with client error
+  `110200` while the docs said they were covered. Every hostname that mounts
+  the widget must be listed on the widget. Never add the apex `koolee.cloud`
+  to the dev widget: it would let dev answer for production.
+- **The password rule and the email rule live in
+  `@koolee/ui/lib/credentials`, once.** The form's `minLength` and the server's
+  zod schema read the same constant; every email is `normalizeEmail`d at the
+  parse boundary. Sign-in returns ONE message whatever failed — any difference
+  between "no such account" and "wrong password" is an enumeration oracle —
+  and sign-in must never enforce the length floor, which would lock out an
+  older password and publish the policy to anyone without an account.
+- **`turbo.json`'s build `outputs` must exclude `.next/dev/**`.** Next 16 keeps
+  its turbopack dev cache there, not under `.next/cache/`, and without the
+  exclusion every build archives it: 616 GB across 5,070 entries, measured.
 - Copy rules: "delivered to your airline's bag drop" — never overclaim, no
   fabricated numbers ([README](README.md)).
 - **Documentation lives under `docs/`, never in the repo root.** The only two

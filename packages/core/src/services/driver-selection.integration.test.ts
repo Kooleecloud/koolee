@@ -22,7 +22,7 @@ import {
 } from "@koolee/db";
 
 import { createCoreConfig, fixedClock, type CoreConfig } from "../config";
-import { ConflictError } from "../errors";
+import { BookingNotActionableError, ConflictError } from "../errors";
 import { FakePaymentProvider } from "../payments/fake";
 import { TEST_AIRPORTS } from "../test-utils/airport-fixtures";
 import { ensureAddress } from "./customers";
@@ -319,6 +319,37 @@ describeIntegration("driver selection (integration)", () => {
     ).rejects.toBeInstanceOf(ConflictError);
   });
 
+  /**
+   * `now` is 2025-06-10T10:00Z and the flight leaves 2025-06-12T22:00Z, so
+   * the DL/JFK cutoff (45 minutes) falls at 21:15Z on the 12th.
+   */
+  const pastCutoff = () =>
+    createCoreConfig({
+      db,
+      payments: new FakePaymentProvider(),
+      clock: fixedClock(new Date("2025-06-12T21:30:00Z")),
+    });
+
+  it("refuses to shortlist once the airline's bag drop has closed", async () => {
+    // A shortlist is an offer. Offering one here asks the customer to choose
+    // a driver who cannot make the flight.
+    const verifier = await makeDriver("Verifier", { canDrive: false });
+    const { booking } = await sealedBooking(2, verifier);
+    await makeDriver("Tara");
+
+    const error = await listCandidateDrivers(pastCutoff(), {
+      bookingId: booking.id,
+    }).then(
+      () => null,
+      (e: unknown) => e,
+    );
+
+    expect(error).toBeInstanceOf(BookingNotActionableError);
+    expect(
+      (await db.query.bookings.findFirst({ where: eq(bookings.id, booking.id) }))!.status,
+    ).toBe("exception");
+  });
+
   /* --- selecting ---------------------------------------------------- */
 
   it("assigns the pickup to the shift, writes both columns, and logs custody", async () => {
@@ -357,6 +388,27 @@ describeIntegration("driver selection (integration)", () => {
       bagCount: 3,
     });
     expect(selected[0]!.actorUserId).toBe(customerId);
+  });
+
+  it("refuses to select once the airline's bag drop has closed", async () => {
+    // Checked at submit as well as at render: a shortlist drawn before the
+    // cutoff is still on screen after it, and the POST is reachable.
+    const verifier = await makeDriver("Verifier", { canDrive: false });
+    const { booking } = await sealedBooking(2, verifier);
+    const driver = await makeDriver("Tara");
+    const truck = await makeTruck("Late Van", 30);
+    const { shift } = await startShift(config, {
+      staffUserId: driver,
+      truckId: truck.id,
+    });
+
+    await expect(
+      selectDriver(pastCutoff(), {
+        bookingId: booking.id,
+        userId: customerId,
+        shiftId: shift.id,
+      }),
+    ).rejects.toBeInstanceOf(BookingNotActionableError);
   });
 
   it("refuses a booking belonging to somebody else", async () => {

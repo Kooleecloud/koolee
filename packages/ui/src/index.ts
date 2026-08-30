@@ -13,6 +13,10 @@ export {
 } from "./components/card";
 export { Input } from "./components/input";
 export {
+  PasswordField,
+  type PasswordFieldProps,
+} from "./components/password-field";
+export {
   Popover,
   PopoverTrigger,
   PopoverAnchor,

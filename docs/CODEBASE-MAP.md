@@ -415,7 +415,7 @@ product runs and tests without a single third-party credential.
 | Seam              | Interface                | Real                                      | Fake / default                         |
 | ----------------- | ------------------------ | ----------------------------------------- | -------------------------------------- |
 | Payments          | `PaymentProvider`        | Stripe adapter                            | `FakePaymentProvider` (in-memory, dev) |
-| Ticket extraction | `TicketExtractor`        | Claude                                    | Heuristic parser                       |
+| Ticket extraction | `TicketExtractor`        | Claude (`ANTHROPIC_API_KEY`; **required in production**) | Heuristic text-layer parser — **dev only**, always low confidence |
 | Email             | `Notifier`               | `ResendNotifier` (REST, injectable fetch) | `ConsoleNotifier` (logs)               |
 | SMS dispatch      | `NotificationDispatcher` | _(unbuilt — Twilio later)_                | `NoopDispatcher` (logs)                |
 | Ops alerts        | `OpsAlerter`             | _(unbuilt)_                               | `ConsoleOpsAlerter`                    |
@@ -459,7 +459,8 @@ API: `create-booking`, `windows` (window listing + blackout CRUD), `quote`,
 `payment-lifecycle`, `agent-visit`, `pickup` (the driver's run),
 `shifts` (clock on/off, the fleet, force-end), `driver-selection` (the
 customer's shortlist, the assignment, GPS upsert), `customers`, `addresses`,
-`booking-drafts`, `ticket-uploads`, `avatars`, `staff`, `tasks`, `webhooks`. Two more
+`booking-drafts`, `ticket-uploads`, `avatars`, `staff`, `tasks`, `webhooks`,
+`actionability`. Two more
 modules sit beside `services/`: `waitlist/` (`recordWaitlistSignup` — the
 idempotent (email, zip) upsert behind both capture surfaces — and
 `notifyNewlyCoveredWaitlist`, the zone-opened sweep's engine) and
@@ -467,6 +468,34 @@ idempotent (email, zip) upsert behind both capture surfaces — and
 path a booking takes to `paid` (webhook, return-page re-check, fake-provider
 inline) — never throws, never fails the payment path; the 0019 unique
 indexes referee the webhook/re-check race.
+
+**`actionability` is the answer to "can this still be acted on?", and it is
+the only one.** Before it, five services each carried their own status array
+and none of them knew about time: a `paid` booking whose flight left an hour
+ago is still `paid`, so it kept accepting agreements, taking passport uploads
+and offering a driver shortlist. `getBookingActionability(db, booking, now)`
+returns two independent axes — **standing** (`active` · `in_transit` ·
+`handed_over` · `exception` · `terminal`) and **phase** (`before_window_end` ·
+`running_late` · `missed_cutoff` · `departed`) — plus five named permissions
+and the one sentence every surface renders. Collapsing the axes would lose the
+case that matters: twenty minutes past the pickup window is late and
+salvageable, twenty minutes past the bag-drop cutoff is not.
+
+`assertActionable` is the enforcement, wired into `acceptAgreement`,
+`recordCustomerUpload`, `listCandidateDrivers`, `selectDriver`, `arriveAtVisit`
+and `startPickupTravel`. A blocked attempt past the deadline raises the
+existing exception path **exactly once** — not by counting, but because
+`applyTransition` guards on `WHERE status = from` and `raisesException` is
+false once the row is already `exception`. Nothing is stored: every anchor is
+already on the booking or in `airline_cutoffs`.
+
+**In-flight physical work is carved out by construction.** The five gated
+actions all belong to the phase before custody transfers; the driver's own
+steps (`scanSealAtPickup`, `deliverToBagdrop`, `confirmAirlineHandover`) call
+none of them, so a van already moving keeps moving with no exemption logic
+anywhere. The one place it needed care is `startPickupTravel`, where the
+idempotency check sits deliberately BEFORE the gate. Ops still sees it —
+`cutoffRiskMonitor` already scans `in_transit` bookings every five minutes.
 
 A service is where ownership is enforced. Session-scoped reads are
 404-shaped on a foreign id — existence is itself a disclosure — and the
@@ -589,6 +618,34 @@ longer by the route itself — runs extraction, and writes the result into a
 _quarantined_ `ticketPrefill` key. Only the flight review form reads it, as editable
 defaults. Confirming that form is what promotes user-confirmed values into
 real draft keys — extracted values never reach a booking field unseen.
+
+**Which extractor runs is one env var, and it used to be invisible.** Both
+adapters now stop at READING: they produce a `ReadItinerary` (every leg found,
+plus the fields that were dropped and why), and
+[read-result.ts](../packages/core/src/extraction/read-result.ts) turns it into
+a result — `selectSegment` picks the leg, only a serviced origin may reach the
+airport dropdown, and the alternatives offer is computed once for both. The
+heuristic used to assemble its own result and never call `selectSegment` at
+all, which is why it could not report a second leg or offer a swap. It is now
+**never** `confidence: "high"`, and `ANTHROPIC_API_KEY` is a production boot
+requirement so it cannot become the production reader by accident
+([f1-hosted-setup.md](features/f1-hosted-setup.md) §1).
+
+**The whole itinerary is shown back.** `TicketExtractionResult.legs` carries
+every leg read, including the ones departing airports Koolee does not serve,
+and the review form lists them — "we read 3 flights on this ticket", with the
+prefilled one marked and the others explained. `alternativeSegments` stays the
+one-click swap and stays restricted to New York departures: we cannot collect
+bags at Heathrow.
+
+**The address ZIP must be the ZIP that was quoted.** The funnel takes a ZIP on
+the flight step (coverage + price) and a full address two steps later. They
+were never reconciled — any covered ZIP was accepted and silently replaced the
+quoted one, changing the `zip_centroids` coordinate every drive-time estimate
+starts from and the `agent_zones` row that decides who is dispatched. The
+pickup step now offers "update quote to <new ZIP>" or "use a different
+address", and `createBooking` takes a **required** `quotedZip` and refuses a
+mismatch with `QuoteZipMismatchError`.
 
 **The window step** ([slot/page.tsx](../apps/web/src/app/book/slot/page.tsx))
 calls `listBookableWindows`, which returns each window already priced through

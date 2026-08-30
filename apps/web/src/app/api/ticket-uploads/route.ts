@@ -14,6 +14,17 @@ import {
 export const dynamic = "force-dynamic";
 /** Buffer + hash + PDF parsing want Node, not the edge runtime. */
 export const runtime = "nodejs";
+/**
+ * Extraction is synchronous — the customer is on the flight step waiting —
+ * and it can make TWO model calls, the second with thinking on. Measured over
+ * twelve ticket fixtures the escalation path took up to 8.1 s on its own,
+ * before the multipart read, the Storage write and two database round-trips.
+ * The platform default is 10 s, which turns an ordinary ambiguous round trip
+ * into a failed upload on hosted and never on a laptop. 60 s is the SDK's own
+ * per-call timeout; a request that reaches it has already failed inside the
+ * adapter and returns the manual-entry fallback rather than hanging.
+ */
+export const maxDuration = 60;
 
 /**
  * Server-side ticket upload (never client-direct to Storage): multipart in,

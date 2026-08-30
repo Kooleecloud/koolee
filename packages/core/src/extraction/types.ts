@@ -148,6 +148,20 @@ export const ticketExtractionSchema = z.object({
    */
   alternativeSegments: z.array(extractedSegmentSchema).max(3).optional(),
   /**
+   * EVERY leg read off the document, in print order — including the legs that
+   * depart airports we do not serve.
+   *
+   * Display only, and never a swap offer: we cannot collect bags at Heathrow.
+   * It exists because a customer whose three-leg itinerary came back as one
+   * flight has no way to tell a correct read from a partial one, and "we read
+   * three legs and this is the one leaving New York" is the difference
+   * between a form that decided something and one that shows its work. Capped
+   * at six because the whole draft rides in a 4 KB cookie.
+   */
+  legs: z.array(extractedSegmentSchema).max(6).optional(),
+  /** Index into `legs` of the leg prefilled above, when there is one. */
+  chosenLegIndex: z.number().int().min(0).max(5).optional(),
+  /**
    * Overall confidence. "low" means the review form flags every prefilled
    * field for the customer's attention (e.g. an ambiguous multi-segment
    * itinerary). Extractors must prefer low confidence over guessing.

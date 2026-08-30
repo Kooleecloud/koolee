@@ -4,6 +4,7 @@ import {
   ensureBookingPaymentIntent,
   NotFoundError,
   OutOfCoverageError,
+  QuoteZipMismatchError,
   PaymentFailedError,
   setBookingContactPhone,
   SlotNotSellableError,
@@ -107,6 +108,15 @@ export async function preparePayment(): Promise<PreparePaymentResult> {
     }
     if (error instanceof OutOfCoverageError) {
       return { ok: false, error: "That address is outside our service area." };
+    }
+    if (error instanceof QuoteZipMismatchError) {
+      // The pickup step reconciles this before it can happen; reaching here
+      // means a POST arrived that did not go through it.
+      return {
+        ok: false,
+        error: `Your pickup address is in ${error.addressZip} but this booking was priced for ${error.quotedZip}. Confirm the address to update your quote.`,
+        redirectTo: "/book/pickup",
+      };
     }
     if (error instanceof PaymentFailedError) {
       console.error("[pay] preparePayment provider failure", error);

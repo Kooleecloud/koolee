@@ -11,6 +11,7 @@ import {
   CardHeader,
   CardTitle,
   DatabaseNotConfigured,
+  FormMessage,
   ImageLightbox,
   PageHeader,
 } from "@koolee/ui";
@@ -19,6 +20,7 @@ import {
   formatEtaRange,
   formatInstantInAirportTz,
   formatWindowInAirportTz,
+  getBookingActionability,
   getBookingAgreementState,
   getBookingDetailForSession,
   getPassportVerification,
@@ -131,9 +133,21 @@ export default async function TripPage({
   );
 
   const isActive = !["completed", "cancelled"].includes(booking.status);
+  /*
+   * The one source of truth for whether this booking can still be acted on.
+   *
+   * Status alone was answering that question here, which is how a `paid`
+   * booking whose flight left an hour ago kept offering an agreement to
+   * accept and a driver to choose. The core services refuse those now
+   * (services/actionability.ts); this makes the page HONEST about it rather
+   * than letting the customer find out by being turned away.
+   */
+  const actionability = await getBookingActionability(core.db, booking, new Date());
   // Only before the visit: once the agent has taken custody there is nothing
   // to accept and nothing to pre-upload. Mirrors AGREEMENT_ACCEPTABLE_STATUSES.
-  const preVisit = booking.status === "paid" || booking.status === "agent_assigned";
+  const preVisit =
+    (booking.status === "paid" || booking.status === "agent_assigned") &&
+    (actionability.can.acceptAgreement || actionability.can.uploadPassport);
 
   const [agreementState, passportRow] = await Promise.all([
     getBookingAgreementState(core.db, booking.id, new Date()),
@@ -180,7 +194,8 @@ export default async function TripPage({
   const selectedDriver = await getSelectedDriver(core.db, booking.id);
   const canChooseDriver =
     (DRIVER_SELECTABLE_STATUSES as readonly string[]).includes(booking.status) &&
-    selectedDriver === null;
+    selectedDriver === null &&
+    actionability.can.selectDriver;
 
   const candidates = canChooseDriver
     ? await listCandidateDrivers(core, { bookingId: booking.id }).catch(() => [])
@@ -271,6 +286,16 @@ export default async function TripPage({
         }
         actions={<BookingStatusBadge status={booking.status} />}
       />
+
+      {/* What the gates decided, said out loud. A disabled control with no
+          reason beside it is the same dead end as a control that silently
+          fails. */}
+      {actionability.blockedReason && isActive && (
+        <FormMessage variant="error">{actionability.blockedReason}</FormMessage>
+      )}
+      {actionability.lateNotice && (
+        <FormMessage variant="error">{actionability.lateNotice}</FormMessage>
+      )}
 
       {cutoffAt && isActive && (
         <CutoffCountdown

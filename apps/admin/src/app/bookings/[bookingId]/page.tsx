@@ -25,6 +25,7 @@ import {
   getBookingAssignment,
   getSelectedDriver,
   listReassignOptions,
+  getBookingActionability,
   getBookingDetailForSession,
   listAgentWorkload,
   type AgentWorkload,
@@ -165,9 +166,13 @@ export default async function BookingDetailPage({
     listReassignOptions(core.db, booking.id).catch(() => []),
   ]);
 
-  const [agreementState, passportRow] = await Promise.all([
+  const [agreementState, passportRow, actionability] = await Promise.all([
     getBookingAgreementState(core.db, booking.id, new Date()),
     getPassportVerification(core.db, booking.id),
+    // The same object the customer's page and the agent's screen read. An
+    // operator asked "why can't they accept the agreement?" needs the answer
+    // the customer is looking at, not a second opinion computed differently.
+    getBookingActionability(core.db, booking, new Date()),
   ]);
 
   const legal = availableEvents(booking.status);
@@ -193,6 +198,30 @@ export default async function BookingDetailPage({
           </>
         }
       />
+
+      {/*
+        What the gates are doing to this booking right now, in the words the
+        customer and the agent are reading. Rendered ABOVE the exception
+        banner but below the header: it explains the exception when there is
+        one ("cutoff passed"), and warns before there is one ("running late").
+        Nothing here gates the resolution form below — ops resolution goes
+        through the state machine and is deliberately outside this.
+      */}
+      {(actionability.blockedReason ?? actionability.lateNotice) && (
+        <p
+          className={
+            actionability.blockedReason
+              ? "rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm"
+              : "rounded-md border border-warning/50 bg-warning/5 px-3 py-2 text-sm"
+          }
+        >
+          <strong>
+            {actionability.blockedReason ? "Customer and crew are blocked" : "Running late"}
+            :
+          </strong>{" "}
+          {actionability.blockedReason ?? actionability.lateNotice}
+        </p>
+      )}
 
       {/* The exception banner leads. A booking that has stopped is the only
           thing on this page an operator has to act on before reading

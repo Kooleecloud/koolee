@@ -238,6 +238,7 @@ describeIntegration("booking ownership through the customer session (integration
     return createBooking(config, {
       userId,
       pickupAddressId: address.id,
+      quotedZip: address.zip,
       ...windowFor(departureAt),
       flightNumber: "DL123",
       airlineIata: "DL",

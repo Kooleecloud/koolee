@@ -197,6 +197,7 @@ describeIntegration("admin dispatch + overrides (integration)", () => {
     const { booking } = await createBooking(config, {
       userId: customerId,
       pickupAddressId: address.id,
+      quotedZip: "10001",
       ...window,
       flightNumber: "DL123",
       airlineIata: "DL",

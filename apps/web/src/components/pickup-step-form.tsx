@@ -1,6 +1,7 @@
 "use client";
 
 import { useActionState, useState } from "react";
+import Link from "next/link";
 import { Check } from "lucide-react";
 import {
   Button,
@@ -218,6 +219,37 @@ export function PickupStepForm({
       </div>
 
       {state.error && <FormMessage variant="error">{state.error}</FormMessage>}
+
+      {/* The address is in a covered ZIP, just not the one we quoted. Both
+          ways out are one click: re-quote here, or go back for an address in
+          the ZIP the quote was for. Nothing is saved until one is chosen. */}
+      {state.zipMismatch && (
+        <div className="flex flex-col gap-3 rounded-md border border-sky-200 bg-sky-50 p-4 text-sm">
+          <p className="text-slate-700">
+            This address is in {state.zipMismatch.addressZip}, but your quote was for{" "}
+            {state.zipMismatch.quotedZip}.
+          </p>
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <Button
+              type="submit"
+              name="confirmZipChange"
+              value="1"
+              size="sm"
+              loading={pending}
+            >
+              Update quote to {state.zipMismatch.addressZip}
+            </Button>
+            <Button asChild variant="outline" size="sm">
+              <Link href="/book/pickup">Use a different address</Link>
+            </Button>
+          </div>
+          <p className="text-xs text-slate-600">
+            Updating the quote re-checks coverage and pricing for{" "}
+            {state.zipMismatch.addressZip}, and you will pick your pickup window
+            again.
+          </p>
+        </div>
+      )}
 
       <Button type="submit" size="lg" loading={pending}>
         {pending ? "Checking coverage…" : "Continue"}

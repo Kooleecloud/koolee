@@ -8,9 +8,17 @@ import { makePdf } from "./test-utils/make-pdf";
  * see make-pdf.ts): a typical single-segment confirmation, a multi-segment
  * itinerary preferring the NYC departure, an ambiguous multi-segment that
  * must come back LOW confidence, and a no-text-layer (scanned) ticket.
+ *
+ * Every result this extractor produces is LOW confidence — see the class
+ * comment. The ambiguity test below still earns its place: it asserts the
+ * SELECTION reason and the alternatives, which is what "ambiguous" changes.
  */
 
-const extractor = new HeuristicTicketExtractor();
+// A fixed clock so "has this leg already flown?" cannot drift with the
+// calendar — these fixtures used to rot silently as their dates went past.
+const extractor = new HeuristicTicketExtractor({
+  now: () => new Date("2026-06-01T12:00:00Z"),
+});
 
 function pdfInput(lines: string[]) {
   return { data: makePdf(lines), mimeType: "application/pdf" };
@@ -38,7 +46,12 @@ describe("HeuristicTicketExtractor", () => {
     expect(outcome.result.departureAtLocal).toBe("2026-09-01T18:30");
     expect(outcome.result.paxName).toBe("Jordan Alvarez");
     expect(outcome.result.scope).toBe("domestic");
-    expect(outcome.result.confidence).toBe("high");
+    // The heuristic is NEVER "high", however clean the document looks. It
+    // reads a text layer with no notion of layout, and on the Phase 0
+    // fixtures it reported "high" on seven documents and was wrong on five
+    // of them. Low confidence makes the review form flag every prefilled
+    // field, which is the correct posture for this method.
+    expect(outcome.result.confidence).toBe("low");
   });
 
   it("prefers the segment departing a serviced NYC airport on a multi-segment itinerary", async () => {
@@ -48,7 +61,7 @@ describe("HeuristicTicketExtractor", () => {
         "PASSENGER: SMITH/ALEX",
         "SEGMENT 1: BOS TO JFK  DL 405",
         "SEGMENT 2: JFK TO LHR  DL 2",
-        "DEPARTURE: 14 MAR 2026 17:45",
+        "DEPARTURE: 14 MAR 2027 17:45",
         "INTERNATIONAL TRAVEL DOCUMENTS REQUIRED",
       ]),
     );
@@ -67,16 +80,19 @@ describe("HeuristicTicketExtractor", () => {
       pdfInput([
         "MULTI-CITY ITINERARY",
         "PASSENGER: DOE/SAM",
-        "SEGMENT 1: JFK TO MIA  AA 100",
-        "SEGMENT 2: EWR TO ORD  AA 200",
-        "DEPARTS JUN 2, 2026 9:00 AM",
+        "SEGMENT 1: JFK TO MIA  AA 100  DEPARTS JUN 12, 2026 9:00 AM",
+        "SEGMENT 2: EWR TO ORD  AA 200  DEPARTS JUN 19, 2026 6:15 PM",
       ]),
     );
 
     expect(outcome.status).toBe("extracted");
     if (outcome.status !== "extracted") return;
-    // Ambiguity is reported, never silently guessed away.
+    // Ambiguity is reported, never silently guessed away: both New York
+    // departures are read, one is chosen, and the other is offered as a swap.
     expect(outcome.result.confidence).toBe("low");
+    expect(outcome.result.selectionReason).toBe("ambiguous_serviced_origins");
+    expect(outcome.result.legs).toHaveLength(2);
+    expect(outcome.result.alternativeSegments?.[0]?.originAirport).toBe("EWR");
   });
 
   it("reports a scanned ticket (no text layer) as unreadable — never a guess", async () => {
