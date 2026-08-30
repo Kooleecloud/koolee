@@ -524,6 +524,9 @@ a suggestion with no ZIP cannot be reconciled against the quoted ZIP.
 
 **Services** ([services/](../packages/core/src/services/)) are the app-facing
 API: `create-booking`, `windows` (window listing + blackout CRUD), `quote`,
+`quote-distance`, `pricing-rules` (publish a new rule, never edit the live one),
+`airline-cutoffs` (the 128-row matrix, with the placeholder count that IS the
+launch-readiness number),
 `bookings` (transitions + session-scoped reads), `dispatch`, `payment-intent`,
 `payment-lifecycle`, `agent-visit`, `pickup` (the driver's run),
 `shifts` (clock on/off, the fleet, force-end), `driver-selection` (the

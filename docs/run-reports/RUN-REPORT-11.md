@@ -713,3 +713,173 @@ proves the client SDK initialised with the deployed DSN.
 | `turbo build`                                 | **3/3**                                                                                       |
 | `pnpm check:sw-headers`                       | 3/3, and confirmed again over HTTP against `next start`                                       |
 | Migrations                                    | none generated, none applied                                                                  |
+
+---
+
+## Phase 4 — Launch data has a path that is not SQL
+
+### 4.1 The two gaps, closed
+
+Report §3.5's table of what ops can enter had two rows reading **"none —
+seed or SQL only"**, and they are the two that decide money and safety:
+
+| Data                                             | Was                              | Now                                      |
+| ------------------------------------------------ | -------------------------------- | ---------------------------------------- |
+| Pricing rule                                     | edit `seed.ts` + re-seed, or SQL | admin **`/pricing`**                     |
+| Airline cutoffs (128 rows)                       | SQL                              | admin **`/cutoffs`**                     |
+| Agreement                                        | `/agreements`                    | unchanged; v2 draft prepared (4.3)       |
+| Trucks · staff · zones · `can_drive` · blackouts | already had UIs                  | verified, unchanged                      |
+| Coverage ZIPs                                    | code                             | **still code, deliberately** — see below |
+
+**Coverage ZIPs stay in code.** `nyc-zips.ts` says so in its own header:
+coverage is a deploy, not a row, and `waitlistZoneOpenedSweep` exists precisely
+because of that. Giving it a table would move the source of truth for where
+Koolee sells out of review and into a form, and the seven consumers
+(`checkCoverage`, `assertInCoverage` ×3, `isInCoverage` ×2, the waitlist sweep)
+all read the module. That is recorded in the runbook as a code change with a
+deploy, not left as a gap somebody trips over.
+
+Both new pages use the existing console vocabulary — `ConsoleMain`,
+`PageHeader`, `Card`, `Badge`, `EmptyState`, `Input`, `Select`,
+`CheckboxField`, `FormMessage` — and the existing action shape
+(`useActionState`, an `{error?, ok?}` state, `requireAdminSession` first,
+`revalidatePath` after). No new UI primitive was needed for either.
+
+### 4.2 `/pricing`
+
+Core: [services/pricing-rules.ts](../../packages/core/src/services/pricing-rules.ts)
+— `getActivePricingRule`, `listPricingRules`, `publishPricingRule`,
+`reactivatePricingRule`.
+
+**Publishing, not editing.** A change writes a NEW row and deactivates the old
+one, in one transaction — the partial unique index means two active rows cannot
+coexist even for an instant, so the deactivate must land before the insert.
+That is what the schema was built for (`effective_from`, rows only ever
+deactivated) and it is the model agreements already use, for the same reason:
+what a price WAS is a question somebody will ask. No booking is repriced:
+`bookings.price_cents` is the authoritative charge and its breakdown is
+snapshotted on the row.
+
+**Reactivate is the undo.** A price that turned out wrong is one click back to
+the previous rule rather than five numbers retyped from memory.
+
+Validation reuses the ENGINE's own schemas for the lead-time curve and the
+discount rules — one definition of what a discount is, so the console cannot
+write a shape that would make every quote throw. It adds one rule of its own:
+the curve must be in increasing order of minutes. The engine takes the smallest
+matching step, so an out-of-order curve is not wrong to it — but it is
+unreadable to a person, and a curve nobody can read is one nobody can check.
+
+Money is entered in **dollars** and stored in **cents**, converted once at the
+action boundary. The lead-time curve is typed as `hours multiplier`, one step
+per line, rather than JSON: that is the shape of the thing being described, and
+hours are the unit it is discussed in while the column stores minutes.
+
+**The public pricing page now reads the live rule.** This closes report §6.4's
+other half. `estimatePrice` is a server action, so it always could read the
+database — it just did not, and it held a hand-kept mirror of the seed instead.
+With `/pricing` shipping, that mirror would become a public quote that no
+longer matches what the funnel charges. The pinned rule stays as the fallback
+for a build with no database and for a database with no active rule.
+
+### 4.3 `/cutoffs`
+
+Core: [services/airline-cutoffs.ts](../../packages/core/src/services/airline-cutoffs.ts).
+
+The page's subtitle is a **launch-readiness number, not a statistic**:
+_"128 of 128 rows are still the seed's placeholder."_ `source` is the
+provenance column, and `isPlaceholderCutoff` reads the seed's own stamp, so the
+count is derived from the data rather than bookkept.
+
+Three rules, each with a reason:
+
+- **The source field is required on an edit.** A corrected number with no
+  provenance is a number the next person has to verify from scratch.
+- **Core refuses to save the seed's own placeholder text back.** Otherwise
+  pressing Save on an untouched row would quietly mark 128 invented numbers as
+  verified. A placeholder row's source box also starts BLANK on screen, so
+  nobody can save that sentence back without reading it.
+- **10–480 minutes.** A cutoff under ten minutes is a typo that would hand the
+  customer time that does not exist; 480 catches a stray extra zero.
+
+`createAirlineCutoff` exists because `resolveStrictestCutoffMinutes` REFUSES TO
+SELL when no row exists for an airline at an airport. That is the right
+default, but it means a real carrier missing from the matrix is a carrier
+Koolee cannot serve until somebody can add one without a migration.
+
+128 rows is more than a page, so the view filters by airport and by
+"unverified only" — the actual unit of work is "the JFK ones I have not done
+yet". Filters live in the URL, the same convention the bookings board uses, so
+the view is a link somebody can send on. **The counts are always of the whole
+matrix**, never of the filtered view: a readiness number that changed depending
+on where you were standing would be a number that lies.
+
+20 integration tests in
+[launch-data.integration.test.ts](../../packages/core/src/services/launch-data.integration.test.ts)
+— both services' interesting properties are enforced BY the database (a partial
+unique index, a unique key on airline+airport+scope) and neither can be proved
+with a fake.
+
+### 4.4 Verified in a browser
+
+Signed into the running console as `admin@koolee.local` and driven with
+Playwright:
+
+- `/pricing` renders with the rail, the breadcrumb, the live badge, the
+  pre-filled editor and the history with its reactivate button.
+- `/cutoffs` renders 128 rows grouped by airport with per-group unverified
+  counts; the filters narrow the view to JFK's 60 while the headline stays
+  128 of 128.
+- **A real save, end to end**: edited AA/JFK/domestic to 60 minutes with a
+  real source, pressed Save, and watched the headline become **127 of 128**
+  and the row leave the unverified view. `pnpm seed:local` afterwards put the
+  placeholder back.
+
+The browser also caught something typecheck cannot: a missing space rendering
+`10 1.4means` in the curve's help text, where the JSX had `</span> means` on
+one line. Fixed with an explicit `{" "}`.
+
+### 4.5 Agreement v2 and the Terms contradiction
+
+**The draft:** [docs/launch/agreement-v2-draft.md](../launch/agreement-v2-draft.md)
+— the body ops pastes into `/agreements`, with how to publish it and what
+changed from v1. It carries v1's substance forward verbatim and adds ONE
+section, _"Which version of this agreement applies to your booking"_, in the
+customer's words:
+
+> **The version you accept when you book governs that booking, for its whole
+> life.** If we publish a newer version afterwards, it does not change the
+> booking you have already made and we will not ask you to accept it again.
+
+That is the product's actual behaviour — `UNIQUE (booking_id)` on
+`agreement_acceptances`, migration 0025 — and nothing customer-facing said so.
+v1's closing "placeholder terms" paragraph is dropped, because a live agreement
+describing itself as a placeholder is worse than no note at all. Legal review
+remains a checklist item; this is a starting point for counsel, not a
+substitute.
+
+The report looked for a "§9.3 re-accept clause" and established it **does not
+exist**. What did contradict pinning was the public Terms page, section 7:
+_"Continued use after changes take effect constitutes acceptance."_ That is a
+re-acceptance rule and the booking agreement's rule is its opposite.
+
+**Resolved on the Terms page, not in the agreement**, because the product's
+behaviour is the pinning model. Section 7 is now _"Your booking agreement takes
+precedence"_ — each booking is governed by the version accepted at booking, and
+where the two documents differ the accepted version governs that booking — and
+the old section 7 becomes section 8, rewritten so it no longer claims continued
+use is acceptance. The page stays `robots: noindex` and still carries its
+"working draft under legal review" banner.
+
+### 4.6 Gates
+
+| Gate                                          | Result                                                                        |
+| --------------------------------------------- | ----------------------------------------------------------------------------- |
+| `turbo typecheck`                             | 6/6                                                                           |
+| `turbo lint`                                  | 6/6                                                                           |
+| `turbo test` (unit)                           | 6/6 — unchanged counts                                                        |
+| `pnpm --filter @koolee/core test:integration` | **31** files passed / 1 skipped, **313** passed / 3 skipped (+20 launch data) |
+| `turbo build`                                 | 3/3                                                                           |
+| `pnpm check:sw-headers`                       | 3/3                                                                           |
+| Browser pass                                  | `/pricing` + `/cutoffs` signed in, including one real save                    |
+| Migrations                                    | **none** — both surfaces edit tables that already existed                     |
