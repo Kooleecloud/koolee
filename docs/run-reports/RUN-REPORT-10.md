@@ -1153,3 +1153,72 @@ on the page.
 
 typecheck 6/6 · lint 6/6 · unit 807 · core integration 286 (3 skipped) ·
 builds 3/3.
+
+
+---
+
+## Phase 9 — Local delivery: OPEN, and how to resume it
+
+Push is merging **disabled** (`NEXT_PUBLIC_PUSH_NOTIFICATIONS_ENABLED`
+defaults to `false`), so this blocks nothing. Written down so picking it up
+later costs minutes rather than an afternoon.
+
+### 9.1 What is known
+
+| Fact | How it was established |
+|---|---|
+| macOS notifications work on TD's machine | A native `osascript` notification appeared |
+| The kill switch is live in the running server | The enable card renders |
+| A real `WebPushSender` is wired | `/api/push/test` returns 200; it returns 503 unless `pushSender.delivers` |
+| The keys match the subscriptions | FCM accepted all four — a mismatch is `403`, a dead registration `410` |
+| The send is a genuine network call | A bogus endpoint signed with the same keys returns a real `410` from FCM |
+| The service worker raises and reports a push correctly | Verified headed, via `ServiceWorker.deliverPushMessage` |
+| **No notification arrives on TD's browser**, before or after a restart | Observed |
+
+So: everything on either side of the FCM → browser hop is proven, and that hop
+is the only unproven link. The OS is not globally suppressing.
+
+### 9.2 The one datum that was not captured
+
+After the Phase 8 change the card states which half is broken — **"the
+notification reached this browser"** versus **"it never reached this
+browser"**. That branch was not read before we stopped. It is the whole
+diagnosis, and one click produces it.
+
+### 9.3 Resume checklist, in order
+
+1. `NEXT_PUBLIC_PUSH_NOTIFICATIONS_ENABLED=true` in `apps/agent/.env.local`,
+   restart the agent dev server, hard-reload the page (the service worker
+   changed in Phase 8 and has to re-install — DevTools → Application →
+   Service Workers → Update, or Unregister and reload).
+2. Account → **Send a test notification**, and read which branch the card
+   shows. That splits the problem in half:
+   - **"reached this browser"** ⇒ delivery works; it is System Settings →
+     Notifications → *browser* → Allow (quit the browser fully and reopen),
+     Focus/DND, or an alert style of "None". Check Notification Centre first —
+     if it is sitting there, only the banner was suppressed.
+   - **"never reached this browser"** ⇒ a delivery problem. Go to step 3.
+3. Capture the endpoint from DevTools on the agent app:
+   `(await (await navigator.serviceWorker.ready).pushManager.getSubscription())?.endpoint`
+   - `fcm.googleapis.com/...` ⇒ Chrome/Edge. `web.push.apple.com/...` ⇒
+     Safari, which is unreliable over `http://localhost` (see
+     `docs/fixtures/chrome-notify/limitations.md`) — retry over HTTPS or on
+     hosted before concluding anything.
+   - No subscription at all ⇒ the registration never saved; turn notifications
+     off and on again and watch the `POST /api/push/subscribe` response.
+4. Confirm that endpoint is one of the rows the server is targeting. The send
+   reported `targeted: 4` on `agent@koolee.local`, and three of those are
+   throwaway Chrome-for-Testing profiles from this slice's verification runs
+   (their endpoints carry FCM's `/preprod/` path). If TD's endpoint is not
+   among them, the registration is going to a different user — check which
+   account the browser is signed in as.
+5. Only then consider anything else. A firewall or VPN blocking Chrome's
+   long-lived connection to Google, and a fully-quit browser on macOS (which
+   receives nothing, unlike Safari), are the remaining candidates.
+
+### 9.4 Cleanup worth doing when this resumes
+
+The three verification-run subscriptions on `agent@koolee.local` are noise.
+They will prune themselves the first time FCM returns 410 for them; there is
+no need to touch the table by hand, and **truncating `push_subscriptions` is
+the one action that cannot be undone** without every person re-enabling.
