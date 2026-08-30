@@ -35,6 +35,14 @@ export {
 } from "./actionability";
 
 export {
+  getBookingSignal,
+  latestSignalFor,
+  touchBookingSignal,
+  touchBookingSignals,
+  type TouchBookingSignalInput,
+} from "./booking-signals";
+
+export {
   FALLBACK_DISPLAY_TZ,
   getDisplayZones,
   resolveDisplayTz,

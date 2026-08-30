@@ -32,6 +32,7 @@ import {
 } from "@koolee/core";
 
 import { CustodyTimeline } from "@/components/custody-timeline";
+import { TripLive } from "@/components/trip-live";
 import { CutoffCountdown } from "@/components/cutoff-countdown";
 import {
   TripActionNeeded,
@@ -271,6 +272,11 @@ export default async function TripPage({
 
   return (
     <>
+      {/* Live from here on. A signal on this booking re-runs this whole server
+          component, so every card below is current without a reload — the
+          timeline, the two action cards, the driver shortlist and the ETA. */}
+      <TripLive bookingId={booking.id} active={isActive} />
+
       <BackLink href="/trips" linkComponent={Link} className="self-start">
         All trips
       </BackLink>

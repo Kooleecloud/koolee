@@ -22,6 +22,7 @@ import {
   type VisitContext,
 } from "@koolee/core";
 
+import { LiveTasks } from "@/components/live-tasks";
 import { AgentMain } from "@/components/shell/agent-main";
 import { tryGetCore } from "@/lib/core";
 import { signAvatarUrl } from "@/lib/avatars";
@@ -272,6 +273,9 @@ export default async function TaskDetailPage({
 
     return (
       <AgentMain>
+        {/* The customer can accept the agreement while the driver is at the
+            door. Without this the gate opens only on a manual reload. */}
+        <LiveTasks enabled={!pickupView.done} />
         <BackToToday />
         <h1 className="font-display text-2xl font-semibold text-navy-800">
           Collect &amp; deliver
@@ -344,6 +348,7 @@ export default async function TaskDetailPage({
 
   return (
     <AgentMain>
+      <LiveTasks enabled={!view.done} />
       <BackToToday />
 
       <h1 className="sr-only">

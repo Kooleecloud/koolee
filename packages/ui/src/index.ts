@@ -155,6 +155,15 @@ export { FormMessage, type FormMessageProps } from "./components/form-message";
 export { OrDivider, type OrDividerProps } from "./components/or-divider";
 export { usePreservedFormValues } from "./lib/use-preserved-form";
 export {
+  BOOKING_SIGNAL_TABLE,
+  SIGNAL_DEBOUNCE_MS,
+  SIGNAL_POLL_MS,
+  useBookingSignal,
+  type BookingSignalClient,
+  type BookingSignalStatus,
+  type UseBookingSignalOptions,
+} from "./lib/booking-signal";
+export {
   PasswordResetForm,
   SetPasswordForm,
   StaffLoginForm,

@@ -18,6 +18,7 @@ import type { CoreConfig } from "../config";
 import { emitDriverPoolEmpty, emitDriverSelected } from "../events/booking-events";
 import { ConflictError, InvalidInputError, NotAuthorizedError, NotFoundError } from "../errors";
 import { assertActionable } from "./actionability";
+import { touchBookingSignals } from "./booking-signals";
 import { toCoordinates, type Coordinates } from "../geo/coordinates";
 import type { EtaRange } from "../geo/eta";
 import { PICKUP_EVENT_TYPES } from "./pickup-events";
@@ -610,6 +611,37 @@ export async function recordDriverPosition(
       target: driverPositions.staffUserId,
       set: { lat: input.lat, lng: input.lng, recordedAt },
     });
+
+  /*
+   * Ring the realtime doorbell for the bookings this driver is actually
+   * carrying.
+   *
+   * This is the ONE writer that has to signal explicitly. Every other change
+   * worth watching appends a custody event, and 0030's trigger covers those by
+   * construction — but a position is deliberately NOT evidence and appends
+   * nothing, and "how close is my driver" is precisely the number a customer
+   * sits and watches. Without this the driver card would move only on the
+   * polling fallback.
+   *
+   * Scoped to shifts that are RUNNING (`started_at` set, not yet done), so a
+   * ping does not wake pages for bookings whose bags are still on a doorstep.
+   * Never throws: `touchBookingSignals` swallows, and a lost ping is one
+   * missed frame of an estimate that is already a range.
+   */
+  const carrying = await db
+    .select({ bookingId: pickupTasks.bookingId })
+    .from(pickupTasks)
+    .where(
+      and(
+        eq(pickupTasks.driverShiftId, shift.id),
+        inArray(pickupTasks.status, ["assigned", "in_progress"]),
+      ),
+    );
+  await touchBookingSignals(
+    db,
+    carrying.map((row) => row.bookingId),
+    input.staffUserId,
+  );
 }
 
 

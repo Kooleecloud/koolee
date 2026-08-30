@@ -8,6 +8,7 @@ import {
 } from "@koolee/core";
 
 import { JobCard } from "@/components/job/job-card";
+import { LiveTasks } from "@/components/live-tasks";
 import { AgentMain } from "@/components/shell/agent-main";
 import { groupJobs, type Job } from "@/lib/job";
 import { tryGetCore } from "@/lib/core";
@@ -77,6 +78,7 @@ export default async function SchedulePage() {
 
   return (
     <AgentMain>
+      <LiveTasks />
       <header className="flex flex-col gap-1">
         <h1 className="font-display text-3xl font-semibold text-navy-800">Schedule</h1>
         <p className="text-sm text-muted-foreground">
