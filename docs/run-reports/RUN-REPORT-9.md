@@ -306,3 +306,106 @@ both the stage and the callback changed, the announcement uses the new one.
 `turbo typecheck` 6/6 · `turbo lint` 6/6 · unit 5/5 packages (core 479, ui 99,
 web 95, admin 27, agent 12) · core integration 212 passed / 3 skipped ·
 `turbo build` 3/3.
+
+---
+
+## Phase 2 — Upload-first funnel entry
+
+### 2.1 The reshape
+
+`/book/flight` opened on a six-field form with the upload card under a divider
+at the bottom of the page. It now opens on a **drop area**, with manual entry
+as a link below it. That is the whole change in one sentence, and the argument
+for it is that typing a flight number, an airport, a date, a time and a name is
+the slowest possible way to tell us something we can read off a document the
+customer already has.
+
+Manual entry is framed as an equal path — "Enter your flight details manually
+· takes about a minute" — not as a fallback. Some people genuinely have no file
+to hand, and a door with one handle is a wall for them.
+
+### 2.2 The rule that needed a pure function
+
+`flightEntryMode` ([apps/web/src/lib/flight-entry.ts](../../apps/web/src/lib/flight-entry.ts))
+returns `door` | `review` | `manual`. It was extracted from three inline
+conditions in the page because one of them is a real hazard:
+
+> **Somebody stepping back to edit must never be sent to the door.** A draft
+> that already carries a flight goes straight to the form. Re-asking for a
+> ticket there reads as having lost their booking, which is the worst thing a
+> funnel can imply.
+
+And a second: `?from=ticket` with no prefill behind it — a shared link, a back
+button after the draft cookie expired — falls back to the **door**, not to a
+"here's what we read from your ticket" banner above six empty fields.
+
+### 2.3 Failure is two different things
+
+The old card showed every failure as one red line under an "Upload ticket"
+button. The door splits them, and the split is the product decision:
+
+| Outcome | HTTP | What happens |
+|---|---|---|
+| missing / too large / wrong type | 400 / 413 / 415 | **stay on the door**, show the specific message — picking a different file is one tap |
+| accepted but unreadable | 200, `ok: false` | **drop into the manual form** at `?entry=manual&read=failed` |
+| storage or transport failure | 502 / network | same drop, same apology |
+
+The apology is deliberately non-blaming and names the real cause: *"some
+airline tickets are images we can't get text out of. Nothing's lost."* The
+compact upload card stays under the form for a second attempt.
+
+That mapping is a decision taken in a client component about numbers produced
+in `ticket-upload-handler.ts` — exactly the coupling that rots silently — so a
+test asserts that the unreadable status is NOT in the retryable set and that
+all three bad-file statuses are.
+
+### 2.4 Camera capture is a SECOND input
+
+`capture="environment"` makes a phone skip the file picker entirely, so one
+input cannot both open the camera and let somebody pick the PDF their airline
+emailed. There are two hidden inputs and two affordances; the camera button is
+`sm:hidden`, because on a laptop `capture` is ignored and the button would open
+the same picker as the drop area above it.
+
+The drop area itself is a `<button>`, not a div with an onClick — it has to be
+keyboard-reachable and announce itself. Drag-and-drop rides on top.
+
+### 2.5 What did NOT change
+
+- **The manual form.** Same fields, same `CoverageStepForm`, same
+  `submitFlight`, same remount-on-seed-key fix from F1.
+- **The ZIP-sync reconciliation.** It lives at the PICKUP step
+  (`actions.ts`'s `zipMismatch` branch and `createBooking`'s required
+  `quotedZip`), which this phase does not touch. Verified still present and
+  still covered by the integration tier.
+- **Extraction never writes to bookings.** A new test asserts the prefill
+  carries no field a booking could be written from (`bookingId`, `userId`,
+  `priceCents`, `pickupAddressId`, `status`).
+
+### 2.6 Instrumentation
+
+`track()` from `@vercel/analytics` — the system already mounted in the root
+layout — gains `ticket_upload_started`, `ticket_upload_read` and
+`ticket_upload_failed`, each tagged with the variant (`door` vs `compact`) so
+the door's conversion is separable from the card's. No new analytics system, as
+instructed.
+
+### 2.7 Tests
+
+- `flight-entry.test.ts` — 9 new tests over the three modes, including the
+  step-back case and the `?from=ticket`-without-prefill case.
+- `ticket-upload-handler.test.ts` — three new groups: the status contract the
+  door routes on, the prefill validating against `ticketPrefillSchema` (a
+  prefill the schema rejects renders an EMPTY form under a "we read your
+  ticket" banner — the shape of the bug F1's remount key was written for), the
+  wall-clock departure format, and the no-booking-fields assertion.
+- `MAX_TICKET_UPLOAD_BYTES` / `TICKET_UPLOAD_MIME_TYPES` are now exported from
+  `@koolee/core/uploads` so the client component can size and filter its own
+  picker without reaching the package barrel (which pulls the Postgres driver
+  — see `uploads/buckets.ts`'s header).
+
+### 2.8 Gates
+
+`turbo typecheck` 6/6 · `turbo lint` 6/6 · web unit 109 passed (was 95) ·
+full unit 5/5 packages · core integration 212 passed / 3 skipped ·
+`turbo build` 3/3.
