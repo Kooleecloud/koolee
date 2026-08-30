@@ -1,5 +1,6 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
-import { DatabaseNotConfigured, EmptyState } from "@koolee/ui";
+import { DatabaseNotConfigured, EmptyState, cn } from "@koolee/ui";
 import {
   airportLocalDay,
   airportLocalDayBounds,
@@ -10,7 +11,7 @@ import {
 import { JobCard } from "@/components/job/job-card";
 import { LiveTasks } from "@/components/live-tasks";
 import { AgentMain } from "@/components/shell/agent-main";
-import { groupJobs, type Job } from "@/lib/job";
+import { finishedJobs, groupIntoSections, groupJobs, type Job } from "@/lib/job";
 import { tryGetCore } from "@/lib/core";
 import { getAgentSession } from "@/lib/session";
 
@@ -18,21 +19,35 @@ export const metadata = { title: "Schedule" };
 export const dynamic = "force-dynamic";
 
 /**
- * The whole assignment list, grouped by day.
+ * The schedule, and its History twin.
  *
- * The version this replaces was a flat chronological dump of every task ever
- * assigned — months of finished work above the current week, with no marker
- * for "now". A driver opening it in the morning scrolled past June to find
- * today.
+ * TWO VIEWS ON ONE ROUTE, not a fourth bottom tab. The tab bar is capped at
+ * three by an explicit decision (see `shell/nav.ts`: a driver has exactly
+ * three questions, and the bottom third of a phone is the only part a thumb
+ * reaches without regripping). History is not a fourth question — it is the
+ * past tense of "what is coming" — so it lives as a segmented control at the
+ * top of this page and the Schedule tab stays lit for both.
  *
- * Two rules fix that. Finished work collapses into a count instead of
- * occupying the list, and the days run forward from today rather than from
- * the beginning of time. What is behind you is still reachable — it is just
- * not in the way of what is in front of you.
+ * SCHEDULE IS ORDERED BY ATTENTION, not by time alone: problems, then
+ * overdue, then today, then a group per upcoming day. `groupIntoSections`
+ * owns that and is unit-tested; every day boundary is AIRPORT-local, because
+ * production runs in UTC and a server-local "today" opens at 8 PM the evening
+ * before.
+ *
+ * FINISHED WORK IS NOT ON THE SCHEDULE. It used to sit at the bottom behind a
+ * "12 finished" disclosure, which is still occupying the answer to "what is
+ * left". It is one tap away instead.
  */
-export default async function SchedulePage() {
+export default async function SchedulePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ view?: string }>;
+}) {
   const session = await getAgentSession();
   if (!session) redirect("/login");
+
+  const { view } = await searchParams;
+  const history = view === "history";
 
   const core = tryGetCore();
   let jobs: Job[] = [];
@@ -47,121 +62,225 @@ export default async function SchedulePage() {
   }
 
   const now = new Date();
-  const isPast = (job: Job) => {
-    if (!job.startsAt) return false;
-    const { start } = airportLocalDayBounds(now, job.tz);
-    return job.startsAt < start;
-  };
-
-  const open = jobs.filter((job) => job.state !== "done" && !isPast(job));
-  const behind = jobs.filter((job) => job.state !== "done" && isPast(job));
-  const done = jobs.filter((job) => job.state === "done");
-
-  // The day heading is the job's OWN airport-local day, so a driver working
-  // one airport reads their own calendar and a cross-airport list stays honest.
-  const days: { key: string; heading: string; jobs: Job[] }[] = [];
-  for (const job of open) {
-    const key = job.startsAt ? airportLocalDay(job.startsAt, job.tz) : "unscheduled";
-    const last = days.at(-1);
-    if (last?.key === key) {
-      last.jobs.push(job);
-      continue;
-    }
-    days.push({
-      key,
-      heading: job.startsAt ? formatDayInAirportTz(job.startsAt, job.tz) : "No time set",
-      jobs: [job],
-    });
-  }
-
-  const todayKey = jobs[0] ? airportLocalDay(now, jobs[0].tz) : null;
+  const sections = groupIntoSections(jobs, now, airportLocalDayBounds, airportLocalDay);
+  const finished = finishedJobs(jobs);
+  const open =
+    sections.problems.length +
+    sections.overdue.length +
+    sections.today.length +
+    sections.upcoming.reduce((total, day) => total + day.jobs.length, 0);
 
   return (
     <AgentMain>
       <LiveTasks stage={`jobs:${jobs.length}`} />
-      <header className="flex flex-col gap-1">
-        <h1 className="font-display text-3xl font-semibold text-navy-800">Schedule</h1>
-        <p className="text-sm text-muted-foreground">
-          {unavailable
-            ? "Can't reach the server."
-            : behind.length > 0
-              ? `${behind.length} overdue · ${open.length} still to come`
-              : `${open.length} to do`}
-        </p>
+
+      <header className="flex flex-col gap-3">
+        <h1 className="font-display text-3xl font-semibold text-navy-800">
+          {history ? "History" : "Schedule"}
+        </h1>
+        <ViewToggle history={history} openCount={open} doneCount={finished.length} />
       </header>
 
       {unavailable ? (
         <DatabaseNotConfigured />
-      ) : jobs.length === 0 ? (
-        <EmptyState
-          title="Nothing assigned"
-          description="Pickups assigned to you show up here as soon as ops schedules them."
-        />
+      ) : history ? (
+        <HistoryList jobs={finished} />
       ) : (
-        <>
-          {/* Overdue leads. A stop whose window has passed is the only thing
-              on this screen that is already going wrong. */}
-          {behind.length > 0 && (
-            <section className="flex flex-col gap-2">
-              <h2 className="text-xs font-semibold tracking-wider text-destructive uppercase">
-                Overdue · {behind.length}
-              </h2>
-              <ul className="flex flex-col gap-3">
-                {behind.map((job) => (
-                  <li key={job.bookingId}>
-                    <JobCard job={job} />
-                  </li>
-                ))}
-              </ul>
-            </section>
-          )}
-
-          {days.map((day) => (
-            <section key={day.key} className="flex flex-col gap-2">
-              <h2 className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">
-                {day.key === todayKey ? `Today · ${day.heading}` : day.heading}
-              </h2>
-              <ul className="flex flex-col gap-3">
-                {day.jobs.map((job) => (
-                  <li key={job.bookingId}>
-                    <JobCard job={job} />
-                  </li>
-                ))}
-              </ul>
-            </section>
-          ))}
-
-          {open.length === 0 && behind.length === 0 && (
-            <EmptyState
-              title="Nothing left"
-              description="Every stop assigned to you is finished."
-            />
-          )}
-
-          {/* Finished work is history, not a list item. Folded away by default,
-              one tap from a driver who wants to check what they did. */}
-          {done.length > 0 && (
-            <details className="group">
-              <summary className="flex h-12 cursor-pointer items-center justify-between rounded-lg border border-border bg-card px-4 text-sm font-medium text-muted-foreground marker:content-none focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring">
-                {done.length} finished
-                <span
-                  aria-hidden="true"
-                  className="text-xs transition-transform group-open:rotate-180"
-                >
-                  ▾
-                </span>
-              </summary>
-              <ul className="mt-3 flex flex-col gap-3">
-                {done.map((job) => (
-                  <li key={job.bookingId}>
-                    <JobCard job={job} />
-                  </li>
-                ))}
-              </ul>
-            </details>
-          )}
-        </>
+        <ScheduleList sections={sections} empty={jobs.length === 0} />
       )}
     </AgentMain>
+  );
+}
+
+/**
+ * Schedule ⇄ History.
+ *
+ * Two links rather than a client component with state: the page is
+ * `force-dynamic` and each view needs a different query anyway, so the URL is
+ * the state and a shared link lands where it says it does.
+ */
+function ViewToggle({
+  history,
+  openCount,
+  doneCount,
+}: {
+  history: boolean;
+  openCount: number;
+  doneCount: number;
+}) {
+  const base =
+    "flex-1 rounded-md px-3 py-2 text-center text-sm font-medium transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring";
+  return (
+    <div
+      className="flex gap-1 rounded-lg border border-border bg-muted/40 p-1"
+      role="tablist"
+      aria-label="Schedule or history"
+    >
+      <Link
+        href="/tasks"
+        role="tab"
+        aria-selected={!history}
+        className={cn(base, history ? "text-muted-foreground" : "bg-card text-navy-800 shadow-lift")}
+      >
+        To do · {openCount}
+      </Link>
+      <Link
+        href="/tasks?view=history"
+        role="tab"
+        aria-selected={history}
+        className={cn(base, history ? "bg-card text-navy-800 shadow-lift" : "text-muted-foreground")}
+      >
+        History · {doneCount}
+      </Link>
+    </div>
+  );
+}
+
+function Section({
+  title,
+  tone = "muted",
+  jobs,
+}: {
+  title: string;
+  tone?: "muted" | "alarm" | "now";
+  jobs: readonly Job[];
+}) {
+  if (jobs.length === 0) return null;
+  return (
+    <section className="flex flex-col gap-2">
+      <h2
+        className={cn(
+          "text-xs font-semibold tracking-wider uppercase",
+          tone === "alarm" && "text-destructive",
+          tone === "now" && "text-navy-800",
+          tone === "muted" && "text-muted-foreground",
+        )}
+      >
+        {title}
+      </h2>
+      <ul className="flex flex-col gap-3">
+        {jobs.map((job) => (
+          <li key={job.bookingId}>
+            <JobCard job={job} />
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+function ScheduleList({
+  sections,
+  empty,
+}: {
+  sections: ReturnType<typeof groupIntoSections>;
+  empty: boolean;
+}) {
+  if (empty) {
+    return (
+      <EmptyState
+        title="Nothing assigned"
+        description="Pickups assigned to you show up here as soon as ops schedules them."
+      />
+    );
+  }
+
+  const nothingLeft =
+    sections.problems.length === 0 &&
+    sections.overdue.length === 0 &&
+    sections.today.length === 0 &&
+    sections.upcoming.length === 0;
+
+  if (nothingLeft) {
+    return (
+      <EmptyState
+        title="Nothing left"
+        description="Every stop assigned to you is finished. They're in History."
+      />
+    );
+  }
+
+  return (
+    <>
+      {/* Problems lead. Nothing else on this screen is already going wrong. */}
+      <Section
+        title={`Open problems · ${sections.problems.length}`}
+        tone="alarm"
+        jobs={sections.problems}
+      />
+      <Section
+        title={`Overdue · ${sections.overdue.length}`}
+        tone="alarm"
+        jobs={sections.overdue}
+      />
+      {/* Today is the default focus — first heading a driver reads once
+          nothing is wrong, and the only one that is not a date. */}
+      <Section title="Today" tone="now" jobs={sections.today} />
+      {sections.upcoming.map((day) => (
+        <Section
+          key={day.key}
+          title={
+            day.jobs[0]!.startsAt
+              ? formatDayInAirportTz(day.jobs[0]!.startsAt, day.jobs[0]!.tz)
+              : "No time set"
+          }
+          jobs={day.jobs}
+        />
+      ))}
+      {/* Said out loud rather than left as an absence: "no heading called
+          Today" and "nothing today" look identical, and only one of them is
+          information. */}
+      {sections.today.length === 0 &&
+        sections.overdue.length === 0 &&
+        sections.problems.length === 0 && (
+          <p className="text-sm text-muted-foreground">
+            Nothing today — your next stop is above.
+          </p>
+        )}
+    </>
+  );
+}
+
+/**
+ * Finished work, most recent first.
+ *
+ * READ-ONLY BY CONSTRUCTION, not by hiding buttons: every card links to the
+ * same task detail page, which renders its locked mode for a terminal task —
+ * and every mutation behind it is refused by the state machine and the
+ * actionability gates regardless of what any UI shows. See
+ * `terminal-immutability.integration.test.ts`.
+ */
+function HistoryList({ jobs }: { jobs: readonly Job[] }) {
+  if (jobs.length === 0) {
+    return (
+      <EmptyState
+        title="Nothing finished yet"
+        description="Stops you've completed will be kept here with their seals and timeline."
+      />
+    );
+  }
+
+  const days: { key: string; jobs: Job[] }[] = [];
+  for (const job of jobs) {
+    const key = job.startsAt ? airportLocalDay(job.startsAt, job.tz) : "unscheduled";
+    const last = days.at(-1);
+    if (last?.key === key) last.jobs.push(job);
+    else days.push({ key, jobs: [job] });
+  }
+
+  return (
+    <>
+      {days.map((day) => (
+        <Section
+          key={day.key}
+          title={
+            day.jobs[0]!.startsAt
+              ? formatDayInAirportTz(day.jobs[0]!.startsAt, day.jobs[0]!.tz)
+              : "No time set"
+          }
+          jobs={day.jobs}
+        />
+      ))}
+    </>
   );
 }

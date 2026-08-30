@@ -157,3 +157,114 @@ export function mapsUrl(booking: TaskBookingContext): string {
     : "";
   return `https://www.google.com/maps/search/?api=1&query=${query}${placeId}`;
 }
+
+/* ------------------------------------------------------------------ */
+/* Sections — how a day is read                                        */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The schedule, grouped the way a driver reads it.
+ *
+ * A flat chronological list treats every stop as equally urgent, and they are
+ * not. Four buckets, in the order attention should go:
+ *
+ *  1. **Problems** — a failed phase or a booking ops is holding. Nothing else
+ *     on the screen is already going wrong.
+ *  2. **Overdue** — the window has passed and the job is not finished. Still
+ *     doable right up to the airline's bag drop closing (see actionability),
+ *     which is exactly why it must not be hidden.
+ *  3. **Today** — the airport-local day the job's own window falls in.
+ *  4. **Upcoming** — one group per day after that.
+ *
+ * FINISHED WORK IS NOT HERE. It moved to History, because a driver looking at
+ * a schedule is asking what is left, and a collapsed "12 finished" row at the
+ * bottom of that answer is still occupying the answer.
+ *
+ * AIRPORT-LOCAL, ALWAYS. Production servers run in UTC, so a `today` computed
+ * from server-local time opens at 8 PM the previous evening. Every day
+ * boundary here comes from `airportLocalDayBounds` against the JOB's own zone,
+ * which is what keeps a cross-airport list honest.
+ */
+export interface JobDay {
+  /** `YYYY-MM-DD` in the job's own zone. Stable key for React. */
+  key: string;
+  jobs: Job[];
+}
+
+export interface JobSections {
+  problems: Job[];
+  overdue: Job[];
+  today: Job[];
+  upcoming: JobDay[];
+}
+
+/** Everything terminal: what History shows and the schedule does not. */
+export function isFinished(job: Job): boolean {
+  return job.state === "done";
+}
+
+export interface DayBoundsFn {
+  (instant: Date, tz: string): { start: Date; end: Date };
+}
+
+export interface LocalDayFn {
+  (instant: Date, tz: string): string;
+}
+
+/**
+ * Takes its two date helpers as arguments.
+ *
+ * Not for testability theatre — `airportLocalDayBounds` and `airportLocalDay`
+ * live in `@koolee/core`, which this module deliberately imports only types
+ * from, so that `job.ts` stays a pure presentation module that a test can run
+ * without a database driver anywhere near it.
+ */
+export function groupIntoSections(
+  jobs: readonly Job[],
+  now: Date,
+  dayBounds: DayBoundsFn,
+  localDay: LocalDayFn,
+): JobSections {
+  const problems: Job[] = [];
+  const overdue: Job[] = [];
+  const today: Job[] = [];
+  const later: Job[] = [];
+
+  for (const job of jobs) {
+    if (isFinished(job)) continue;
+    if (job.state === "problem") {
+      problems.push(job);
+      continue;
+    }
+
+    const bounds = dayBounds(now, job.tz);
+    // No scheduled time is not "someday": somebody has to look at it, and the
+    // only bucket where it will actually be seen is today's.
+    if (!job.startsAt) {
+      today.push(job);
+      continue;
+    }
+    if (job.startsAt < bounds.start) overdue.push(job);
+    else if (job.startsAt <= bounds.end) today.push(job);
+    else later.push(job);
+  }
+
+  const upcoming: JobDay[] = [];
+  for (const job of later) {
+    // The job's OWN zone, so a driver working one airport reads their own
+    // calendar and a two-airport list does not silently merge two days.
+    const key = localDay(job.startsAt!, job.tz);
+    const last = upcoming.at(-1);
+    if (last?.key === key) last.jobs.push(job);
+    else upcoming.push({ key, jobs: [job] });
+  }
+
+  return { problems, overdue, today, upcoming };
+}
+
+/** Finished work, most recent first — the History tab's list. */
+export function finishedJobs(jobs: readonly Job[]): Job[] {
+  return jobs
+    .filter(isFinished)
+    .sort((a, b) => (b.startsAt?.getTime() ?? 0) - (a.startsAt?.getTime() ?? 0));
+}

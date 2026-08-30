@@ -613,3 +613,123 @@ and previews the downscaled file so what you see is what is stored).
 
 `turbo typecheck` 6/6 · `turbo lint` 6/6 · unit 5/5 · core integration
 **238 passed / 3 skipped, 25 files** · `turbo build` 3/3.
+
+---
+
+## Phase 5 — Agent app: task organization + history
+
+### 5.1 The schedule is ordered by attention, not by time
+
+`/tasks` was Overdue, then a group per day, then a collapsed "12 finished"
+disclosure at the bottom. Four buckets now, in the order attention should go:
+
+1. **Open problems** — a failed phase. Nothing else on the screen is already
+   going wrong, and a failed stop from yesterday belongs at the top rather than
+   filed under "Overdue" with the merely late. A test pins that ordering.
+2. **Overdue** — window passed, not finished. Still doable right up to the
+   airline's bag drop closing (actionability's `running_late`), which is
+   exactly why it must not be hidden.
+3. **Today** — the airport-local day the job's own window falls in.
+4. **Upcoming** — one group per day after that.
+
+`groupIntoSections` is a pure function taking its two date helpers as
+arguments, so `job.ts` stays a presentation module a test can run without a
+Postgres driver anywhere near it. **Every day boundary is airport-local**;
+production runs in UTC, so a server-local "today" opens at 8 PM the previous
+evening.
+
+An **unscheduled** job goes in Today rather than nowhere: "someday" is not a
+bucket anybody looks at, and somebody has to see it.
+
+### 5.2 History is a segmented control, not a fourth tab
+
+`shell/nav.ts` caps the tab bar at three by an explicit decision — a driver has
+exactly three questions, and the bottom third of a phone is the only part a
+thumb reaches without regripping. History is not a fourth question; it is the
+past tense of "what is coming". So it lives as a **To do ⇄ History** toggle at
+the top of `/tasks` (`?view=history`), the Schedule tab stays lit for both, and
+the URL is the state so a shared link lands where it says.
+
+Finished work left the schedule entirely. A collapsed row at the bottom of
+"what is left" is still occupying the answer.
+
+### 5.3 One view, two modes
+
+`/tasks/[taskId]` renders its flow while there is work and `TaskRecord` when
+there is not — **same page, same doorstep card above it, nothing forked**. A
+second history page would drift, and the copy that drifts is always the one
+nobody remembers to update.
+
+`TaskRecord` shows what the previous "done" state did not: the seals the driver
+put on with their weights, and the full chain of custody in the booking's zone,
+in agent voice ("You arrived", "You set off", "Airline took the bags"). Before
+this, a completed visit rendered the single line *"Visit complete."* — useless
+when somebody asks what happened with Tuesday's pickup.
+
+### 5.4 The verification found a real gap — and it is fixed
+
+The brief said to **verify and cite** that no mutation endpoint accepts a
+terminal task. Verifying it found one that did.
+
+**`confirmVisitIdentity` had no actionability gate at all.** `arriveAtVisit`
+has carried `assertActionable` since F1; this step — one tap later in the same
+flow — had none. An agent whose task was still assigned could append a
+`passport.agent_confirmed` custody event to a booking that had already been
+delivered, completed or cancelled: an entry growing on the append-only log of a
+closed booking days after the bags reached the airline, visible on the
+customer's own timeline.
+
+Fixed with `assertActionable(config, booking, "startVisit", actor)`. Not a
+sixth gate — this IS the visit, one step after arriving, and it belongs to the
+phase before custody transfers, which is exactly the set F1's carve-out covers.
+Late-but-savable still runs; past the bag drop it refuses and raises the
+exception, identical to arriving.
+
+**Two things verified and deliberately left alone:**
+
+- `deliverToBagdrop` and `confirmAirlineHandover` return `ok: true` on a
+  completed booking. That is the documented PWA idempotency — a tap that times
+  out gets tapped again, and the second must return the current state rather
+  than an error. Both check status first and **write nothing**, which is what
+  the test's event-count assertion actually proves. An immutability claim is
+  about the database, not about a response code.
+- `recordBagSealed` has no actionability gate and keeps none. It is in-flight
+  physical work at a door, which F1 carved out on purpose; and terminal
+  immutability holds regardless, because a booking cannot reach a terminal
+  state with an unsealed bag (`completeVerificationVisit` refuses) and a sealed
+  bag refuses a second seal.
+
+### 5.5 Offline: the honest minimum
+
+The service worker is an **offline shell only** — it serves a fallback page for
+a failed navigation and caches no API responses and queues no mutations. A page
+already rendered stays rendered when the signal drops; `router.refresh()` just
+fails, silently.
+
+Silently is the problem. `OfflineNotice` (mounted once in `AgentMain`, so it is
+on every screen with a tab bar) watches `online`/`offline` and says *"You're
+offline. This is what we last loaded — it may have changed."* It starts
+optimistic and corrects on mount, because `navigator` does not exist during SSR
+and flashing "offline" on every page load is its own kind of lie.
+
+No offline framework was built, as instructed. A durable outbox for custody
+capture is real work with real correctness questions, and a half-built one is
+worse than none.
+
+### 5.6 Tests
+
+- `job.test.ts` — 7 new tests. The one that matters is the **partition**:
+  every unfinished job lands in exactly one bucket, nothing lost, nothing
+  duplicated. Plus problems-outrank-overdue, unscheduled-goes-to-Today,
+  one-group-per-day, and finished work staying off the schedule.
+- `terminal-immutability.integration.test.ts` — 4 tests proving the Phase 5.2
+  claim against a real database: every verification mutation refused on a
+  completed booking, a second seal refused, every pickup mutation refused or
+  no-op, `completed` having no legal outgoing move for any of the seven events,
+  and — on every one — **the custody event count unchanged**. A refusal that
+  still appends would be a worse bug than the mutation it prevented.
+
+### 5.7 Gates
+
+`turbo typecheck` 6/6 · `turbo lint` 6/6 · unit 5/5 (agent 19, was 12) ·
+core integration **242 passed / 3 skipped, 26 files** · `turbo build` 3/3.
