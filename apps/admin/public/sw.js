@@ -1,80 +1,30 @@
 /* eslint-disable no-undef */
 /**
- * Hand-rolled service worker for the Koolee agent PWA. TWO JOBS:
+ * Service worker for the Koolee ops console — WEB PUSH ONLY.
  *
- *  1. Offline SHELL — pre-caches the offline fallback page and serves it when
- *     a navigation fails. It deliberately does NOT cache API responses or
- *     queue mutations; offline custody capture needs a durable outbox
- *     (IndexedDB + background sync), which is separate work.
- *  2. WEB PUSH — see the second half of this file.
+ * No offline shell, no caching, no fetch handler. It exists because a push
+ * notification can only be raised from a service worker, and it deliberately
+ * does nothing else: a `fetch` listener here would put every request in this
+ * app through code that has no reason to touch them.
  *
- * The push listeners are MERGED here rather than shipped as a second worker,
- * because a scope can only have one: registering `/push-sw.js` at scope `/`
- * would REPLACE this one and take the offline shell with it. One file, two
- * concerns, and nothing silently uninstalls anything.
+ * (The agent PWA's worker does both — its push listeners are merged into the
+ * offline-shell worker it already had, because a scope only gets one worker.)
  *
- * Bump CACHE_VERSION whenever the precache list changes.
+ * Plain JS on purpose: files in `public/` are served verbatim and never go
+ * through the TypeScript compiler or the bundler.
  */
-
-const CACHE_VERSION = "koolee-agent-v1";
-const OFFLINE_URL = "/offline";
-const PRECACHE = [OFFLINE_URL, "/manifest.webmanifest", "/icons/icon.svg"];
 
 /** Shown on every notification this worker raises. */
 const PUSH_ICON = "/icons/icon-192.png";
 
-self.addEventListener("install", (event) => {
-  event.waitUntil(
-    caches
-      .open(CACHE_VERSION)
-      .then((cache) => cache.addAll(PRECACHE))
-      .then(() => self.skipWaiting())
-      .catch(() => self.skipWaiting()),
-  );
+self.addEventListener("install", () => {
+  // Activate a new version without waiting for every tab to close. There is
+  // no cache to migrate, so there is nothing for a waiting worker to protect.
+  self.skipWaiting();
 });
 
 self.addEventListener("activate", (event) => {
-  event.waitUntil(
-    caches
-      .keys()
-      .then((keys) =>
-        Promise.all(
-          keys.filter((key) => key !== CACHE_VERSION).map((key) => caches.delete(key)),
-        ),
-      )
-      .then(() => self.clients.claim()),
-  );
-});
-
-self.addEventListener("fetch", (event) => {
-  const { request } = event;
-
-  // Never interfere with anything that mutates state.
-  if (request.method !== "GET") return;
-
-  // Network-first for navigations, falling back to the offline shell.
-  if (request.mode === "navigate") {
-    event.respondWith(
-      fetch(request).catch(async () => {
-        const cache = await caches.open(CACHE_VERSION);
-        const cached = await cache.match(OFFLINE_URL);
-        return (
-          cached ??
-          new Response("Offline", {
-            status: 503,
-            headers: { "Content-Type": "text/plain" },
-          })
-        );
-      }),
-    );
-    return;
-  }
-
-  // Cache-first for the small set of precached static assets.
-  const url = new URL(request.url);
-  if (url.origin === self.location.origin && PRECACHE.includes(url.pathname)) {
-    event.respondWith(caches.match(request).then((cached) => cached ?? fetch(request)));
-  }
+  event.waitUntil(self.clients.claim());
 });
 
 /* ------------------------------------------------------------------ */

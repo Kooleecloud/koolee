@@ -18,6 +18,7 @@ import { AgentMain } from "@/components/shell/agent-main";
 import { getAgentIdentity } from "@/lib/session";
 
 import { AvatarCard } from "./avatar-card";
+import { NotificationsCard } from "./notifications-card";
 
 export const metadata = { title: "Account" };
 export const dynamic = "force-dynamic";
@@ -72,6 +73,10 @@ export default async function AccountPage() {
       </Card>
 
       <AvatarCard currentUrl={avatarUrl} name={displayName} />
+
+      {/* Above "Working offline" on purpose: this one has an action, and the
+          offline card is a statement of fact. */}
+      <NotificationsCard />
 
       <Card>
         <CardHeader>
