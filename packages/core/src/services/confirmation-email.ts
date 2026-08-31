@@ -1,5 +1,5 @@
 import { eq } from "drizzle-orm";
-import { addresses, bookings, type Booking } from "@koolee/db";
+import { bookings, type Booking } from "@koolee/db";
 
 import type { CoreConfig } from "../config";
 import { NotFoundError } from "../errors";
@@ -8,6 +8,7 @@ import { tripUrlFor } from "../notifications/links";
 import type { EmailMessage } from "../notifications/notifier";
 import { formatInstantInAirportTz, formatWindowInAirportTz } from "../slots/cutoff";
 import { resolveDisplayTz } from "./display-tz";
+import { bookingPickupAddress, formatPickupAddressLine } from "./pickup-address";
 
 /**
  * Booking confirmation + receipt email — ONE builder, two dispatch points.
@@ -50,9 +51,10 @@ export async function assembleBookingConfirmationEmail(
 ): Promise<EmailMessage> {
   const { booking } = input;
 
-  const address = await config.db.query.addresses.findFirst({
-    where: eq(addresses.id, booking.pickupAddressId),
-  });
+  // Off the booking (0033). A confirmation is a record of what was agreed, so
+  // it must render the address the booking was MADE for — not whatever the
+  // saved address says today.
+  const address = bookingPickupAddress(booking);
   const tz = await resolveDisplayTz(config.db, booking.departureAirport);
 
   const windowLabel =
@@ -88,9 +90,7 @@ export async function assembleBookingConfirmationEmail(
     departureAirport: booking.departureAirport,
     windowLabel,
     departureLabel: formatInstantInAirportTz(booking.departureAt, tz),
-    addressLine: address
-      ? `${address.line1}${address.line2 ? `, ${address.line2}` : ""}, ${address.city}, ${address.state} ${address.zip}`
-      : "your saved pickup address",
+    addressLine: formatPickupAddressLine(address),
     bagCount: booking.bagCount,
     priceLines,
     totalCents: bd?.totalCents ?? 0,

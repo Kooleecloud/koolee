@@ -29,6 +29,7 @@ import {
 import { FakePaymentProvider } from "../payments/fake";
 import { createKooleeFunctions } from "./functions";
 import { FakeStep, RecordingInngest, fakeLogger, type RecordedFunction } from "./test-doubles";
+import { pickupSnapshotOf } from "../test-utils/booking-fixtures";
 
 /**
  * F3 Phase 4 — moments × push, against a real database.
@@ -175,7 +176,7 @@ describeIntegration("push moments (integration)", () => {
         state: "NY",
         zip: "10001",
       })
-      .returning({ id: addresses.id });
+      .returning();
 
     const [booking] = await db
       .insert(bookings)
@@ -188,7 +189,7 @@ describeIntegration("push moments (integration)", () => {
         departureAirport: "JFK",
         departureAt: new Date("2026-06-12T22:00:00Z"),
         paxName: "Casey Rivera",
-        pickupAddressId: address!.id,
+        ...pickupSnapshotOf(address!),
         bagCount: 2,
         pickupWindowStart: new Date("2026-06-12T01:00:00Z"),
         pickupWindowEnd: new Date("2026-06-12T02:00:00Z"),

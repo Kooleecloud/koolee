@@ -19,9 +19,12 @@ const BOOKING = {
   bagCount: 2,
   status: "verified_sealed",
   addressLine1: "1 Test St",
+  addressLine2: null,
   addressCity: "New York",
   addressState: "NY",
   addressZip: "10018",
+  addressLat: null,
+  addressLng: null,
   addressPlaceId: null,
   contactPhone: null,
 };

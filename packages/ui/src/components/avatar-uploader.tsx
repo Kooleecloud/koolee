@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Camera, Trash2 } from "lucide-react";
+import { Camera, Loader2, Trash2 } from "lucide-react";
 
 import { downscalePhoto } from "../lib/photo";
 import { cn } from "../lib/utils";
@@ -46,6 +46,23 @@ export interface AvatarUploaderProps {
   onUploaded?: () => void;
   /** Hides the remove button where clearing makes no sense. */
   allowRemove?: boolean;
+  /**
+   * How the control presents itself.
+   *
+   *  - `row` — the avatar with labelled buttons beside it. Right where the
+   *    picture is the subject of its own card (the staff consoles).
+   *  - `overlay` — the avatar with a small camera badge on its top-right
+   *    corner, and no visible label. Right where the picture sits inside a
+   *    card about something else, as it does on the customer's profile: a
+   *    full-width "Change photo" button next to a 96px avatar made the photo
+   *    look like the point of the card, which it is not.
+   *
+   * The badge is still a real button with an accessible name, and the file
+   * input behind it is unchanged — this is presentation, not a second path.
+   */
+  layout?: "row" | "overlay";
+  /** Avatar size, from `Avatar`'s own scale. */
+  size?: "lg" | "xl";
   className?: string;
 }
 
@@ -64,6 +81,8 @@ export function AvatarUploader({
   maxBytes,
   onUploaded,
   allowRemove = true,
+  layout = "row",
+  size = "xl",
   className,
 }: AvatarUploaderProps) {
   const inputRef = React.useRef<HTMLInputElement>(null);
@@ -148,20 +167,63 @@ export function AvatarUploader({
   }
 
   const shown = preview ?? currentUrl ?? null;
+  const pickLabel = shown ? "Change photo" : "Add a photo";
+
+  const fileInput = (
+    <input
+      ref={inputRef}
+      type="file"
+      accept={accept.join(",")}
+      className="sr-only"
+      onChange={onPick}
+    />
+  );
+
+  if (layout === "overlay") {
+    return (
+      <div className={cn("flex flex-col items-center gap-2", className)}>
+        <div className="relative">
+          <Avatar size={size} name={name} src={shown} alt="" />
+          {fileInput}
+          {/*
+            A button, not a label-wrapped input: the input has to stay
+            `sr-only` and reachable, and a bare label is not focusable. The
+            accessible name is the same sentence the row layout renders.
+          */}
+          <button
+            type="button"
+            aria-label={pickLabel}
+            title={pickLabel}
+            disabled={busy !== null}
+            onClick={() => inputRef.current?.click()}
+            className={cn(
+              "absolute -right-1 -top-1 inline-flex size-8 items-center justify-center",
+              "rounded-full border border-border bg-background text-navy-700 shadow-sm",
+              "transition-colors hover:bg-accent/15 hover:text-navy-900",
+              "focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring",
+              "disabled:pointer-events-none disabled:opacity-60",
+            )}
+          >
+            {busy === "upload" ? (
+              <Loader2 aria-hidden="true" className="size-4 animate-spin" />
+            ) : (
+              <Camera aria-hidden="true" className="size-4" />
+            )}
+          </button>
+        </div>
+
+        {error ? <FormMessage variant="error">{error}</FormMessage> : null}
+      </div>
+    );
+  }
 
   return (
     <div className={cn("flex flex-col gap-3", className)}>
       <div className="flex items-center gap-4">
-        <Avatar size="xl" name={name} src={shown} alt="" />
+        <Avatar size={size} name={name} src={shown} alt="" />
 
         <div className="flex flex-col items-start gap-2">
-          <input
-            ref={inputRef}
-            type="file"
-            accept={accept.join(",")}
-            className="sr-only"
-            onChange={onPick}
-          />
+          {fileInput}
           <Button
             type="button"
             variant="outline"
@@ -170,7 +232,7 @@ export function AvatarUploader({
             onClick={() => inputRef.current?.click()}
           >
             <Camera aria-hidden="true" />
-            {shown ? "Change photo" : "Add a photo"}
+            {pickLabel}
           </Button>
 
           {allowRemove && currentUrl ? (

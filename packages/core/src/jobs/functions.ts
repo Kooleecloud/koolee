@@ -1,6 +1,5 @@
 import { and, eq, gte, lte } from "drizzle-orm";
 import {
-  addresses,
   airlineCutoffs,
   airports,
   bags,
@@ -494,17 +493,14 @@ export function createKooleeFunctions(
             ),
           );
 
-        // Both ends of the drive, loaded wholesale rather than joined. Same
-        // reasoning as `cutoffRows` below: `airports` is three rows, and the
-        // in-transit set inside a 24-hour horizon is small enough that one
-        // more small scan beats a three-table join that every reader (and the
-        // job test double) then has to unpick.
-        const [cutoffRows, addressRows, airportRows] = await Promise.all([
+        // The far end of the drive, loaded wholesale rather than joined. Same
+        // reasoning as `cutoffRows`: `airports` is three rows. The near end no
+        // longer needs loading at all — since 0033 the doorstep is on the
+        // booking, so the whole `addresses` scan and its id map are gone.
+        const [cutoffRows, airportRows] = await Promise.all([
           config.db.select().from(airlineCutoffs),
-          config.db.select().from(addresses),
           config.db.select().from(airports),
         ]);
-        const addressById = new Map(addressRows.map((a) => [a.id, a]));
         const airportByCode = new Map(airportRows.map((a) => [a.code, a]));
 
         /* First pass, no I/O: the cutoff, and whether this booking has two
@@ -544,12 +540,11 @@ export function createKooleeFunctions(
             continue;
           }
 
-          const pickup = addressById.get(booking.pickupAddressId);
           const airport = airportByCode.get(booking.departureAirport);
           measurable.push({
             booking,
             cutoffMinutes,
-            from: toCoordinates(pickup?.lat, pickup?.lng),
+            from: toCoordinates(booking.pickupLat, booking.pickupLng),
             to: toCoordinates(airport?.lat, airport?.lng),
           });
         }

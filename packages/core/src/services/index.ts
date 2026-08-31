@@ -89,6 +89,14 @@ export {
 } from "./addresses";
 
 export {
+  bookingPickupAddress,
+  formatPickupAddressLine,
+  pickupCoordinates,
+  type BookingWithPickupAddress,
+  type PickupAddress,
+} from "./pickup-address";
+
+export {
   createSlotBlock,
   deleteSlotBlock,
   listAirports,

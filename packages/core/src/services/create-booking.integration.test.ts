@@ -21,6 +21,7 @@ import {
   type Database,
 } from "@koolee/db";
 import { TEST_AIRPORTS } from "../test-utils/airport-fixtures";
+import { pickupSnapshotOf } from "../test-utils/booking-fixtures";
 
 import { createCoreConfig, type CoreConfig } from "../config";
 import {
@@ -300,7 +301,13 @@ describeIntegration("createBooking (integration)", () => {
         departureAirport: "JFK",
         departureAt,
         paxName: "Ref Collider",
+        // Straight off the booking that already exists — this test is about
+        // the ref index, not the doorstep.
         pickupAddressId: booking.pickupAddressId,
+        pickupLine1: booking.pickupLine1,
+        pickupCity: booking.pickupCity,
+        pickupState: booking.pickupState,
+        pickupZip: booking.pickupZip,
         bagCount: 1,
         displayTz: "America/New_York",
         priceCents: 1000,
@@ -619,7 +626,7 @@ describeIntegration("custody_events append-only trigger", () => {
         departureAirport: "JFK",
         departureAt,
         paxName: "Test",
-        pickupAddressId: address!.id,
+        ...pickupSnapshotOf(address!),
         bagCount: 1,
         pickupWindowStart,
         pickupWindowEnd,

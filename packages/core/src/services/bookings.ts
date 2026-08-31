@@ -1,6 +1,5 @@
 import { and, asc, desc, eq, lte, or } from "drizzle-orm";
 import {
-  addresses,
   airlineCutoffs,
   airports,
   bags,
@@ -10,7 +9,6 @@ import {
   pickupTasks,
   users,
   verificationTasks,
-  type Address,
   type Bag,
   type Booking,
   type BookingStatus,
@@ -26,6 +24,7 @@ import {
   type TransitionActor,
 } from "../booking/state-machine";
 import { computeBagDropCutoffAt } from "../slots/cutoff";
+import { bookingPickupAddress, type PickupAddress } from "./pickup-address";
 import type { CoreConfig } from "../config";
 import { NotAuthorizedError, NotFoundError, type Result } from "../errors";
 import { IllegalTransitionError } from "../booking/state-machine";
@@ -216,7 +215,13 @@ export interface BookingDetail {
   bags: Bag[];
   payments: Payment[];
   /** Where the agent is coming. Null only if the address row went missing. */
-  pickupAddress: Address | null;
+  /**
+   * The doorstep as it was when the booking was made — read off the booking,
+   * never joined. See `bookingPickupAddress`: the saved address the customer
+   * booked from may since have been edited or deleted, and neither may change
+   * what this page says happened.
+   */
+  pickupAddress: PickupAddress;
   /** Null until dispatch assigns the visit. */
   assignedAgent: AssignedAgent | null;
   /** Airport-local IANA zone — the only zone a pickup window may be read in. */
@@ -249,7 +254,7 @@ export async function getBookingDetailForSession(
 ): Promise<BookingDetail> {
   const { booking, timeline } = await getBookingForSession(db, session, bookingId);
 
-  const [bagRows, paymentRows, addressRow, agentRow, airportRow, cutoffRows] =
+  const [bagRows, paymentRows, agentRow, airportRow, cutoffRows] =
     await Promise.all([
       db
         .select()
@@ -263,7 +268,6 @@ export async function getBookingDetailForSession(
         .from(payments)
         .where(eq(payments.bookingId, bookingId))
         .orderBy(asc(payments.createdAt)),
-      db.query.addresses.findFirst({ where: eq(addresses.id, booking.pickupAddressId) }),
       db
         .select({
           userId: users.id,
@@ -307,7 +311,7 @@ export async function getBookingDetailForSession(
     timeline,
     bags: bagRows,
     payments: paymentRows,
-    pickupAddress: addressRow ?? null,
+    pickupAddress: bookingPickupAddress(booking),
     assignedAgent: assignee
       ? {
           userId: assignee.userId,

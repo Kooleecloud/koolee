@@ -19,12 +19,14 @@ import {
   trucks,
   users,
   type Database,
+  type Address,
 } from "@koolee/db";
 
 import { createCoreConfig, fixedClock, type CoreConfig } from "../config";
 import { BookingNotActionableError, ConflictError } from "../errors";
 import { FakePaymentProvider } from "../payments/fake";
 import { TEST_AIRPORTS } from "../test-utils/airport-fixtures";
+import { pickupSnapshotOf } from "../test-utils/booking-fixtures";
 import { ensureAddress } from "./customers";
 import {
   getSelectedDriver,
@@ -73,7 +75,7 @@ describeIntegration("driver selection (integration)", () => {
   const departureAt = new Date("2025-06-12T22:00:00Z");
 
   let customerId: string;
-  let addressId: string;
+  let pickupAddress: Address;
   let refCounter = 0;
 
   beforeAll(async () => {
@@ -125,7 +127,7 @@ describeIntegration("driver selection (integration)", () => {
       state: "NY",
       zip: "10018",
     });
-    addressId = address.id;
+    pickupAddress = address;
     refCounter = 0;
   });
 
@@ -180,7 +182,7 @@ describeIntegration("driver selection (integration)", () => {
         departureAirport: "JFK",
         departureAt,
         paxName: "Casey Rivera",
-        pickupAddressId: addressId,
+        ...pickupSnapshotOf(pickupAddress),
         bagCount,
         displayTz: "America/New_York",
         priceCents: 5000,

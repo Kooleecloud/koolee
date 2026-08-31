@@ -1,6 +1,5 @@
 import { and, asc, eq } from "drizzle-orm";
 import {
-  addresses,
   bags,
   bookings,
   custodyEvents,
@@ -23,6 +22,7 @@ import { assertActionable } from "./actionability";
 import { applyTransition } from "./bookings";
 import { resolveDisplayTz } from "./display-tz";
 import { PICKUP_EVENT_TYPES } from "./pickup-events";
+import { bookingPickupAddress, type PickupAddress } from "./pickup-address";
 
 /**
  * The pickup run — the driver's half of the job, and the first code to move a
@@ -60,14 +60,12 @@ export interface PickupContext {
   timeline: CustodyEvent[];
   /** The booking's display zone (its departure airport's). See display-tz.ts. */
   tz: string;
-  address: {
-    line1: string;
-    line2: string | null;
-    city: string;
-    state: string;
-    zip: string;
-    placeId: string | null;
-  } | null;
+  /**
+   * The doorstep, off the booking's own snapshot — never a join. Always
+   * present: a booking cannot exist without one (see 0033), which is why this
+   * is no longer nullable and the "no address on file" branch is gone.
+   */
+  address: PickupAddress;
   customer: { fullName: string | null; avatarStoragePath: string | null } | null;
   /** The shift this pickup belongs to, once a customer has chosen a driver. */
   shift: { id: string; truckName: string } | null;
@@ -106,7 +104,7 @@ export async function getPickupContext(
   });
   if (!booking) throw new NotFoundError("Booking", task.bookingId);
 
-  const [bagRows, timeline, tz, addressRows, customerRows, shiftRows] = await Promise.all([
+  const [bagRows, timeline, tz, customerRows, shiftRows] = await Promise.all([
     // By ordinal, never createdAt — this is the list the driver counts down.
     db.select().from(bags).where(eq(bags.bookingId, booking.id)).orderBy(asc(bags.ordinal)),
     db
@@ -115,18 +113,6 @@ export async function getPickupContext(
       .where(eq(custodyEvents.bookingId, booking.id))
       .orderBy(asc(custodyEvents.createdAt)),
     resolveDisplayTz(db, booking.departureAirport),
-    db
-      .select({
-        line1: addresses.line1,
-        line2: addresses.line2,
-        city: addresses.city,
-        state: addresses.state,
-        zip: addresses.zip,
-        placeId: addresses.placeId,
-      })
-      .from(addresses)
-      .where(eq(addresses.id, booking.pickupAddressId))
-      .limit(1),
     // Name and face only — a driver has no business reading a customer's
     // phone or email off this join. The door number lives on the booking.
     db
@@ -151,7 +137,7 @@ export async function getPickupContext(
     scannedBagIds: scannedBagIdsFrom(timeline),
     timeline,
     tz,
-    address: addressRows[0] ?? null,
+    address: bookingPickupAddress(booking),
     customer: customerRows[0] ?? null,
     shift: shiftRows[0] ?? null,
   };

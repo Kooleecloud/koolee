@@ -64,6 +64,16 @@ const booking = (overrides: Record<string, unknown> = {}) => ({
   departureAirport: "JFK",
   departureAt: DEPARTURE,
   pickupAddressId: "a-1",
+  // The doorstep is on the booking (0033), so the fixture carries it here
+  // rather than in an `addresses` row the job would have had to join.
+  pickupLine1: "1 Test St",
+  pickupLine2: null,
+  pickupCity: "New York",
+  pickupState: "NY",
+  pickupZip: "10001",
+  pickupLat: null,
+  pickupLng: null,
+  pickupPlaceId: null,
   bagCount: 2,
   pickupWindowStart: PICKUP_START,
   pickupWindowEnd: new Date(PICKUP_START.getTime() + 3_600_000),
@@ -451,8 +461,13 @@ describe("cutoff-risk-monitor (*/5 cron)", () => {
     it("uses the ETA estimator when both ends have coordinates", async () => {
       const h = harness(
         seed({
-          bookings: [inTransitDepartingIn(DEPARTS_IN)],
-          addresses: [{ id: "a-1", zip: "10018", ...MIDTOWN }],
+          bookings: [
+            inTransitDepartingIn(DEPARTS_IN, {
+              pickupZip: "10018",
+              pickupLat: MIDTOWN.lat,
+              pickupLng: MIDTOWN.lng,
+            }),
+          ],
           airports: [{ code: "JFK", tz: "America/New_York", ...JFK_TERMINALS }],
           airlineCutoffs: cutoffs,
         }),

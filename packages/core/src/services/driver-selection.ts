@@ -1,6 +1,5 @@
 import { and, asc, eq, exists, inArray, isNull, sql } from "drizzle-orm";
 import {
-  addresses,
   agentZones,
   bookings,
   custodyEvents,
@@ -22,6 +21,7 @@ import { touchBookingSignals } from "./booking-signals";
 import { toCoordinates, type Coordinates } from "../geo/coordinates";
 import type { EtaRange } from "../geo/eta";
 import { PICKUP_EVENT_TYPES } from "./pickup-events";
+import { bookingPickupAddress } from "./pickup-address";
 import { OPEN_TASK_STATUSES } from "./tasks";
 
 /**
@@ -178,23 +178,23 @@ async function loadSelectionContext(
   db: Database,
   bookingId: string,
 ): Promise<SelectionContext> {
-  const [row] = await db
-    .select({
-      booking: bookings,
-      zip: addresses.zip,
-      lat: addresses.lat,
-      lng: addresses.lng,
-    })
+  // No join: the doorstep is on the booking since 0033, so the zone a booking
+  // dispatches into cannot change when somebody edits their saved address.
+  const [booking] = await db
+    .select()
     .from(bookings)
-    .innerJoin(addresses, eq(addresses.id, bookings.pickupAddressId))
     .where(eq(bookings.id, bookingId))
     .limit(1);
 
-  if (!row) throw new NotFoundError("Booking", bookingId);
+  if (!booking) throw new NotFoundError("Booking", bookingId);
 
+  const pickupAddress = bookingPickupAddress(booking);
   return {
-    booking: row.booking,
-    pickup: { zip: row.zip.slice(0, 5), coords: toCoordinates(row.lat, row.lng) },
+    booking,
+    pickup: {
+      zip: pickupAddress.zip.slice(0, 5),
+      coords: toCoordinates(pickupAddress.lat, pickupAddress.lng),
+    },
   };
 }
 
@@ -890,9 +890,8 @@ export async function listReassignOptions(
   bookingId: string,
 ): Promise<ReassignOption[]> {
   const [row] = await db
-    .select({ bagCount: bookings.bagCount, zip: addresses.zip })
+    .select({ bagCount: bookings.bagCount, zip: bookings.pickupZip })
     .from(bookings)
-    .innerJoin(addresses, eq(addresses.id, bookings.pickupAddressId))
     .where(eq(bookings.id, bookingId))
     .limit(1);
   if (!row) throw new NotFoundError("Booking", bookingId);
