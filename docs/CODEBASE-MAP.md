@@ -472,20 +472,61 @@ the richest seam: `authorize`, `getAuth`, `updateAuthAmount`, `capture`,
 `refund`, `cancelAuth`, and webhook verification. `getAuth` exists because a
 client-side success signal is never trusted — see Chapter 8.
 
-**The ETA seam** ([geo/](../packages/core/src/geo/)) is the newest and the most
-opinionated. `estimate({from, to})` returns a RANGE — `{minMinutes, maxMinutes}`
-— never a point, because an estimate built from ZIP centroids and an average
-city speed is not accurate to the minute and must not be rendered as though it
-were. The one implementation is `haversine × 1.5 ÷ 18 km/h`, floored at 5
-minutes, ±30% widened to whole 5-minute steps. Its constants are named static
-fields and its header documents a known bias: no notion of a highway, so long
-airport runs over-state. That is kept, because it points the safe way for both
-consumers — a customer card only ever shows a driver already in zone, and
-`cutoffRiskMonitor` wants an alert that fires early. `geo/eta.test.ts` pins both
-halves so the trade-off cannot drift silently.
+**The ETA seam** ([geo/](../packages/core/src/geo/)) is the most opinionated.
+`estimate({from, to})` returns a RANGE — `{minMinutes, maxMinutes}` — never a
+point, because a drive time is not accurate to the minute and must not be
+rendered as though it were. **It is `async`, and so is `estimateMany({from[],
+to})`**, the many-origins-one-destination shape the driver shortlist and the
+cutoff cron both use: a network provider behind the seam must never become N
+serial round-trips inside a `.map`.
+
+Two implementations:
+
+- `HaversineEtaEstimator` — `haversine × 1.5 ÷ 18 km/h`, floored at 5 minutes,
+  ±30% widened to whole 5-minute steps, resolving immediately. Its header
+  documents a known bias: no notion of a highway, so long airport runs
+  over-state. Kept, because it points the safe way for both consumers.
+- `GoogleRoutesEtaEstimator` ([geo/routes.ts](../packages/core/src/geo/routes.ts))
+  — one `computeRouteMatrix` POST, plain `fetch`, no SDK, key injected as a
+  value (`GOOGLE_MAPS_SERVER_KEY`, resolved in `apps/web/src/lib/core.ts`).
+  Traffic-aware duration mapped to −15%/+45%: the spread is asymmetric because
+  a route can always take longer than predicted and essentially never takes
+  dramatically less, and because `cutoffRiskMonitor` consumes the pessimistic
+  end. **It never throws.** Any failure — quota, network, revoked key, an
+  unroutable origin — falls back to the arithmetic, per origin, with one log
+  line. ETA is not load-bearing anywhere.
+
+`geo/eta.test.ts` pins the arithmetic and the seam; `geo/routes.test.ts` pins
+the request shape, the mapping and every fallback.
+
+**The pricing distance** ([geo/distance.ts](../packages/core/src/geo/distance.ts)
++ [services/quote-distance.ts](../packages/core/src/services/quote-distance.ts))
+is a SEPARATE question from the ETA and answered differently on purpose:
+`quoteDistanceKm` is geometry — great-circle × a calibrated 1.2 road factor —
+and **never a network call**, because a booking is priced three times minutes
+apart (window picker, review page, `createBooking`) and a traffic-aware number
+would move between them. `resolveQuoteDistanceKm` resolves it against the
+database: precise address coordinates, else the ZIP centroid, else the
+per-airport typical (`TYPICAL_AIRPORT_DISTANCE_KM`, which the public pricing
+page imports rather than copies). It replaced the literal `20` at four funnel
+call sites that disagreed with the marketing page by up to $2.70.
+
+**Places autocomplete** ([geo/places.ts](../packages/core/src/geo/places.ts)) is
+the third Google adapter and the same shape as the other two: plain `fetch`,
+no SDK, key as a value, never throws. `autocomplete(input, sessionToken)` and
+`details(placeId, sessionToken)`; the session token is billing, not plumbing —
+Google prices a whole typing session as one autocomplete plus one details call
+only when every request carries the same token. **The key never reaches a
+browser**: the funnel posts to [`/api/places`](../apps/web/src/app/api/places/route.ts),
+which requires a draft cookie, enforces a length floor and holds the key
+server-side. `details` returns null rather than guessing a missing component —
+a suggestion with no ZIP cannot be reconciled against the quoted ZIP.
 
 **Services** ([services/](../packages/core/src/services/)) are the app-facing
 API: `create-booking`, `windows` (window listing + blackout CRUD), `quote`,
+`quote-distance`, `pricing-rules` (publish a new rule, never edit the live one),
+`airline-cutoffs` (the 128-row matrix, with the placeholder count that IS the
+launch-readiness number),
 `bookings` (transitions + session-scoped reads), `dispatch`, `payment-intent`,
 `payment-lifecycle`, `agent-visit`, `pickup` (the driver's run),
 `shifts` (clock on/off, the fleet, force-end), `driver-selection` (the
@@ -986,13 +1027,80 @@ Detail: [ops-console.md](../apps/admin/docs/ops-console.md).
 
 ---
 
+## Chapter 10.5 — Observability (Sentry)
+
+**Policy in core, SDK in the apps.** Three apps each carry their own
+`@sentry/nextjs` instance reporting to their own project — that part cannot be
+shared. What must not be three-of is the POLICY, so
+[`packages/core/src/observability/sentry.ts`](../packages/core/src/observability/sentry.ts)
+holds `sentryOptions()`, the tag names and the severity map, imports nothing
+from Sentry, and is reachable as `@koolee/core/observability`.
+
+⚠️ **That subpath is load-bearing.** `instrumentation-client.ts` pulls the app's
+`lib/sentry.ts` into the BROWSER bundle; importing the `@koolee/core` barrel
+there reaches `postgres`, `stripe` and `unpdf`, and the build fails with four
+"Can't resolve 'fs' / 'net' / 'tls' / 'perf_hooks'" errors that never mention
+Sentry.
+
+Per app: `src/instrumentation.ts` (Node + edge, plus `onRequestError` — the
+only thing that records an error thrown inside a server component, a route
+handler or a server action), `src/instrumentation-client.ts`,
+`src/sentry.server.config.ts`, `src/sentry.edge.config.ts`,
+`src/lib/sentry.ts` (`options`, `tagBooking`, `captureHandled`), and
+`src/app/global-error.tsx`.
+
+**`global-error.tsx` is the root boundary and it did not exist anywhere.**
+`error.tsx` renders INSIDE the root layout, so a failure in that layout escapes
+it entirely. The global one renders its own `<html>`/`<body>` with inline
+styles, because the stylesheet is part of what may have failed.
+
+**The settings that are policy, not defaults:** `tracesSampleRate: 0` (an error
+tracker, not an APM — and traces are the expensive half of the bill) and
+`sendDefaultPii: false` (it would attach IPs, cookies and headers to every
+event, on a product whose database deliberately holds no passport fields and
+hashes OTP destinations). `booking_ref` and `user_id` are the correlation keys
+and both are opaque — `tagBooking` sets them on the customer trip page, the
+agent task page, the admin booking detail and the Stripe webhook, so one
+`KOO-XXXXX` pulls a booking's errors across all three projects.
+
+**`SentryOpsAlerter`** ([notifications/sentry-alerter.ts](../packages/core/src/notifications/sentry-alerter.ts))
+replaces `ConsoleOpsAlerter` when a DSN is present, and logs to the console as
+well — the console line is the record that survives a dead transport. It
+**swallows its own failures, and that is a hard rule**: twelve of the
+seventeen `opsAlerter.alert` call sites are unwrapped Inngest steps, so an
+alerter that threw would turn "we could not tell ops about a failed email" into
+a failing, retrying job.
+
+**Terminal Inngest failures** are captured by one `inngest/function.failed`
+handler in `apps/web/src/lib/inngest.ts` rather than an `onFailure` per
+function, so a function added later is covered without anybody opting it in.
+
+⚠️ **`withSentryConfig` wraps a config whose `headers()` is the only reason web
+push works.** `scripts/check-sw-headers.mjs` imports each composed config and
+asserts `/sw.js` still carries `no-cache` and `Service-Worker-Allowed: /`;
+`pnpm check:sw-headers` runs it. Both failure modes are silent.
+
+**The env manifest** ([scripts/env-manifest.json](../scripts/env-manifest.json))
+is the other half of the same idea: the required-variable inventory per app,
+derived from the boot gates in `apps/*/src/env.ts`, in four buckets — `always`,
+`whenLive`, `whenPush`, `recommended` — plus a `forbidden` list (`apps/agent`
+must never hold `SUPABASE_SERVICE_ROLE_KEY` or `STRIPE_SECRET_KEY`).
+`pnpm env:verify` reads it and answers what a boot would answer, without
+deploying: names only, never values, which is what makes
+`vercel env ls | pnpm env:verify --stdin` work and its output safe to paste
+anywhere. It matters because production runs `coming_soon`, which exempts
+`apps/web` from most of its gates — flipping to `live` arms them all at once.
+
+---
+
 ## Chapter 11 — UI package & brand
 
 **`packages/ui`** holds every shared component — layout (`AppShell`,
 `AppHeader`, `ContentColumn`, `Section`, `PageHeader`), primitives (Button,
 Card, Input, Select, Dialog, Badge, Popover, Calendar, `VerifiedIndicator`, …),
-form controls (`DateTimeField`, `NumberStepper`, `OTPInput`, `PhoneInput`), and
-domain components (`CustodyTimeline`, `BookingStatusBadge`, `PriceEstimator`,
+form controls (`DateTimeField`, `NumberStepper`, `OTPInput`, `PhoneInput`,
+`AutocompleteField`), and domain components (`CustodyTimeline`,
+`ProgressTrack`, `StageDot`, `BookingStatusBadge`, `PriceEstimator`,
 `SealMotif`).
 
 **The one third-party widget in the package is `Calendar`** — a
@@ -1027,13 +1135,24 @@ cosmetic one:
   capture preview, the ops bags card, and `CustodyTimeline` — so the customer's
   trip page inherits it. Has Storybook stories.
 
-**`CustodyTimeline` is the visual signature** — the same motif on the marketing
-custody section (`horizontal`) and the live trip page and ops trail
-(`vertical`), so the promise and the product are literally the same drawing.
-State reads through the dot: **navy** for a hand-off already banked, **seal
-orange, pulsing** for the one happening now, **hollow** for what is ahead; the
-rail is always sky. Exactly one dot is orange per timeline, which is what keeps
-orange meaning "this, now".
+**`StageDot` is the visual signature, and `CustodyTimeline` is its first
+consumer** — the same motif on the marketing custody section (`horizontal`),
+the live trip page and the ops trail (`vertical`), so the promise and the
+product are literally the same drawing. State reads through the dot: **navy**
+for a hand-off already banked, **seal orange, pulsing** for the one happening
+now, **hollow** for what is ahead; the rail is always sky. Exactly one dot is
+orange per timeline, which is what keeps orange meaning "this, now".
+
+**`ProgressTrack`** (2026-08-30) is the second consumer: a short fixed
+progression with a "you are here", used by the customer's driver run. It exists
+because the trip page was drawing its OWN strip — smaller dots, a different
+blue, a hairline rail and nothing at all marking the step in progress — on the
+same screen as the custody trail. Two progressions, one page, two visual
+languages, with the one describing what was happening right now the quieter of
+the two. The marker moved into `stage-dot.tsx` so neither component owns it.
+`ProgressTrack` is NOT `CustodyTimeline` (that renders a record of events that
+happened, with timestamps and proof photos) and NOT `MilestoneTrack` (the
+marketing chip row, which has no notion of a current position).
 
 ⚠️ Its dots rendered at **0×0 in the vertical orientation** until 2026-08-16: a
 bare `<span>` is `display:inline`, and width/height do not apply to
@@ -1188,8 +1307,13 @@ pins are asserted in a test so a refactor cannot quietly break them.
    the target and read what it reports; it is read-only and safe against
    production. See [PROJECT-STATUS §3.1](../PROJECT-STATUS.md) for why
    content hash, and never row count, is the authority._
-2. Seed reference data if the project is new (`pnpm seed` with the hosted URL:
-   airports, cutoffs, pricing rule).
+2. Seed reference data **only if the project is brand new**:
+   `SEED_ALLOW_HOSTED=1 pnpm seed` with the hosted URL (airports, ZIP
+   centroids, placeholder cutoffs, placeholder pricing rule). The seed refuses
+   a non-local host without that variable because it OVERWRITES verified
+   cutoffs and tuned prices — on a project already carrying real values, enter
+   them at the console instead (`/cutoffs`, `/pricing`, `/agreements`). See
+   [docs/runbooks/prod-bringup.md](runbooks/prod-bringup.md).
 3. Set per-app env per the [README matrix](../README.md), including the
    Stripe webhook secret.
 4. Point the Stripe webhook endpoint at the deployed web app.

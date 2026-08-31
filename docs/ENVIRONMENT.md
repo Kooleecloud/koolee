@@ -84,7 +84,7 @@ Legend: ● required for the feature to work · ○ optional/degrades · — not
 | `AUTH_SCHEMA_AVAILABLE`              |  ○  |   —   |   —   | `"false"` only for bare local Postgres with no GoTrue                                                                                                                  |
 | `NEXT_PUBLIC_TURNSTILE_SITE_KEY`     |  ●  |   ●   |   ●   | Cloudflare → Turnstile → Site key (invisible mode). **Same key in all three apps per environment** — see §5.2                                                          |
 | `OTP_LOG_HMAC_KEY`                   |  ●  |   —   |   —   | `openssl rand -hex 32`. **Min 32 chars**                                                                                                                               |
-| `CRON_SECRET`                        |  ●  |   —   |   —   | Any random string. Protects `/api/jobs/*`                                                                                                                              |
+| `CRON_SECRET`                        |  ●  |   ○   |   ○   | Any random string. Protects `/api/jobs/*` (web) and `/api/observability/test-error` (all three). Absent ⇒ those routes refuse to run                                    |
 | `STRIPE_SECRET_KEY`                  |  ●  |   —   |   ○   | Stripe → Developers → API keys (admin needs it for refunds)                                                                                                            |
 | `STRIPE_WEBHOOK_SECRET`              |  ●  |   —   |   —   | Stripe → Webhooks, or `stripe listen` locally                                                                                                                          |
 | `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` |  ●  |   —   |   —   | Stripe → Developers → API keys                                                                                                                                         |
@@ -94,10 +94,13 @@ Legend: ● required for the feature to work · ○ optional/degrades · — not
 | `RESEND_FROM`                        |  ○  |   —   |   —   | RFC 5322 From. Defaults to Resend's sandbox sender; set to the verified domain for real sends                                                                          |
 | `OPS_ALERT_EMAIL`                    |  ○  |   —   |   —   | Ops inbox for `booking/exception_raised` alert emails; unset → skipped                                                                                                 |
 | `AEROAPI_KEY`                        |  ○  |   —   |   —   | FlightAware AeroAPI. **Stubbed**                                                                                                                                       |
-| `GOOGLE_MAPS_API_KEY`                |  ○  |   ○   |   —   | Google Cloud → Maps Platform. **Stubbed**                                                                                                                              |
+| `GOOGLE_MAPS_SERVER_KEY`             |  ○  |   —   |   —   | Google Cloud → Maps Platform. **Server** key, restricted to Routes API + Places API (New); application restriction = server, NEVER an HTTP referrer. Absent ⇒ haversine ETAs, no autocomplete |
 | `ANTHROPIC_API_KEY`                  |  ○  |   —   |   —   | Ticket extraction. Absent → the free in-process heuristic extractor                                                                                                    |
 | `TICKET_EXTRACTION_DEBUG`            |  ○  |   —   |   —   | `1`/`true` returns the RAW extraction diagnostics to the browser. **Never set this on production** — the payload is a developer tool containing a customer's itinerary |
-| `SENTRY_DSN`                         |  ○  |   ○   |   ○   | Sentry project settings                                                                                                                                                |
+| `NEXT_PUBLIC_SENTRY_DSN`             |  ○  |   ○   |   ○   | Sentry → Project → Client Keys. **One project per app, one DSN per environment.** Public by design; absent ⇒ the SDK initialises disabled                             |
+| `SENTRY_ORG`                         |  ○  |   ○   |   ○   | **Build time only.** Shared org slug, for source-map upload                                                                                                            |
+| `SENTRY_PROJECT`                     |  ○  |   ○   |   ○   | **Build time only.** This app's project slug                                                                                                                           |
+| `SENTRY_AUTH_TOKEN`                  |  ○  |   ○   |   ○   | **Build time only, SECRET.** Scope `project:releases`. Absent ⇒ the upload is skipped and traces stay minified                                                          |
 | `TEST_DATABASE_URL`                  |  —  |   —   |   —   | Integration tests only. See [SCRIPTS.md](SCRIPTS.md)                                                                                                                   |
 
 Source of truth: [apps/web/src/env.ts](../apps/web/src/env.ts) ·
@@ -303,8 +306,12 @@ Things that cost real debugging time to learn:
 - **Every variable naming an external service needs two rows**, one per scope,
   with different values. A single row ticked for both environments is how a dev
   deployment ends up writing to the production database. Shared read-only keys
-  (`AEROAPI_KEY`, `GOOGLE_MAPS_API_KEY`, `RESEND_API_KEY`, `SENTRY_DSN`) are the
-  exception.
+  (`AEROAPI_KEY`, `RESEND_API_KEY`) are the exception. **Two keys left that
+  list in Tier 5:** `SENTRY_DSN`/`NEXT_PUBLIC_SENTRY_DSN` — one shared DSN
+  merges preview errors into the production project, which is the opposite of
+  what an error tracker is for — and the Maps key, now
+  `GOOGLE_MAPS_SERVER_KEY`, because it is metered and billed and dev traffic
+  should not spend production's quota.
 - **`NODE_ENV` is `production` in Preview too**, so every boot gate in §4 fires
   on `dev.koolee.cloud` exactly as it does in production. That is deliberate —
   dev rehearses prod. `VERCEL_ENV` is the only variable that distinguishes them.
@@ -344,9 +351,13 @@ visible in the codebase:
   dev, and prod's crons start running against the dev database. Separate
   per-environment signing keys are what make this safe: Inngest routes a sync by
   the key that authenticated it. Sync URL: `https://dev.koolee.cloud/api/inngest`.
-- **Turnstile: two widgets**, one per hostname (`koolee.cloud`,
-  `dev.koolee.cloud`). Hostname entries already cover subdomains, so adding the
-  apex to the dev widget would silently make it valid for production. Ad-hoc
+- **Turnstile: two widgets**, one per environment. Each widget must list
+  **every hostname that mounts it** — an entry covers that hostname and its
+  OWN subdomains only, so `dev.admin.koolee.cloud` is NOT covered by
+  `dev.koolee.cloud` (it sits under `admin.koolee.cloud`). That belief is what
+  caused the `110200` outage; the full list and the reasoning are in §5.2, and
+  this line used to contradict it. Never add the apex `koolee.cloud` to the
+  dev widget — it would let dev answer for production. Ad-hoc
   `*.vercel.app` previews **cannot** pass the captcha: `vercel.app` is on the
   Public Suffix List, and the secret is a single per-Supabase-project value, so
   it cannot be varied per branch. Treat those URLs as UI review only and test

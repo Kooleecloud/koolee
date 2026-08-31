@@ -46,6 +46,11 @@ export default async function PickupStepPage() {
           city: address.city,
           state: address.state,
           zip: address.zip,
+          // Carried so re-using a saved address keeps whatever precision it
+          // already has, instead of falling back to its ZIP's centroid.
+          lat: address.lat,
+          lng: address.lng,
+          placeId: address.placeId,
         }))}
         defaults={{
           line1: draft.line1 ?? "",
@@ -53,6 +58,9 @@ export default async function PickupStepPage() {
           city: draft.city ?? "",
           state: draft.state ?? "",
           zip: draft.zip ?? "",
+          lat: draft.lat ?? null,
+          lng: draft.lng ?? null,
+          placeId: draft.placeId ?? null,
           bagCount: draft.bagCount ?? 1,
         }}
       />

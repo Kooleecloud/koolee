@@ -150,6 +150,19 @@ export const bookingDraftSchema = z.object({
    * quoted?" has no answer once one value has overwritten the other.
    */
   quotedZip: z.string().min(5).max(10).optional(),
+  /**
+   * The precise point and Places id for the address above, when the customer
+   * picked a suggestion rather than typing it.
+   *
+   * All three travel together and are CLEARED the moment any address field is
+   * edited by hand — coordinates that belong to a different address are worse
+   * than none, because the price and the driver's map link would both point
+   * at the wrong door while looking exactly as confident. The pickup step's
+   * form clears them; `submitPickup` never invents them.
+   */
+  lat: z.number().min(-90).max(90).optional(),
+  lng: z.number().min(-180).max(180).optional(),
+  placeId: z.string().min(1).max(255).optional(),
 
   bagCount: z.number().int().min(1).max(10).optional(),
   /**

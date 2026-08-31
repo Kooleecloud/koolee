@@ -28,7 +28,7 @@
         "RESEND_FROM",
         "OPS_ALERT_EMAIL",
         "AEROAPI_KEY",
-        "GOOGLE_MAPS_API_KEY",
+        "GOOGLE_MAPS_SERVER_KEY",
         "ANTHROPIC_API_KEY",
         "TICKET_EXTRACTION_DEBUG",
         "SENTRY_DSN",

@@ -16,6 +16,7 @@ import {
   formatWindowInAirportTz,
   getCustomerById,
   quoteBookingPrice,
+  resolveQuoteDistanceKm,
 } from "@koolee/core";
 
 import { confirmBooking } from "@/app/book/actions";
@@ -58,12 +59,19 @@ export default async function PayStepPage({
 
   let quote;
   try {
+    // Same resolver as the window picker and `createBooking`. A review page
+    // that priced the trip differently from the charge is the one thing this
+    // step must never do.
+    const distance = await resolveQuoteDistanceKm(core, {
+      airportCode: draft.departureAirport!,
+      zip: draft.zip,
+    });
+
     quote = await quoteBookingPrice(core, {
       pickupWindowEnd: new Date(draft.windowEnd!),
       departureAt: new Date(draft.departureAt!),
       bagCount: draft.bagCount!,
-      // TODO(maps): real door-to-airport distance via the Maps API.
-      distanceKm: 20,
+      distanceKm: distance.km,
       promoCode: draft.promoCode ?? null,
     });
   } catch (error) {

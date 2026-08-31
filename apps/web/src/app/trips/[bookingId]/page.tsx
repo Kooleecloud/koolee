@@ -53,6 +53,7 @@ import { signAvatarUrlsForBooking, signShortlistAvatarUrl } from "@/lib/avatars"
 import { pickupStepIndexFor } from "@/lib/pickup-progress";
 import { signBagPhotoUrls } from "@/lib/bag-photos";
 import { tryGetCore } from "@/lib/core";
+import { tagBooking } from "@/lib/sentry";
 import { signPassportPhotoUrl } from "@/lib/passport-photos";
 import { getCustomerSession } from "@/lib/session";
 
@@ -128,6 +129,11 @@ export default async function TripPage({
     tz,
     bagDropCutoffAt: cutoffAt,
   } = result;
+
+  // From here on, anything this render throws carries the booking's ref. One
+  // KOO-XXXXX typed into Sentry pulls the customer's errors, the agent app's
+  // and the console's together — which is the whole reason support has a ref.
+  tagBooking({ ref: booking.ref, id: booking.id, userId: session.userId });
 
   /*
    * The faces on this booking, resolved by RELATIONSHIP rather than by path.
@@ -244,19 +250,24 @@ export default async function TripPage({
     })),
   );
 
+  // Awaited before the view is assembled: `estimate` became async in Tier 5 so
+  // a routing provider can sit behind the seam. It is not load-bearing — the
+  // adapter falls back to arithmetic on any failure and `formatEtaRange(null)`
+  // is a complete answer — so nothing below branches on it.
+  const selectedDriverEta =
+    selectedDriver?.position && pickupAddress?.lat != null && pickupAddress.lng != null
+      ? await core.etaEstimator.estimate({
+          from: selectedDriver.position,
+          to: { lat: pickupAddress.lat, lng: pickupAddress.lng },
+        })
+      : null;
+
   const driverView: SelectedDriverView | null = selectedDriver
     ? {
         givenName: selectedDriver.givenName,
         avatarUrl: relatedAvatars.get(selectedDriver.staffUserId) ?? null,
         truckName: selectedDriver.truckName,
-        etaLabel: formatEtaRange(
-          selectedDriver.position && pickupAddress?.lat != null && pickupAddress.lng != null
-            ? core.etaEstimator.estimate({
-                from: selectedDriver.position,
-                to: { lat: pickupAddress.lat, lng: pickupAddress.lng },
-              })
-            : null,
-        ),
+        etaLabel: formatEtaRange(selectedDriverEta),
         distanceLabel:
           selectedDriver.position && pickupAddress?.lat != null && pickupAddress.lng != null
             ? `${haversineKm(selectedDriver.position, {

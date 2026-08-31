@@ -14,7 +14,8 @@
     "./auth": "./src/auth/index.ts",
     "./services": "./src/services/index.ts",
     "./jobs": "./src/jobs/index.ts",
-    "./coverage": "./src/coverage/index.ts"
+    "./coverage": "./src/coverage/index.ts",
+    "./observability": "./src/observability/index.ts"
   },
   "scripts": {
     "lint": "eslint .",

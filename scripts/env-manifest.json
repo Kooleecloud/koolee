@@ -1,0 +1,177 @@
+{
+  "$comment": [
+    "The required-variable inventory, per app, derived from the boot gates in",
+    "apps/*/src/env.ts. THIS FILE IS THE PROD ENV PASS CHECKLIST — one source of",
+    "truth, read by `pnpm env:verify`, and the thing to update when a gate is",
+    "added. It holds NAMES AND REASONS ONLY. No value, secret or otherwise, ever",
+    "belongs here.",
+    "",
+    "`always` fires in every environment. `whenLive` fires only when",
+    "NEXT_PUBLIC_LAUNCH_MODE is not coming_soon — production runs coming_soon",
+    "today, which is why flipping it arms several gates in one deploy.",
+    "`whenPush` fires only when NEXT_PUBLIC_PUSH_NOTIFICATIONS_ENABLED=true.",
+    "`recommended` is not gated: absent, the app boots and something is quietly",
+    "worse. `forbidden` must NOT be present — see the agent app."
+  ],
+  "apps": {
+    "web": {
+      "always": [
+        {
+          "name": "DATABASE_URL",
+          "why": "Every read path renders an empty state without it, and Gate B demands it on a live boot."
+        },
+        {
+          "name": "OTP_LOG_HMAC_KEY",
+          "why": "≥32 chars. The one gate that fires even in coming_soon, whenever DATABASE_URL is set: the OTP throttle writes destination hashes.",
+          "minLength": 32
+        },
+        {
+          "name": "NEXT_PUBLIC_SUPABASE_URL",
+          "why": "Auth and Storage. Its absence makes the funnel inert scaffold, which is why the other gates are conditioned on it."
+        },
+        {
+          "name": "NEXT_PUBLIC_SUPABASE_ANON_KEY",
+          "why": "The browser's Supabase client — realtime signals and signed-URL reads."
+        }
+      ],
+      "whenLive": [
+        {
+          "name": "NEXT_PUBLIC_TURNSTILE_SITE_KEY",
+          "why": "Absent, CAPTCHA is off across the whole funnel and nothing says so."
+        },
+        {
+          "name": "SUPABASE_SERVICE_ROLE_KEY",
+          "why": "Absent, orphaned GoTrue users are never deleted."
+        },
+        {
+          "name": "RESEND_API_KEY",
+          "why": "Absent, the notifier degrades to console — booking confirmations vanish into a log."
+        },
+        {
+          "name": "OPS_ALERT_EMAIL",
+          "why": "Absent, every exception alert is skipped with a log line while the deploy looks healthy."
+        },
+        {
+          "name": "ANTHROPIC_API_KEY",
+          "why": "Absent, ticket extraction silently swaps to the heuristic reader, which cannot read a photographed ticket at all."
+        },
+        {
+          "name": "STRIPE_SECRET_KEY",
+          "why": "Absent, the runtime uses the in-memory FAKE provider: the pay step succeeds and no card is ever charged."
+        },
+        {
+          "name": "NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY",
+          "why": "Must move in the SAME deploy as the secret. A secret without it is the 'misconfigured' pay step."
+        },
+        {
+          "name": "STRIPE_WEBHOOK_SECRET",
+          "why": "The endpoint's OWN secret. Absent or stale, every delivery is a signed 400 and no booking reaches paid."
+        },
+        {
+          "name": "CRON_SECRET",
+          "why": "Absent, /api/jobs/* refuses while the cron runs: authorizations expire uncaptured and the only symptom is money that never arrives."
+        }
+      ],
+      "whenPush": [
+        { "name": "VAPID_PUBLIC_KEY", "why": "All four or none — the console sender REPORTS SUCCESS." },
+        { "name": "VAPID_PRIVATE_KEY", "why": "All four or none." },
+        { "name": "VAPID_SUBJECT", "why": "mailto: or https:. Apple refuses a push without one." },
+        {
+          "name": "NEXT_PUBLIC_VAPID_PUBLIC_KEY",
+          "why": "Same value as VAPID_PUBLIC_KEY. Without it the browser can never subscribe."
+        }
+      ],
+      "recommended": [
+        { "name": "NEXT_PUBLIC_APP_URL", "why": "Absolute links in emails and pushes." },
+        { "name": "NEXT_PUBLIC_AGENT_APP_URL", "why": "Staff push deep links." },
+        { "name": "NEXT_PUBLIC_ADMIN_APP_URL", "why": "Staff push deep links." },
+        { "name": "RESEND_FROM", "why": "Defaults to Resend's sandbox sender until the domain is verified." },
+        { "name": "INNGEST_EVENT_KEY", "why": "Without it nothing is queued: every event-triggered job is dead." },
+        { "name": "INNGEST_SIGNING_KEY", "why": "apps/web only — it is the app that SERVES /api/inngest." },
+        { "name": "GOOGLE_MAPS_SERVER_KEY", "why": "Absent, ETAs are haversine and the address step has no autocomplete." },
+        { "name": "NEXT_PUBLIC_SENTRY_DSN", "why": "Absent, errors and ops alerts go to console only." },
+        { "name": "SENTRY_ORG", "why": "Build time. Absent, stack traces stay minified." },
+        { "name": "SENTRY_PROJECT", "why": "Build time. One project per app." },
+        { "name": "SENTRY_AUTH_TOKEN", "why": "Build time, secret. Absent, source maps are not uploaded." },
+        { "name": "ASSIGNMENT_HORIZON_HOURS", "why": "Must MATCH apps/admin, or the console's badges disagree with the sweep." }
+      ],
+      "forbidden": []
+    },
+    "admin": {
+      "always": [
+        { "name": "DATABASE_URL", "why": "The console reads everything through core." },
+        {
+          "name": "NEXT_PUBLIC_SUPABASE_URL",
+          "why": "Gated at boot with NO coming_soon exemption — the console is staff-only and always live."
+        },
+        { "name": "NEXT_PUBLIC_SUPABASE_ANON_KEY", "why": "Gated at boot." },
+        {
+          "name": "SUPABASE_SERVICE_ROLE_KEY",
+          "why": "Gated at boot. Staff invites mint GoTrue users."
+        },
+        {
+          "name": "NEXT_PUBLIC_AGENT_APP_URL",
+          "why": "Gated at boot. The console links operators into the agent app."
+        }
+      ],
+      "whenLive": [],
+      "whenPush": [
+        { "name": "VAPID_PUBLIC_KEY", "why": "All four or none." },
+        { "name": "VAPID_PRIVATE_KEY", "why": "All four or none." },
+        { "name": "VAPID_SUBJECT", "why": "mailto: or https:." },
+        { "name": "NEXT_PUBLIC_VAPID_PUBLIC_KEY", "why": "Same value as VAPID_PUBLIC_KEY." }
+      ],
+      "recommended": [
+        {
+          "name": "NEXT_PUBLIC_TURNSTILE_SITE_KEY",
+          "why": "NOT gated here, and its absence looks exactly like a wrong password on every sign-in."
+        },
+        { "name": "STRIPE_SECRET_KEY", "why": "Refunds are issued from the console." },
+        { "name": "INNGEST_EVENT_KEY", "why": "Admin-raised exceptions emit through it." },
+        { "name": "CRON_SECRET", "why": "Guards /api/observability/test-error." },
+        { "name": "NEXT_PUBLIC_SENTRY_DSN", "why": "Its OWN project, not web's." },
+        { "name": "SENTRY_ORG", "why": "Build time." },
+        { "name": "SENTRY_PROJECT", "why": "Build time. This app's slug." },
+        { "name": "SENTRY_AUTH_TOKEN", "why": "Build time, secret." },
+        { "name": "ASSIGNMENT_HORIZON_HOURS", "why": "Must MATCH apps/web." }
+      ],
+      "forbidden": []
+    },
+    "agent": {
+      "always": [
+        { "name": "DATABASE_URL", "why": "The task list and the pickup run read through core." },
+        { "name": "NEXT_PUBLIC_SUPABASE_URL", "why": "Gated at boot with no coming_soon exemption." },
+        { "name": "NEXT_PUBLIC_SUPABASE_ANON_KEY", "why": "Gated at boot." }
+      ],
+      "whenLive": [],
+      "whenPush": [
+        { "name": "VAPID_PUBLIC_KEY", "why": "All four or none." },
+        { "name": "VAPID_PRIVATE_KEY", "why": "All four or none." },
+        { "name": "VAPID_SUBJECT", "why": "mailto: or https:." },
+        { "name": "NEXT_PUBLIC_VAPID_PUBLIC_KEY", "why": "Same value as VAPID_PUBLIC_KEY." }
+      ],
+      "recommended": [
+        {
+          "name": "NEXT_PUBLIC_TURNSTILE_SITE_KEY",
+          "why": "NOT gated here, and its absence looks exactly like a wrong password on every sign-in."
+        },
+        { "name": "INNGEST_EVENT_KEY", "why": "Field exceptions emit through it." },
+        { "name": "CRON_SECRET", "why": "Guards /api/observability/test-error." },
+        { "name": "NEXT_PUBLIC_SENTRY_DSN", "why": "Its OWN project." },
+        { "name": "SENTRY_ORG", "why": "Build time." },
+        { "name": "SENTRY_PROJECT", "why": "Build time. This app's slug." },
+        { "name": "SENTRY_AUTH_TOKEN", "why": "Build time, secret." }
+      ],
+      "forbidden": [
+        {
+          "name": "SUPABASE_SERVICE_ROLE_KEY",
+          "why": "Deliberately absent from this app's schema: a compromised agent device must not reach a key that bypasses every policy."
+        },
+        {
+          "name": "STRIPE_SECRET_KEY",
+          "why": "The agent app never takes a payment. Captures are triggered through core by the pickup flow."
+        }
+      ]
+    }
+  }
+}

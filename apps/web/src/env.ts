@@ -193,7 +193,18 @@ const schema = z.object({
 
   // --- Third-party data --------------------------------------------------
   AEROAPI_KEY: optionalString,
-  GOOGLE_MAPS_API_KEY: optionalString,
+  /**
+   * SERVER key for Google Maps Platform — Routes API (drive-time ETAs) and
+   * Places API (New) (the address step's autocomplete proxy).
+   *
+   * Renamed from `GOOGLE_MAPS_API_KEY`, which was parsed and never read by
+   * anything, because the name now carries a rule: this key is only ever used
+   * server-side, it must be restricted to those two APIs, and its application
+   * restriction must be "server" (IP or none) — NEVER an HTTP referrer, which
+   * would mean shipping it to a browser. Absent ⇒ haversine ETAs and a plain
+   * typed address field, which is what a fresh clone runs.
+   */
+  GOOGLE_MAPS_SERVER_KEY: optionalString,
   ANTHROPIC_API_KEY: optionalString,
   /**
    * Set to "1" to return the RAW ticket-extraction diagnostics to the browser
@@ -209,7 +220,28 @@ const schema = z.object({
   TICKET_EXTRACTION_DEBUG: optionalString,
 
   // --- Observability -----------------------------------------------------
-  SENTRY_DSN: optionalString,
+  /**
+   * Sentry's DSN, and deliberately `NEXT_PUBLIC_`.
+   *
+   * ONE variable for both runtimes, for the same reason the push kill switch
+   * is one: a server-only `SENTRY_DSN` plus a public twin is two things that
+   * can disagree, and the failure — the browser half silently reporting
+   * nothing while the server half looks healthy — is invisible. A DSN is not a
+   * secret; it is in every client bundle by design, and it grants nothing but
+   * the ability to send events to one project.
+   *
+   * Absent ⇒ the SDK initialises with no DSN and drops everything, which is
+   * what a fresh clone and every local run do.
+   */
+  NEXT_PUBLIC_SENTRY_DSN: optionalString,
+  /**
+   * Source-map upload, BUILD TIME ONLY — never read at runtime. All three
+   * absent (a laptop build) means the upload step is skipped silently and
+   * stack traces in Sentry stay minified.
+   */
+  SENTRY_ORG: optionalString,
+  SENTRY_PROJECT: optionalString,
+  SENTRY_AUTH_TOKEN: optionalString,
 });
 
 export type Env = z.infer<typeof schema>;
@@ -260,11 +292,14 @@ const raw = {
     process.env.NEXT_PUBLIC_PUSH_NOTIFICATIONS_ENABLED,
 
   AEROAPI_KEY: process.env.AEROAPI_KEY,
-  GOOGLE_MAPS_API_KEY: process.env.GOOGLE_MAPS_API_KEY,
+  GOOGLE_MAPS_SERVER_KEY: process.env.GOOGLE_MAPS_SERVER_KEY,
   ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
   TICKET_EXTRACTION_DEBUG: process.env.TICKET_EXTRACTION_DEBUG,
 
-  SENTRY_DSN: process.env.SENTRY_DSN,
+  NEXT_PUBLIC_SENTRY_DSN: process.env.NEXT_PUBLIC_SENTRY_DSN,
+  SENTRY_ORG: process.env.SENTRY_ORG,
+  SENTRY_PROJECT: process.env.SENTRY_PROJECT,
+  SENTRY_AUTH_TOKEN: process.env.SENTRY_AUTH_TOKEN,
 };
 
 /** `.catch()` on every field guarantees this resolves without throwing. */
@@ -306,7 +341,14 @@ const HINTS: Partial<Record<EnvKey, string>> = {
     "Inngest Cloud → Events → Event keys. Not needed for `pnpm dev:inngest`.",
   INNGEST_SIGNING_KEY: "Inngest Cloud → Deploy → Signing key.",
   AEROAPI_KEY: "FlightAware AeroAPI. Stubbed in this scaffold.",
-  GOOGLE_MAPS_API_KEY: "Google Cloud Console → Maps Platform. Stubbed in this scaffold.",
+  GOOGLE_MAPS_SERVER_KEY:
+    "Google Cloud Console → Maps Platform. Restrict to Routes API + Places API (New), application restriction = server, never an HTTP referrer.",
+  NEXT_PUBLIC_SENTRY_DSN:
+    "Sentry → Project → Settings → Client Keys (DSN). Public by design; one per app, per environment.",
+  SENTRY_ORG: "Sentry → Settings → Organization slug. Build time only.",
+  SENTRY_PROJECT: "Sentry → Project → Settings → Name (slug). Build time only.",
+  SENTRY_AUTH_TOKEN:
+    "Sentry → Settings → Auth Tokens, scope `project:releases`. Build time only; uploads source maps.",
 };
 
 /** Reads a var, throwing a descriptive error if it is absent. */
@@ -546,6 +588,67 @@ if (
         "VAPID_PUBLIC_KEY.",
     );
   }
+  /*
+   * MONEY. Four variables, no gate — until Tier 5. The pre-flight called this
+   * the notable hole (§2.4, §6.8): nothing refused a production boot with
+   * payments unconfigured.
+   *
+   * Each fails differently and none of them fails loudly:
+   *
+   *  - STRIPE_SECRET_KEY absent ⇒ `resolvePaymentConfig` returns the
+   *    IN-MEMORY FAKE provider. The pay step "works", a booking is confirmed,
+   *    and no card is ever charged.
+   *  - NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY absent while the secret is present
+   *    ⇒ `stripeCheckoutState()` is "misconfigured": the runtime would
+   *    authorize against real Stripe but the browser can never confirm.
+   *    Honest, but discovered by a customer rather than by the boot.
+   *  - STRIPE_WEBHOOK_SECRET absent ⇒ `verifyWebhook` refuses every delivery,
+   *    so nothing ever moves to `paid` and every booking sits unconfirmed
+   *    while Stripe's dashboard fills with failures nobody is watching.
+   *  - CRON_SECRET absent is the quiet one, and the worst. `/api/jobs/*` 503s
+   *    while the Inngest cron still runs, so bookings complete, bags move,
+   *    customers are happy — and AUTHORIZATIONS ARE NEVER CAPTURED. They
+   *    expire. The only symptom is money that does not arrive.
+   *
+   * Same exemptions as the block they sit in: coming-soon, no Supabase, and
+   * the build phase. A coming-soon deploy cannot take a payment, so it needs
+   * none of these.
+   */
+  if (!env.STRIPE_SECRET_KEY) {
+    throw new Error(
+      "STRIPE_SECRET_KEY is required in production: without it the runtime " +
+        "uses the in-memory FAKE payment provider, so the pay step succeeds, " +
+        "the booking is confirmed, and no card is ever charged. Set the key, " +
+        "or deploy with NEXT_PUBLIC_LAUNCH_MODE=coming_soon.",
+    );
+  }
+  if (!env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY) {
+    throw new Error(
+      "NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY is required in production: a live " +
+        "secret key with no publishable key puts the pay step into " +
+        "'misconfigured' — the server would authorize against real Stripe " +
+        "and the browser could never confirm. Both keys move in the SAME " +
+        "deploy, live and test alike.",
+    );
+  }
+  if (!env.STRIPE_WEBHOOK_SECRET) {
+    throw new Error(
+      "STRIPE_WEBHOOK_SECRET is required in production: `verifyWebhook` " +
+        "refuses an unsigned payload rather than trusting it, so every Stripe " +
+        "delivery is rejected and no booking ever reaches `paid`. It is the " +
+        "endpoint's OWN secret — a test-mode value against a live endpoint " +
+        "makes every event a signed 400.",
+    );
+  }
+  if (!env.CRON_SECRET) {
+    throw new Error(
+      "CRON_SECRET is required in production: without it /api/jobs/* refuses " +
+        "to run while the Inngest capture cron keeps going, so bookings " +
+        "complete and bags move and authorizations are never captured — they " +
+        "expire, and the only symptom is money that never arrives. Set any " +
+        "random string, or deploy with NEXT_PUBLIC_LAUNCH_MODE=coming_soon.",
+    );
+  }
 }
 
 /* ------------------------------------------------------------------ */
@@ -613,10 +716,12 @@ export function describeEnvStatus(): ServiceStatus[] {
       keys: ["AEROAPI_KEY"],
     },
     {
-      service: "Google Maps",
-      configured: has("GOOGLE_MAPS_API_KEY"),
-      fallback: "Drive time uses a fixed estimate.",
-      keys: ["GOOGLE_MAPS_API_KEY"],
+      service: "Google Maps (Routes + Places)",
+      configured: has("GOOGLE_MAPS_SERVER_KEY"),
+      fallback:
+        "Drive-time ETAs come from ZIP centroids and an average speed, and " +
+        "the address step has no autocomplete.",
+      keys: ["GOOGLE_MAPS_SERVER_KEY"],
     },
     {
       service: "Anthropic",
@@ -628,9 +733,9 @@ export function describeEnvStatus(): ServiceStatus[] {
     },
     {
       service: "Sentry",
-      configured: has("SENTRY_DSN"),
-      fallback: "Ops alerts log to console.",
-      keys: ["SENTRY_DSN"],
+      configured: has("NEXT_PUBLIC_SENTRY_DSN"),
+      fallback: "Errors and ops alerts log to console only — nothing is recorded.",
+      keys: ["NEXT_PUBLIC_SENTRY_DSN"],
     },
   ];
 }

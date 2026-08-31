@@ -36,8 +36,12 @@ const SECTIONS = [
     body: "Service is available for departures from JFK, LGA, and EWR, with pickups in Koolee's published coverage area. Pickup windows are computed from airline cutoffs, drive time, and a buffer; Koolee may decline bookings that cannot safely meet a cutoff.",
   },
   {
-    title: "7. Changes to these terms",
-    body: "Koolee may update these terms; material changes will be notified to customers with active bookings. Continued use after changes take effect constitutes acceptance.",
+    title: "7. Your booking agreement takes precedence",
+    body: "Each booking is governed by the version of the Koolee booking agreement accepted at the time that booking was made. That version applies to the booking for its whole life: publishing a newer version never changes a booking already made, and you are never asked to accept again for a booking you have. These Terms describe the service in general; where they and the booking agreement accepted for a particular booking differ, the accepted version governs that booking.",
+  },
+  {
+    title: "8. Changes to these terms",
+    body: "Koolee may update these terms; material changes will be notified to customers with active bookings. Changes take effect for new bookings from the date they are published, and do not alter a booking already made — see section 7.",
   },
 ];
 

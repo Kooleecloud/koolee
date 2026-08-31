@@ -1,10 +1,12 @@
 import {
+  BadgeDollarSign,
   CalendarOff,
   ClipboardList,
   Container,
   FileText,
   LayoutDashboard,
   MapPin,
+  PlaneTakeoff,
   TriangleAlert,
   Truck,
   Users,
@@ -104,6 +106,18 @@ export const CONSOLE_NAV: readonly ConsoleNavGroup[] = [
   {
     caption: "Configuration",
     items: [
+      {
+        href: "/pricing",
+        label: "Pricing",
+        icon: BadgeDollarSign,
+        description: "What a booking costs, and the lead-time curve",
+      },
+      {
+        href: "/cutoffs",
+        label: "Airline cutoffs",
+        icon: PlaneTakeoff,
+        description: "How late each airline takes bags — every window depends on it",
+      },
       {
         href: "/blocks",
         label: "Window blocks",

@@ -1,6 +1,7 @@
 import "server-only";
 
-import { cron } from "inngest";
+import * as Sentry from "@sentry/nextjs";
+import { cron, eventType } from "inngest";
 import { captureDueBookings } from "@koolee/core";
 import { cleanupAnonymousUsers, createKooleeFunctions } from "@koolee/core/jobs";
 
@@ -76,6 +77,62 @@ const captureDueCron = inngest.createFunction(
   },
 );
 
+/**
+ * Terminal failures — the ones nobody was recording.
+ *
+ * Inngest retries a failing step and then gives up. Until this function
+ * existed, "gives up" meant a red run in Inngest's own dashboard and nothing
+ * else: no email, no ops alert, no Sentry event. The Tier 5 pre-flight put it
+ * plainly (§2.3) — `grep onFailure|inngest/function.failed|retries:` across
+ * the repo returned zero matches.
+ *
+ * ONE handler rather than an `onFailure` on each of the fifteen functions.
+ * Inngest emits `inngest/function.failed` for every exhausted function in the
+ * app, so a function added next year is covered without anybody remembering
+ * to opt it in — which is the same reasoning that put the
+ * `booking/exception_raised` emit inside `applyTransition` rather than at its
+ * call sites.
+ *
+ * It reports and stops there. A retry-exhausted job is not something this
+ * process can fix, and a handler that tried would be a second thing to fail.
+ */
+const terminalFailureCapture = inngest.createFunction(
+  {
+    id: "capture-terminal-failures",
+    name: "Record a retry-exhausted function in Sentry",
+    triggers: [eventType("inngest/function.failed")],
+  },
+  async ({ event, logger }) => {
+    const data = (event.data ?? {}) as {
+      function_id?: string;
+      run_id?: string;
+      error?: { name?: string; message?: string; stack?: string };
+      event?: { data?: Record<string, unknown> };
+    };
+    const functionId = data.function_id ?? "unknown";
+    const bookingId = data.event?.data?.["bookingId"];
+
+    logger.error(`[inngest] ${functionId} exhausted its retries`, data.error ?? {});
+
+    const error = new Error(
+      `Inngest function ${functionId} failed: ${data.error?.message ?? "unknown error"}`,
+    );
+    error.name = "InngestTerminalFailure";
+    if (data.error?.stack) error.stack = data.error.stack;
+
+    Sentry.captureException(error, {
+      level: "fatal",
+      tags: {
+        inngest_function: functionId,
+        ...(typeof bookingId === "string" ? { booking_id: bookingId } : {}),
+      },
+      extra: { runId: data.run_id, originalEvent: data.event?.data },
+    });
+
+    return { captured: functionId };
+  },
+);
+
 export const functions = [
   ...createKooleeFunctions(inngest, () => getCore(), {
     opsAlertEmail: optionalEnv("OPS_ALERT_EMAIL"),
@@ -93,4 +150,5 @@ export const functions = [
   }),
   cleanupAnonymousUsersCron,
   captureDueCron,
+  terminalFailureCapture,
 ];

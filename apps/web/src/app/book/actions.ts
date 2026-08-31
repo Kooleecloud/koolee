@@ -13,6 +13,7 @@ import {
   QuoteZipMismatchError,
   recordWaitlistSignup,
   resolveDisplayTz,
+  resolveQuoteDistanceKm,
   SlotNotSellableError,
   softDeleteBookingDraft,
   type AirportCode,
@@ -334,6 +335,11 @@ export async function submitPickup(
   const state = str(form, "state").toUpperCase();
   const zip = str(form, "zip");
   const bagCount = Number(str(form, "bagCount"));
+  // The point behind the address, when a Places suggestion supplied one. The
+  // form posts these only while they still belong to the text in the fields —
+  // any hand edit drops them — so "absent" here means "fall back to the ZIP
+  // centroid", and the draft's old values must go with them.
+  const precision = readAddressPrecision(form);
 
   if (!line1 || !city || !state || !zip) {
     return { error: "Fill in street, city, state, and ZIP." };
@@ -380,6 +386,12 @@ export async function submitPickup(
     state,
     zip: coverage.zip,
     bagCount,
+    // Written unconditionally, `undefined` included: a customer who picked a
+    // suggestion and then corrected the street by hand must not keep the
+    // first address's coordinates.
+    lat: precision.lat,
+    lng: precision.lng,
+    placeId: precision.placeId,
     // Re-quoting means this ZIP is now the one the price is computed for.
     // The chosen window goes with it: its lead-time price and its drive-time
     // headroom were both derived from the old location, the same reason
@@ -396,6 +408,38 @@ export async function submitPickup(
 /** ZIP+4 and whitespace are the same five-digit ZIP for this comparison. */
 function sameZip(a: string, b: string): boolean {
   return a.trim().slice(0, 5) === b.trim().slice(0, 5);
+}
+
+/**
+ * `lat`/`lng`/`placeId` off the pickup form, or undefined.
+ *
+ * Both halves of the coordinate or neither: half a point is not a point, and
+ * a lone latitude written over a centroid pair would leave the address
+ * pointing somewhere nobody chose. Anything unparseable is treated as absent
+ * rather than rejected — these are an assist, and a bad value must not stop a
+ * customer booking.
+ */
+function readAddressPrecision(form: FormData): {
+  lat: number | undefined;
+  lng: number | undefined;
+  placeId: string | undefined;
+} {
+  const lat = Number(str(form, "lat"));
+  const lng = Number(str(form, "lng"));
+  const placeId = str(form, "placeId");
+
+  const usable =
+    Number.isFinite(lat) &&
+    Number.isFinite(lng) &&
+    Math.abs(lat) <= 90 &&
+    Math.abs(lng) <= 180 &&
+    !(lat === 0 && lng === 0);
+
+  return {
+    lat: usable ? lat : undefined,
+    lng: usable ? lng : undefined,
+    placeId: placeId ? placeId.slice(0, 255) : undefined,
+  };
 }
 
 /* ------------------------------------------------------------------ */
@@ -422,14 +466,18 @@ export async function submitSlot(
   // landed, or the notice fence may have moved past this window.
   if (core && draft.departureAirport && draft.departureAt && draft.airlineIata) {
     try {
+      const distance = await resolveQuoteDistanceKm(core, {
+        airportCode: draft.departureAirport,
+        zip: draft.zip,
+      });
+
       const { windows } = await listBookableWindows(core, {
         airportCode: draft.departureAirport,
         airlineIata: draft.airlineIata,
         scope: draft.scope ?? "domestic",
         departureAt: new Date(draft.departureAt),
         bagCount: draft.bagCount ?? 1,
-        // TODO(maps): real door-to-airport distance via the Maps API.
-        distanceKm: 20,
+        distanceKm: distance.km,
       });
       if (!windows.some((w) => w.windowStart.getTime() === windowStart.getTime())) {
         return { error: "That window is no longer available. Pick another." };

@@ -9,6 +9,11 @@ const shellDatabaseUrl = process.env.DATABASE_URL;
 
 import { createDb } from "./client";
 import { ALL_COVERAGE_ZIPS } from "./coverage-zips";
+import {
+  assertSeedTargetAllowed,
+  HostedSeedRefusedError,
+  SEED_ALLOW_HOSTED_ENV,
+} from "./seed-guard";
 import { ZIP_CENTROIDS } from "./zip-centroids";
 import {
   agentZones,
@@ -199,13 +204,27 @@ const DEV_TRUCKS = [
 
 async function main(): Promise<void> {
   const connectionString = shellDatabaseUrl ?? process.env.DATABASE_URL;
-  const db = createDb(connectionString ? { url: connectionString } : {});
 
   // Host only — never the credentials. Same first line as migrate/status:
   // a seed silently landing on the wrong database happened twice on
   // 2026-08-23 (DIRECT_DATABASE_URL set, DATABASE_URL falling back to
   // packages/db/.env) before this print existed. Read it every time.
   console.log(`Target host: ${new URL(connectionString!).hostname}`);
+
+  // …and now REFUSE, rather than trusting that line to be read. This seed
+  // resets the cutoff matrix and the active pricing rule, so pointing it at a
+  // launched project destroys the launch data. See seed-guard.ts.
+  const verdict = assertSeedTargetAllowed(connectionString!);
+  if (verdict.kind === "hosted-allowed") {
+    console.warn(
+      `⚠️  ${SEED_ALLOW_HOSTED_ENV} is set — seeding the NON-LOCAL host '${verdict.host}'.\n` +
+        "   Airline cutoffs go back to 45/60 and the active pricing rule is rewritten.",
+    );
+  }
+
+  // Connecting only after the verdict: nothing should open a socket to a
+  // database this run is about to refuse.
+  const db = createDb(connectionString ? { url: connectionString } : {});
 
   console.log("Seeding airports…");
   for (const airport of AIRPORTS) {
@@ -671,6 +690,12 @@ async function seedLocalStaff(db: ReturnType<typeof createDb>): Promise<void> {
 }
 
 main().catch((error: unknown) => {
+  // A refusal is an answer, not a crash: print the explanation, not a stack
+  // trace the operator has to read past to find the sentence that matters.
+  if (error instanceof HostedSeedRefusedError) {
+    console.error(`\n${error.message}\n`);
+    process.exit(1);
+  }
   console.error("Seed failed:", error);
   process.exit(1);
 });

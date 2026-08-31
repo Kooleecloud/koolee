@@ -15,6 +15,7 @@ export * from "./geo";
 export * from "./waitlist";
 export * from "./services";
 export * from "./notifications";
+export * from "./observability";
 export * from "./events";
 
 /**
@@ -36,8 +37,10 @@ export type {
   BookingStatus,
   CustodyEvent,
   CutoffScope,
+  DiscountRuleJson,
   DriverPosition,
   DriverShift,
+  LeadTimeMultiplierJson,
   PassportVerification,
   PassportVerificationStatus,
   PassportValidityCheckStatus,

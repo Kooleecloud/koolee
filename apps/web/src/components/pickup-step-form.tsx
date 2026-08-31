@@ -18,6 +18,10 @@ import {
 } from "@koolee/ui";
 
 import { submitPickup, type ActionState } from "@/app/book/actions";
+import {
+  AddressAutocomplete,
+  type SelectedPlace,
+} from "@/components/address-autocomplete";
 import { OutOfAreaCapture } from "@/components/out-of-area-capture";
 
 /** The subset of a saved address the quick-fill buttons need. */
@@ -29,6 +33,14 @@ export interface SavedAddressOption {
   city: string;
   state: string;
   zip: string;
+  /**
+   * Carried so a saved address does not LOSE precision when it is re-used. A
+   * row that gained real coordinates from autocomplete once should not be
+   * re-submitted as a bare street line and fall back to a ZIP centroid.
+   */
+  lat: number | null;
+  lng: number | null;
+  placeId: string | null;
 }
 
 interface AddressFields {
@@ -38,6 +50,23 @@ interface AddressFields {
   state: string;
   zip: string;
 }
+
+/**
+ * The precise point behind the fields above, when there is one.
+ *
+ * Held separately and posted as hidden inputs, because it is not something
+ * the customer types. It is CLEARED by any hand edit to an address field —
+ * coordinates belonging to a different address are worse than none: the price
+ * and the driver's map link would both point at the wrong door while looking
+ * exactly as confident as a correct one.
+ */
+interface AddressPrecision {
+  lat: number | null;
+  lng: number | null;
+  placeId: string | null;
+}
+
+const NO_PRECISION: AddressPrecision = { lat: null, lng: null, placeId: null };
 
 /**
  * Step 2 — pickup address + bag count, one submit.
@@ -52,7 +81,7 @@ export function PickupStepForm({
   defaults,
 }: {
   savedAddresses: SavedAddressOption[];
-  defaults: AddressFields & { bagCount: number };
+  defaults: AddressFields & AddressPrecision & { bagCount: number };
 }) {
   const [state, formAction, pending] = useActionState<ActionState, FormData>(
     submitPickup,
@@ -65,6 +94,11 @@ export function PickupStepForm({
     state: defaults.state,
     zip: defaults.zip,
   });
+  const [precision, setPrecision] = useState<AddressPrecision>({
+    lat: defaults.lat,
+    lng: defaults.lng,
+    placeId: defaults.placeId,
+  });
   // Which saved address is currently filling the form. Purely a display
   // concern — the submitted values are the inputs, not this id.
   const [selectedAddressId, setSelectedAddressId] = useState<string | null>(null);
@@ -73,10 +107,32 @@ export function PickupStepForm({
     return <OutOfAreaCapture zip={state.outOfCoverageZip} retryHref="/book/pickup" />;
   }
 
+  /**
+   * A hand edit to any address field drops the coordinates. `line2` is
+   * included: a buzzer change does not move the building, but it is not worth
+   * a rule nobody can remember, and the ZIP centroid is a fine answer.
+   */
   const set =
     (key: keyof AddressFields) =>
-    (event: React.ChangeEvent<HTMLInputElement>) =>
+    (event: React.ChangeEvent<HTMLInputElement>) => {
       setAddress((current) => ({ ...current, [key]: event.target.value }));
+      setPrecision(NO_PRECISION);
+    };
+
+  const onPlaceSelected = (place: SelectedPlace) => {
+    setSelectedAddressId(null);
+    setAddress((current) => ({
+      ...current,
+      line1: place.line1,
+      city: place.city,
+      state: place.state,
+      zip: place.zip,
+      // `line2` is deliberately untouched: Places may know a unit number, but
+      // the customer is the authority on their own buzzer, and clobbering
+      // what they typed would be worse than leaving it.
+    }));
+    setPrecision({ lat: place.lat, lng: place.lng, placeId: place.placeId });
+  };
 
   return (
     <form action={formAction} className="flex flex-col gap-6">
@@ -110,6 +166,11 @@ export function PickupStepForm({
                       state: saved.state,
                       zip: saved.zip,
                     });
+                    setPrecision({
+                      lat: saved.lat,
+                      lng: saved.lng,
+                      placeId: saved.placeId,
+                    });
                   }}
                   className={cn(
                     "flex flex-col items-start gap-1 rounded-lg border p-3 text-left transition-colors",
@@ -137,16 +198,29 @@ export function PickupStepForm({
 
       <div className="grid gap-2">
         <Label htmlFor="line1">Street address</Label>
-        <Input
+        <AddressAutocomplete
           id="line1"
           name="line1"
           value={address.line1}
-          onChange={set("line1")}
-          autoComplete="address-line1"
+          onValueChange={(next) => {
+            setAddress((current) => ({ ...current, line1: next }));
+            setPrecision(NO_PRECISION);
+          }}
+          onPlaceSelected={onPlaceSelected}
           required
         />
-        {/* TODO(maps): Google Places autocomplete, which also gives us the
-            lat/lng and place_id the drive-time estimate needs. */}
+        {/* The point behind the address, when a suggestion supplied one.
+            Hidden inputs rather than state posted separately, so they travel
+            with the same submit as the fields they describe. */}
+        {precision.lat !== null && precision.lng !== null ? (
+          <>
+            <input type="hidden" name="lat" value={precision.lat} />
+            <input type="hidden" name="lng" value={precision.lng} />
+          </>
+        ) : null}
+        {precision.placeId ? (
+          <input type="hidden" name="placeId" value={precision.placeId} />
+        ) : null}
       </div>
 
       <div className="grid gap-2">

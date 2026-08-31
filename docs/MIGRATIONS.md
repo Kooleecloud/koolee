@@ -322,14 +322,31 @@ ordering caveat in §9.5 rules out, and for recovery.
    you get `prepared statement does not exist` errors in production that
    will not reproduce locally.
 3. `pnpm db:status` again — expect _"In sync — nothing pending"_.
-4. Seed reference data if the project is new: `pnpm seed` (airports, airline
-   cutoffs, one active pricing rule). Idempotent. CI never seeds — this step
-   is always yours.
+4. Reference data — **only on a project that has nothing to lose.**
+   `pnpm seed` REFUSES a non-local database
+   ([seed-guard.ts](../packages/db/src/seed-guard.ts)), because it is not
+   additive: it resets all 128 `airline_cutoffs` rows to the placeholder
+   45/60 minutes and rewrites the active pricing rule field by field. On a
+   project where ops has verified cutoffs or set launch prices, a routine
+   re-seed destroys the one data nobody can re-derive from this repository.
+
+   On a **brand-new** hosted project, day one, before anybody has verified
+   anything, say so out loud:
+
+   ```bash
+   SEED_ALLOW_HOSTED=1 DATABASE_URL='<hosted pooled url>' pnpm seed
+   ```
+
+   On any project already carrying real values, enter launch data in the
+   **admin console** instead — `/pricing`, `/cutoffs`, `/agreements`,
+   `/trucks`, `/shifts`, `/zones`. The ordered version of that is
+   [docs/runbooks/prod-bringup.md](runbooks/prod-bringup.md). CI never seeds;
+   this step is always yours.
 
 ⚠️ `pnpm seed` also creates dev staff/customer accounts — but **only** when the
 Supabase host is `127.0.0.1`/`localhost`. A non-local host is a **hard skip, not
-a warning**: seeding known passwords into a hosted project would be a standing
-backdoor.
+a warning**, and `SEED_ALLOW_HOSTED` does not lift it: seeding known passwords
+into a hosted project would be a standing backdoor. Use `pnpm bootstrap:staff`.
 
 ---
 
