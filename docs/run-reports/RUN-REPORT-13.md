@@ -145,3 +145,193 @@ a duplicate run.
 `format:check` clean · typecheck 6/6 · lint 6/6 · 907 unit tests · builds 3/3
 (clean worktree, no env) · 311 integration tests on an ephemeral Postgres ·
 `db:status` 34 of 34 by content hash.
+
+---
+
+## Phase 1 — the markdown renderer family
+
+Commit `01f6171`.
+
+### 1.1 The prompt's hypothesis was wrong, and that is the finding
+
+The slice named the `useMemo` client-trap that `markdown.tsx`'s own header
+warned about. **The trap never sprang.** The same sweep that wrote the warning
+(row 73, the `Avatar` fix) also added the `"use client"` directive that
+defused it, so `/trips/[id]/agreement` — a server component — has always
+rendered the component correctly. The prophecy was already its own fix.
+
+What actually shipped is a different failure with an identical symptom.
+`parseAgreementMarkdown` degrades anything it does not recognise to paragraph
+text, and it recognised neither `#`, nor `[label](href)`, nor a table.
+Reproduced against the real parser before anything was touched:
+
+```
+BLOCK paragraph [{"text":"# Koolee booking agreement"}]
+BLOCK paragraph [{"text":"See our [privacy policy](https://koolee.cloud/privacy) …"}]
+BLOCK paragraph [{"text":"| Item | Price | | --- | --- | | Base | $68 |"}]
+```
+
+Three reported symptoms — the customer page, the console, item #29 — are one
+missing `case`.
+
+### 1.2 The exclusions were never enforced, only documented
+
+`agreement-markdown.ts` listed links and tables as deliberately absent with
+good reasons, and the admin editor told operators so on screen. But nothing
+enforced it: an operator who pasted a link got **gibberish in a legal
+document**, not a refusal. "Unsupported" and "rendered as gibberish" are not
+the same policy, and only the second was shipping. TD ratified building all
+three end to end and rewriting the three documents that said otherwise.
+
+### 1.3 An href is the one place a string becomes behaviour
+
+Everything else in this pipeline is text. `safeLinkHref` — allow-list, not
+deny-list: `http`, `https`, `mailto` — lives in the AST, so the markdown
+parser, the editor-to-blocks conversion (an href from Tiptap is re-validated,
+never trusted) and the toolbar all get the same answer. A refused URL keeps
+its words and loses its link; silently deleting a phrase from a legal document
+would be worse than showing it unlinked. Seven hostile schemes are tested,
+`javascript:`, `data:`, `vbscript:`, `file:` and protocol-relative among them.
+
+The href is stored NORMALISED (`new URL(...).href`), so the first save of a
+pasted document may adjust it slightly. Idempotent from the second pass, which
+is what keeps the round-trip contract true — asserted.
+
+### 1.4 The admin console gains a read-only version view
+
+Not the "preview tab" the prompt named — there is no tab, and there was no
+read-only view of a published version **at all**. The only way to see what v1
+said was to open it in `amend`, whose submit button publishes a NEW version.
+"Let me check the wording" and "publish v3" were one click apart. TD chose the
+version view over an editor preview toggle; Tiptap already shows formatted
+text while you type.
+
+### 1.5 Dependency delta
+
+`@tiptap/extension-table@3.30.5` — **+1 package**, pinned to the version every
+other Tiptap package already uses. `@tiptap/extension-link@3.30.5` was already
+present transitively and is now a direct dependency. No transitive additions.
+
+### 1.6 `packages/ui` can now test a server render
+
+`markdown.test.tsx` runs through `react-dom/server`, which needs no DOM — so
+the package keeps `environment: "node"` and the vitest `include` simply widens
+to `.tsx`. It asserts the real agreement v2 draft body comes out formatted,
+**and** that the component is server-safe at all: a hook anywhere in this tree
+throws under `renderToStaticMarkup`, which is precisely the `Avatar` failure,
+caught by a test instead of by a customer.
+
+**This is not the DOM harness P20 asks for.** Nothing here clicks, types or
+fires a blur, and the date-field regression that motivated P20 would still
+pass. P20 stays open.
+
+---
+
+## Phase 2 — agreement absence
+
+Commit `b3a9c95`.
+
+Zero published versions is a **total outage of the pickup flow** — the gate
+fails closed for every booking, which is correct — and all three surfaces
+described it wrongly. The customer saw "Action needed / 1 thing to do" above
+an empty row. The agent, at a doorstep, read "the customer has not accepted
+our booking agreement yet"; there is no button for that customer to press. The
+console said nothing at all, so the first symptom would have been an agent
+unable to seal a bag.
+
+`no_agreement_published` is now its own gate blocker. The gate still refuses —
+that half must never change — and only the sentence differs. The customer gets
+a calm holding state, **and the passport step opens**: it has no dependency on
+an agreement, so holding the one thing a customer can get ahead on behind a
+gate nobody can open was the worst of both. The console gets a banner naming
+the consequence rather than the condition.
+
+**A failed count reads `-1`, never `0`.** A database blip must not be able to
+put "customers cannot complete check-in" on the Overview page; an alarm that
+cries wolf is worse than none.
+
+### Where the test lives, and why it is not in the integration tier
+
+The obvious home for "an absent agreement is its own blocker" is the
+integration tier, and it cannot go there. Every agent-visit suite seeds a
+version (the gate needs a current to resolve against) and migration 0024
+freezes a version once it is in effect:
+
+```
+PostgresError: agreement version 1 is in effect and cannot be deleted.
+  code: 23001, where: agreement_versions_freeze_once_effective()
+```
+
+That is the guard working exactly as designed. `buildIdentityGate` is pure, so
+it is exported and tested as one.
+
+### Deviation: L4 was rewritten, not added beside
+
+The prompt asked to ADD a launch-blocking line. L4 already was that item, and
+the file's own rule is that nothing is owned by two people, so L4 now states
+the outage and the deliberate absence of a boot gate — day-zero production has
+to come up before v1 can be written in it.
+
+---
+
+## Phase 3 — the funnel, and cancelled bookings
+
+Commits `1949aa4` and `7e96801`.
+
+### 3.1 A refused ZIP cost the customer their whole form
+
+Reproduced by reading the code path end to end. Three things had to be true at
+once, and all three were:
+
+1. `submitFlight` returned every rejection BEFORE `writeDraft`;
+2. `usePreservedFormValues` covers the action round trip inside one mount, and
+   the out-of-area card does not stay mounted — its retry is a real LINK;
+3. `flightEntryMode` chooses between the door and the form on
+   `draftHasFlight`, which is false precisely because the step never
+   committed. **Being refused made you look like a first-time visitor.**
+
+`rejectedEntrySchema` is a quarantined draft key per step, holding what was
+typed including what was typed wrong — loosely typed on purpose, because a
+strict schema would drop exactly the value the customer needs in order to
+correct it. Quarantined for the same reason `ticketPrefill` is: a refused ZIP
+in `draft.zip` would make `stepCompletion` read step one as complete.
+
+Two existing tests asserted `writeDraft` was NOT called on a rejection. The
+intent — no booking field is written until the customer chooses — is still
+right and still tested; "nothing is written" was simply the wrong way to say
+it. They now assert the **quarantine boundary** by enumerating the keys of the
+write, which is a strictly stronger claim. The F1 ZIP reconcile flow is
+otherwise untouched and green.
+
+Places precision is deliberately NOT restored from a rejection: it belongs to
+an address the customer is about to change, and stale coordinates point a
+driver at the previous door while looking exactly as confident.
+
+### 3.2 A cancelled stop was still a stop
+
+Cancelling a booking **touches no task** — `applyTransition` writes one row and
+one custody event. Every derivation in the agent's day model reads task
+status, so a cancelled booking rendered as an ordinary upcoming stop with a
+working "Start & navigate" button. Core refuses the action and always did
+(`actionability.ts:144-147`, `:206-212`), so nothing could happen — except an
+agent driving to a door for a pickup that is not coming.
+
+**The stop stays.** Dropping it would leave an agent who remembers being sent
+to that address with no trace of it. `StageDot` gains a struck-through
+`cancelled` state — a muted hollow dot alone is indistinguishable from an
+upcoming one — and `ProgressTrack` a `cancelled` prop, distinct from
+`currentIndex: -1`: that means "nothing is happening now", this means "nothing
+is going to".
+
+`pickupStepIndexFor` returned 0 for a cancelled booking, which put the pulsing
+seal-orange "you are here" marker on "Driver booked". `ProgressTrack` has
+documented `-1` as the cancelled rendering since it was written; it was never
+passed one.
+
+**The admin booking view already satisfied this and is unchanged** — the
+status badge and the append-only custody trail carrying `booking.cancelled`
+(`state-machine.ts:176`) are exactly "the stop stays visible with a cancelled
+status". Recorded rather than rebuilt.
+
+An exception still returns 0. Paused is not abandoned, and changing it is not
+this slice's call.
