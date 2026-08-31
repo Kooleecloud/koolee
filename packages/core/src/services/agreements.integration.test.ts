@@ -29,6 +29,7 @@ import {
   bookingHasAcceptedAgreement,
   getBookingAgreementState,
   getAgreementVersionById,
+  countAgreementVersions,
   getCurrentAgreementVersion,
   isAgreementVersionEditable,
   listAgreementVersions,
@@ -182,6 +183,31 @@ describeIntegration("booking agreements (integration)", () => {
       .returning();
     return row!;
   }
+
+  /**
+   * ZERO VERSIONS IS AN OUTAGE, and the console's alarm depends on this
+   * count. `getCurrentAgreementVersion` cannot answer it: a version scheduled
+   * for next week makes that null while somebody has plainly done the work,
+   * and an alarm raised then would be noise nobody keeps looking at.
+   */
+  describe("countAgreementVersions", () => {
+    it("is zero on a database that has never published one", async () => {
+      expect(await countAgreementVersions(db)).toBe(0);
+    });
+
+    it("counts scheduled and superseded versions, not just the current one", async () => {
+      await seedVersion(1, new Date("2025-01-01T00:00:00Z")); // superseded
+      await seedVersion(2, new Date("2025-06-01T00:00:00Z")); // current
+      await seedVersion(3, new Date("2099-01-01T00:00:00Z")); // scheduled
+      expect(await countAgreementVersions(db)).toBe(3);
+    });
+
+    it("is non-zero while the current version is null — the case the alarm must NOT fire on", async () => {
+      await seedVersion(1, new Date("2099-01-01T00:00:00Z"));
+      expect(await getCurrentAgreementVersion(db, now)).toBeNull();
+      expect(await countAgreementVersions(db)).toBe(1);
+    });
+  });
 
   describe("current-version derivation", () => {
     it("is null when nothing has ever been published", async () => {

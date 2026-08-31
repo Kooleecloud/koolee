@@ -141,6 +141,7 @@ export {
   getBookingAgreementState,
   getCurrentAgreementVersion,
   isAgreementVersionEditable,
+  countAgreementVersions,
   listAgreementVersions,
   publishAgreementVersion,
   updateScheduledAgreementVersion,

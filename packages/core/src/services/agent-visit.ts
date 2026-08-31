@@ -124,7 +124,20 @@ export interface VisitContext {
   identityGate: VisitIdentityGate;
 }
 
-export type VisitGateBlocker = "agreement_not_accepted" | "passport_not_confirmed";
+export type VisitGateBlocker =
+  | "agreement_not_accepted"
+  | "passport_not_confirmed"
+  /**
+   * NOTHING HAS EVER BEEN PUBLISHED, so no booking can have accepted
+   * anything. This is a separate blocker from `agreement_not_accepted`
+   * because the two demand opposite actions from the agent standing at the
+   * door: one is "ask the customer to open their trip page", and the other is
+   * something the customer CANNOT fix and must not be blamed for.
+   *
+   * The gate refuses either way — `bookingHasAcceptedAgreement` fails closed
+   * on purpose. What changes is the sentence the agent reads.
+   */
+  | "no_agreement_published";
 
 /**
  * The identity gate: the customer has accepted the CURRENT agreement, and the
@@ -237,7 +250,16 @@ export async function getVisitContext(
   };
 }
 
-function buildIdentityGate(
+/**
+ * Exported for a PURE test, not for callers.
+ *
+ * The obvious place to test "an absent agreement is its own blocker" is the
+ * integration tier, and it cannot go there: migration 0024 freezes a version
+ * that is in effect, so a suite cannot delete its way to the day-zero state
+ * — `agreement_versions_freeze_once_effective()` raises 23001, correctly.
+ * The derivation is pure, so it is tested as one.
+ */
+export function buildIdentityGate(
   agreement: BookingAgreementState,
   passport: PassportVerification | null,
 ): VisitIdentityGate {
@@ -246,7 +268,19 @@ function buildIdentityGate(
   // Agreement first: it is the customer's action, and the agent can do
   // nothing about it except ask them to open their trip page. Telling them
   // that before the passport step saves a wasted photo.
-  if (!agreement.accepted) blockers.push("agreement_not_accepted");
+  //
+  // …unless there is no agreement to accept. `getBookingAgreementState`
+  // returns a null `currentVersion` when nothing has ever been published, and
+  // an unaccepted booking in that state is an OPS failure, not a customer
+  // one. Naming it as "the customer hasn't accepted" would send an agent to
+  // knock on a door about something no customer can do.
+  if (!agreement.accepted) {
+    blockers.push(
+      agreement.currentVersion === null
+        ? "no_agreement_published"
+        : "agreement_not_accepted",
+    );
+  }
   if (!passportConfirmed) blockers.push("passport_not_confirmed");
 
   return {
@@ -261,11 +295,16 @@ function buildIdentityGate(
 /** The sentence the agent reads when a step is refused. */
 export function identityGateMessage(gate: VisitIdentityGate): string | null {
   if (gate.passed) return null;
-  const parts = gate.blockers.map((blocker) =>
-    blocker === "agreement_not_accepted"
-      ? "the customer has not accepted our booking agreement yet (they accept it on their trip page)"
-      : "the traveler's passport has not been confirmed",
-  );
+  const parts = gate.blockers.map((blocker) => {
+    switch (blocker) {
+      case "agreement_not_accepted":
+        return "the customer has not accepted our booking agreement yet (they accept it on their trip page)";
+      case "no_agreement_published":
+        return "no booking agreement is published at all — this is not something the customer can fix, so contact ops";
+      case "passport_not_confirmed":
+        return "the traveler's passport has not been confirmed";
+    }
+  });
   return `You can't seal bags yet — ${parts.join(", and ")}. If it can't be resolved at the door, flag a problem.`;
 }
 
