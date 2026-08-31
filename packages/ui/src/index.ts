@@ -46,6 +46,12 @@ export {
 } from "./components/dialog";
 export { Toaster, toast } from "./components/sonner";
 export { KooleeLogo, type KooleeLogoProps } from "./components/koolee-logo";
+export {
+  BrandLoader,
+  BrandLoadingOverlay,
+  type BrandLoaderProps,
+  type BrandLoadingOverlayProps,
+} from "./components/brand-loader";
 
 /* Marketing / brand system */
 export {

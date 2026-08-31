@@ -2,7 +2,7 @@
 
 import { useActionState, useState } from "react";
 import Link from "next/link";
-import { Check } from "lucide-react";
+import { Check, Plus } from "lucide-react";
 import {
   Button,
   cn,
@@ -71,6 +71,20 @@ const NO_PRECISION: AddressPrecision = { lat: null, lng: null, placeId: null };
 /**
  * Step 2 — pickup address + bag count, one submit.
  *
+ * TWO PHASES FOR A RETURNING CUSTOMER, one for everybody else.
+ *
+ * It used to be a single screen: saved addresses in a card at the top, then
+ * the whole empty address form below them, always. Somebody with a saved
+ * address met five blank fields they were not meant to fill in, under a card
+ * whose relationship to them was "one tap fills the form below" — which is a
+ * sentence explaining a layout rather than a layout that explains itself.
+ *
+ * So when there are saved addresses and nothing chosen yet, this asks the
+ * question on its own: pick one, or add a new one. Choosing either answer
+ * opens the form — filled in for a saved address, blank for a new one — with
+ * a way back. A customer with no saved addresses sees exactly what they saw
+ * before, because for them there was never a question to ask.
+ *
  * The address inputs are controlled so a saved address can fill them with one
  * tap without a server round-trip (and so values survive a failed submit).
  * An out-of-area ZIP swaps the form for the waitlist capture, same as the
@@ -102,6 +116,18 @@ export function PickupStepForm({
   // Which saved address is currently filling the form. Purely a display
   // concern — the submitted values are the inputs, not this id.
   const [selectedAddressId, setSelectedAddressId] = useState<string | null>(null);
+  /**
+   * Whether the form is open.
+   *
+   * Starts closed ONLY for a returning customer arriving with nothing filled
+   * in — that is the case where "which address?" is a real question. A draft
+   * that already carries an address (somebody stepping back to edit) opens
+   * straight onto their own values; anybody with no saved addresses never
+   * sees the chooser at all.
+   */
+  const [choosing, setChoosing] = useState(
+    savedAddresses.length > 0 && defaults.line1.trim() === "",
+  );
 
   if (state.outOfCoverageZip) {
     return <OutOfAreaCapture zip={state.outOfCoverageZip} retryHref="/book/pickup" />;
@@ -134,66 +160,116 @@ export function PickupStepForm({
     setPrecision({ lat: place.lat, lng: place.lng, placeId: place.placeId });
   };
 
-  return (
-    <form action={formAction} className="flex flex-col gap-6">
-      {savedAddresses.length > 0 && (
+  /** Fills the form from a saved address and opens it. */
+  const chooseSaved = (saved: SavedAddressOption) => {
+    setSelectedAddressId(saved.id);
+    setAddress({
+      line1: saved.line1,
+      line2: saved.line2 ?? "",
+      city: saved.city,
+      state: saved.state,
+      zip: saved.zip,
+    });
+    setPrecision({ lat: saved.lat, lng: saved.lng, placeId: saved.placeId });
+    setChoosing(false);
+  };
+
+  const savedTile = (saved: SavedAddressOption) => {
+    const street = saved.line2 ? `${saved.line1}, ${saved.line2}` : saved.line1;
+    // A label is optional, and when it is missing the street doubles as the
+    // heading — so the full line must not repeat it back underneath.
+    // Unlabelled addresses showed "22 W 34th St" twice.
+    const heading = saved.label || street;
+    const detail = saved.label
+      ? `${street}, ${saved.city} ${saved.state} ${saved.zip}`
+      : `${saved.city} ${saved.state} ${saved.zip}`;
+    return (
+      <button
+        key={saved.id}
+        type="button"
+        aria-pressed={selectedAddressId === saved.id}
+        onClick={() => chooseSaved(saved)}
+        className={cn(
+          "flex flex-col items-start gap-1 rounded-lg border p-3 text-left transition-colors",
+          "hover:bg-accent/10 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden",
+          selectedAddressId === saved.id
+            ? "border-primary bg-primary/5"
+            : "border-border",
+        )}
+      >
+        <span className="flex w-full items-center justify-between gap-2">
+          <span className="truncate font-medium">{heading}</span>
+          {selectedAddressId === saved.id && (
+            <Check aria-hidden className="size-4 shrink-0 text-primary" />
+          )}
+        </span>
+        <span className="text-xs text-muted-foreground">{detail}</span>
+      </button>
+    );
+  };
+
+  /*
+   * PHASE ONE — the question, on its own.
+   *
+   * Deliberately NOT a <form>: there is nothing to submit yet, and a Continue
+   * button here would be a third way to answer a question with two answers.
+   * Bag count waits for phase two, where it sits with the address it belongs
+   * to in one submit.
+   */
+  if (choosing) {
+    return (
+      <div className="flex flex-col gap-4">
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Your saved addresses</CardTitle>
-            <CardDescription>One tap fills the form below.</CardDescription>
+            <CardTitle className="text-base">Where are we collecting from?</CardTitle>
+            <CardDescription>
+              Pick one of your saved addresses, or add a new one.
+            </CardDescription>
           </CardHeader>
           <CardContent className="grid gap-2 sm:grid-cols-2">
-            {savedAddresses.map((saved) => {
-              const street = saved.line2 ? `${saved.line1}, ${saved.line2}` : saved.line1;
-              // A label is optional, and when it is missing the street doubles
-              // as the heading — so the full line must not repeat it back
-              // underneath. Unlabelled addresses showed "22 W 34th St" twice.
-              const heading = saved.label || street;
-              const detail =
-                saved.label ? `${street}, ${saved.city} ${saved.state} ${saved.zip}`
-                : `${saved.city} ${saved.state} ${saved.zip}`;
-              return (
-                <button
-                  key={saved.id}
-                  type="button"
-                  aria-pressed={selectedAddressId === saved.id}
-                  onClick={() => {
-                    setSelectedAddressId(saved.id);
-                    setAddress({
-                      line1: saved.line1,
-                      line2: saved.line2 ?? "",
-                      city: saved.city,
-                      state: saved.state,
-                      zip: saved.zip,
-                    });
-                    setPrecision({
-                      lat: saved.lat,
-                      lng: saved.lng,
-                      placeId: saved.placeId,
-                    });
-                  }}
-                  className={cn(
-                    "flex flex-col items-start gap-1 rounded-lg border p-3 text-left transition-colors",
-                    "hover:bg-accent/10 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden",
-                    selectedAddressId === saved.id
-                      ? "border-primary bg-primary/5"
-                      : "border-border",
-                  )}
-                >
-                  <span className="flex w-full items-center justify-between gap-2">
-                    <span className="truncate font-medium">{heading}</span>
-                    {/* Confirms which one filled the form — tapping a second
-                        address silently overwrote the first with no feedback. */}
-                    {selectedAddressId === saved.id && (
-                      <Check aria-hidden className="size-4 shrink-0 text-primary" />
-                    )}
-                  </span>
-                  <span className="text-xs text-muted-foreground">{detail}</span>
-                </button>
-              );
-            })}
+            {savedAddresses.map(savedTile)}
+
+            {/* The last option, and visually a different KIND of thing — a
+                dashed outline rather than a fifth address that happens to be
+                blank. */}
+            <button
+              type="button"
+              onClick={() => {
+                setSelectedAddressId(null);
+                setAddress({ line1: "", line2: "", city: "", state: "", zip: "" });
+                setPrecision(NO_PRECISION);
+                setChoosing(false);
+              }}
+              className={cn(
+                "flex min-h-[4.5rem] flex-col items-start justify-center gap-1 rounded-lg border border-dashed border-navy-300 p-3 text-left transition-colors",
+                "hover:border-sky-400 hover:bg-sky-50/50 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden",
+              )}
+            >
+              <span className="flex items-center gap-1.5 font-medium text-sky-700">
+                <Plus aria-hidden className="size-4" />
+                Add a new address
+              </span>
+              <span className="text-xs text-muted-foreground">
+                We&apos;ll save it for next time.
+              </span>
+            </button>
           </CardContent>
         </Card>
+      </div>
+    );
+  }
+
+  return (
+    <form action={formAction} className="flex flex-col gap-6">
+      {/* PHASE TWO — the form, filled in or blank, with a way back. */}
+      {savedAddresses.length > 0 && (
+        <button
+          type="button"
+          onClick={() => setChoosing(true)}
+          className="self-start text-sm font-medium text-sky-700 underline underline-offset-4 hover:text-sky-600 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          ← Use a different address
+        </button>
       )}
 
       <div className="grid gap-2">

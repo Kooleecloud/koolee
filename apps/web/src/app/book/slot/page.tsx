@@ -142,13 +142,33 @@ export default async function SlotStepPage() {
             <p className="text-sm text-muted-foreground">All times are in local time.</p>
             {[...byDay.entries()].map(([day, dayWindows]) => (
               <div key={day} className="flex flex-col gap-3">
-                <h3 className="text-sm font-medium text-muted-foreground">
+                {/*
+                  The day is the thing you navigate by — 24 tiles under a
+                  muted grey caption made the grid read as one undifferentiated
+                  wall. Navy at semibold is the same weight the rest of the
+                  funnel gives a heading.
+                */}
+                <h3 className="font-display text-sm font-semibold text-navy-800">
                   {formatDayInAirportTz(dayWindows[0]!.windowStart, tz)}
                 </h3>
-                <div className="grid grid-cols-2 gap-3">
+                {/*
+                  Two up on a phone, three on anything wider. Two columns on a
+                  laptop left half the row empty and made a 24-window day
+                  twelve rows of scrolling.
+                */}
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
                   {dayWindows.map((window) => (
                     <Card asChild interactive key={window.windowStart.toISOString()}>
-                      <label className="flex cursor-pointer flex-col items-center gap-0.5 p-3 text-center has-checked:border-primary has-checked:bg-primary/5 has-checked:shadow-lift-lg has-checked:ring-1 has-checked:ring-primary has-focus-visible:ring-2 has-focus-visible:ring-ring has-focus-visible:ring-offset-2">
+                      {/*
+                        SELECTED IS A PRESSED TILE. It used to be a hairline
+                        primary ring on a 5%-tint background, which at a glance
+                        across 24 tiles was almost invisible. Now: sky-100
+                        ground, a sky-400 border, navy text, and an INSET
+                        shadow — pressed in rather than lifted, which is the
+                        one shadow direction that reads as "this one is
+                        chosen" instead of "this one is hovered".
+                      */}
+                      <label className="flex cursor-pointer items-center justify-center gap-1.5 p-3 text-center transition-all has-checked:border-sky-400 has-checked:bg-sky-100 has-checked:shadow-[inset_0_2px_4px_0_rgb(2_132_199_/_0.18)] has-checked:ring-1 has-checked:ring-sky-300 has-focus-visible:ring-2 has-focus-visible:ring-ring has-focus-visible:ring-offset-2">
                         <input
                           type="radio"
                           name="windowStart"
@@ -160,13 +180,16 @@ export default async function SlotStepPage() {
                           required
                         />
                         {/*
-                        Same family and weight for both lines — the customer is
-                        trading time against price, so neither should read as a
-                        caption of the other. The time is a step larger only
-                        because it is what they scan the grid for.
-                      */}
-                        <span className="font-display text-base font-semibold text-navy-800">
+                          One line, `{time} · {price}`. Stacked, the price read
+                          as a caption of the time; side by side they are the
+                          two halves of the same trade, which is what the
+                          customer is actually making.
+                        */}
+                        <span className="font-display text-sm font-semibold text-navy-800">
                           {formatHourInAirportTz(window.windowStart, tz)}
+                        </span>
+                        <span aria-hidden className="text-navy-400">
+                          ·
                         </span>
                         <span className="font-display text-sm font-semibold text-navy-800">
                           {dollars(window.totalCents)}

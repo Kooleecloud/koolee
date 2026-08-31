@@ -174,6 +174,50 @@
   --animate-accordion-down: accordion-down 0.2s ease-out;
   --animate-accordion-up: accordion-up 0.2s ease-out;
 
+  /*
+   * THE BRAND LOADER. See `BrandLoader` — the mark is a luggage tag hanging
+   * from a grommet, so the one honest way to animate it is the way a tag on a
+   * handle actually moves: a pendulum swinging about its own eyelet.
+   *
+   * `tag-swing` is deliberately unhurried (1.6s, eased at both ends) and never
+   * returns to dead centre — a loop that pauses square-on reads as a stall on
+   * exactly the screen where a stall is the thing people fear. The seal ring
+   * turns underneath it at a different period, so the two never sync into one
+   * beat and the whole thing keeps looking alive on a long wait.
+   */
+  --animate-tag-swing: tag-swing 1.6s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+  --animate-seal-turn: seal-turn 2.4s linear infinite;
+  --animate-seal-pulse: seal-pulse 1.6s ease-in-out infinite;
+
+  @keyframes tag-swing {
+    0%,
+    100% {
+      transform: rotate(-13deg);
+    }
+    50% {
+      transform: rotate(13deg);
+    }
+  }
+  @keyframes seal-turn {
+    from {
+      transform: rotate(0deg);
+    }
+    to {
+      transform: rotate(360deg);
+    }
+  }
+  @keyframes seal-pulse {
+    0%,
+    100% {
+      opacity: 0.35;
+      transform: scale(0.94);
+    }
+    50% {
+      opacity: 1;
+      transform: scale(1);
+    }
+  }
+
   @keyframes accordion-down {
     from {
       height: 0;
