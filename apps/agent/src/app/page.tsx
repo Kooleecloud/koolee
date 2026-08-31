@@ -20,7 +20,7 @@ import {
   type ActiveShiftView,
   type TruckOptionView,
 } from "@/components/shift/shift-bar";
-import { groupJobs, startablePickupTaskId, type Job } from "@/lib/job";
+import { groupJobs, isOutstanding, startablePickupTaskId, type Job } from "@/lib/job";
 import { tryGetCore } from "@/lib/core";
 import { getAgentIdentity } from "@/lib/session";
 
@@ -128,20 +128,36 @@ export default async function AgentHomePage() {
     if (!job.startsAt || job.state === "done") return false;
     return job.startsAt < dayOf(job).start;
   });
-  const lateIds = new Set(overdue.map((job) => job.bookingId));
+  /*
+   * A CANCELLED STOP IS NEVER LATE. Its window passing is not a thing anybody
+   * needs to chase — F4 settled that for the card and the badge, and this is
+   * where the number behind them comes from. Without the filter the heading
+   * read "· 1 late" about a stop nobody was going to.
+   */
+  const lateIds = new Set(overdue.filter(isOutstanding).map((job) => job.bookingId));
 
+  /*
+   * The rail SHOWS cancelled stops and the counts do not COUNT them.
+   *
+   * Both halves matter and they pull opposite ways. Dropping the stop leaves
+   * a driver who was sent to that address with no trace of it; counting it
+   * tells them they have work they do not have. So `outstanding` is what the
+   * rail renders, and every number below is taken from the subset that is
+   * still work.
+   */
   const outstanding = [...overdue, ...todays.filter((job) => job.state !== "done")];
+  const stillWork = outstanding.filter(isOutstanding);
   const finished = todays.filter((job) => job.state === "done");
 
   // Work with no window on it still has to surface somewhere, or it is simply
   // never done. It belongs with today rather than buried at the end of a list
   // sorted by a time it does not have.
-  const unscheduled = jobs.filter((job) => !job.startsAt && job.state !== "done");
+  const unscheduled = jobs.filter((job) => !job.startsAt && isOutstanding(job));
 
   // The subtitle counts everything a driver still has to do, scheduled or
   // not. Counting only the scheduled ones printed "Nothing scheduled" above a
   // card that plainly had work in it.
-  const left = outstanding.length + unscheduled.length;
+  const left = stillWork.length + unscheduled.length;
   const summary = unavailable
     ? "Can't reach the server."
     : left === 0
@@ -182,8 +198,8 @@ export default async function AgentHomePage() {
           {outstanding.length > 0 && (
             <section className="flex flex-col gap-3">
               <h2 className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">
-                Your route · {outstanding.length}{" "}
-                {outstanding.length === 1 ? "stop" : "stops"}
+                Your route · {stillWork.length}{" "}
+                {stillWork.length === 1 ? "stop" : "stops"}
                 {lateIds.size > 0 ? ` · ${lateIds.size} late` : ""}
               </h2>
               <JourneyList stops={outstanding} lateIds={lateIds} />

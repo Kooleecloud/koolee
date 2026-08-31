@@ -21,6 +21,7 @@ import {
   EVENT_TYPES,
   getBookingAgreementState,
   getPassportVerification,
+  cancellationFromTimeline,
   formatInstantInAirportTz,
   formatWindowInAirportTz,
   getBookingAssignment,
@@ -187,6 +188,24 @@ export default async function BookingDetailPage({
   ];
   const actors = await resolveActors(core.db, session, actorIds);
 
+  /*
+   * WHO CANCELLED IT, said at the top rather than only in the trail.
+   *
+   * The trail below has carried the actor since it was written and still
+   * does — this adds nothing to the record. What it adds is the ANSWER
+   * without a scroll: on a cancelled booking, "was this the customer or was
+   * this us?" is the first question a support call opens with, and finding it
+   * meant reading a twenty-event timeline to the row that happens to say
+   * `booking.cancelled`.
+   *
+   * Read off the timeline already loaded, not a second query.
+   */
+  const cancelledEvent =
+    booking.status === "cancelled"
+      ? timeline.find((event) => event.eventType === "booking.cancelled")
+      : undefined;
+  const cancellation = cancellationFromTimeline(timeline);
+
   // The identity gate's two halves, read for display only. Ops cannot satisfy
   // either of them from here by design: the acceptance is the customer's act,
   // and the passport confirmation is the assigned agent's.
@@ -254,6 +273,26 @@ export default async function BookingDetailPage({
             :
           </strong>{" "}
           {actionability.blockedReason ?? actionability.lateNotice}
+        </p>
+      )}
+
+      {cancellation && (
+        <p className="rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm">
+          <strong>
+            Cancelled by{" "}
+            {cancellation.by === "customer"
+              ? "the customer"
+              : cancellation.by === "system"
+                ? "the system"
+                : "Koolee"}
+          </strong>
+          {cancelledEvent?.actorUserId
+            ? ` (${actors.get(cancelledEvent.actorUserId)?.name ?? cancelledEvent.actorUserId.slice(0, 8)}${
+                cancelledEvent.actorRole ? `, ${cancelledEvent.actorRole}` : ""
+              })`
+            : ""}{" "}
+          · {formatInstantInAirportTz(cancellation.at, tz)}
+          {cancellation.reason ? ` · ${cancellation.reason}` : ""}
         </p>
       )}
 

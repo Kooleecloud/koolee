@@ -1,15 +1,9 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import {
-  ConflictError,
-  endShift,
-  InvalidInputError,
-  NotAuthorizedError,
-  NotFoundError,
-  startShift,
-} from "@koolee/core";
+import { endShift, startShift } from "@koolee/core";
 
+import { actionErrorMessage } from "@/lib/action-error";
 import { getCore } from "@/lib/core";
 import { requireAgentSession } from "@/lib/session";
 
@@ -28,19 +22,8 @@ export interface ShiftActionState {
 }
 
 function fail(error: unknown, fallback: string): ShiftActionState {
-  if (
-    error instanceof ConflictError ||
-    error instanceof NotAuthorizedError ||
-    error instanceof NotFoundError ||
-    error instanceof InvalidInputError
-  ) {
-    // These messages are written FOR the driver — "that truck is already out
-    // with Nina Petrov", "you still have 2 bags for KOO-7H2QM" — so they are
-    // shown verbatim rather than flattened into a generic failure.
-    return { error: error.message };
-  }
-  console.error("[shift]", fallback, error);
-  return { error: `${fallback} Check your connection and try again.` };
+  // One rule, two action files. See `lib/action-error.ts`.
+  return { error: actionErrorMessage(error, fallback, "[shift]") };
 }
 
 export async function startShiftAction(

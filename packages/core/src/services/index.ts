@@ -237,6 +237,20 @@ export {
 } from "./dispatch";
 
 export {
+  cancelBookingByCustomer,
+  cancellationFromTimeline,
+  customerCancelEligibility,
+  customerCancelRefusalMessage,
+  getCancellation,
+  CUSTOMER_CANCELLABLE_STATUSES,
+  type CancellationRecord,
+  type CancelBookingByCustomerInput,
+  type CancelBookingByCustomerResult,
+  type CustomerCancelEligibility,
+  type CustomerCancelRefusal,
+} from "./cancellation";
+
+export {
   cancelBookingWithRefund,
   captureBookingPayment,
   captureDueBookings,

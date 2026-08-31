@@ -4,6 +4,7 @@ import { headers } from "next/headers";
 import { revalidatePath } from "next/cache";
 import {
   acceptAgreement,
+  cancelBookingByCustomer,
   ConflictError,
   NotAuthorizedError,
   NotFoundError,
@@ -136,5 +137,67 @@ export async function selectDriverAction(
     if (error instanceof NotAuthorizedError) return { error: error.message };
     console.error("[trips] driver selection failed", error);
     return { error: "We couldn't book that driver. Please try again." };
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Cancelling                                                          */
+/* ------------------------------------------------------------------ */
+
+export interface CancelBookingState {
+  error?: string;
+  ok?: boolean;
+}
+
+/**
+ * The customer calls off their own booking.
+ *
+ * The POLICY is not here. `cancelBookingByCustomer` re-checks ownership, the
+ * status, the pickup window and whether anything has been captured, then runs
+ * the same cancellation the console runs. This action's only job is to carry
+ * the session and hand the refusal's own sentence back to the page — the
+ * refusal copy is written next to the rule it belongs to, so a page and a
+ * server cannot describe the same rule differently.
+ *
+ * A refusal is a RESULT, not an exception: "your window opened while this page
+ * was open" is an ordinary outcome and the customer needs to read it, not a
+ * generic apology. Only ownership throws, and it throws `NotFoundError`
+ * because saying "not yours" about a booking says the booking exists.
+ */
+export async function cancelBookingAction(
+  _prev: CancelBookingState,
+  form: FormData,
+): Promise<CancelBookingState> {
+  const bookingId = String(form.get("bookingId") ?? "");
+  if (!bookingId) return { error: "Something went wrong — please reload the page." };
+
+  const session = await getCustomerSession();
+  if (!session) return { error: "Please sign in again to cancel." };
+
+  let core;
+  try {
+    core = getCore();
+  } catch {
+    return { error: "We can't do that right now. Please try again shortly." };
+  }
+
+  try {
+    const result = await cancelBookingByCustomer(core, session, {
+      bookingId,
+      reason: String(form.get("reason") ?? "").trim() || undefined,
+    });
+    if (!result.ok) {
+      // The page re-renders against the state that refused, so the control
+      // disappears at the same moment the sentence explaining it appears.
+      revalidatePath(`/trips/${bookingId}`);
+      return { error: result.error };
+    }
+    revalidatePath(`/trips/${bookingId}`);
+    revalidatePath("/trips");
+    return { ok: true };
+  } catch (error) {
+    if (error instanceof NotFoundError) return { error: "We couldn't find that trip." };
+    console.error("[trips] cancellation failed", error);
+    return { error: "We couldn't cancel that. Please try again." };
   }
 }

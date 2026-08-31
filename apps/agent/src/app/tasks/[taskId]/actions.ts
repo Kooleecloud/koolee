@@ -6,11 +6,9 @@ import {
   arriveAtVisit,
   completeVerificationVisit,
   confirmAirlineHandover,
-  ConflictError,
   confirmVisitIdentity,
   deliverToBagdrop,
   getVisitContext,
-  NotFoundError,
   PICKUP_EXCEPTION_REASONS,
   recordAgentCapture,
   recordBagSealed,
@@ -22,6 +20,7 @@ import {
   type PickupExceptionReason,
 } from "@koolee/core";
 
+import { actionErrorMessage } from "@/lib/action-error";
 import { getCore } from "@/lib/core";
 import { uploadPassportPhoto } from "@/lib/passport-photos";
 import { requireAgentSession } from "@/lib/session";
@@ -65,11 +64,9 @@ function gps(form: FormData): { lat?: number | null; lng?: number | null } {
 }
 
 function fail(error: unknown, fallback: string): VisitActionState {
-  if (error instanceof NotFoundError || error instanceof ConflictError) {
-    return { error: error.message };
-  }
-  console.error("[visit]", fallback, error);
-  return { error: `${fallback} Check your connection and try again.` };
+  // One rule, two action files. See `lib/action-error.ts` for why it matches
+  // the base class rather than a list of subclasses.
+  return { error: actionErrorMessage(error, fallback, "[visit]") };
 }
 
 export async function arriveAction(

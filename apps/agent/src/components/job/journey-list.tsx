@@ -50,16 +50,33 @@ export function JourneyList({
 }) {
   if (stops.length === 0) return null;
 
-  // The first unfinished stop is where the driver is. Everything before it in
-  // the list is done; everything after is ahead.
-  const currentIndex = stops.findIndex((job) => job.state !== "done");
+  /*
+   * Where the driver actually is: the first stop that is still WORK.
+   *
+   * `!== "done"` alone made a cancelled stop "the one open stop" — it got the
+   * full emphasised card, and the real next job was demoted to a compact row
+   * behind it. Cancelled is as finished as done for this purpose; the
+   * difference is only how it ended.
+   */
+  const currentIndex = stops.findIndex(
+    (job) => job.state !== "done" && job.state !== "cancelled",
+  );
 
   return (
     <ol className="flex flex-col">
       {stops.map((job, index) => {
         const isCurrent = index === currentIndex;
         const isPast = currentIndex !== -1 && index < currentIndex;
-        const late = lateIds?.has(job.bookingId) ?? false;
+        /*
+         * A CANCELLED STOP IS NEVER LATE, wherever the set came from.
+         *
+         * F4 settled this on the expanded card — "its window passing is not a
+         * thing to chase" — and the compact row, which is what most of the
+         * rail is made of, kept showing the warning badge anyway. Enforced
+         * here rather than only in each renderer so a third one cannot get it
+         * wrong again.
+         */
+        const late = job.state !== "cancelled" && (lateIds?.has(job.bookingId) ?? false);
         /*
          * A LATE STOP CARRIES ITS DATE, and the rail is unreadable without it.
          *
@@ -132,6 +149,7 @@ function StopDot({
 }) {
   const done = job.state === "done";
   const problem = job.state === "problem";
+  const cancelled = job.state === "cancelled";
 
   return (
     <span
@@ -140,12 +158,23 @@ function StopDot({
         "relative z-10 mt-1.5 flex size-6 shrink-0 items-center justify-center rounded-full border-2 text-[11px] font-semibold",
         done && "border-success bg-success text-success-foreground",
         problem && "border-destructive bg-destructive text-destructive-foreground",
-        !done && !problem && isCurrent && "border-navy-800 bg-navy-800 text-white",
+        /*
+         * Struck through, for the reason `StageDot` gained the same treatment
+         * in F4: a muted hollow dot on its own is indistinguishable from an
+         * upcoming stop at a glance, and the strike IS the state.
+         */
+        cancelled && "border-border bg-background text-muted-foreground line-through",
         !done &&
           !problem &&
+          !cancelled &&
+          isCurrent &&
+          "border-navy-800 bg-navy-800 text-white",
+        !done &&
+          !problem &&
+          !cancelled &&
           !isCurrent &&
           "border-border bg-background text-muted-foreground",
-        isPast && !done && "opacity-60",
+        (isPast || cancelled) && !done && "opacity-60",
       )}
     >
       {done ? <Check className="size-3.5" /> : problem ? "!" : index + 1}
@@ -190,6 +219,15 @@ function CompactStop({
         "transition-colors hover:border-border hover:bg-muted/40",
         "focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring",
         dimmed && "opacity-70",
+        /*
+         * STILL A LINK, deliberately. The obvious move is to make a cancelled
+         * stop unopenable — but the detail page behind it is now the only
+         * place that says WHO cancelled it and when, which is exactly what a
+         * driver who was told to go to that address needs. A dead row answers
+         * nothing and reads as a bug. It is dimmed so it does not compete
+         * with the work.
+         */
+        job.state === "cancelled" && "opacity-60",
       )}
     >
       <span className="flex min-w-0 flex-1 flex-col gap-0.5">
@@ -209,9 +247,14 @@ function CompactStop({
       </span>
 
       {job.state === "problem" && <Badge variant="destructive">Problem</Badge>}
+      {/* Same weight as Done, same reasoning as the expanded card: present,
+          legible, and plainly not asking for anything. Without it a cancelled
+          stop was indistinguishable from an ordinary upcoming one. */}
+      {job.state === "cancelled" && <Badge variant="secondary">Cancelled</Badge>}
       {/* "Late", not "Overdue": the driver is the one reading it, and it says
           what to do about it more directly. Still collectable — the badge is a
-          warning, never a refusal. */}
+          warning, never a refusal. Never on a cancelled stop; see the call
+          site, which is where that is enforced. */}
       {late && job.state !== "problem" && <Badge variant="warning">Late</Badge>}
       {job.state === "done" && <Badge variant="success">Done</Badge>}
       <ChevronRight

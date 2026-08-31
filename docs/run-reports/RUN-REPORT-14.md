@@ -200,3 +200,152 @@ One lint consequence worth recording: the copied worker is minified vendor
 output living under `public/`, where nothing is ignored by extension. ESLint
 found 1,228 errors in it on the first run; `**/public/maplibre/**` is now in the
 shared ignore list. Prettier needed no change — Prettier 3 honours `.gitignore`.
+
+---
+
+## Phase 1 — Cancellation, end to end
+
+### 1. The customer can call it off (D1, implemented as written)
+
+`cancelBookingByCustomer` in `packages/core/src/services/cancellation.ts`. It is
+**policy around the existing cancellation, not a second one**: ownership, then
+three gates, then `cancelBookingWithRefund` — the same call the console makes,
+which runs the state machine's `cancel`, releases the slot, writes the custody
+event and voids the authorization through the payment seam. None of that is
+reimplemented. The only differences from an admin cancellation are who the
+actor is and which gates had to pass.
+
+The three gates, and why each is where it is:
+
+| Gate    | Rule                                                            | Why                                                                                                                                                                                                                                                                                                                                           |
+| ------- | --------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Status  | `paid` or `agent_assigned` only                                 | Narrower than the state machine, which accepts `cancel` from `verified_sealed` and `awaiting_pickup` too. Those mean the visit HAPPENED — a passport was checked, bags were weighed, photographed and sealed with numbered stock. Undoing that is a conversation, and somebody has to account for the seals. Ops can still cancel from there. |
+| Window  | `now < pickup_window_start`, and a booking with NO window fails | Mirrors agreement §5 semantics. A null window fails deliberately: guessing wrong either cancels something in flight or charges somebody who asked in time.                                                                                                                                                                                    |
+| Capture | Nothing captured (latest payment row, across ALL providers)     | An authorization is released; a capture is money that left an account, and giving it back is a refund with a fee policy this product does not have yet. Deliberately wider than `cancelBookingWithRefund`'s provider-scoped lookup — a capture under a provider we no longer configure is still money gone.                                   |
+
+`customerCancelEligibility` is exported and called by BOTH the trip page and the
+server action, so a rendered button and a server refusal cannot disagree about
+the rule. The action re-checks server-side regardless: a Server Action stays a
+reachable POST whatever the page drew.
+
+### 2. Who cancelled it, on all three surfaces
+
+`custody_events` has recorded the actor since the state machine was written.
+Nothing rendered it. `cancellationFromTimeline` reads it off a timeline the
+caller already has (no second query), and `by` is derived from the actor's ROLE
+rather than by comparing the actor to the booking's owner — an admin cancelling
+their own personal booking is still Koolee cancelling it, and the customer
+should read it that way.
+
+- **Customer trip page** — "Cancelled by you on <date>" / "Cancelled by Koolee
+  on <date>", above everything else, because on a cancelled booking it is the
+  only fact on the page that matters. Ours offers support and shows the reason;
+  theirs does not (their own words read back is noise).
+- **Agent task detail** — "Cancelled by the customer · <when>" (below).
+- **Admin booking detail** — the custody TRAIL already showed actor name, role,
+  face and timestamp for `booking.cancelled` and is unchanged. What was missing
+  was the answer without a scroll, so a one-line banner sits under the
+  actionability notice: a support call about a cancelled booking opens with "was
+  this them or us?", and finding it meant reading a twenty-event timeline.
+
+### 3. The agent's task detail hard-stops
+
+F4 fixed the CARD. Opening it was untouched: the detail page still drew a live
+Navigate link, a live Call button and the whole guided flow — "I'm on my way",
+arrive, scan a seal — for a pickup that was not happening. The server refused
+every one, correctly and invisibly.
+
+Both branches now ask `bookingActionability(...).standing === "terminal"` — the
+same service the card consults and core enforces with, not a status array in the
+page. On a stopped job: `DoorstepCard` drops Navigate and Call (the address
+stays — reading it is not acting on it), the payment banner goes, and
+`TaskStopped` renders the headline with the actor, above `TaskRecord` for the
+history.
+
+`TaskRecord`'s `exception: boolean` became `outcome: "clean" | "exception" |
+"stopped"`. The boolean could only have said "Visit complete" on a cancelled
+booking, which is simply false.
+
+Realtime: `LiveTasks` stays subscribed right up to the moment the job stops, so
+a cancellation landing while the page is open on a phone flips it live — the
+`custody_events` trigger fires the signal on the transition. Off once it HAS
+stopped: nothing further can arrive on a terminal booking.
+
+### 4. The error handler stopped lying
+
+`apps/agent/src/lib/action-error.ts`, used by both action files.
+
+The reported symptom was a driver tapping "I'm on my way" on a cancelled pickup
+and reading **"Couldn't start pickup. Check your connection and retry."** Their
+connection was fine. `startPickupTravel` refused through `assertActionable`,
+which throws `BookingNotActionableError` carrying "This booking was cancelled."
+— and the handler matched `NotFoundError` and `ConflictError` only, so the one
+message that would have ended the confusion fell through to the connection
+fallback. Telling somebody their phone is broken when the answer is "this job
+does not exist any more" is an instruction to keep trying.
+
+It now matches the BASE class. Every `CoreError` is a deliberate refusal
+carrying a message written to be read, so a refusal added tomorrow surfaces
+correctly the day it is written — the opposite of how this happened. Transport
+failures still say "check your connection", and only they are logged: a console
+full of correct refusals is a console nobody reads. The shift actions had the
+same shape with four subclasses and now share the one rule.
+
+### 5. Ops visibility — nothing to do
+
+The slice prompt said to add cancelled-by-customer to the admin board's recent
+activity **only if such a surface exists**. It does not: the console dashboard
+has "Next up" and "Coverage today" and no activity feed. Not built, per the
+instruction.
+
+### Arrived mid-phase from TD: "Late" on a cancelled stop
+
+TD reported the agent journey still badging a cancelled stop as **Late**. It
+did, and it was worse than the badge — F4 gave a cancelled booking its own
+`JobState` and fixed the expanded card, but never taught the DAY about it.
+`isFinished` is `state === "done"`, so every derivation using "not done" to mean
+"work" still counted cancelled stops. One driver with two live jobs and one
+cancelled one read:
+
+- **"3 to do"** in the header,
+- **"· 1 late"** for a stop nobody was going to,
+- **"Your route · 3 stops"**,
+- a compact row with a **Late** badge, no Cancelled badge, and a plain rail dot
+  indistinguishable from an upcoming stop,
+- and — if it sorted first — the cancelled stop taking the "one open stop" slot,
+  demoting the real next job to a compact row behind it.
+
+Fixed with one predicate, `isOutstanding` (`not done AND not cancelled`), kept
+separate from `isFinished` on purpose: History lists work somebody DID, and
+nobody did this one. Merging them would either file a cancelled booking under
+the driver's completed work or put it back in the to-do count.
+
+**The stop still shows.** That is F4's call and it stands — a schedule that
+quietly loses stops is one nobody can reconcile against what they actually did.
+The row is dimmed, badged Cancelled, struck through on the rail, never Late,
+never counted, and never the current stop.
+
+**Still openable, deliberately** — TD asked whether it should be disabled. The
+detail page behind it is now the only place that says who cancelled it and when,
+which is exactly what a driver told to go to that address needs. A dead row
+answers nothing and reads as a bug.
+
+### Verified
+
+| Check                                         | Result                                                                                                                                                  |
+| --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm format:check`                           | clean                                                                                                                                                   |
+| `pnpm turbo typecheck`                        | 6/6                                                                                                                                                     |
+| `pnpm turbo lint`                             | 6/6                                                                                                                                                     |
+| `pnpm turbo test`                             | 999 passed, 1 skipped (+16 this phase: 10 unit, 6 agent)                                                                                                |
+| `pnpm --filter @koolee/core test:integration` | 366 passed, 3 skipped, 32 files — includes 19 new cancellation cases                                                                                    |
+| `pnpm turbo build`                            | 3/3                                                                                                                                                     |
+| Browser (headed Chromium)                     | Cancelled trip page renders "Cancelled by Koolee on Mon 31 Aug, 5:09 PM EDT" with the support line, and offers no Cancel control — the correct negative |
+
+**Not verified in a browser, and TD's manual pass should cover it:** the cancel
+BUTTON itself. No booking in the local database is `paid`/`agent_assigned` before
+its window (the seven are two sealed, two complete, two cancelled, one awaiting
+payment), so the positive case has no live subject here. The rule behind it is
+proved by 19 integration cases against real Postgres — window boundary to the
+millisecond, ownership 404, capture refusal, double-cancel, actor, and the hold
+actually released at the provider — and the prod build proves it bundles.

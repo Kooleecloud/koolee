@@ -15,6 +15,7 @@ import {
   formatHourRangeInAirportTz,
   formatInstantInAirportTz,
   getBookingActionability,
+  getCancellation,
   getPickupContext,
   getVisitContext,
   pickupCoordinates,
@@ -27,6 +28,7 @@ import {
 
 import { LiveTasks } from "@/components/live-tasks";
 import { TaskRecord } from "@/components/job/task-record";
+import { TaskStopped } from "@/components/job/task-stopped";
 import { AgentMain } from "@/components/shell/agent-main";
 import { tryGetCore } from "@/lib/core";
 import { signAvatarUrl } from "@/lib/avatars";
@@ -89,6 +91,7 @@ function DoorstepCard({
   context,
   customerAvatarUrl,
   travel,
+  actionable,
 }: {
   context: DoorstepContext;
   /** Signed as this agent — staff read any folder under 0027's policy. */
@@ -99,6 +102,17 @@ function DoorstepCard({
    * which is ordinary (location off, no fix yet) and says nothing is wrong.
    */
   travel: string | null;
+  /**
+   * Whether this job is still a job. False for a cancelled or completed
+   * booking, and then NAVIGATE AND CALL ARE NOT DRAWN — both are offers to do
+   * the work, and the only thing an affordance can produce on a stopped job
+   * is a wasted drive or a confusing phone call to somebody who already
+   * cancelled. Same reasoning, same rule as the day view's card (F4).
+   *
+   * The address itself stays: the agent may need to recognise where they were
+   * sent, and reading it is not acting on it.
+   */
+  actionable: boolean;
 }) {
   const { booking, task, address, customer, tz } = context;
   // The number to call, resolved once: the booking's own contact when the
@@ -178,37 +192,39 @@ function DoorstepCard({
         </p>
       )}
 
-      <div className="flex gap-2">
-        {mapsHref ? (
-          <Button asChild variant="outline" size="lg" className="flex-1">
-            <a href={mapsHref} target="_blank" rel="noopener noreferrer">
-              <Navigation aria-hidden="true" />
-              Navigate
-            </a>
-          </Button>
-        ) : null}
-        {contact ? (
-          <Button asChild variant="outline" size="lg" className="flex-1">
-            <a href={`tel:${contact.phone}`}>
-              <Phone aria-hidden="true" />
-              Call
-            </a>
-          </Button>
-        ) : (
-          <Button variant="outline" size="lg" className="flex-1" disabled>
-            <Phone aria-hidden="true" />
-            No number
-          </Button>
-        )}
-      </div>
-      {contact ? (
+      {actionable ? (
         <>
-          {/* Visible, not only behind the tel: link — a driver on a bad
-              connection reads it out, and a call that does not connect from
-              the app has to be dialable from the phone's own keypad. */}
-          <p className="text-sm text-muted-foreground">
-            {formatE164ForDisplay(contact.phone)}
-          </p>
+          <div className="flex gap-2">
+            {mapsHref ? (
+              <Button asChild variant="outline" size="lg" className="flex-1">
+                <a href={mapsHref} target="_blank" rel="noopener noreferrer">
+                  <Navigation aria-hidden="true" />
+                  Navigate
+                </a>
+              </Button>
+            ) : null}
+            {contact ? (
+              <Button asChild variant="outline" size="lg" className="flex-1">
+                <a href={`tel:${contact.phone}`}>
+                  <Phone aria-hidden="true" />
+                  Call
+                </a>
+              </Button>
+            ) : (
+              <Button variant="outline" size="lg" className="flex-1" disabled>
+                <Phone aria-hidden="true" />
+                No number
+              </Button>
+            )}
+          </div>
+          {contact ? (
+            /* Visible, not only behind the tel: link — a driver on a bad
+               connection reads it out, and a call that does not connect from
+               the app has to be dialable from the phone's own keypad. */
+            <p className="text-sm text-muted-foreground">
+              {formatE164ForDisplay(contact.phone)}
+            </p>
+          ) : null}
         </>
       ) : null}
 
@@ -303,6 +319,21 @@ export default async function TaskDetailPage({
       new Date(),
     );
 
+    /*
+     * IS THIS STILL A JOB? Asked of the actionability service, which is where
+     * that question is answered for every other surface — not of a status
+     * array here. `terminal` is `cancelled` or `completed`: nothing is going
+     * to happen at this door again.
+     *
+     * The card in the day view learned this in F4 and the DETAIL page did
+     * not, which is how a driver could tap into a cancelled pickup and still
+     * be offered Navigate, Call and "I'm on my way".
+     */
+    const pickupStopped = pickupState.standing === "terminal";
+    const pickupCancellation = pickupStopped
+      ? await getCancellation(core.db, pickup.booking.id)
+      : null;
+
     const pickupView: PickupView = {
       taskId: pickup.task.id,
       paxName: pickup.booking.paxName,
@@ -325,10 +356,20 @@ export default async function TaskDetailPage({
       <AgentMain>
         {/* The customer can accept the agreement while the driver is at the
             door. Without this the gate opens only on a manual reload. */}
+        {/* Kept subscribed right up to the moment the job stops, so a
+            cancellation landing while this page is open on a phone flips it
+            live — `booking_signals` already fires on the transition. Off once
+            it HAS stopped: nothing further can arrive on a terminal booking. */}
         <LiveTasks
           bookingIds={[pickup.booking.id]}
-          enabled={!pickupView.done}
-          stage={pickup.shift ? "pickup:mine" : "pickup:unclaimed"}
+          enabled={!pickupView.done && !pickupStopped}
+          stage={
+            pickupStopped
+              ? "pickup:stopped"
+              : pickup.shift
+                ? "pickup:mine"
+                : "pickup:unclaimed"
+          }
         />
         <BackToToday />
         <h1 className="font-display text-2xl font-semibold text-navy-800">
@@ -337,24 +378,37 @@ export default async function TaskDetailPage({
         {/* The same doorstep card as the verification visit — address, phone,
             flight — because a driver arriving for the pickup needs exactly the
             information a driver arriving for the visit needed. */}
-        <ActionabilityNotice state={pickupState} />
+        {/* A stopped job says so in its own card below, so the gate's banner
+            would only be a second sentence saying the same thing. */}
+        {!pickupStopped && <ActionabilityNotice state={pickupState} />}
         <DoorstepCard
           context={pickup}
           customerAvatarUrl={pickupAvatarUrl}
           travel={pickupTravel?.label ?? null}
+          actionable={!pickupStopped}
         />
         {/* ONE VIEW, TWO MODES. A finished or flagged run renders its record
             instead of its controls — same page, same doorstep card above,
             nothing forked. See TaskRecord for why the absence of forms is not
             what makes this read-only. */}
-        {pickupView.done || pickupView.exception ? (
+        {pickupStopped && (
+          <TaskStopped
+            kind="pickup"
+            reason={pickupState.blockedReason}
+            cancellation={pickupCancellation}
+            tz={pickup.tz}
+          />
+        )}
+        {pickupStopped || pickupView.done || pickupView.exception ? (
           <TaskRecord
             kind="pickup"
             bookingRef={pickup.booking.ref}
             bags={pickup.bags}
             timeline={pickup.timeline}
             tz={pickup.tz}
-            exception={pickupView.exception}
+            outcome={
+              pickupStopped ? "stopped" : pickupView.exception ? "exception" : "clean"
+            }
           />
         ) : (
           <PickupFlow view={pickupView} />
@@ -371,6 +425,12 @@ export default async function TaskDetailPage({
   const { identityGate: gate } = context;
   tagBooking({ ref: booking.ref, id: booking.id, userId: session.userId });
   const visitState = await getBookingActionability(core.db, booking, new Date());
+
+  // Same question, same answer, same service as the pickup branch above.
+  const visitStopped = visitState.standing === "terminal";
+  const visitCancellation = visitStopped
+    ? await getCancellation(core.db, booking.id)
+    : null;
 
   // Signed here rather than in the client component: the URL is a bearer
   // credential for a photo of somebody's passport and must not outlive the
@@ -428,8 +488,10 @@ export default async function TaskDetailPage({
     <AgentMain>
       <LiveTasks
         bookingIds={[booking.id]}
-        enabled={!view.done}
-        stage={gate.passed ? "gate:open" : "gate:blocked"}
+        enabled={!view.done && !visitStopped}
+        stage={
+          visitStopped ? "visit:stopped" : gate.passed ? "gate:open" : "gate:blocked"
+        }
       />
       <BackToToday />
 
@@ -437,18 +499,19 @@ export default async function TaskDetailPage({
         Verify and seal for {booking.paxName}, booking {booking.ref}
       </h1>
 
-      <ActionabilityNotice state={visitState} />
+      {!visitStopped && <ActionabilityNotice state={visitState} />}
 
       <DoorstepCard
         context={context}
         customerAvatarUrl={customerAvatarUrl}
         travel={visitTravel?.label ?? null}
+        actionable={!visitStopped}
       />
 
       {/* A payment that has not cleared is a reason to stop before touching
           anyone's luggage, so it is a banner rather than a chip inside a
           heading — which is where it used to live. */}
-      {!paymentCleared && (
+      {!paymentCleared && !visitStopped && (
         <Card className="flex items-start gap-3 border-warning/50 bg-warning/5 p-4">
           <TriangleAlert
             aria-hidden="true"
@@ -460,7 +523,7 @@ export default async function TaskDetailPage({
           </p>
         </Card>
       )}
-      {paymentCleared && (
+      {paymentCleared && !visitStopped && (
         /* A div, not a p: `Badge` renders a `<div>`, and a div inside a p is
            invalid HTML — the browser closes the paragraph early and React
            throws a hydration mismatch on the whole subtree. */
@@ -470,14 +533,22 @@ export default async function TaskDetailPage({
         </div>
       )}
 
-      {view.done || view.exception ? (
+      {visitStopped && (
+        <TaskStopped
+          kind="verification"
+          reason={visitState.blockedReason}
+          cancellation={visitCancellation}
+          tz={context.tz}
+        />
+      )}
+      {visitStopped || view.done || view.exception ? (
         <TaskRecord
           kind="verification"
           bookingRef={booking.ref}
           bags={bags}
           timeline={timeline}
           tz={context.tz}
-          exception={view.exception}
+          outcome={visitStopped ? "stopped" : view.exception ? "exception" : "clean"}
         />
       ) : (
         <VisitFlow view={view} />

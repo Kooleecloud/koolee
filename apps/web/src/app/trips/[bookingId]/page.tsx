@@ -20,6 +20,8 @@ import {
   formatEtaMinutes,
   formatInstantInAirportTz,
   formatWindowInAirportTz,
+  cancellationFromTimeline,
+  customerCancelEligibility,
   getBookingActionability,
   getBookingAgreementState,
   getBookingDetailForSession,
@@ -34,6 +36,7 @@ import {
 } from "@koolee/core";
 
 import { CustodyTimeline } from "@/components/custody-timeline";
+import { TripCancel, TripCancelledNotice } from "@/components/trip-cancel";
 import { TripLive } from "@/components/trip-live";
 import { TripPushPrompt } from "@/components/trip-push-prompt";
 import { CutoffCountdown } from "@/components/cutoff-countdown";
@@ -340,6 +343,24 @@ export default async function TripPage({
   // both components fall back to the list-and-number view they had before.
   const pickupPoint = pickupCoordinates(pickupAddress);
 
+  /*
+   * Cancelling: the offer, and the record.
+   *
+   * The eligibility read is the SAME call the server action makes, so the
+   * button and the refusal cannot disagree about the rule. It is one payment
+   * lookup and only runs while the booking could still plausibly be cancelled
+   * — a completed trip does not pay for a query to be told it cannot be.
+   *
+   * The record comes off the timeline already in hand rather than a second
+   * query; `custody_events` is append-only and carries the actor, which is
+   * the whole reason "Cancelled by you" is answerable at all.
+   */
+  const cancelEligibility = isActive
+    ? await customerCancelEligibility(core.db, booking, new Date())
+    : { canCancel: false, refusal: null as null };
+  const cancellation =
+    booking.status === "cancelled" ? cancellationFromTimeline(timeline) : null;
+
   const driverSection = driverView ? (
     <DriverTracking
       driver={driverView}
@@ -396,6 +417,17 @@ export default async function TripPage({
         }
         actions={<BookingStatusBadge status={booking.status} />}
       />
+
+      {/* WHO CALLED IT OFF, and when. Above everything else because on a
+          cancelled booking it is the only fact on the page that matters —
+          every card below it describes a trip that is not happening. */}
+      {cancellation && (
+        <TripCancelledNotice
+          by={cancellation.by}
+          atLabel={formatInstantInAirportTz(cancellation.at, tz)}
+          reason={cancellation.reason}
+        />
+      )}
 
       {/* What the gates decided, said out loud. A disabled control with no
           reason beside it is the same dead end as a control that silently
@@ -614,6 +646,11 @@ export default async function TripPage({
           </Card>
         </div>
       </div>
+
+      {/* Last on the page, deliberately. Cancelling is not what this page is
+          for; it is the thing a few people need on a page everybody else is
+          using to watch their bags arrive. */}
+      {cancelEligibility.canCancel && <TripCancel bookingId={booking.id} />}
     </>
   );
 }

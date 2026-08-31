@@ -256,6 +256,27 @@ export function isFinished(job: Job): boolean {
   return job.state === "done";
 }
 
+/**
+ * Whether this stop is still asking the driver for something.
+ *
+ * THE DISTINCTION THIS EXISTS TO MAKE, and the bug from missing it. A
+ * cancelled stop STAYS on the day — F4's call, and the right one: a schedule
+ * that quietly loses stops is one nobody can reconcile against what they
+ * actually did, and a driver who remembers being sent to that address needs
+ * to find it. But staying visible is not the same as being work, and every
+ * count on the Today screen was using "not done" as its definition of work.
+ *
+ * So a driver with two live jobs and one cancelled one read "3 to do", saw
+ * "· 1 late" for a stop nobody was going to, and got a route headed "3 stops".
+ * Every one of those numbers was wrong in the same way.
+ *
+ * `isFinished` stays as it was: History lists work that HAPPENED, and a
+ * cancelled booking is not a job anybody did.
+ */
+export function isOutstanding(job: Job): boolean {
+  return job.state !== "done" && job.state !== "cancelled";
+}
+
 export interface DayBoundsFn {
   (instant: Date, tz: string): { start: Date; end: Date };
 }
