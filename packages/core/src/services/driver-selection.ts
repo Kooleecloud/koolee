@@ -598,6 +598,23 @@ export async function reportEmptyDriverPool(
 }
 
 /** The driver a booking currently has, for the trip page and the console. */
+/**
+ * How old a GPS fix may be and still count as "where the driver is".
+ *
+ * `driver_positions` holds ONE mutable row per driver with no history, and the
+ * agent app pings every 45 seconds while a pickup is under way — but only in
+ * the foreground. A phone in a pocket stops reporting, and the row keeps the
+ * last fix indefinitely, including one from a JOB THE DRIVER FINISHED
+ * YESTERDAY. Rendering that on a map draws a van somewhere it is not, with the
+ * same confidence as a live one.
+ *
+ * Four missed pings. Long enough to survive a tunnel, a lock screen or a
+ * dropped request; short enough that nobody watches a frozen pin and believes
+ * it. Past this, `positionIsFresh` is false and the surfaces fall back to what
+ * they said before there was a map: a distance, and "Position updating".
+ */
+export const POSITION_FRESH_MS = 3 * 60_000;
+
 export interface SelectedDriver {
   shiftId: string;
   staffUserId: string;
@@ -609,11 +626,23 @@ export interface SelectedDriver {
   /** Latest position, or null when the driver has not pinged. */
   position: Coordinates | null;
   positionRecordedAt: Date | null;
+  /**
+   * Whether `position` is recent enough to present as current — see
+   * `POSITION_FRESH_MS`. False with a non-null `position` is the case that
+   * matters: we know where they were, and it is too old to draw.
+   */
+  positionIsFresh: boolean;
 }
 
 export async function getSelectedDriver(
   db: Database,
   bookingId: string,
+  /**
+   * Explicit, and defaulted — the same shape `listCustomerTrips` uses. Only
+   * `positionIsFresh` reads it, and a test that wants a stale fix should be
+   * able to say so without waiting three minutes.
+   */
+  now: Date = new Date(),
 ): Promise<SelectedDriver | null> {
   const [row] = await db
     .select({
@@ -650,6 +679,9 @@ export async function getSelectedDriver(
     travelStartedAt: row.travelStartedAt,
     position: toCoordinates(row.lat, row.lng),
     positionRecordedAt: row.recordedAt,
+    positionIsFresh:
+      row.recordedAt !== null &&
+      now.getTime() - row.recordedAt.getTime() <= POSITION_FRESH_MS,
   };
 }
 

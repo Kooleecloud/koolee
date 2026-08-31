@@ -261,7 +261,10 @@ export default async function TripPage({
   // adapter falls back to arithmetic on any failure and `formatEtaMinutes(null)`
   // is a complete answer — so nothing below branches on it.
   const selectedDriverEta =
-    selectedDriver?.position && pickupAddress.lat != null && pickupAddress.lng != null
+    selectedDriver?.position &&
+    selectedDriver.positionIsFresh &&
+    pickupAddress.lat != null &&
+    pickupAddress.lng != null
       ? await core.etaEstimator.estimate({
           from: selectedDriver.position,
           to: { lat: pickupAddress.lat, lng: pickupAddress.lng },
@@ -278,7 +281,10 @@ export default async function TripPage({
         // Kilometres stay the internal unit everywhere else — pricing, the
         // centroids, the haversine — and nothing about that changes.
         distanceLabel:
-          selectedDriver.position && pickupAddress.lat != null && pickupAddress.lng != null
+          selectedDriver.position &&
+          selectedDriver.positionIsFresh &&
+          pickupAddress.lat != null &&
+          pickupAddress.lng != null
             ? `${formatMiles(
                 haversineKm(selectedDriver.position, {
                   lat: pickupAddress.lat,
@@ -293,7 +299,16 @@ export default async function TripPage({
           booking.status,
           selectedDriver.travelStartedAt !== null,
         ),
-        position: selectedDriver.position,
+        /*
+         * Only a FRESH fix reaches the map. `driver_positions` keeps one
+         * mutable row per driver with no history, so a driver who has been
+         * chosen but has not set off yet — or whose phone went into a pocket
+         * — still has a position on file, possibly from yesterday's job.
+         * Drawing that puts a van on a street it left hours ago, looking
+         * exactly as live as a real one. Stale degrades to what this card
+         * said before there was a map: a distance, and "Position updating".
+         */
+        position: selectedDriver.positionIsFresh ? selectedDriver.position : null,
       }
     : null;
 

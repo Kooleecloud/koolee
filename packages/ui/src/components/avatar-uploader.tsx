@@ -197,9 +197,26 @@ export function AvatarUploader({
             disabled={busy !== null}
             onClick={() => inputRef.current?.click()}
             className={cn(
-              "absolute -right-1 -top-1 inline-flex size-8 items-center justify-center",
-              "rounded-full border border-border bg-background text-navy-700 shadow-sm",
-              "transition-colors hover:bg-accent/15 hover:text-navy-900",
+              "absolute -right-1 -top-1 inline-flex size-8 items-center justify-center rounded-full",
+              /*
+               * QUIET AT REST, SOLID ON HOVER — and it was the other way
+               * round, which read as the badge *losing* its background when
+               * you pointed at it. A control that gets fainter under the
+               * cursor is telling you the opposite of what a hover state is
+               * for.
+               *
+               * At rest it is the icon alone, so the picture stays the
+               * subject. The white halo under the glyph is what keeps it
+               * legible on a dark photo, where a navy icon on no background
+               * would disappear.
+               */
+              "border border-transparent bg-transparent text-navy-800",
+              "[&_svg]:drop-shadow-[0_0_2px_rgb(255_255_255)]",
+              "transition-colors hover:border-border hover:bg-background hover:shadow-sm",
+              "hover:[&_svg]:drop-shadow-none",
+              // Focus is a hover-equivalent here: a keyboard user must get the
+              // same solid chip a pointer does.
+              "focus-visible:border-border focus-visible:bg-background",
               "focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring",
               "disabled:pointer-events-none disabled:opacity-60",
             )}

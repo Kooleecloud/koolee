@@ -278,9 +278,38 @@ export function LiveMap({
   }, [drivers, ready]);
 
   /* --- framing -------------------------------------------------------- */
+
+  /** Which set of drivers the viewport was last framed for. */
+  const framedFor = React.useRef<string | null>(null);
+
   React.useEffect(() => {
     const instance = map.current;
     if (!instance || !ready) return;
+
+    /*
+     * FRAME ON A NEW SET OF DRIVERS, NOT ON EVERY POSITION.
+     *
+     * The tracking map re-renders every time the driver pings — every 45
+     * seconds — and this used to `fitBounds` on each one, because `drivers` is
+     * a fresh array identity per render. So a customer who pinned the map on
+     * their own street, or zoomed in to see which corner the van was on, had
+     * the viewport yanked out from under them three quarters of a minute
+     * later, forever. Their pan is theirs to keep.
+     *
+     * The one exception is a driver who has left the viewport: a map that has
+     * politely stopped showing the thing it is for is worse than a map that
+     * moves. So we re-frame then, and only then.
+     */
+    const signature = drivers.map((driver) => driver.id).sort().join("|");
+    if (framedFor.current === signature) {
+      if (drivers.length === 0) return;
+      const visible = instance.getBounds();
+      const allOnScreen = drivers.every((driver) =>
+        visible.contains([driver.position.lng, driver.position.lat]),
+      );
+      if (allOnScreen) return;
+    }
+    framedFor.current = signature;
 
     if (drivers.length === 0) {
       instance.easeTo({ center: [pickup.lng, pickup.lat], zoom: SOLO_ZOOM });

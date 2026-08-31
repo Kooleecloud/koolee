@@ -303,6 +303,7 @@ export {
   DRIVER_SHORTLIST_SIZE,
   getSelectedDriver,
   listCandidateDrivers,
+  POSITION_FRESH_MS,
   listReassignOptions,
   recordDriverPosition,
   reportEmptyDriverPool,
