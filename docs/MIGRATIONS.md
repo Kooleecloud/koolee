@@ -297,7 +297,7 @@ Practical consequences:
 | 0030      | `booking_signals`        | 2026-08-29 | The realtime **doorbell** table + `custody_events` AFTER INSERT trigger, `public.can_watch_booking`, `REPLICA IDENTITY FULL`, publication membership |
 | 0031      | `booking_signals_grant`  | 2026-08-30 | The one `GRANT SELECT … TO authenticated` without which `0030`'s policy delivered nothing (§6) |
 | 0032      | `push_subscriptions`     | 2026-08-30 | Web Push routing rows — unique on `endpoint` alone; no policy and no grant, by design |
-| 0033      | `military_liz_osborn`    | 2026-08-30 | **The booking carries its own doorstep**: eight `pickup_*` columns backfilled from `addresses`, then constrained; `pickup_address_id` demoted to nullable provenance (`ON DELETE set null`) |
+| 0033      | `military_liz_osborn`    | 2026-08-30 | **The booking carries its own doorstep**: eight `pickup_*` columns backfilled from `addresses`, then constrained; `pickup_address_id` demoted to nullable provenance (`ON DELETE set null`). ⚠️ **The CONTRACT rode the same migration as the expand** — the four `SET NOT NULL`s. Not backward-compatible in either direction; see §9.5 |
 
 ⚠️ **`0029` can fail on apply, by design — and that is the safe outcome.** It
 drops three tables that shipped in `0000_init` and were never used, and it does
@@ -463,6 +463,41 @@ for a moment, old code may run against the new schema or new code against the
 old. A migration the currently-deployed code cannot survive (dropping or
 renaming something still read) must NOT ride this workflow — do a manual,
 sequenced deploy instead (§9), and say so in the PR.
+
+#### `0033` broke this, and rode the workflow anyway
+
+`0033_military_liz_osborn` is **not backward-compatible**, and it merged to
+`dev` through this workflow like any other migration. Nothing on this page said
+so, which left a reader to assume — reasonably — that every migration in this
+repo is expand-safe. It is the one that is not.
+
+**What it did, in one migration:** added eight `pickup_*` columns to `bookings`
+(expand), backfilled them from `addresses` (migrate), then set four of them
+`NOT NULL` (**contract**). That last step is a contract, and it shipped in the
+same step as the expand.
+
+**Neither order is clean**, which is what makes it different from an ordinary
+expand:
+
+| Order                                     | What breaks                                                                                                                  |
+| ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| **Migration first**, old code still serving | Old `createBooking` omits `pickup_line1` and the rest → **`NOT NULL` violation → every new booking fails**                   |
+| **Code first**, migration not yet applied   | New code reads and writes columns that do not exist → **booking reads and writes fail**                                      |
+
+So there is a window either way, and it lasts **as long as the Vercel build**.
+On `dev` that was harmless — no traffic. On `main` the identical merge is a
+**booking-creation outage of the same length**.
+
+The expand-safe version would have been two migrations across two deploys: add
+nullable and backfill, deploy code that writes both old and new, then constrain
+in a later migration once nothing writes the old shape. That is the discipline;
+`0033` skipped the middle step.
+
+🧭 **The rule going forward.** A migration that contracts in the same step as it
+expands — `SET NOT NULL`, a new `CHECK` or `UNIQUE` on existing data, a drop, a
+rename — **must be called out in the PR and sequenced manually per §9.** It must
+not ride the automatic workflow on `main`. Deciding to take the window is
+allowed; discovering it afterwards is not.
 
 ---
 

@@ -38,7 +38,7 @@ Run everything from the **repo root** unless noted.
 | `pnpm --filter @koolee/db create:staff`    |       yes       | Create a whole dev staff roster (2 admins + 5 agents)      |
 
 ⚠️ Everything above except `db:generate` reads `packages/db/.env`, which points
-at the **hosted** project. See [ENVIRONMENT.md §6](ENVIRONMENT.md#6--the-sharpest-edge-packagesdbenv-points-at-hosted).
+at the **hosted** project. See [ENVIRONMENT.md §6](ENVIRONMENT.md#6-packagesdbenv-points-at-local--hosted-only-by-explicit-override).
 
 ### Test environment
 

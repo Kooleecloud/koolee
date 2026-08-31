@@ -87,19 +87,19 @@ per-environment, so staging gets its own pair.
 This file is the entry point: how to run it, and the rules that are not
 obvious from the code. **Everything else lives in [docs/](docs/).**
 
-| Read this                                    | When you want                                                                                                          |
-| -------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| **[docs/learning/](docs/learning/)**         | **To learn the codebase.** Nine numbered chapters, bottom-up, written to be re-entered. **Start here if you are new.** |
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | The system shape, the boundaries, where a change belongs                                                               |
-| [docs/features/](docs/features/)             | How a capability works end to end — funnel, auth, payments, agent visit, ops, jobs                                     |
-| [docs/ENVIRONMENT.md](docs/ENVIRONMENT.md)   | Every env var, the boot gates, secret ownership                                                                        |
-| [docs/MIGRATIONS.md](docs/MIGRATIONS.md)     | Schema change, drift detection, the RLS stance                                                                         |
-| [docs/SCRIPTS.md](docs/SCRIPTS.md)           | Every command and when to reach for it                                                                                 |
-| [docs/CODEBASE-MAP.md](docs/CODEBASE-MAP.md) | The dense 13-chapter narrative reference                                                                               |
-| [docs/TIME.md](docs/TIME.md)                 | Instants, timezones, DST — four rules, and the lint that enforces them                                                |
-| [docs/LAUNCH-CHECKLIST.md](docs/LAUNCH-CHECKLIST.md) | **Taking Koolee live.** The tracking instrument: what is done, what blocks a launch                            |
-| [docs/runbooks/](docs/runbooks/)             | The procedures — prod bring-up, the Stripe live flip, the cutover rehearsal                                            |
-| [PROJECT-STATUS.md](PROJECT-STATUS.md)       | What shipped, what is in flight, what is next                                                                          |
+| Read this                                            | When you want                                                                                                          |
+| ---------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| **[docs/learning/](docs/learning/)**                 | **To learn the codebase.** Nine numbered chapters, bottom-up, written to be re-entered. **Start here if you are new.** |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)         | The system shape, the boundaries, where a change belongs                                                               |
+| [docs/features/](docs/features/)                     | How a capability works end to end — funnel, auth, payments, agent visit, ops, jobs                                     |
+| [docs/ENVIRONMENT.md](docs/ENVIRONMENT.md)           | Every env var, the boot gates, secret ownership                                                                        |
+| [docs/MIGRATIONS.md](docs/MIGRATIONS.md)             | Schema change, drift detection, the RLS stance                                                                         |
+| [docs/SCRIPTS.md](docs/SCRIPTS.md)                   | Every command and when to reach for it                                                                                 |
+| [docs/CODEBASE-MAP.md](docs/CODEBASE-MAP.md)         | The dense 13-chapter narrative reference                                                                               |
+| [docs/TIME.md](docs/TIME.md)                         | Instants, timezones, DST — four rules, and the lint that enforces them                                                 |
+| [docs/LAUNCH-CHECKLIST.md](docs/LAUNCH-CHECKLIST.md) | **Taking Koolee live.** The tracking instrument: what is done, what blocks a launch                                    |
+| [docs/runbooks/](docs/runbooks/)                     | The procedures — prod bring-up, the Stripe live flip, the cutover rehearsal                                            |
+| [PROJECT-STATUS.md](PROJECT-STATUS.md)               | What shipped, what is in flight, what is next                                                                          |
 
 Full index, including app- and package-level docs: **[docs/README.md](docs/README.md)**.
 
@@ -139,12 +139,12 @@ error attached to it. See [docs/TIME.md](docs/TIME.md).
 
 ### Packages
 
-| Package           | Contents                                                                                              |
-| ----------------- | ----------------------------------------------------------------------------------------------------- |
+| Package           | Contents                                                                                                                      |
+| ----------------- | ----------------------------------------------------------------------------------------------------------------------------- |
 | `packages/core`   | Booking state machine, cutoff/window logic, pricing, payments, geo/ETA, notifications, auth contracts, services, Inngest jobs |
-| `packages/db`     | Drizzle schema (24 files, 29 tables), 34 migrations, pooled + direct connection factories             |
-| `packages/ui`     | shadcn/ui components, the design tokens in `styles/theme.css`, the fonts subpath, and Storybook       |
-| `packages/config` | Shared `tsconfig`, ESLint flat config, Prettier config                                                |
+| `packages/db`     | Drizzle schema (24 files, 29 tables), 34 migrations, pooled + direct connection factories                                     |
+| `packages/ui`     | shadcn/ui components, the design tokens in `styles/theme.css`, the fonts subpath, and Storybook                               |
+| `packages/config` | Shared `tsconfig`, ESLint flat config, Prettier config                                                                        |
 
 ### `packages/core` reads no environment variables
 

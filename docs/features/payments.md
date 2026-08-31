@@ -66,7 +66,7 @@ wrong and you either strand intents or silently charge for the wrong booking.
 ### 3.3 — The return route is the authority, not the redirect
 
 Stripe's `return_url` lands on **`GET /book/return`**
-([route.ts](../../apps/web/src/app/book/return/route.ts)) after *every*
+([route.ts](../../apps/web/src/app/book/return/route.ts)) after _every_
 confirmation attempt — card success, a 3DS challenge outcome, or a failure.
 
 ⚠️ Stripe appends `redirect_status` and `payment_intent_client_secret` to that

@@ -59,6 +59,7 @@ rarer.
   **Assignment is automatic on `paid`** (`autoAssignOnPaid`, since
   2026-08-23). The Assign button is the manual override; an uncovered ZIP still
   falls through to it via the at-risk flag.
+
 - **Booking detail** (`/bookings/[bookingId]`): the full append-only custody
   trail (event type, actor role + id, timestamp, metadata, and evidence
   photos via short-lived signed URLs), bags + seals, payment history, the
@@ -77,6 +78,7 @@ rarer.
   (ops may move a run that has set off; a customer may not), and a
   zone/capacity override that is RECORDED on the custody event along with the
   rule it waived.
+
 - **Exceptions** (`/exceptions`): read-only queue of bookings currently in
   `exception`, each linking to its detail page. Deliberately has no
   resolution UI of its own — resolution lives on the booking detail page,

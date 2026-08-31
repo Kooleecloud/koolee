@@ -129,14 +129,14 @@ rejected after delivery starts working), and the Site URL. See
 
 ### 2.7 — Customer routes
 
-| Route                  | Role                                                   |
-| ---------------------- | ------------------------------------------------------ |
-| `/login`               | Phone/email OTP entry                                  |
-| `/auth/callback`       | Session exchange                                       |
-| `/book/verify`         | The funnel's auth gate                                 |
-| `/dashboard/profile`   | Account area — name, contact channels, saved addresses |
-| `/dashboard/addresses` | Redirects to `/dashboard/profile` (retired)            |
-| `/trips`, `/trips/[id]` | The customer's bookings — verified sessions only      |
+| Route                   | Role                                                   |
+| ----------------------- | ------------------------------------------------------ |
+| `/login`                | Phone/email OTP entry                                  |
+| `/auth/callback`        | Session exchange                                       |
+| `/book/verify`          | The funnel's auth gate                                 |
+| `/dashboard/profile`    | Account area — name, contact channels, saved addresses |
+| `/dashboard/addresses`  | Redirects to `/dashboard/profile` (retired)            |
+| `/trips`, `/trips/[id]` | The customer's bookings — verified sessions only       |
 
 ### 2.8 — `coming_soon` closes every account surface, at the edge
 

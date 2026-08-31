@@ -89,7 +89,7 @@
 | App boots but a feature is silently missing    | [ENVIRONMENT §1 the contract](ENVIRONMENT.md#1-the-contract--read-this-first) · [§8](ENVIRONMENT.md#8-diagnosing-env-problems) |
 | Production refuses to boot with a list of vars | [ENVIRONMENT §4 boot gates](ENVIRONMENT.md#4-fail-closed-boot-gates) — **working as intended**                                 |
 | `prepared statement "s1" does not exist`       | [MIGRATIONS §3 two-connection rule](MIGRATIONS.md#3-the-two-connection-rule)                                                   |
-| Migration hit the wrong database               | [ENVIRONMENT §6](ENVIRONMENT.md#6--the-sharpest-edge-packagesdbenv-points-at-hosted)                                           |
+| Migration hit the wrong database               | [ENVIRONMENT §6](ENVIRONMENT.md#6-packagesdbenv-points-at-local--hosted-only-by-explicit-override)                                           |
 | A migration is never applied, with no error    | [MIGRATIONS §5 STRANDED](MIGRATIONS.md#5-pnpm-dbstatus--the-drift-report)                                                      |
 | Env var set but not visible in the browser     | [ENVIRONMENT §8](ENVIRONMENT.md#8-diagnosing-env-problems)                                                                     |
 | Local database in an unknown state             | [SCRIPTS §3](SCRIPTS.md#3-scriptstest-envsh--the-local-stack) (`pnpm local:reset`)                                             |
@@ -176,7 +176,7 @@ feature doc that links to it.
   - [4.3 — `assertProductionBootConfig()` — agent & admin](ENVIRONMENT.md#43--assertproductionbootconfig--agent--admin)
   - [4.4 — Why builds still pass](ENVIRONMENT.md#44--why-builds-still-pass)
 - [5. Secrets that must NOT be in app env](ENVIRONMENT.md#5-secrets-that-must-not-be-in-app-env)
-- [6. ⚠️ The sharpest edge: `packages/db/.env` points at HOSTED](ENVIRONMENT.md#6--the-sharpest-edge-packagesdbenv-points-at-hosted)
+- [6. ⚠️ The sharpest edge: `packages/db/.env` points at HOSTED](ENVIRONMENT.md#6-packagesdbenv-points-at-local--hosted-only-by-explicit-override)
 - [7. Setting up from scratch](ENVIRONMENT.md#7-setting-up-from-scratch)
 - [8. Diagnosing env problems](ENVIRONMENT.md#8-diagnosing-env-problems)
 
@@ -243,7 +243,7 @@ feature doc that links to it.
 - [7. Creating the booking](features/booking-funnel.md#7-creating-the-booking)
   - [7.1 — `bookedFromTz`](features/booking-funnel.md#71--bookedfromtz)
 - [8. After payment](features/booking-funnel.md#8-after-payment)
-- [9. Ticket upload (partial)](features/booking-funnel.md#9-ticket-upload-partial)
+- [9. Ticket upload (partial)](features/booking-funnel.md#9-ticket-upload--and-the-door-it-now-owns)
 
 ### [Feature — Auth](features/auth.md)
 
@@ -300,7 +300,7 @@ feature doc that links to it.
 
 ### [Feature — Ops console](features/ops-console.md)
 
-- [1. The pages](features/ops-console.md#1-the-pages)
+- [1. The pages](features/ops-console.md#1-the-pages-and-the-two-errands-they-split-into)
 - [2. Manual actions never edit history](features/ops-console.md#2-manual-actions-never-edit-history)
 - [3. Blackouts matter more than they look](features/ops-console.md#3-blackouts-matter-more-than-they-look)
 - [4. The board reads the booking, not a join](features/ops-console.md#4-the-board-reads-the-booking-not-a-join)
@@ -313,11 +313,15 @@ feature doc that links to it.
 
 - [1. Where jobs live](features/jobs-and-notifications.md#1-where-jobs-live)
 - [2. The jobs](features/jobs-and-notifications.md#2-the-jobs)
-  - [2.1 — Pickup reminder](features/jobs-and-notifications.md#21--pickup-reminder)
-  - [2.2 — Cutoff-risk monitor](features/jobs-and-notifications.md#22--cutoff-risk-monitor)
-  - [2.3 — Agent no-show check](features/jobs-and-notifications.md#23--agent-no-show-check)
-  - [2.4 — Payment capture sweep](features/jobs-and-notifications.md#24--payment-capture-sweep)
-  - [2.5 — Abandoned-draft + anonymous-user GC](features/jobs-and-notifications.md#25--abandoned-draft--anonymous-user-gc)
+  - [2.0 — The events are actually emitted now](features/jobs-and-notifications.md#20--the-events-are-actually-emitted-now)
+  - [2.1 — Booking confirmation email](features/jobs-and-notifications.md#21--booking-confirmation-email)
+  - [2.2 — Pickup reminder](features/jobs-and-notifications.md#22--pickup-reminder)
+  - [2.3 — Exception ops-alert email](features/jobs-and-notifications.md#23--exception-ops-alert-email)
+  - [2.4 — Waitlist zone-opened sweep](features/jobs-and-notifications.md#24--waitlist-zone-opened-sweep)
+  - [2.5 — Cutoff-risk monitor](features/jobs-and-notifications.md#25--cutoff-risk-monitor)
+  - [2.6 — Agent no-show check](features/jobs-and-notifications.md#26--agent-no-show-check)
+  - [2.7 — Payment capture sweep](features/jobs-and-notifications.md#27--payment-capture-sweep)
+  - [2.8 — Abandoned-draft + anonymous-user GC](features/jobs-and-notifications.md#28--abandoned-draft--anonymous-user-gc)
 - [3. Manual trigger routes](features/jobs-and-notifications.md#3-manual-trigger-routes)
 - [4. Running jobs locally](features/jobs-and-notifications.md#4-running-jobs-locally)
 - [5. The notification seam](features/jobs-and-notifications.md#5-the-notification-seam)

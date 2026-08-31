@@ -43,8 +43,8 @@ next, with its controls; the rest are compact rows one tap away. What it
 replaced was two headed sections ("Up next", "Later today") of standalone cards,
 where every card looked equally like a starting point and the sequence had to be
 reconstructed from four timestamps. One rail makes the order structural; one
-open stop draws the distinction the old layout could not: *where I am* versus
-*what is after this*.
+open stop draws the distinction the old layout could not: _where I am_ versus
+_what is after this_.
 
 🧭 **Stops are ordered by scheduled time, never by geography.** The customer
 bought a window, and a route optimiser that reorders stops to save a mile
@@ -90,7 +90,7 @@ customer did.
   unselected, and the number reaches only the assignee of a live task on that
   booking, the same relationship that already grants them the address, the name
   and the face. The booking's own `contact_phone` wins when present: it was typed
-  *for this pickup* and may be a hotel desk rather than the traveller.
+  _for this pickup_ and may be a hotel desk rather than the traveller.
 - **How far away it is**
   ([staff-travel.ts](../../packages/core/src/services/staff-travel.ts)), computed
   off the driver's own last GPS ping. Null is an ordinary answer — location off,

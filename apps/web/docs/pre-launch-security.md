@@ -17,7 +17,7 @@ dashboard/config verifications, not code, tracked as #24/#25 in
 > line. The tracking instrument for going live is
 > [docs/LAUNCH-CHECKLIST.md](../../../docs/LAUNCH-CHECKLIST.md), with the
 > procedures in [docs/runbooks/](../../../docs/runbooks/). What is kept here is
-> the *analysis*: why each of these controls is shaped the way it is.
+> the _analysis_: why each of these controls is shaped the way it is.
 > Baseline: `dev` @ `5db21a4`.
 
 ## 1. Per-user throttle window is soft under concurrency (SMS-pumping vector)

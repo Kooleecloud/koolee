@@ -81,6 +81,14 @@ sequence.
       `public = false`, `booking_signals` in the realtime publication **with
       the `authenticated` SELECT grant**, auth config (email OTP; SMS/phone
       OFF), redirect URLs.
+- [ ] ⚠️ **Promoting `0033` to `main` carries a booking-creation window for the
+      length of the deploy.** It sets four `pickup_*` columns `NOT NULL` in the
+      same migration that adds them, so old code fails on insert if the
+      migration wins the race and new code fails on read if the deploy does —
+      and the CI workflow runs in parallel with the Vercel build. Pre-launch,
+      with no traffic, this is acceptable. **Do it knowingly rather than
+      discover it.** See
+      [MIGRATIONS §9.5](MIGRATIONS.md#0033-broke-this-and-rode-the-workflow-anyway).
 - [ ] Vercel prod env pass:
       `vercel env ls production | pnpm env:verify --stdin --live` and fill every
       MISSING line. **Run it with `--live` BEFORE flipping the launch mode.**
