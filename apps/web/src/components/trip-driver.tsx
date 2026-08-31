@@ -210,7 +210,9 @@ export function DriverChoice({
   const byShift = new Map(candidates.map((c) => [c.shiftId, c] as const));
 
   return (
-    <Card>
+    // `overflow-hidden` so the flush map below takes the CARD's corner radius
+    // rather than spilling past it — see `frame` on `LiveMap`.
+    <Card className="overflow-hidden">
       <CardHeader>
         <CardTitle className="font-display text-base">Choose your driver</CardTitle>
         <CardDescription>
@@ -227,6 +229,21 @@ export function DriverChoice({
           case the toggle is easiest to get wrong in: `showMap` is exactly the
           condition the map is rendered under, read once.
         */}
+        {/*
+          THE HINT LIVES HERE, not under the map — TD's note. Below the map it
+          forced a gap between the map and the card's own edge, which is
+          exactly the padding this section had just been stripped of. Under the
+          description it reads as part of the instructions, which is what it
+          is, and the map below can sit flush with nothing after it.
+        */}
+        {showMap && showing === "map" && (
+          <CardDescription>
+            Tap a van to see who it is and choose them.
+            {pins.length < candidates.length
+              ? " Some drivers have not reported a position yet — they are all in the list."
+              : " Nothing is booked until you choose."}
+          </CardDescription>
+        )}
         {showMap && (
           <ViewToggle view={view} onChange={setView} count={candidates.length} />
         )}
@@ -264,41 +281,34 @@ export function DriverChoice({
         )}
 
         {showing === "map" ? (
-          <>
-            <LiveMap
-              pickup={pickup!}
-              drivers={pins}
-              onDriverClick={onPinClick}
-              popupDriverId={focused}
-              onPopupClose={() => setFocused(null)}
-              renderPopup={(shiftId) => {
-                const driver = byShift.get(shiftId);
-                if (!driver) return null;
-                return (
-                  <DriverPopup
-                    bookingId={bookingId}
-                    driver={driver}
-                    formAction={formAction}
-                    pending={pending}
-                  />
-                );
-              }}
-              allowFullscreen
-              recenterLabel="Back to my pickup"
-              // Taller than it was when a list sat under it: this IS the view
-              // now, and a map you have to squint at is not one.
-              className="h-80 sm:h-[26rem]"
-              label={`Map showing your pickup address and ${pins.length} available ${
-                pins.length === 1 ? "driver" : "drivers"
-              }`}
-            />
-            <p className="px-6 pb-6 text-xs text-muted-foreground">
-              Tap a van to see who it is and choose them.
-              {pins.length < candidates.length
-                ? " Some drivers have not reported a position yet — they are all in the list."
-                : " Nothing is booked until you choose."}
-            </p>
-          </>
+          <LiveMap
+            pickup={pickup!}
+            drivers={pins}
+            onDriverClick={onPinClick}
+            popupDriverId={focused}
+            onPopupClose={() => setFocused(null)}
+            renderPopup={(shiftId) => {
+              const driver = byShift.get(shiftId);
+              if (!driver) return null;
+              return (
+                <DriverPopup
+                  bookingId={bookingId}
+                  driver={driver}
+                  formAction={formAction}
+                  pending={pending}
+                />
+              );
+            }}
+            allowFullscreen
+            frame={false}
+            recenterLabel="Back to my pickup"
+            // Taller than it was when a list sat under it: this IS the view
+            // now, and a map you have to squint at is not one.
+            className="h-80 sm:h-[26rem]"
+            label={`Map showing your pickup address and ${pins.length} available ${
+              pins.length === 1 ? "driver" : "drivers"
+            }`}
+          />
         ) : (
           /*
             THE LIST IS A FULL VIEW, not a fallback.
@@ -678,6 +688,7 @@ export function DriverTracking({
                 selected: true,
               },
             ]}
+            frame={false}
             className="h-64 sm:h-72"
             label={`Map showing ${driver.givenName ?? "your driver"} on the way to your pickup address`}
           />

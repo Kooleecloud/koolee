@@ -154,6 +154,17 @@ export interface LiveMapProps {
   /** Offer a fullscreen toggle. Worth it wherever the map is a chooser. */
   allowFullscreen?: boolean;
   /**
+   * Draw the map's own border and rounded corners. Default true.
+   *
+   * `false` is for a map that BLEEDS to its container's edge — a card whose
+   * section has dropped its padding so the map spans the full width. There the
+   * map's own border sits a pixel inside the card's and reads as a double
+   * rule, and its rounded corners fight the card's. The container clips
+   * instead (it needs `overflow-hidden`), so the map takes the card's radius
+   * rather than drawing a second one.
+   */
+  frame?: boolean;
+  /**
    * Which driver has an anchored card open, or null for none.
    *
    * CONTROLLED, not internal state. Which pin is open is the same fact as
@@ -278,6 +289,7 @@ export function LiveMap({
   workerUrl = DEFAULT_WORKER_URL,
   label,
   allowFullscreen = false,
+  frame = true,
   popupDriverId = null,
   renderPopup,
   onPopupClose,
@@ -789,7 +801,8 @@ export function LiveMap({
         data-map-state="failed"
         data-map-failure={failed}
         className={cn(
-          "flex items-center justify-center rounded-lg border border-dashed border-border bg-muted/30 p-6 text-center text-sm text-muted-foreground",
+          "flex items-center justify-center border-dashed border-border bg-muted/30 p-6 text-center text-sm text-muted-foreground",
+          frame ? "rounded-lg border" : "border-y",
           className,
         )}
       >

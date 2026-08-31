@@ -549,3 +549,60 @@ local booking has two candidates with reported positions (the one sealed booking
 has a single driver who has never pinged), so the pin/card/pick-the-best flow was
 exercised through the Storybook story instead — the same surface that caught both
 map bugs. TD's post-merge pass on dev covers the real thing.
+
+---
+
+## Phase 3 — The funnel's front door starts a new booking (D2)
+
+`/book` resumed unconditionally. Pressing "Book a pickup" dropped you back into
+a half-finished booking from days ago — at whatever step it had reached, with
+its flight and address prefilled. For somebody genuinely coming back that is
+right; for somebody booking a second trip it is baffling, and the only way out
+was to notice and edit every field.
+
+**The two halves pull against each other.** A fresh entry must start clean, and
+nothing may be silently destroyed to achieve it. Clearing the draft outright
+would make a resume offer impossible; keeping it live would mean the entry was
+never clean. So the old draft is **moved** to `koolee_draft_prev`: the live
+cookie really does go, the first step really is empty, and one tap puts it back.
+
+- The stash is shorter-lived than the draft (an hour vs. 24 h) — "you were in
+  the middle of something a moment ago", not an archive. Account holders keep
+  the real net regardless: the `booking_drafts` mirror row lives seven days.
+- **Only a draft with PROGRESS is offered.** A cookie holding nothing but a
+  `draftId` minted by a ticket upload that went nowhere is not something anybody
+  remembers starting.
+- **A leftover stash is dropped** when there is nothing to replace it with —
+  otherwise somebody who finished a booking and came back would be offered one
+  they had already completed.
+- **The account-holder mirror is now OFFERED, not entered.** An empty cookie
+  plus a `booking_drafts` row is a draft from another device, which is worth
+  proposing and no longer worth redirecting into unasked.
+- **Extracted ticket data goes with the draft** — `ticketPrefill` is a key on
+  that cookie, so the reset takes the model's reading of somebody's itinerary
+  with it, and a resume brings it back. Otherwise "resume" would mean "start
+  again from the ZIP".
+
+The resume offer is a **line, not a dialog**. An interstitial asks everybody to
+answer a question most of them do not have, in front of the step they came for.
+It names the route and flight rather than saying "you have a saved draft", which
+describes our cookie rather than their trip, and "No thanks" drops the stash
+only — dismissing a prompt is not discarding a booking, and `startOverBooking`
+remains the thing that actually throws work away.
+
+**Nothing F4 built changed.** Back and forward between steps, a rejected ZIP and
+a mid-funnel reload never come through this door — they address `/book/flight`
+and friends directly — which is exactly why the door can be this decisive.
+`flight-rejection.test.ts` still passes untouched.
+
+### Verified
+
+| Check                                      | Result                                      |
+| ------------------------------------------ | ------------------------------------------- |
+| `pnpm format:check` / `typecheck` / `lint` | clean, 6/6, 6/6                             |
+| `pnpm turbo test`                          | 1,027 passed, 1 skipped (+10 `fresh-entry`) |
+| `pnpm turbo build`                         | 3/3                                         |
+
+The ten new cases cover the reset, the stash round-trip, the ticket-prefill
+carry, the no-progress and leftover-stash cases, the mirror being offered rather
+than entered, and the mirror failing without costing the customer the funnel.

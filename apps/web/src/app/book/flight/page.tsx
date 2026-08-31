@@ -18,8 +18,9 @@ import { submitFlight, useTicketAlternativeLeg } from "@/app/book/actions";
 import { TurnstileFormField } from "@/components/auth/turnstile-gate";
 import { CoverageStepForm } from "@/components/coverage-step-form";
 import { TicketExtractionDebug } from "@/components/ticket-extraction-debug";
+import { ResumeDraftOffer } from "@/components/resume-draft-offer";
 import { TicketUpload } from "@/components/ticket-upload";
-import { readDraft } from "@/lib/booking-draft";
+import { readDraft, readStashedDraft } from "@/lib/booking-draft";
 import { flightEntryMode } from "@/lib/flight-entry";
 import { ticketExtractionDebugEnabled, tryGetCore } from "@/lib/core";
 import { describeEligibleLegs, describePrefill } from "@/lib/ticket-prefill-copy";
@@ -33,6 +34,16 @@ export default async function FlightStepPage({
   searchParams: Promise<{ from?: string; entry?: string; read?: string }>;
 }) {
   const draft = await readDraft();
+
+  /*
+   * A draft `/book` set aside so this entry could start clean. Offered, not
+   * restored — see `ResumeDraftOffer` and the note on `/book`'s route handler.
+   *
+   * Read on THIS step only, because this is the only step a fresh entry lands
+   * on. Rendering it deeper in the funnel would offer to replace work somebody
+   * is in the middle of.
+   */
+  const stashed = await readStashedDraft();
 
   const { from, entry, read } = await searchParams;
 
@@ -151,9 +162,29 @@ export default async function FlightStepPage({
     destinationDefault,
   ].join("|");
 
+  /*
+   * What they left, in the words they would recognise it by: a route and a
+   * date beat "you have a saved draft", which describes our cookie rather
+   * than their trip. Null when the draft has progress we cannot summarise —
+   * a ZIP and nothing else — and the offer falls back to a generic line.
+   */
+  const stashedSummary = stashed
+    ? [
+        stashed.departureAirport && stashed.destinationAirport
+          ? `${stashed.departureAirport} → ${stashed.destinationAirport}`
+          : (stashed.departureAirport ?? null),
+        stashed.flightNumber ?? null,
+      ]
+        .filter(Boolean)
+        .join(" · ") || null
+    : null;
+
+  const resumeOffer = stashed ? <ResumeDraftOffer summary={stashedSummary} /> : null;
+
   if (showDoor) {
     return (
       <div className="flex flex-col gap-6">
+        {resumeOffer}
         <PageHeader
           title="Start with your ticket"
           subtitle="Upload it and we'll read the flight details off it — you check them on the next screen. Nothing is saved until you do."
@@ -180,6 +211,7 @@ export default async function FlightStepPage({
 
   return (
     <div className="flex flex-col gap-6">
+      {resumeOffer}
       <PageHeader
         title={fromTicket ? "Review your flight details" : "Your flight"}
         subtitle={
