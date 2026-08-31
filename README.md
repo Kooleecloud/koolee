@@ -28,9 +28,10 @@ To actually run it against data:
 for d in apps/web apps/agent apps/admin; do cp $d/.env.example $d/.env.local; done
 cp packages/db/.env.example packages/db/.env
 # then set DATABASE_URL + DIRECT_DATABASE_URL in each (see Environment below)
-# NOTE: packages/db/.env points at the HOSTED project. A bare `pnpm db:migrate`
-# or `pnpm seed` targets production — use `pnpm seed:local`, or override the URL
-# inline. `migrate.ts` prints its target host; read that line before confirming.
+# NOTE: since 2026-08-22 packages/db/.env defaults to the LOCAL stack, so a bare
+# `pnpm db:migrate` / `pnpm seed` can never silently land on hosted. Targeting
+# hosted is an explicit inline override — the shell always beats the file.
+# `migrate.ts` prints `Target host:` before doing anything. Read that line.
 
 pnpm local                     # the whole local environment, one command
 pnpm dev                       # all three apps
@@ -86,16 +87,19 @@ per-environment, so staging gets its own pair.
 This file is the entry point: how to run it, and the rules that are not
 obvious from the code. **Everything else lives in [docs/](docs/).**
 
-| Read this                                    | When you want                                                                                                          |
-| -------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| **[docs/learning/](docs/learning/)**         | **To learn the codebase.** Nine numbered chapters, bottom-up, written to be re-entered. **Start here if you are new.** |
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | The system shape, the boundaries, where a change belongs                                                               |
-| [docs/features/](docs/features/)             | How a capability works end to end — funnel, auth, payments, agent visit, ops, jobs                                     |
-| [docs/ENVIRONMENT.md](docs/ENVIRONMENT.md)   | Every env var, the boot gates, secret ownership                                                                        |
-| [docs/MIGRATIONS.md](docs/MIGRATIONS.md)     | Schema change, drift detection, the RLS stance                                                                         |
-| [docs/SCRIPTS.md](docs/SCRIPTS.md)           | Every command and when to reach for it                                                                                 |
-| [docs/CODEBASE-MAP.md](docs/CODEBASE-MAP.md) | The dense 13-chapter narrative reference                                                                               |
-| [PROJECT-STATUS.md](PROJECT-STATUS.md)       | What shipped, what is in flight, what is next                                                                          |
+| Read this                                            | When you want                                                                                                          |
+| ---------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| **[docs/learning/](docs/learning/)**                 | **To learn the codebase.** Nine numbered chapters, bottom-up, written to be re-entered. **Start here if you are new.** |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)         | The system shape, the boundaries, where a change belongs                                                               |
+| [docs/features/](docs/features/)                     | How a capability works end to end — funnel, auth, payments, agent visit, ops, jobs                                     |
+| [docs/ENVIRONMENT.md](docs/ENVIRONMENT.md)           | Every env var, the boot gates, secret ownership                                                                        |
+| [docs/MIGRATIONS.md](docs/MIGRATIONS.md)             | Schema change, drift detection, the RLS stance                                                                         |
+| [docs/SCRIPTS.md](docs/SCRIPTS.md)                   | Every command and when to reach for it                                                                                 |
+| [docs/CODEBASE-MAP.md](docs/CODEBASE-MAP.md)         | The dense 13-chapter narrative reference                                                                               |
+| [docs/TIME.md](docs/TIME.md)                         | Instants, timezones, DST — four rules, and the lint that enforces them                                                 |
+| [docs/LAUNCH-CHECKLIST.md](docs/LAUNCH-CHECKLIST.md) | **Taking Koolee live.** The tracking instrument: what is done, what blocks a launch                                    |
+| [docs/runbooks/](docs/runbooks/)                     | The procedures — prod bring-up, the Stripe live flip, the cutover rehearsal                                            |
+| [PROJECT-STATUS.md](PROJECT-STATUS.md)               | What shipped, what is in flight, what is next                                                                          |
 
 Full index, including app- and package-level docs: **[docs/README.md](docs/README.md)**.
 
@@ -125,16 +129,22 @@ build when crossed:
   service. (Core exposes `createRuntime()` so apps never need the raw handle.)
 - The Stripe SDK may only be imported inside
   `packages/core/src/payments/stripe/`. Everywhere else depends on the
-  `PaymentProvider` interface.
+  `PaymentProvider` interface. The same boundary holds for the PDF libraries
+  (`extraction/heuristic/`) and the Anthropic SDK (`extraction/claude/`).
+
+A third rule is enforced the same way: **no `toLocale*`, no bare
+`Intl.DateTimeFormat`, no two-argument date-fns `format()`.** All three fall
+back to the system zone — UTC in production — so the bug they cause has no
+error attached to it. See [docs/TIME.md](docs/TIME.md).
 
 ### Packages
 
-| Package           | Contents                                                                                              |
-| ----------------- | ----------------------------------------------------------------------------------------------------- |
-| `packages/core`   | Booking state machine, cutoff/window logic, pricing, payments, auth contracts, services, Inngest jobs |
-| `packages/db`     | Drizzle schema, migrations, pooled + direct connection factories                                      |
-| `packages/ui`     | shadcn/ui components and the shared Tailwind preset                                                   |
-| `packages/config` | Shared `tsconfig`, ESLint flat config, Prettier config                                                |
+| Package           | Contents                                                                                                                      |
+| ----------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `packages/core`   | Booking state machine, cutoff/window logic, pricing, payments, geo/ETA, notifications, auth contracts, services, Inngest jobs |
+| `packages/db`     | Drizzle schema (24 files, 29 tables), 34 migrations, pooled + direct connection factories                                     |
+| `packages/ui`     | shadcn/ui components, the design tokens in `styles/theme.css`, the fonts subpath, and Storybook                               |
+| `packages/config` | Shared `tsconfig`, ESLint flat config, Prettier config                                                                        |
 
 ### `packages/core` reads no environment variables
 
@@ -295,32 +305,49 @@ inline for local work.
 
 ## Background jobs
 
-**Five** Inngest functions, all served from `apps/web/app/api/inngest/route.ts`.
-Three are defined in `packages/core/src/jobs/functions.ts`; the two crons that
-need app-held credentials are defined in `apps/web/src/lib/inngest.ts`.
+**Sixteen** Inngest functions, all served from
+`apps/web/src/app/api/inngest/route.ts`. Thirteen are domain functions defined
+in `packages/core/src/jobs/functions.ts` and built by `createKooleeFunctions`;
+three more are defined in `apps/web/src/lib/inngest.ts`, because they need
+credentials only that app holds.
 
-Domain jobs (`packages/core`):
+Domain functions (`packages/core`) — the email and push side of every moment
+that is worth telling somebody about, plus the sweeps:
 
-1. **`booking/confirmed`** → durably sleeps until two hours before pickup, then
-   sends a reminder SMS through the `Notifier` interface.
-2. **Cron, every 5 minutes** → scans in-transit bookings, compares a (stubbed)
-   driver ETA against the bag-drop cutoff, and alerts ops on anything tight.
-3. **`booking/agent_no_show_check`** → waits 15 minutes past the pickup
-   window's start and escalates if the assigned agent never began the
-   verification task.
+| id                            | Trigger                                       |
+| ----------------------------- | --------------------------------------------- |
+| `booking-confirmation-email`  | `booking/confirmed`                           |
+| `booking-pickup-reminder`     | `booking/confirmed`, sleeps until T−2h        |
+| `agent-assigned-email`        | agent assigned                                |
+| `bags-sealed-email`           | `verified_sealed` — seals + "choose a driver" |
+| `driver-selected-email`       | a driver is chosen                            |
+| `bagdrop-delivered-email`     | delivered to the bag drop                     |
+| `exception-customer-email`    | exception raised — deliberately generic       |
+| `exception-ops-alert-email`   | exception raised — the full reason            |
+| `driver-pool-empty-ops-alert` | nobody could be offered                       |
+| `cutoff-risk-monitor`         | cron, every 5 minutes                         |
+| `agent-no-show-check`         | 15 min past the window start                  |
+| `assignment-horizon-sweep`    | cron — reaches `ASSIGNMENT_HORIZON_HOURS` out |
+| `waitlist-zone-opened-sweep`  | daily — the one "you're covered" email        |
 
-App-held crons (`apps/web`, because they need Stripe / service-role):
+App-held functions (`apps/web`, because they need Stripe or the service role):
 
-4. **Cron, every 5 minutes** → `captureDueBookings`: captures authorizations
-   whose bags are already in custody. Also at `POST /api/jobs/capture-due`.
-5. **Cron, daily 04:00 America/New_York** → expires abandoned drafts and
-   deletes orphaned anonymous users. Also at `POST /api/jobs/cleanup-anon`.
+- **Cron, every 5 minutes** → `captureDueBookings`: captures authorizations
+  whose bags are already in custody. Also at `POST /api/jobs/capture-due`.
+- **Cron, daily** → expires abandoned drafts and deletes orphaned anonymous
+  users. Also at `POST /api/jobs/cleanup-anon`.
+- **Terminal failure capture** → reports a job that has exhausted its retries,
+  so a permanently dead step is not something you find out about from a missing
+  email.
+
+⚠️ Push deep links need `NEXT_PUBLIC_AGENT_APP_URL` and
+`NEXT_PUBLIC_ADMIN_APP_URL`. Absent, the notification still goes — without a
+link.
 
 Both manual routes require `CRON_SECRET` and refuse to run without one.
 
-The three domain jobs are skeletons: real querying and logging, stubbed side
-effects. Run `pnpm dev:inngest` alongside `pnpm dev` and the dev server
-discovers them automatically.
+Run `pnpm dev:inngest` alongside `pnpm dev` and the dev server discovers them
+automatically.
 
 Full detail: [docs/features/jobs-and-notifications.md](docs/features/jobs-and-notifications.md).
 
@@ -336,19 +363,27 @@ Listed so nobody goes looking for it:
 - **Per-bag tracking hardware.**
 - **Rejected-bag and lost-bag exception flows.** The exceptions page lists
   affected bookings; resolution is manual state overrides for now.
-- **Real AeroAPI, Maps, custody-SMS, Resend integrations.** Interfaces and
-  stubs only, so flight details are typed in and drive time is a fixed
-  estimate. Auth OTP SMS already works — Supabase Auth owns it end-to-end and
-  its provider credentials live in the Supabase dashboard, not app env.
-- **The Inngest jobs' side effects.** All three functions query and log for
-  real; the messages they would send are stubs, blocked on the line above.
+- **AeroAPI (flight lookup).** Interface and stub only — flight details are
+  typed in or read off an uploaded ticket.
+- **Custody-event SMS.** The `Notifier` seam has the column; there is no
+  provider behind it. Auth OTP SMS is a different thing and already works —
+  Supabase Auth owns it end-to-end and its Twilio credentials live in the
+  Supabase dashboard, never in app env.
 - **Pickup-window capacity.** Windows deliberately accept unlimited bookings.
   Re-introducing seat limits would need both a schema and a concurrency story.
+  `trucks.reserved_spaces` exists, is editable, and is **not yet enforced**.
 - **Dynamic pricing.** The lead-time curve is a configurable placeholder; the
   seam it will replace is `resolveLeadTimeMultiplier` in the pricing engine.
+- **Route optimisation.** The agent's day is ordered by scheduled time, never
+  by geography — a route optimiser that reorders stops to save a mile would
+  break the promise the customer's window is.
 - **React Native.**
-- **Vercel deploy config** beyond the repo being deploy-ready.
 
 Previously listed here and now **shipped**: staff auth (invite-only
 agent/admin accounts), the customer session threaded through the booking flow,
-and ticket-PDF extraction.
+ticket-PDF extraction, **Resend email** (ten templates), **Google Places and
+Routes** (address autocomplete and traffic-aware ETAs, both server-side),
+**map rendering** (MapLibre over OpenFreeMap — no key, no vendor), **Web
+Push**, **Sentry**, the **realtime signal layer**, the driver/pickup half of
+the lifecycle, and the **Vercel prod/dev split**. The Inngest functions all do
+real work — sixteen of them, listed above.

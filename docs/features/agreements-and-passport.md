@@ -1,7 +1,8 @@
 # Booking agreements + passport verification
 
 > **The identity gate: what a customer must agree to, and what an agent must
-> confirm, before Koolee takes custody of a bag.** Related:
+> confirm, before Koolee takes custody of a bag.** Baseline: `dev` @ `5db21a4`.
+> ← [Features index](README.md) · Related:
 > [agent-visit.md](agent-visit.md) · [../MIGRATIONS.md](../MIGRATIONS.md) ·
 > [../../PROJECT-STATUS.md](../../PROJECT-STATUS.md)
 

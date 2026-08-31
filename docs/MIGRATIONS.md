@@ -1,7 +1,7 @@
 # Migrations
 
 > **How schema change works in this repo, and how to not break production.**
-> Baseline: `dev` @ `2fe3a2b`. Related: [ENVIRONMENT.md](ENVIRONMENT.md) ·
+> Baseline: `dev` @ `5db21a4`. Related: [ENVIRONMENT.md](ENVIRONMENT.md) ·
 > [SCRIPTS.md](SCRIPTS.md) · [packages/db/README.md](../packages/db/README.md)
 
 ---
@@ -190,6 +190,21 @@ roles that browser-side `supabase-js` uses for **Realtime and Storage**.
   local had it **off** — meaning local was the _less_ safe environment and no
   test could catch a client-side read that hosted would refuse. `0016` closes
   that split.
+- `0030`/`0031` — `booking_signals`, the realtime doorbell, and the third
+  instance of this same bug class. `0030` shipped a correct policy, a correct
+  SECURITY DEFINER predicate (`public.can_watch_booking`), `REPLICA IDENTITY
+  FULL` and publication membership — and **no browser received a single
+  event**, because `authenticated` had never been granted `SELECT` on the
+  table. **A policy narrows access; it cannot widen it.** `0031` is the one
+  missing `GRANT`. Found by driving two browsers side by side, not by a test:
+  the integration tier runs on the direct connection, where RLS _and_ GRANTs
+  are equally irrelevant.
+- `0032` — `push_subscriptions` deliberately gets **no policy and no grant**.
+  `0016`'s `ensure_rls` event trigger switches RLS on for anything created in
+  `public`, so the table lands RLS-enabled with zero policies, which denies
+  `anon` and `authenticated` outright. That is the correct posture for a
+  server-only table: subscribe/unsubscribe go through authenticated Server
+  Actions on the pooled connection, and no browser ever queries it.
 
 Practical consequences:
 
@@ -197,6 +212,20 @@ Practical consequences:
   path already bypasses RLS. It is a bug only if a browser needs the data.
 - Adding an authorization check means adding it to a `@koolee/core` service.
   Adding a policy instead will silently do nothing for server reads.
+- **A policy is not a grant.** If a browser must read a table, the migration
+  needs `GRANT SELECT … TO authenticated` _and_ a policy. Supabase's default
+  privileges usually supply the grant on hosted (PROJECT-STATUS §3.1 counts 154
+  such grants per role) and the local stack does not — exactly the
+  local-vs-hosted split `0016` exists to stop repeating — so state the grant
+  rather than hoping an environment supplies it.
+- **Never grant `anon`.** A signed-out session has no `auth.uid()` and every
+  predicate here refuses it anyway, but a grant nobody needs is a grant
+  somebody eventually leans on.
+- ℹ️ `custody_events` has carried the incomplete shape since `0001`: RLS on,
+  two policies, in the publication, **no `SELECT` grant** — so its subscription
+  has never been able to deliver either. Nothing subscribes to it (the customer
+  timeline is server-rendered), so `0031` deliberately did **not** widen it.
+  Recorded so the next person does not rediscover it.
 
 ---
 
@@ -221,6 +250,23 @@ Practical consequences:
 - `slots` is **legacy** and kept only because pre-cutover bookings point at it.
   `slots.capacity` / `booked_count` are dead weight on a dead table. Do not
   build on it — pickup windows are virtual.
+- `push_subscriptions.endpoint` is unique **on its own**, not
+  `(user_id, endpoint)`. An endpoint identifies one browser install globally,
+  so subscribe is an upsert on `endpoint` that overwrites `user_id`: when a
+  device changes hands the row **moves** to the new person instead of
+  duplicating. `(user_id, endpoint)` would have permitted exactly the duplicate
+  that keeps notifying a previous owner about a booking that is no longer
+  theirs.
+- `bookings` carries **its own pickup address** (`pickup_line1…pickup_place_id`,
+  `0033`). `pickup_address_id` is provenance only — it says which saved address
+  the booking was made from and goes `NULL` when the customer deletes it. Every
+  reader takes the address off the booking; joining `addresses` is a bug.
+- **The nullable → backfill → constrain pattern.** Adding a `NOT NULL` column
+  with no default to a populated table fails outright, and a `DEFAULT ''` would
+  quietly write empty values onto real rows. Add nullable, `UPDATE` from the
+  existing source, then `SET NOT NULL` — all in the one transaction, so a
+  backfill that misses a row aborts rather than half-applies. Used by `0014`,
+  `0021`, `0028` and `0033`; reach for it every time.
 
 ---
 
@@ -248,6 +294,10 @@ Practical consequences:
 | 0026–0027 |                          | 2026-08-29 | Buckets declared by migration; the private `avatars` bucket           |
 | 0028      | `geo_zip_centroids`      | 2026-08-29 | **Koolee's first coordinates**: `zip_centroids` (837 US-Census rows), `airports.lat/lng` NOT NULL, and a backfill of `addresses.lat/lng` |
 | 0029      | `driver_fleet_and_shifts`| 2026-08-29 | `trucks`, `driver_shifts`, `driver_positions`, `staff_members.can_drive`, `pickup_tasks.driver_shift_id` — **and DROPs `drivers`, `routes`, `agents`** |
+| 0030      | `booking_signals`        | 2026-08-29 | The realtime **doorbell** table + `custody_events` AFTER INSERT trigger, `public.can_watch_booking`, `REPLICA IDENTITY FULL`, publication membership |
+| 0031      | `booking_signals_grant`  | 2026-08-30 | The one `GRANT SELECT … TO authenticated` without which `0030`'s policy delivered nothing (§6) |
+| 0032      | `push_subscriptions`     | 2026-08-30 | Web Push routing rows — unique on `endpoint` alone; no policy and no grant, by design |
+| 0033      | `military_liz_osborn`    | 2026-08-30 | **The booking carries its own doorstep**: eight `pickup_*` columns backfilled from `addresses`, then constrained; `pickup_address_id` demoted to nullable provenance (`ON DELETE set null`). ⚠️ **The CONTRACT rode the same migration as the expand** — the four `SET NOT NULL`s. Not backward-compatible in either direction; see §9.5 |
 
 ⚠️ **`0029` can fail on apply, by design — and that is the safe outcome.** It
 drops three tables that shipped in `0000_init` and were never used, and it does
@@ -263,6 +313,21 @@ what; do not force it through. The drops run in FK order (routes → drivers →
 agents) with **no `CASCADE`** — Drizzle generated `CASCADE` and it was removed,
 because it would silently take dependents with it and the whole claim is that
 there are none.
+
+⚠️ **`0033` rewrites every `bookings` row.** Eight `ADD COLUMN`s (cheap —
+nullable, no default, metadata-only since PG 11), then one `UPDATE … FROM
+addresses` touching every booking, then four `SET NOT NULL`s that each scan the
+table. It holds `ACCESS EXCLUSIVE` on `bookings` for the whole transaction —
+milliseconds at present volumes, and the ordinary rule if that ever changes:
+backfill in batches out-of-band first, so the in-transaction `UPDATE` finds
+nothing to do.
+
+The migration also **changes what reads are correct**. After it, the pickup
+address on a booking is `bookings.pickup_*`, and `pickup_address_id` is
+provenance that can be `NULL`. Any query that joins `addresses` to render a
+booking's doorstep is now wrong and will start returning nothing the first time
+a customer deletes a saved address — which is precisely the deletion this
+migration exists to permit.
 
 ℹ️ **`0028` reports what it backfilled**, and a gap is not a failure:
 
@@ -398,6 +463,41 @@ for a moment, old code may run against the new schema or new code against the
 old. A migration the currently-deployed code cannot survive (dropping or
 renaming something still read) must NOT ride this workflow — do a manual,
 sequenced deploy instead (§9), and say so in the PR.
+
+#### `0033` broke this, and rode the workflow anyway
+
+`0033_military_liz_osborn` is **not backward-compatible**, and it merged to
+`dev` through this workflow like any other migration. Nothing on this page said
+so, which left a reader to assume — reasonably — that every migration in this
+repo is expand-safe. It is the one that is not.
+
+**What it did, in one migration:** added eight `pickup_*` columns to `bookings`
+(expand), backfilled them from `addresses` (migrate), then set four of them
+`NOT NULL` (**contract**). That last step is a contract, and it shipped in the
+same step as the expand.
+
+**Neither order is clean**, which is what makes it different from an ordinary
+expand:
+
+| Order                                     | What breaks                                                                                                                  |
+| ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| **Migration first**, old code still serving | Old `createBooking` omits `pickup_line1` and the rest → **`NOT NULL` violation → every new booking fails**                   |
+| **Code first**, migration not yet applied   | New code reads and writes columns that do not exist → **booking reads and writes fail**                                      |
+
+So there is a window either way, and it lasts **as long as the Vercel build**.
+On `dev` that was harmless — no traffic. On `main` the identical merge is a
+**booking-creation outage of the same length**.
+
+The expand-safe version would have been two migrations across two deploys: add
+nullable and backfill, deploy code that writes both old and new, then constrain
+in a later migration once nothing writes the old shape. That is the discipline;
+`0033` skipped the middle step.
+
+🧭 **The rule going forward.** A migration that contracts in the same step as it
+expands — `SET NOT NULL`, a new `CHECK` or `UNIQUE` on existing data, a drop, a
+rename — **must be called out in the PR and sequenced manually per §9.** It must
+not ride the automatic workflow on `main`. Deciding to take the window is
+allowed; discovering it afterwards is not.
 
 ---
 

@@ -6,7 +6,7 @@
 > [PROJECT-STATUS.md](../PROJECT-STATUS.md). For _how to run it_, read
 > [README.md](../README.md).
 >
-> Baseline: `dev` @ `ad65272`.
+> Baseline: `dev` @ `5db21a4`.
 
 ## Chapters
 
@@ -54,6 +54,16 @@ enforced across marketing, UI, SMS and email ([README §Copy rules](../README.md
 | Agreement acceptance  | `agreement_acceptances`              | Append-only evidence that a named person accepted a specific version for a specific booking, with whatever the request carried (`user agent`, `ip`) and nothing invented. UNIQUE `(booking_id, agreement_version_id)` makes re-accepting a no-op. |
 | Passport verification | `passport_verifications`             | One per booking. A private-bucket photo PATH and three statuses — and **nothing about the document**: no number, name, DOB, nationality or MRZ, ever. The row has to be worthless to anyone who can read it.                                      |
 | Waitlist signup       | `waitlist_signups`                   | One (email, ZIP) pair — "this person wants service in this zone." Unique together; `notified_at` stamps the one promised "you're covered" email.                                                                                                  |
+| Truck                 | `trucks`                             | A van, and how many bags it holds. `reserved_spaces` exists and is **not yet enforced**. |
+| Shift                 | `driver_shifts`                      | One person, in one truck, for one stretch of the day. Two partial unique indexes (`WHERE ended_at IS NULL`) make "one open shift per person, one per truck" true under concurrency. |
+| Driver position       | `driver_positions`                   | One **mutable** row per driver, overwritten every ~45s while a pickup is under way. Explicitly **not** chain of custody — a position is not evidence. |
+| Booking signal        | `booking_signals`                    | The realtime **doorbell**: one mutable row per booking, three columns, the only table a browser may read. A change says "something moved"; the payload is never rendered. |
+| Push subscription     | `push_subscriptions`                 | One row per (person, browser install). Unique on `endpoint` **alone**, so a device that changes hands moves to its new owner instead of notifying the old one. |
+| Agent zone            | `agent_zones`                        | Which ZIPs an agent covers — what auto-assign picks from. |
+| ZIP centroid          | `zip_centroids`                      | 837 US-Census ZIP → coordinate rows. Covers a **wider** area than coverage does, so an out-of-zone driver still resolves to a position. |
+| Pricing rule          | `pricing_rules`                      | The active price. Exactly one may be active (`0020`), and it is edited at the admin console, never in SQL. |
+| Ticket upload         | `ticket_uploads`                     | A customer's uploaded PDF and what extraction read from it. Feeds a **quarantined** prefill, never a booking field. |
+| OTP send log          | `otp_send_log`                       | Throttle rows keyed by a **hashed** destination (`OTP_LOG_HMAC_KEY`) — the log must be worthless to anyone who can read it. |
 
 **The lifecycle.** Ten booking statuses, and the legal moves between them are
 defined in exactly one place — [state-machine.ts](../packages/core/src/booking/state-machine.ts).
@@ -161,6 +171,11 @@ one file per concern, re-exported through `index.ts`:
 | `agreements.ts`  | `agreement_versions`, `agreement_acceptances`         |
 | `passport.ts`    | `passport_verifications`                              |
 | `waitlist.ts`    | `waitlist_signups`                                    |
+| `zones.ts`       | `agent_zones` _(ZIP coverage auto-assign picks from)_ |
+
+Four files in that directory hold no table: `columns.ts` (the shared column
+builders — `timestamptz`, `primaryId`, `createdAt`, `updatedAt`), `enums.ts`,
+`relations.ts`, and the `index.ts` barrel.
 
 **Three tables were dropped, not renamed.** `agents`, `drivers` and `routes`
 shipped in `0000_init` and were never used by anything — zero rows in every
@@ -225,6 +240,13 @@ booking_id`, migration `0025`): the version a booking accepts pins for the
   and for the same reason: it is evidence that a named person agreed to
   specific terms at a specific instant, and there is no such thing as
   correcting that. A change of terms is a new version and a new acceptance.
+- **A booking carries its own pickup address** (`0033`). Eight `pickup_*`
+  columns are snapshotted onto `bookings` at creation; `pickup_address_id` is
+  demoted to provenance and goes `NULL` when the customer deletes the saved
+  address. This exists so an address CAN be deleted — before it, a saved
+  address was permanent because a booking depended on it. Every reader takes
+  the doorstep off the booking; a join to `addresses` is a bug that will look
+  fine until the first deletion.
 - `driver_shifts` carries TWO partial unique indexes (`WHERE ended_at IS NULL`)
   — one open shift per person, one per truck. They are the only thing between
   two taps on "Start shift" and two people dispatched to the same van;
@@ -448,10 +470,31 @@ copy rules pinned by tests.
 mirrors `Notifier` exactly — interface, `ConsolePushSender` default,
 `RecordingPushSender` for tests. Unlike the notifier it is passed as an
 INSTANCE rather than a `{ kind }` config, for the same reason the Inngest
-emitter is: the real one
-([apps/web/src/lib/web-push-sender.ts](../apps/web/src/lib/web-push-sender.ts))
-needs the `web-push` library and three VAPID values, and core depends on
-neither. It NEVER throws — every caller is an Inngest step whose email is the
+emitter is: the real one needs three VAPID values, which are environment.
+
+⚠️ **The real sender is `@koolee/core/web-push`, a SUBPATH export, and it is
+deliberately not in the package barrel**
+([notifications/web-push.ts](../packages/core/src/notifications/web-push.ts)).
+`web-push` is a Node-only crypto library and anything reachable from
+`src/index.ts` can end up in a client bundle. Import it from an app's
+server-only `lib/core.ts` and nowhere else.
+
+It lived in `apps/web` first, and that cost a real bug worth remembering: the
+agent and admin apps then had **no** real sender, silently fell back to
+`ConsolePushSender` — which logs and **reports success** — and their "send me a
+test notification" button cheerfully asked "did you see it?" about a
+notification that had never been sent. One implementation, three consumers, is
+the fix. Core still reads no environment; the three VAPID values arrive as
+arguments.
+
+The library does two things it would be reckless to hand-roll: it signs the
+VAPID JWT that authenticates Koolee to the push service (FCM, Mozilla autopush,
+APNs), and it encrypts the payload with AES128GCM against the subscription's own
+keys, so the push service relays ciphertext it cannot read. TTL is 300s — a task
+assignment is still worth showing five minutes late; an hour later it is worse
+than nothing.
+
+It NEVER throws — every caller is an Inngest step whose email is the
 real notification — prunes only on 404/410 (a 5xx is a provider having a bad
 afternoon, and pruning on it would unsubscribe people silently), and sets
 VAPID details per send rather than at module scope, because that is global
@@ -746,6 +789,44 @@ pickup step now offers "update quote to <new ZIP>" or "use a different
 address", and `createBooking` takes a **required** `quotedZip` and refuses a
 mismatch with `QuoteZipMismatchError`.
 
+**The address field autocompletes, and never gates.**
+[address-autocomplete.tsx](../apps/web/src/components/address-autocomplete.tsx)
+holds only what is specific to this field — debouncing, the Places session
+token, the fetch, and turning a chosen suggestion into the five structured
+fields the form already had. The list behaviour (open/closed, arrow keys, ARIA,
+dismissal) is `AutocompleteField` in `@koolee/ui`.
+
+⚠️ Every failure path — no key in this environment (the route answers `204`), a
+network error, a suggestion whose details come back incomplete — leaves the
+customer with exactly the text input they had before, and the form submits it.
+**Nothing about the address step depends on Google being up.**
+
+Two billing details are load-bearing, and both were bugs first:
+
+- **One session token per typing session.** Minted client-side, sent with every
+  suggest call and with the details call that ends it, then discarded — Google
+  bills that as one autocomplete plus one details request instead of one per
+  keystroke. A new token is minted after each selection, because the session is
+  over.
+- **Nothing is searched until somebody types.** The field is frequently mounted
+  with a value already in it, and searching on mount billed a Places call per
+  mount — ten expands of one saved address was ten identical billed
+  autocompletes nobody ever saw.
+
+**A prefilled field is never left unexplained.**
+[ticket-prefill-copy.ts](../apps/web/src/lib/ticket-prefill-copy.ts) writes the
+sentence above a ticket-filled review form. A round trip has two legs and we
+picked one; a ticket out of SFO gets no airport at all — and before this both
+cases looked identical to the customer: a form that had simply decided
+something, with the airport dropdown sitting on its "JFK" default as though they
+had chosen it.
+
+**`/book/processing` makes no claim about the outcome.** It is where a payment
+lands when Stripe is still settling (`processing`), or when the status could not
+be checked just now. "Check again" re-runs `/book/return`'s server-side
+re-check, **which is the only authority**; the draft cookie is untouched, so a
+failure can still retry the pay step with everything intact.
+
 **The window step** ([slot/page.tsx](../apps/web/src/app/book/slot/page.tsx))
 calls `listBookableWindows`, which returns each window already priced through
 the real engine. It renders a grid of time+price tiles grouped by airport-local
@@ -771,16 +852,56 @@ available", a staffing problem described to the customer as theirs); and, once
 chosen, the driver, their distance, an updating ETA and a five-step progress
 track.
 
-**Live tracking is a 30-second `router.refresh()`**, and that is the whole
-mechanism — the page is `force-dynamic`, so a refresh re-runs the server
-component and brings back a fresh position. No socket, no subscription, no
-client fetch. `CutoffCountdown` set the precedent for an interval on this page;
-the difference is that one re-renders a known instant and this one re-fetches.
+**Live-ness belongs to the page, not to one card.**
+[TripLive](../apps/web/src/components/trip-live.tsx) is a bare component that
+renders nothing: it subscribes with `useBookingSignal` and calls
+`router.refresh()`. Because the page is `force-dynamic`, that re-runs the whole
+server component and everything comes back fresh — timeline, agreement and
+passport cards, driver shortlist, ETA. **Nothing from the realtime payload is
+read**, which is the rule that keeps authorization in core (Ch.3,
+[realtime-signals.md](features/realtime-signals.md)).
 
-**There is deliberately no map.** A map means a third-party tile host inside a
-page that renders a private address, a library in the bundle, and a person's
-live position drawn at street resolution. A distance and an updating ETA answer
-the actual question — "how long until somebody knocks" — with none of that.
+It was an interval inside `DriverTracking` first, which meant the page only went
+live once a driver had been chosen — an agent sealing bags on the doorstep
+changed nothing on the screen the customer was watching. Interval polling
+remains the fallback, and it is what the trips **list** runs on, since it has no
+single booking to watch.
+
+A deliberately short set of stages also raises a toast — sealed/choose a driver,
+in transit, delivered, exception. A silent refresh is right for most changes; a
+toast is for the two cases where the page has grown something that needs the
+customer, or where staying quiet would be alarming.
+
+**There is a map now**, and the note here used to say there deliberately was
+not: "a distance and an updating ETA answer the actual question — how long until
+somebody knocks". That was half right. The other question somebody sitting with
+sealed bags is asking is **"is anything actually happening"**, and a number that
+changes every 45 seconds answers it worse than a pin that moves.
+
+[`LiveMap`](../packages/ui/src/components/live-map.tsx) is **MapLibre GL over
+OpenFreeMap** vector tiles — no key, no account, no rate limit, attribution
+automatic. Explicitly not Google Maps JS: that is a separate SKU from the Places
+and Routes calls this product already makes (Dynamic Maps bills per map *load*
+past 10,000/month) and it needs a browser-side referrer-restricted key, which is
+a key anybody can read out of the bundle and spend. Today every Google key in
+this repo is server-only, and that is worth keeping true. Swapping tile hosts
+later is the `styleUrl` prop — one string, not a rewrite.
+
+⚠️ **The map is never a gate.** It mounts lazily, and every failure — tile host
+down, no WebGL, a browser that refuses the canvas — leaves the driver list and
+the ETA beneath it untouched. Choosing a driver and watching one arrive depend
+on nothing rendering.
+
+**Choosing is still a list decision.** Pins are a second route to the same four
+cards (click a pin, its card highlights and scrolls into view), because a name, a
+van's remaining capacity and an ETA do not fit in a map pin — and those are what
+somebody actually chooses on. A driver whose phone has stopped reporting simply
+has no pin and keeps their card.
+
+⚠️ **`maplibre-gl` 6 is ESM-only and exports no default.** Import
+`{ Map as MapLibreMap, Marker, … }` by name; `import maplibregl from
+"maplibre-gl"` type-errors, and under a bundler that papers over it you get
+`undefined.Map is not a function` at runtime.
 
 ---
 
@@ -890,8 +1011,52 @@ Detail: [payments-lifecycle.md](../apps/web/docs/payments-lifecycle.md).
 ## Chapter 9 — Agent PWA
 
 **What it is:** the field app an agent uses at the customer's door. Installable,
-with an offline fallback page. Routes are few on purpose — `/` (today's tasks),
-`/tasks`, `/tasks/[taskId]`, `/scan`, plus auth.
+with an offline fallback page. Routes are few on purpose — `/` (today, as a
+route), `/tasks`, `/tasks/[taskId]`, `/account`, plus auth.
+
+### The day is a route, not a list
+
+The single most important thing to understand about this app is that **the two
+task tables are not what the driver sees.** `verification_tasks` and
+`pickup_tasks` stay exactly as they are in the database; the grouping into one
+**job** per booking happens in presentation, in
+[agent/src/lib/job.ts](../apps/agent/src/lib/job.ts).
+
+The reason is a phone screen. Rendered as two rows, the same customer, the same
+window and the same address appeared twice, three lines apart. A driver does not
+experience "a verification task and a pickup task" — they experience one trip to
+one door with two things to do there: **Verify & seal** _at the door_, then
+**Collect & deliver** _to the bag drop_. Because the grouping is presentational,
+it stays reversible the day those two halves are assigned to different people.
+
+On top of that, [journey-list.tsx](../apps/agent/src/components/job/journey-list.tsx)
+renders the day as **one connected rail with exactly one open stop**. What it
+replaced was two headed sections ("Up next", "Later today") of standalone cards,
+where every card looked equally like a starting point and the sequence — the
+most useful fact about a driver's day — had to be reconstructed from four
+timestamps. One rail makes order structural; one open stop draws the distinction
+the old layout could not: _where I am_ versus _what is after this_.
+
+🧭 **Stops are ordered by scheduled time, never by geography.** The customer
+bought a window, and a route optimiser that reorders stops to save a mile
+quietly breaks the promise that window is. Optimisation is deferred (P17); when
+it lands it must reason about windows, and `JourneyList` will render whatever
+order it produces without changing.
+
+⚠️ **Overdue stops LEAD the route rather than being hidden**, and they are
+marked as late — because a driver reading a rail top to bottom would otherwise
+take the first row as "next" instead of "already missed".
+
+**Navigate is what starts a leg.**
+[navigate-action.tsx](../apps/agent/src/components/job/navigate-action.tsx) is a
+plain `<a target="_blank">`, not a button that navigates: the href is real, so
+the browser opens the maps app synchronously from a genuine user gesture, immune
+to popup blocking and to a dead kerbside signal. The server action that marks
+the pickup as under way is fired and **deliberately not awaited** — awaiting it
+would put a round-trip between the driver's thumb and their map. `startPickupTravel`
+is idempotent in core, so the double-fire this permits (tap Navigate, then tap
+"Set off") is a no-op the second time. **The bookkeeping waits, never the
+driver.**
 
 **Task-scoped authorization.** An agent is not a role with broad read access;
 they can see exactly the tasks assigned to them. `getAssignedTask` carries the
@@ -958,6 +1123,31 @@ an error — a non-blocking banner says the customer will not see them coming,
 the pings stop, and everything else works. Nothing written here is chain of
 custody.
 
+**The number to call, and how far away the door is.** Two additions that both
+come down to "the driver had less information than the customer did".
+
+- [door-contact.ts](../packages/core/src/services/door-contact.ts) resolves the
+  one number the person at the door can be reached on. The app used to show a
+  disabled "No number" button on most jobs, and that was not a bug — it read
+  `bookings.contact_phone`, which is only ever set for **email-only** customers
+  (the funnel asks for a door number precisely when it has no verified phone).
+  Every phone-OTP customer had their number on `users.phone`, deliberately never
+  selected. That was the wrong call: a driver outside a building with no buzzer
+  answer has exactly one useful action, and withholding the number strands both
+  of them into a support call that reads it out anyway. **One field, and nothing
+  else** — email and the rest of the user row stay unselected, and the number
+  reaches only the assignee of a live task on that booking, the same
+  relationship that already grants them the address, the name and the face. The
+  booking's own `contact_phone` wins when present: it was typed *for this
+  pickup* and may be a hotel desk rather than the traveller.
+- [staff-travel.ts](../packages/core/src/services/staff-travel.ts) gives the
+  doorstep card a distance and an ETA, off the driver's **own last GPS ping**.
+  The customer's page has had both since the driver-selection slice; the person
+  actually driving had neither. Nothing here is load-bearing: null is an
+  ordinary answer (location off, no fix yet, an address without coordinates)
+  and every caller renders nothing rather than a placeholder. It never throws —
+  a driver standing at a door must not meet a 500 because a routing API is down.
+
 **The task list carries its bookings** (2026-08-16). `listAssignedTasks`
 returns `{ task, tz, booking }` — the `booking` half is a `TaskBookingContext`
 (pax, flight, airport, departure, bag count, pickup street/city) joined in the
@@ -972,17 +1162,49 @@ Detail: [verification-visit.md](../apps/agent/docs/verification-visit.md).
 
 ## Chapter 10 — Admin ops console
 
+**The information architecture is one file.**
+[components/console/nav.ts](../apps/admin/src/components/console/nav.ts) is the
+only place that knows what sections exist and how they group, and everything
+else — the rail, the breadcrumb trail, the badge counts — derives from it.
+
+Until 2026-08-29 these were seven flat links in the shared `AppHeader`. Two
+structural problems, not cosmetic ones: a header has no room to grow past about
+seven items, and a flat list hides that **"what am I doing today" (Operations)
+and "how is this console configured" (Configuration) are different errands an
+operator is on at different times.** The rail stays admin-only on purpose —
+[DESIGN.md](../packages/ui/DESIGN.md) promotes a pattern into the shared package
+when two apps repeat it, and neither web (two dashboard links) nor agent (a tab
+bar) has a rail's worth of navigation.
+
+`resolveConsoleRoute` resolves a pathname by **longest prefix**, so
+`/bookings/<id>` lands under Bookings rather than under Overview, whose `/`
+prefixes everything. Unknown paths return null and the chrome renders without a
+trail rather than guessing.
+
 **Pages**, each a server component + an `actions.ts` + a client form file:
 
-| Route         | What it does                                                                                                                                                                                                                                                                        |
-| ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `/`           | Dashboard: today's bookings by status, unassigned count, **sealed-with-no-driver count**, open exceptions — all real queries                                                                                                                                                        |
-| `/bookings`   | Dispatch board: filter by status/airport/day, assign an agent, see at-risk bookings. Since 2026-08-23 assignment is automatic on `paid` (`autoAssignOnPaid`); the board's Assign button is the manual override, and an uncovered ZIP still falls through to it via the at-risk flag |
-| `/shifts`     | Who is out driving, in what, with how many bags; force-end with a required reason; grant or revoke `can_drive`                                                                                                                                                                       |
-| `/blocks`     | Window blackouts — the ops lever over what customers can book                                                                                                                                                                                                                       |
-| `/exceptions` | Bookings in `exception`, with the three legal resolutions                                                                                                                                                                                                                           |
-| `/trucks`     | The fleet: name, bag capacity, active toggle. `reserved_spaces` is editable and labelled **not yet enforced**                                                                                                                                                                        |
-| `/staff`      | Invite / list / deactivate agents and admins                                                                                                                                                                                                                                        |
+| Route              | Group  | What it does                                                                                                                                                                                                                                                                        |
+| ------------------ | ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/`                | Ops    | Dashboard: today's bookings by status, unassigned count, **sealed-with-no-driver count**, open exceptions — all real queries                                                                                                                                                        |
+| `/bookings`        | Ops    | Dispatch board: filter by status/airport/day, assign an agent, see at-risk bookings. Since 2026-08-23 assignment is automatic on `paid` (`autoAssignOnPaid`); the board's Assign button is the manual override, and an uncovered ZIP still falls through to it via the at-risk flag |
+| `/bookings/[id]`   | Ops    | One booking end to end: custody trail, evidence photos, payment, the transition controls                                                                                                                                                                                             |
+| `/shifts`          | Ops    | Who is out driving, in what, with how many bags; force-end with a required reason; grant or revoke `can_drive`                                                                                                                                                                       |
+| `/exceptions`      | Ops    | Bookings in `exception`, with the three legal resolutions                                                                                                                                                                                                                            |
+| `/pricing`         | Config | The active pricing rule and the lead-time curve — **a path to change a price that is not SQL**                                                                                                                                                                                        |
+| `/cutoffs`         | Config | Airline bag-drop cutoffs per airline × airport × domestic/international. Every bookable window derives from these                                                                                                                                                                     |
+| `/blocks`          | Config | Window blackouts — the ops lever over what customers can book                                                                                                                                                                                                                        |
+| `/zones`           | Config | Agent ZIP coverage, which auto-assign picks from                                                                                                                                                                                                                                     |
+| `/agreements`      | Config | Versioned booking agreements. "Current" is derived, never a flag — see Ch.3                                                                                                                                                                                                          |
+| `/trucks`          | Config | The fleet: name, bag capacity, active toggle. `reserved_spaces` is editable and labelled **not yet enforced**                                                                                                                                                                         |
+| `/staff`           | Config | Invite / list / deactivate agents and admins                                                                                                                                                                                                                                         |
+| `/staff/[userId]`  | Config | One staff member: their history, their zones, `can_drive`                                                                                                                                                                                                                            |
+
+Plus `/login`, `/login/reset` and `/set-password` — staff auth, outside the rail.
+
+**Three badge counts ride on the rail**, and all three already existed on
+`OpsDashboard`: `unassignedToday`, `awaitingDriverToday`, `exceptionsOpen`. The
+rail surfaces numbers an operator previously had to navigate to the landing page
+to see; it computes none of its own.
 
 **Manual actions never edit history.** Every resolution is a state-machine
 transition plus an appended compensating custody event carrying a **required**
@@ -1299,7 +1521,16 @@ reproduce locally.
 runtime and reads the raw body — signature verification needs both, and the
 pins are asserted in a test so a refactor cannot quietly break them.
 
-**Deploy checklist**, in order:
+**Migrations apply themselves on merge.** A push to `main` or `dev` touching
+`packages/db/drizzle/**` runs
+[.github/workflows/migrate.yml](../.github/workflows/migrate.yml) against that
+branch's Supabase project and then asserts with `db:status` that the applied set
+matches the checkout by content hash. ⚠️ It runs **in parallel** with the Vercel
+deploy of the same push — safe only while migrations stay backward compatible
+(expand → deploy → contract). A migration the old code cannot run against needs
+a manual, sequenced deploy.
+
+**Deploy checklist**, in order — for first-time setup and recovery:
 
 1. Apply pending migrations to the hosted project over the direct connection.
    _Never take the migration state from prose — this file's included, which
@@ -1317,11 +1548,20 @@ pins are asserted in a test so a refactor cannot quietly break them.
 3. Set per-app env per the [README matrix](../README.md), including the
    Stripe webhook secret.
 4. Point the Stripe webhook endpoint at the deployed web app.
-5. Verify the boot assertions pass — a failed assertion is the intended
+5. `pnpm env:verify --app <app> --file <env>` — names only, never values,
+   against [scripts/env-manifest.json](../scripts/env-manifest.json).
+6. Verify the boot assertions pass — a failed assertion is the intended
    outcome of a missing secret, not a bug to work around.
+
+Going live is tracked step by step in
+[LAUNCH-CHECKLIST.md](LAUNCH-CHECKLIST.md), with the procedures in
+[runbooks/](runbooks/).
 
 Open items before a real launch are tracked in
 [pre-launch-security.md](../apps/web/docs/pre-launch-security.md) and
-[PROJECT-STATUS.md](../PROJECT-STATUS.md) (notably: real AeroAPI/Maps/SMS
-integrations). The Inngest jobs' side effects **shipped** in the
-dispatch/email slice — every function in the table above does real work.
+[PROJECT-STATUS.md](../PROJECT-STATUS.md). What is genuinely still stubbed is
+**AeroAPI** (flight lookup) and **custody-event SMS**; Google Places and Routes
+are real integrations behind the `/api/places` proxy and the `EtaEstimator`
+seam, and map rendering needs no vendor at all. The Inngest jobs' side effects
+**shipped** in the dispatch/email slice — every function in the table above does
+real work.

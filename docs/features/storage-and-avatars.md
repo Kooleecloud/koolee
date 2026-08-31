@@ -1,7 +1,7 @@
 # Storage buckets, and profile pictures
 
 > **Every object this product stores, where it lives, who may read it, and the
-> one place its limits are declared.** Baseline: `feat/storage-buckets-and-avatars`.
+> one place its limits are declared.** Baseline: `dev` @ `5db21a4`.
 >
 > For migration mechanics read [../MIGRATIONS.md](../MIGRATIONS.md). For the
 > passport photo's own rules read

@@ -7,9 +7,18 @@ identified during that work and initially deferred.
 **Status (2026-08-09):** items **1, 2, 3, 4, and 7 are implemented** on
 `feat/auth-close-out-parts-def` — each section below carries a `Resolved`
 line saying where. Their analyses are kept because they explain WHY the code
-is shaped the way it is. Items **5, 6, and 8 remain open**: they are
-launch-day dashboard/config/deploy verifications, not code, tracked as
-#24/#25/#43 in [PROJECT-STATUS.md](../../../PROJECT-STATUS.md).
+is shaped the way it is. Items **5 and 6 remain open**: they are launch-day
+dashboard/config verifications, not code, tracked as #24/#25 in
+[PROJECT-STATUS.md](../../../PROJECT-STATUS.md).
+
+**Item 8 is closed** — see its section for what replaced it.
+
+> ⚠️ **This file is no longer the launch checklist**, despite its own opening
+> line. The tracking instrument for going live is
+> [docs/LAUNCH-CHECKLIST.md](../../../docs/LAUNCH-CHECKLIST.md), with the
+> procedures in [docs/runbooks/](../../../docs/runbooks/). What is kept here is
+> the _analysis_: why each of these controls is shaped the way it is.
+> Baseline: `dev` @ `5db21a4`.
 
 ## 1. Per-user throttle window is soft under concurrency (SMS-pumping vector)
 
@@ -243,30 +252,33 @@ grep -riE "TWILIO_|from ['\"]twilio" apps/ packages/ --include='*.ts' --include=
 
 — so the check stops flagging the comment it should be encouraging.
 
-## 8. Apply migration `0012_yummy_micromacro` to the hosted project
+## 8. Apply migration `0012_yummy_micromacro` to the hosted project — **CLOSED**
 
-Virtual pickup windows shipped with migration `0012`: it adds
-`bookings.pickup_window_start` / `pickup_window_end` / `price_breakdown`,
-`pricing_rules.lead_time_multipliers`, the `slot_blocks` table, and a
-backfill copying each legacy `slots` row's window onto its booking. It has
-been applied to the **LOCAL stack only**. Until it reaches the hosted
-project the funnel is broken from the window step onward —
-`listBookableWindows` reads `slot_blocks` and `lead_time_multipliers`, and
-`createBooking` inserts the window columns.
+> **Closed. Do not act on this section.** It is kept for the second trap
+> below, which is still real, and because the first trap has since been
+> INVERTED and someone reading the old text would do the wrong thing.
 
-Not a code item: nothing in the repo can detect the hosted schema, so this
-has to be run and verified by hand before deploy.
+Migrations no longer reach a hosted project by hand at all: a push to `main` or
+`dev` touching `packages/db/drizzle/**` applies them via
+[.github/workflows/migrate.yml](../../../.github/workflows/migrate.yml), then
+asserts with `db:status` that the applied set matches the checkout **by content
+hash**. `0012` has long since landed. See
+[docs/MIGRATIONS.md §9.5](../../../docs/MIGRATIONS.md).
 
-**Two traps, both about which database the command actually hits:**
+⚠️ **The first trap is now backwards.** This section used to say
+`packages/db/.env` points at the **hosted** project, so a bare `pnpm db:migrate`
+targets hosted. That was flipped on 2026-08-22, for exactly the reason the
+warning existed: both URLs now default to the **local** stack, and targeting
+hosted requires an explicit inline override, because shell env is captured
+before dotenv runs. Never take a migration-state or connection-target claim from
+prose — run `pnpm db:status` and read its `Target host:` line.
 
-- `packages/db/.env` points `DATABASE_URL` / `DIRECT_DATABASE_URL` at the
-  **hosted** project, so a bare `pnpm db:migrate` targets hosted and a bare
-  `pnpm seed` writes to hosted — the opposite of the usual expectation. Use
-  `pnpm seed:local` (it pins both URLs to 127.0.0.1:54322 before anything
-  reads the environment) or an explicit `DATABASE_URL` for anything meant
-  to stay local.
-- Migrating alone is not enough. `lead_time_multipliers` defaults to `'[]'`,
-  which prices **every** window at ×1 — no error, just silently flat
-  pricing. `pnpm seed` backfills the launch curve (≤10 h ×1.4, ≤16 h ×1.2,
-  ≤24 h ×1.1) onto an existing pre-cutover rule row; confirm the hosted
-  `pricing_rules` row carries it afterwards.
+**The second trap still stands, and it is not about migrations.**
+`pricing_rules.lead_time_multipliers` defaults to `'[]'`, which prices **every**
+window at ×1 — no error, just silently flat pricing. A migration alone does not
+fix that. On a brand-new project `pnpm seed` backfills the launch curve
+(≤10 h ×1.4, ≤16 h ×1.2, ≤24 h ×1.1); on a project already carrying real values
+the seed **refuses** without `SEED_ALLOW_HOSTED=1` precisely because it would
+overwrite tuned prices, and the curve is entered at the console's `/pricing`
+page instead. Either way: confirm the hosted `pricing_rules` row carries a
+non-empty curve before taking bookings.

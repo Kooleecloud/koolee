@@ -1,5 +1,8 @@
 # Ticket extraction — upload → review form → confirm
 
+Baseline: `dev` @ `5db21a4`. Funnel context:
+[docs/features/booking-funnel.md §9](../../../docs/features/booking-funnel.md).
+
 Shipped 2026-08-09 (overnight run 1, Phase 3). Rewritten 2026-08-29: the model
 no longer decides which leg matters — it transcribes every segment and
 `select-segment.ts` picks deterministically. Free by default, Claude-powered

@@ -1,6 +1,6 @@
 # Koolee — Master Documentation Index
 
-> **The one page to navigate everything.** Baseline: `dev` @ `2fe3a2b`.
+> **The one page to navigate everything.** Baseline: `dev` @ `5db21a4`.
 >
 > Three ways in, pick whichever matches how you're thinking right now:
 >
@@ -89,7 +89,7 @@
 | App boots but a feature is silently missing    | [ENVIRONMENT §1 the contract](ENVIRONMENT.md#1-the-contract--read-this-first) · [§8](ENVIRONMENT.md#8-diagnosing-env-problems) |
 | Production refuses to boot with a list of vars | [ENVIRONMENT §4 boot gates](ENVIRONMENT.md#4-fail-closed-boot-gates) — **working as intended**                                 |
 | `prepared statement "s1" does not exist`       | [MIGRATIONS §3 two-connection rule](MIGRATIONS.md#3-the-two-connection-rule)                                                   |
-| Migration hit the wrong database               | [ENVIRONMENT §6](ENVIRONMENT.md#6--the-sharpest-edge-packagesdbenv-points-at-hosted)                                           |
+| Migration hit the wrong database               | [ENVIRONMENT §6](ENVIRONMENT.md#6-packagesdbenv-points-at-local--hosted-only-by-explicit-override)                                           |
 | A migration is never applied, with no error    | [MIGRATIONS §5 STRANDED](MIGRATIONS.md#5-pnpm-dbstatus--the-drift-report)                                                      |
 | Env var set but not visible in the browser     | [ENVIRONMENT §8](ENVIRONMENT.md#8-diagnosing-env-problems)                                                                     |
 | Local database in an unknown state             | [SCRIPTS §3](SCRIPTS.md#3-scriptstest-envsh--the-local-stack) (`pnpm local:reset`)                                             |
@@ -112,16 +112,36 @@
 
 | Doc                                | Answers                                                                         | Size        |
 | ---------------------------------- | ------------------------------------------------------------------------------- | ----------- |
-| [learning/](learning/)             | **Teaching track.** Nine numbered chapters, bottom-up, written to be re-entered | Ch.1 of 9   |
-| [ARCHITECTURE.md](ARCHITECTURE.md) | What is the system shape? Where does my change belong?                          | 9 sections  |
-| [features/](features/)             | How does capability X work, end to end?                                         | 6 docs      |
-| [ENVIRONMENT.md](ENVIRONMENT.md)   | What is this env var? Why did the app boot but the feature is missing?          | 8 sections  |
-| [MIGRATIONS.md](MIGRATIONS.md)     | Do I need a migration? How do I apply one safely?                               | 10 sections |
-| [SCRIPTS.md](SCRIPTS.md)           | What command do I run?                                                          | 7 sections  |
-| [TIME.md](TIME.md)                 | Instants, timezones, DST                                                        | —           |
-| [CODEBASE-MAP.md](CODEBASE-MAP.md) | The dense 13-chapter narrative reference                                        | 13 chapters |
+| [learning/](learning/)                     | **Teaching track.** Nine numbered chapters, bottom-up, written to be re-entered | Ch.1 of 9   |
+| [ARCHITECTURE.md](ARCHITECTURE.md)         | What is the system shape? Where does my change belong?                          | 9 sections  |
+| [features/](features/)                     | How does capability X work, end to end?                                         | 15 docs     |
+| [ENVIRONMENT.md](ENVIRONMENT.md)           | What is this env var? Why did the app boot but the feature is missing?          | 8 sections  |
+| [MIGRATIONS.md](MIGRATIONS.md)             | Do I need a migration? How do I apply one safely?                               | 10 sections |
+| [SCRIPTS.md](SCRIPTS.md)                   | What command do I run?                                                          | 8 sections  |
+| [TIME.md](TIME.md)                         | Instants, timezones, DST                                                        | 4 rules     |
+| [CODEBASE-MAP.md](CODEBASE-MAP.md)         | The dense 13-chapter narrative reference                                        | 13 chapters |
+| [LAUNCH-CHECKLIST.md](LAUNCH-CHECKLIST.md) | **The tracking instrument for going live.** What is done, what blocks a launch  | live        |
+| [runbooks/](runbooks/)                     | The procedures themselves: prod bring-up, the Stripe live flip, the rehearsal   | 3 runbooks  |
 
-**Elsewhere:** [../README.md](../README.md) (entry point) · [../PROJECT-STATUS.md](../PROJECT-STATUS.md) (**what shipped / what's next**) · [run-reports/](run-reports/) (build logs, validation + migration notes) · [../brand/BRAND.md](../brand/BRAND.md) · [../packages/db/README.md](../packages/db/README.md) · [../packages/ui/DESIGN.md](../packages/ui/DESIGN.md) · [../packages/core/docs/local-test-env.md](../packages/core/docs/local-test-env.md) · [../apps/web/docs/](../apps/web/docs/) · [../apps/admin/docs/](../apps/admin/docs/) · [../apps/agent/docs/](../apps/agent/docs/)
+### App- and package-level docs
+
+These sit next to the code they describe, and each goes deeper than the
+feature doc that links to it.
+
+| Doc                                                                          | Covers                                                             |
+| ---------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| [apps/web/docs/setup-auth.md](../apps/web/docs/setup-auth.md)                 | Which auth credential lives where, CAPTCHA, OTP-send safety        |
+| [apps/web/docs/payments-lifecycle.md](../apps/web/docs/payments-lifecycle.md) | Webhook → capture at pickup → refund on cancellation               |
+| [apps/web/docs/ticket-extraction.md](../apps/web/docs/ticket-extraction.md)   | Upload → review form → confirm, and the quarantined prefill rule   |
+| [apps/web/docs/pre-launch-security.md](../apps/web/docs/pre-launch-security.md) | The hardening items, which are closed and which are still open   |
+| [apps/agent/docs/verification-visit.md](../apps/agent/docs/verification-visit.md) | The visit flow, screen by screen                               |
+| [apps/admin/docs/ops-console.md](../apps/admin/docs/ops-console.md)           | The console's IA, every page, and the rails they run on            |
+| [apps/admin/docs/staff-auth.md](../apps/admin/docs/staff-auth.md)             | Invite-only staff sign-in for the agent and admin apps             |
+| [packages/db/README.md](../packages/db/README.md)                             | The two connections, the schema layout, the seed scripts           |
+| [packages/ui/DESIGN.md](../packages/ui/DESIGN.md)                             | The design contract — layering, tokens, when a pattern is promoted |
+| [packages/core/docs/local-test-env.md](../packages/core/docs/local-test-env.md) | One command up, one command down                                 |
+
+**Elsewhere:** [../README.md](../README.md) (entry point) · [../PROJECT-STATUS.md](../PROJECT-STATUS.md) (**what shipped / what's next**) · [run-reports/](run-reports/) (build logs, validation + migration notes — **historical, not maintained**) · [launch/](launch/) — [agreement-v2-draft.md](launch/agreement-v2-draft.md) (the body ops pastes at `/agreements`; **awaiting legal review**) and `env-sample-production.env` · [../brand/BRAND.md](../brand/BRAND.md)
 
 ---
 
@@ -156,7 +176,7 @@
   - [4.3 — `assertProductionBootConfig()` — agent & admin](ENVIRONMENT.md#43--assertproductionbootconfig--agent--admin)
   - [4.4 — Why builds still pass](ENVIRONMENT.md#44--why-builds-still-pass)
 - [5. Secrets that must NOT be in app env](ENVIRONMENT.md#5-secrets-that-must-not-be-in-app-env)
-- [6. ⚠️ The sharpest edge: `packages/db/.env` points at HOSTED](ENVIRONMENT.md#6--the-sharpest-edge-packagesdbenv-points-at-hosted)
+- [6. ⚠️ The sharpest edge: `packages/db/.env` points at HOSTED](ENVIRONMENT.md#6-packagesdbenv-points-at-local--hosted-only-by-explicit-override)
 - [7. Setting up from scratch](ENVIRONMENT.md#7-setting-up-from-scratch)
 - [8. Diagnosing env problems](ENVIRONMENT.md#8-diagnosing-env-problems)
 
@@ -223,7 +243,7 @@
 - [7. Creating the booking](features/booking-funnel.md#7-creating-the-booking)
   - [7.1 — `bookedFromTz`](features/booking-funnel.md#71--bookedfromtz)
 - [8. After payment](features/booking-funnel.md#8-after-payment)
-- [9. Ticket upload (partial)](features/booking-funnel.md#9-ticket-upload-partial)
+- [9. Ticket upload (partial)](features/booking-funnel.md#9-ticket-upload--and-the-door-it-now-owns)
 
 ### [Feature — Auth](features/auth.md)
 
@@ -280,7 +300,7 @@
 
 ### [Feature — Ops console](features/ops-console.md)
 
-- [1. The pages](features/ops-console.md#1-the-pages)
+- [1. The pages](features/ops-console.md#1-the-pages-and-the-two-errands-they-split-into)
 - [2. Manual actions never edit history](features/ops-console.md#2-manual-actions-never-edit-history)
 - [3. Blackouts matter more than they look](features/ops-console.md#3-blackouts-matter-more-than-they-look)
 - [4. The board reads the booking, not a join](features/ops-console.md#4-the-board-reads-the-booking-not-a-join)
@@ -293,11 +313,15 @@
 
 - [1. Where jobs live](features/jobs-and-notifications.md#1-where-jobs-live)
 - [2. The jobs](features/jobs-and-notifications.md#2-the-jobs)
-  - [2.1 — Pickup reminder](features/jobs-and-notifications.md#21--pickup-reminder)
-  - [2.2 — Cutoff-risk monitor](features/jobs-and-notifications.md#22--cutoff-risk-monitor)
-  - [2.3 — Agent no-show check](features/jobs-and-notifications.md#23--agent-no-show-check)
-  - [2.4 — Payment capture sweep](features/jobs-and-notifications.md#24--payment-capture-sweep)
-  - [2.5 — Abandoned-draft + anonymous-user GC](features/jobs-and-notifications.md#25--abandoned-draft--anonymous-user-gc)
+  - [2.0 — The events are actually emitted now](features/jobs-and-notifications.md#20--the-events-are-actually-emitted-now)
+  - [2.1 — Booking confirmation email](features/jobs-and-notifications.md#21--booking-confirmation-email)
+  - [2.2 — Pickup reminder](features/jobs-and-notifications.md#22--pickup-reminder)
+  - [2.3 — Exception ops-alert email](features/jobs-and-notifications.md#23--exception-ops-alert-email)
+  - [2.4 — Waitlist zone-opened sweep](features/jobs-and-notifications.md#24--waitlist-zone-opened-sweep)
+  - [2.5 — Cutoff-risk monitor](features/jobs-and-notifications.md#25--cutoff-risk-monitor)
+  - [2.6 — Agent no-show check](features/jobs-and-notifications.md#26--agent-no-show-check)
+  - [2.7 — Payment capture sweep](features/jobs-and-notifications.md#27--payment-capture-sweep)
+  - [2.8 — Abandoned-draft + anonymous-user GC](features/jobs-and-notifications.md#28--abandoned-draft--anonymous-user-gc)
 - [3. Manual trigger routes](features/jobs-and-notifications.md#3-manual-trigger-routes)
 - [4. Running jobs locally](features/jobs-and-notifications.md#4-running-jobs-locally)
 - [5. The notification seam](features/jobs-and-notifications.md#5-the-notification-seam)
@@ -305,6 +329,24 @@
   - [5.2 — Why the stub exists now](features/jobs-and-notifications.md#52--why-the-stub-exists-now)
 - [6. Email](features/jobs-and-notifications.md#6-email)
 - [7. What is genuinely not done](features/jobs-and-notifications.md#7-what-is-genuinely-not-done)
+
+### Also in [features/](features/) — not outlined here
+
+| Doc                                                                                    | Covers                                                                                            |
+| -------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| [realtime-signals.md](features/realtime-signals.md)                                     | The doorbell table, its one RLS policy, `useBookingSignal`, and why a payload is never rendered   |
+| [agreements-and-passport.md](features/agreements-and-passport.md)                       | Versioned booking agreements, manual passport verification, the visit identity gate               |
+| [notifications.md](features/notifications.md)                                           | The living notification matrix — in-app, email, push, and the parked SMS column                   |
+
+**Hosted-setup docs** are point-in-time ops runbooks: what a slice needed done
+by hand on the hosted project, in order, once. Kept as the record of what was
+applied — read them when reconstructing an environment, not as current design.
+
+- [f1-hosted-setup.md](features/f1-hosted-setup.md) — `ANTHROPIC_API_KEY` as a production requirement, Turnstile hostnames, turbo-cache cleanup. **No migrations**
+- [f2-hosted-setup.md](features/f2-hosted-setup.md) — two migrations, one dashboard check, no new env vars
+- [f3-hosted-setup.md](features/f3-hosted-setup.md) — migration `0032`, the VAPID keys, the enable-and-verify walkthrough
+- [agreements-and-passport-hosted-setup.md](features/agreements-and-passport-hosted-setup.md) — the agreements/passport tables and storage policies
+- [driver-and-pickup-hosted-setup.md](features/driver-and-pickup-hosted-setup.md) — trucks, shifts, `can_drive`, driver selection, the pickup run
 
 ### [Learning Ch.1 — Product & nouns](learning/01-product-and-nouns.md)
 

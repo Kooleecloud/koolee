@@ -1,7 +1,7 @@
 # Auth
 
 > Two entirely separate auth systems: **customers** (phone/email OTP, self-serve)
-> and **staff** (invite-only email/password). Baseline: `dev` @ `2fe3a2b`.
+> and **staff** (invite-only email/password). Baseline: `dev` @ `5db21a4`.
 > ← [Features index](README.md)
 >
 > Deeper detail: [setup-auth.md](../../apps/web/docs/setup-auth.md) ·
@@ -129,13 +129,34 @@ rejected after delivery starts working), and the Site URL. See
 
 ### 2.7 — Customer routes
 
-| Route                  | Role                                                   |
-| ---------------------- | ------------------------------------------------------ |
-| `/login`               | Phone/email OTP entry                                  |
-| `/auth/callback`       | Session exchange                                       |
-| `/book/verify`         | The funnel's auth gate                                 |
-| `/dashboard/profile`   | Account area — name, contact channels, saved addresses |
-| `/dashboard/addresses` | Redirects to `/dashboard/profile` (retired)            |
+| Route                   | Role                                                   |
+| ----------------------- | ------------------------------------------------------ |
+| `/login`                | Phone/email OTP entry                                  |
+| `/auth/callback`        | Session exchange                                       |
+| `/book/verify`          | The funnel's auth gate                                 |
+| `/dashboard/profile`    | Account area — name, contact channels, saved addresses |
+| `/dashboard/addresses`  | Redirects to `/dashboard/profile` (retired)            |
+| `/trips`, `/trips/[id]` | The customer's bookings — verified sessions only       |
+
+### 2.8 — `coming_soon` closes every account surface, at the edge
+
+`proxy.ts` holds two lists, and the order they are checked in is the point:
+
+```
+VERIFIED_ONLY        /trips, /dashboard        — needs a verified session
+COMING_SOON_CLOSED   /login, /trips, /dashboard — redirected home outright
+```
+
+⚠️ **The launch-mode gate is checked BEFORE the Supabase short-circuit**, so it
+holds even in an environment with no credentials configured at all. It is also
+written as a literal `process.env.NEXT_PUBLIC_LAUNCH_MODE` member expression so
+the Next compiler inlines it into the edge bundle — destructuring it would leave
+the gate reading `undefined` in production.
+
+Production runs `coming_soon` today, which is why flipping it arms several boot
+gates in one deploy ([ENVIRONMENT §4](../ENVIRONMENT.md#4-fail-closed-boot-gates),
+[LAUNCH-CHECKLIST.md](../LAUNCH-CHECKLIST.md)). While it is on, account creation
+is off and the marketing site plus a browsable funnel are all that is reachable.
 
 ---
 

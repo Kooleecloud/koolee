@@ -1,7 +1,7 @@
 # Booking funnel
 
 > The customer path from landing page to a `draft` booking with an authorized
-> payment. App: `apps/web` (`:3000`). Baseline: `dev` @ `2fe3a2b`.
+> payment. App: `apps/web` (`:3000`). Baseline: `dev` @ `5db21a4`.
 > ← [Features index](README.md)
 
 ---
@@ -98,6 +98,51 @@ than dead-ended. Since `feat/waitlist-persistence` they land in the
 `waitlist_signups` table via core's `recordWaitlistSignup` — one row per
 (email, zip) pair, idempotent on resubmit — shared with the marketing
 `/waitlist` page (`source` column tells them apart).
+
+### 3.1 — The address ZIP must be the ZIP that was quoted
+
+The funnel takes a ZIP on the **flight** step (coverage + price) and a full
+address two steps later, and for a while they were never reconciled: any covered
+ZIP was accepted and silently replaced the quoted one. That quietly changed two
+things — the `zip_centroids` coordinate every drive-time estimate starts from,
+and the `agent_zones` row that decides who is dispatched.
+
+The pickup step now offers **"update quote to `<new ZIP>`"** or **"use a
+different address"**, and `createBooking` takes a **required** `quotedZip`,
+refusing a mismatch with `QuoteZipMismatchError`. The form is UX; the core check
+is the rule — same shape as `assertInCoverage` above.
+
+### 3.2 — The street field autocompletes, and never gates
+
+[address-autocomplete.tsx](../../apps/web/src/components/address-autocomplete.tsx)
+holds only what is specific to this field — debouncing, the Places session
+token, the fetch, and turning a chosen suggestion into the five structured
+fields the form already had. The list behaviour (open/closed, arrow keys, ARIA,
+dismissal) is `AutocompleteField` in `@koolee/ui`.
+
+⚠️ **Assist, never gate.** Every failure path — no key in this environment (the
+route answers `204`), a network error, a suggestion whose details come back
+incomplete — leaves the customer with exactly the text input they had before,
+and the form submits it. Nothing about the address step depends on Google being
+up.
+
+Two billing details are load-bearing, and both were bugs first:
+
+- **One session token per typing session**, minted client-side, sent with every
+  suggest call and with the details call that ends it, then discarded. Google
+  bills that as one autocomplete plus one details request rather than one per
+  keystroke. A new token is minted after each selection, because the session is
+  over.
+- **Nothing is searched until somebody types.** The field is frequently mounted
+  with a value already in it, and searching on mount billed a Places call per
+  mount — ten expands of one saved address was ten identical billed
+  autocompletes nobody ever saw.
+
+🧭 The key never reaches the browser. `/api/places` exists precisely so this
+field can autocomplete against a **server-restricted**
+`GOOGLE_MAPS_SERVER_KEY` — see
+[ARCHITECTURE §6](../ARCHITECTURE.md#why-google-does-two-of-those-three-jobs-and-not-the-third)
+for why map rendering then had to go somewhere else entirely.
 
 ---
 
@@ -256,6 +301,44 @@ field, never the booking.
 through the state machine, driven by server-side reconciliation and webhooks.
 See [payments.md](payments.md).
 
+`/book/processing` deliberately **makes no claim about the outcome**. It is
+where a payment lands when Stripe is still settling (`processing`) or when the
+status could not be checked just now. Its "Check again" affordance re-runs
+`/book/return`'s server-side re-check, which is the only authority. The draft
+cookie is untouched, so a failure can still retry the pay step with everything
+intact.
+
+### 8.1 — The trip page goes live on its own
+
+[TripLive](../../apps/web/src/components/trip-live.tsx) renders nothing: it
+subscribes with `useBookingSignal` and calls `router.refresh()`. The page is
+`force-dynamic`, so that re-runs the whole server component — timeline,
+agreement and passport cards, driver shortlist, ETA all come back fresh.
+**Nothing from the realtime payload is read**; see
+[realtime-signals.md](realtime-signals.md).
+
+It was an interval inside the driver card first, which meant the page only went
+live once a driver had been chosen — an agent sealing bags on the doorstep
+changed nothing on the screen the customer was watching. **Live-ness belongs to
+the page, not to one card.** Interval polling remains the fallback, and it is
+what the trips *list* runs on, having no single booking to watch.
+
+A short set of stages also raises a toast — sealed/choose a driver, in transit,
+delivered, exception. A silent refresh is right for most changes; a toast is for
+the cases where the page has grown something that needs the customer, or where
+staying quiet would be alarming.
+
+**There is a map** ([`LiveMap`](../../packages/ui/src/components/live-map.tsx)),
+and the note here used to say there deliberately was not. That was half right: a
+distance and an ETA answer "how long until somebody knocks", but the other
+question somebody sitting with sealed bags is asking is **"is anything actually
+happening"** — and a number that changes every 45 seconds answers it worse than
+a pin that moves. MapLibre GL over OpenFreeMap tiles: no key, no account, no
+per-load billing, explicitly not Google's Maps JS. ⚠️ **It never gates** — a
+tile host down, or no WebGL, leaves the driver list and the ETA beneath it
+untouched. Choosing is still a list decision; pins are a second route to the
+same cards.
+
 ---
 
 ## 9. Ticket upload — and the door it now owns
@@ -327,6 +410,23 @@ ring on extracted fields, a one-click **swap** when the ticket has another
 NYC-departing leg, and a placeholder-plus-explanation when the origin is one we
 do not serve. The form is REMOUNTED on a seed key when the prefill changes —
 uncontrolled inputs keep their old `defaultValue` otherwise.
+
+### 9.2 — A prefilled field is never left unexplained
+
+[ticket-prefill-copy.ts](../../apps/web/src/lib/ticket-prefill-copy.ts) writes
+the sentence above a ticket-filled review form, and its whole point is that
+**no prefilled field is left without a reason**.
+
+A round trip has two legs and we picked one. A ticket out of SFO gets no airport
+at all. Before this, both cases looked identical to the customer: a form that
+had simply decided something, with the airport dropdown sitting on its "JFK"
+default as though they had chosen it.
+
+It is pure and string-only. `departureAtLocal` is a wall clock at its own
+airport with **no zone attached**, so it is formatted from its own digits rather
+than routed through a timezone-aware formatter that would have to invent one —
+the one place in this app where not using the formatters from
+[TIME.md](../TIME.md) is correct.
 
 Full pipeline, selection rules and the debug panel:
 [ticket-extraction.md](../../apps/web/docs/ticket-extraction.md).

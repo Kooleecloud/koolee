@@ -1,5 +1,9 @@
 # Time and timezones
 
+> Baseline: `dev` @ `5db21a4`. Related: [ARCHITECTURE.md](ARCHITECTURE.md) ·
+> [features/booking-funnel.md](features/booking-funnel.md) ·
+> [features/ops-console.md](features/ops-console.md)
+
 Four rules. If you only read one thing, read the first two.
 
 ---
@@ -159,6 +163,23 @@ bare `Intl.DateTimeFormat`, and two-argument date-fns `format()` — all three
 silently fall back to the system zone, which is UTC in production, so the bug
 they cause has no error attached to it.
 
-Exempt: `packages/core/src/slots/cutoff.ts` (the formatters themselves) and two
-call sites with inline `eslint-disable` comments explaining why viewer-local is
-correct there.
+The rule is defined once, in `restrictedTimeFormatting`, and turned off in
+exactly two ways:
+
+- **File-scoped**, in `packages/core/eslint.config.mjs`:
+  `src/slots/cutoff.ts` and its test. That module _is_ the formatters — it is
+  the one place allowed to call date-fns `format` and construct
+  `Intl.DateTimeFormat`, and everything else must come through its exports,
+  which demand an explicit zone.
+- **Line-scoped**, three inline `eslint-disable-next-line` comments, each
+  carrying its reason:
+  [admin/src/components/viewer-local-time.tsx:81](../apps/admin/src/components/viewer-local-time.tsx#L81)
+  (the deliberate ops-console exception above),
+  [web/src/components/dev-panel-client.tsx:147](../apps/web/src/components/dev-panel-client.tsx#L147)
+  (a dev-only panel, viewer-local on purpose), and
+  [core/src/services/create-booking.ts:49](../packages/core/src/services/create-booking.ts#L49)
+  — which formats no instant at all: it constructs an `Intl.DateTimeFormat` to
+  make `Intl` throw on an unknown zone id, as a **validator**.
+
+Adding a fourth means writing down why viewer-local is correct at that call
+site. If you cannot, it is not.

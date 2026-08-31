@@ -1,7 +1,7 @@
 # Environment & Credentials
 
 > **Canonical reference for every environment variable in this repo.** Baseline:
-> `dev` @ `2fe3a2b`. Related: [MIGRATIONS.md](MIGRATIONS.md) ·
+> `dev` @ `5db21a4`. Related: [MIGRATIONS.md](MIGRATIONS.md) ·
 > [SCRIPTS.md](SCRIPTS.md) · [CODEBASE-MAP.md](CODEBASE-MAP.md)
 >
 > **No secret values live in this file**, by design. It documents _what_ each
@@ -74,7 +74,8 @@ Legend: ● required for the feature to work · ○ optional/degrades · — not
 | Variable                             | web | agent | admin | Where to get it                                                                                                                                                        |
 | ------------------------------------ | :-: | :---: | :---: | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `NEXT_PUBLIC_APP_URL`                |  ○  |   ○   |   ○   | Own origin. Dev: `:3000` / `:3001` / `:3002`                                                                                                                           |
-| `NEXT_PUBLIC_AGENT_APP_URL`          |  —  |   —   |   ●   | Agent app's origin. Invite links land there                                                                                                                            |
+| `NEXT_PUBLIC_AGENT_APP_URL`          |  ○  |   —   |   ●   | Agent app's origin. Invite links land there; web uses it for staff push deep links                                                                                     |
+| `NEXT_PUBLIC_ADMIN_APP_URL`          |  ○  |   —   |   —   | Admin console's origin. Read by [web/src/lib/inngest.ts](../apps/web/src/lib/inngest.ts) so a staff push can deep-link into the console                                |
 | `NEXT_PUBLIC_LAUNCH_MODE`            |  ○  |   —   |   —   | `coming_soon` closes /login, /trips, /dashboard and refuses OTP sends. Unset or `live` = fully live (§6.6)                                                             |
 | `DATABASE_URL`                       |  ●  |   ●   |   ●   | Supabase → Settings → Database → **Connection pooling, Transaction mode, port 6543**                                                                                   |
 | `DIRECT_DATABASE_URL`                |  —  |   —   |   —   | **Not app env.** `packages/db/.env` only — a hosted DDL credential no app reads (§6)                                                                                   |
@@ -101,6 +102,12 @@ Legend: ● required for the feature to work · ○ optional/degrades · — not
 | `SENTRY_ORG`                         |  ○  |   ○   |   ○   | **Build time only.** Shared org slug, for source-map upload                                                                                                            |
 | `SENTRY_PROJECT`                     |  ○  |   ○   |   ○   | **Build time only.** This app's project slug                                                                                                                           |
 | `SENTRY_AUTH_TOKEN`                  |  ○  |   ○   |   ○   | **Build time only, SECRET.** Scope `project:releases`. Absent ⇒ the upload is skipped and traces stay minified                                                          |
+| `NEXT_PUBLIC_PUSH_NOTIFICATIONS_ENABLED` | ○ | ○ | ○ | `"true"` arms Web Push. Anything else (including unset) = OFF: `ConsolePushSender`, every enable affordance hidden, the VAPID gate waived. §4.5                     |
+| `VAPID_PUBLIC_KEY`                   |  ○  |   ○   |   ○   | `pnpm push:vapid`. **All four VAPID vars or none** — see §4.5                                                                                                           |
+| `VAPID_PRIVATE_KEY`                  |  ○  |   ○   |   ○   | Same command, same keypair. **Secret.** One keypair for all three apps                                                                                                  |
+| `VAPID_SUBJECT`                      |  ○  |   ○   |   ○   | A `mailto:` or `https:` URL identifying Koolee to the push service. Apple refuses a push without one                                                                    |
+| `NEXT_PUBLIC_VAPID_PUBLIC_KEY`       |  ○  |   ○   |   ○   | **The same value as `VAPID_PUBLIC_KEY`**, exposed to the browser so it can subscribe. Absent ⇒ nothing can ever subscribe                                              |
+| `ASSIGNMENT_HORIZON_HOURS`           |  ○  |   —   |   ○   | How far ahead auto-assign reaches. **Must MATCH across web and admin** or the console's badges disagree with the sweep ([core/src/config.ts](../packages/core/src/config.ts)) |
 | `TEST_DATABASE_URL`                  |  —  |   —   |   —   | Integration tests only. See [SCRIPTS.md](SCRIPTS.md)                                                                                                                   |
 
 Source of truth: [apps/web/src/env.ts](../apps/web/src/env.ts) ·
@@ -162,6 +169,41 @@ credential-less fresh clone still builds. The gates fire when a production
 
 🧭 **A failed boot assertion is the intended outcome of a missing secret, not a
 bug to work around.** Do not add a bypass flag.
+
+### 4.5 — Web Push: all four VAPID vars, or none — all three apps
+
+Fires only when `NEXT_PUBLIC_PUSH_NOTIFICATIONS_ENABLED === "true"`. With push
+armed, a **partial** VAPID set (1–3 of the four) refuses the boot; zero is fine
+and four is fine.
+
+The asymmetry is the point. The fallback for "no VAPID keys" is
+`ConsolePushSender`, which logs the payload and **reports success**. So a
+half-configured deploy produces the worst possible state: every notification
+looks sent, nothing arrives, and the did-you-see-it check built to detect that
+is itself lying. Push is never load-bearing in Koolee — no state transition
+waits on one — so this gate does not block the product. It blocks the *silent*
+version of it.
+
+Three consequences worth holding on to:
+
+- **`NEXT_PUBLIC_VAPID_PUBLIC_KEY` carries the same value as
+  `VAPID_PUBLIC_KEY`.** Not a mistake and not a duplicate: the browser needs
+  the public key to call `pushManager.subscribe()`, and only `NEXT_PUBLIC_`
+  vars reach it. Setting one without the other is the exact half-configured
+  state above — the app holds a keypair the browser can never subscribe
+  against.
+- **One keypair serves all three apps.** Generate it once with
+  `pnpm push:vapid` and paste the same four values into each `.env.local`.
+  Rotating the keypair invalidates every stored subscription; the rows in
+  `push_subscriptions` survive and go quietly dead.
+- **Turning the flag off does not delete subscriptions.** OFF means a console
+  sender, hidden enable affordances, and a waived gate — the stored rows are
+  left alone and start delivering again when it is switched back on.
+
+Source: [web/src/env.ts](../apps/web/src/env.ts) ·
+[agent/src/env.ts](../apps/agent/src/env.ts) ·
+[admin/src/env.ts](../apps/admin/src/env.ts). Rollout walkthrough:
+[features/f3-hosted-setup.md](features/f3-hosted-setup.md).
 
 ---
 

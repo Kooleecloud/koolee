@@ -1,7 +1,7 @@
 # The notification matrix
 
 > **Every moment Koolee tells somebody something, on which channel, and why
-> the gaps are gaps.** Baseline: `feat/f3-push-and-dispatch-timing`.
+> the gaps are gaps.** Baseline: `dev` @ `5db21a4`.
 > ← [Features index](README.md)
 >
 > This is the living table. For how the jobs are wired and served read
@@ -45,6 +45,7 @@ screen, because a `201` from a push service means accepted, not delivered.
 | No driver could be offered (ops) | — | `driver-pool-empty-ops-alert` | **every active admin** (collapse) | — | — |
 | Running late / missed cutoff | live notice | — | — | live notice | parked |
 | Pre-window reminder (T−2h) | — | `booking-pickup-reminder` | — | — | console until Twilio |
+| Waitlist ZIP enters coverage | — | `zone-opened-email` — **the only waitlist email we send** | — | — | — |
 
 **Bold** entries in the Push column are new in F3, and all of them are
 currently inert — the switch is off.

@@ -1,22 +1,102 @@
 # Agent PWA — the verification visit
 
-> The field app. Owns `agent_assigned` → `verified_sealed` → `in_transit`.
-> App: `apps/agent` (`:3001`). Baseline: `dev` @ `2fe3a2b`.
-> ← [Features index](README.md) ·
+> The field app. Owns `agent_assigned` → `verified_sealed` → `in_transit` →
+> `delivered_to_bagdrop`. App: `apps/agent` (`:3001`).
+> Baseline: `dev` @ `5db21a4`. ← [Features index](README.md) ·
 > Deeper: [verification-visit.md](../../apps/agent/docs/verification-visit.md)
 
 ---
 
 ## 1. Routes
 
-| Route                                     | Role                           |
-| ----------------------------------------- | ------------------------------ |
-| `/`                                       | Entry                          |
-| `/tasks`                                  | The agent's assigned task list |
-| `/tasks/[taskId]`                         | The verification visit itself  |
-| `/scan`                                   | Seal / bag scanning            |
-| `/login`, `/login/reset`, `/set-password` | Invite-only staff auth         |
-| `/offline`                                | PWA offline fallback           |
+| Route                                     | Role                                    |
+| ----------------------------------------- | --------------------------------------- |
+| `/`                                       | **Today, as a route** — the day's stops |
+| `/tasks`                                  | The agent's assigned tasks              |
+| `/tasks/[taskId]`                         | One task — the visit, or the pickup     |
+| `/account`                                | Profile, avatar, notification opt-in    |
+| `/login`, `/login/reset`, `/set-password` | Invite-only staff auth                  |
+| `/offline`                                | PWA offline fallback                    |
+
+---
+
+## 1.5 The day is a route, not a list
+
+The single most important thing about this app is that **the two task tables are
+not what the driver sees.** `verification_tasks` and `pickup_tasks` stay exactly
+as they are in the database; the grouping into one **job** per booking happens
+in presentation, in [job.ts](../../apps/agent/src/lib/job.ts).
+
+The reason is a phone screen. Rendered as two rows, the same customer, the same
+window and the same address appeared twice, three lines apart. A driver does not
+experience "a verification task and a pickup task" — they experience one trip to
+one door with two things to do there: **Verify & seal** _at the door_, then
+**Collect & deliver** _to the bag drop_.
+
+Because the grouping is presentational, it stays reversible the day those two
+halves go to different people. §7 is why the tables stay split.
+
+**One rail, one open stop.**
+[journey-list.tsx](../../apps/agent/src/components/job/journey-list.tsx) renders
+the day as one connected rail with exactly one stop expanded — the one to do
+next, with its controls; the rest are compact rows one tap away. What it
+replaced was two headed sections ("Up next", "Later today") of standalone cards,
+where every card looked equally like a starting point and the sequence had to be
+reconstructed from four timestamps. One rail makes the order structural; one
+open stop draws the distinction the old layout could not: _where I am_ versus
+_what is after this_.
+
+🧭 **Stops are ordered by scheduled time, never by geography.** The customer
+bought a window, and a route optimiser that reorders stops to save a mile
+quietly breaks the promise that window is. Optimisation is deferred (P17); when
+it lands it must reason about windows, and `JourneyList` will render whatever
+order it produces without changing.
+
+⚠️ **Overdue stops lead the route rather than being hidden**, and are marked as
+late — a driver reading a rail top to bottom would otherwise take the first row
+as "next" instead of "already missed".
+
+### Navigate is what starts a leg
+
+[navigate-action.tsx](../../apps/agent/src/components/job/navigate-action.tsx)
+is a plain `<a target="_blank">`, **not a button that navigates**. The href is
+real, so the browser opens the maps app synchronously from a genuine user
+gesture — immune to popup blocking and to a dead kerbside signal.
+
+The server action that marks the pickup as under way is fired and **deliberately
+not awaited**. Awaiting it, or calling `preventDefault()` and navigating after,
+would put a server round-trip between the driver's thumb and their map, on a
+phone, in a van, on whatever signal a kerb has. `startPickupTravel` is idempotent
+in core, so the double-fire this permits (tap Navigate, then tap "Set off") is a
+no-op the second time.
+
+**The bookkeeping waits, never the driver.**
+
+### What the driver can see about the door
+
+Two additions that both came down to the driver having less information than the
+customer did.
+
+- **The number to call**
+  ([door-contact.ts](../../packages/core/src/services/door-contact.ts)). The app
+  used to show a disabled "No number" button on most jobs, and it was not a bug
+  — it read `bookings.contact_phone`, which is only ever set for **email-only**
+  customers, since the funnel asks for a door number precisely when it has no
+  verified phone. Every phone-OTP customer had their number on `users.phone`,
+  deliberately never selected. That was the wrong call: a driver outside a
+  building with no buzzer answer has exactly one useful action, and withholding
+  the number strands both of them into a support call that reads it out anyway.
+  **One field, and nothing else** — email and the rest of the user row stay
+  unselected, and the number reaches only the assignee of a live task on that
+  booking, the same relationship that already grants them the address, the name
+  and the face. The booking's own `contact_phone` wins when present: it was typed
+  _for this pickup_ and may be a hotel desk rather than the traveller.
+- **How far away it is**
+  ([staff-travel.ts](../../packages/core/src/services/staff-travel.ts)), computed
+  off the driver's own last GPS ping. Null is an ordinary answer — location off,
+  no fix yet, an address without coordinates — and every caller renders nothing
+  rather than a placeholder. It never throws: a driver standing at a door must
+  not meet a 500 because a routing API is down.
 
 ---
 
@@ -238,13 +318,23 @@ Assigning the same user to both is a **dispatch decision, not a schema one**.
 
 ## 8. Env
 
-The smallest surface of the three apps: `NEXT_PUBLIC_APP_URL`, `DATABASE_URL`,
-`DIRECT_DATABASE_URL`, `NEXT_PUBLIC_SUPABASE_URL`,
-`NEXT_PUBLIC_SUPABASE_ANON_KEY`, `GOOGLE_MAPS_API_KEY` (stubbed — route ETA
-falls back to a fixed estimate), `SENTRY_DSN`.
+The smallest surface of the three apps: `DATABASE_URL`,
+`NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`,
+`NEXT_PUBLIC_APP_URL`, `NEXT_PUBLIC_TURNSTILE_SITE_KEY`,
+`NEXT_PUBLIC_SENTRY_DSN`, and the four VAPID vars when push is on — all four or
+none ([ENVIRONMENT §4.5](../ENVIRONMENT.md#45--web-push-all-four-vapid-vars-or-none--all-three-apps)).
+
+⚠️ **No Google key here, and that is not an omission.** Distance and ETA are
+computed in `@koolee/core` behind the `EtaEstimator` seam, on the server, using
+the one server-restricted key that lives in `apps/web`. This app never holds a
+Maps credential and never calls Google directly.
 
 **No `SUPABASE_SERVICE_ROLE_KEY`, no Stripe keys.** Both absences are
-deliberate.
+deliberate, and the service-role one is `forbidden` in the env manifest rather
+than merely absent: a shared, frequently-lost field device must not carry a key
+that bypasses every policy in the database. Completing a visit does **not** take
+the money — capture is a sweep run from `apps/web`, which is the app that holds
+the Stripe credentials.
 
 The production boot gate refuses to start without the Supabase URL + anon key:
 **staff sign-in _is_ this app**, and without them every page degrades to an
