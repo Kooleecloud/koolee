@@ -14,6 +14,7 @@ import {
   FormMessage,
   Input,
   Label,
+  Markdown,
   RichTextEditor,
 } from "@koolee/ui";
 
@@ -27,7 +28,7 @@ import {
  * The agreements workbench: one editor on the left, the version history on the
  * right.
  *
- * THE THREE MODES, and why they are three rather than one form with flags:
+ * THE FOUR MODES, and why they are four rather than one form with flags:
  *
  *  - **new** — an empty document, published as the next version number;
  *  - **edit** — a version scheduled for the future. Safe because such a
@@ -36,7 +37,12 @@ import {
  *    separate draft state: scheduling IS drafting;
  *  - **amend** — a version already in effect. Frozen forever, so this does not
  *    edit it. It copies the text into a NEW version, which is the only honest
- *    way to change terms that someone has already agreed to.
+ *    way to change terms that someone has already agreed to;
+ *  - **view** — a published version, rendered read-only through the SAME
+ *    `<Markdown>` the customer's trip page and the printable agreement use.
+ *    It runs no action and has no submit button. It exists because reading a
+ *    version used to mean opening it in `amend`, one click from publishing a
+ *    new one.
  *
  * The mode drives which server action runs and what the confirmation says.
  * Collapsing them into one submit handler would make "am I editing history or
@@ -62,7 +68,16 @@ export interface AgreementVersionView {
 type Mode =
   | { kind: "new" }
   | { kind: "edit"; version: AgreementVersionView }
-  | { kind: "amend"; version: AgreementVersionView };
+  | { kind: "amend"; version: AgreementVersionView }
+  /**
+   * READ A PUBLISHED VERSION, without arming a form that could change it.
+   *
+   * Until slice F4 the only way to see what v1 actually said was to open it
+   * in `amend`, which is a mode whose submit button publishes a NEW version.
+   * "Let me just check the wording" and "publish v3" were one click apart,
+   * and the console offered no other route. This is that route.
+   */
+  | { kind: "view"; version: AgreementVersionView };
 
 /* ------------------------------------------------------------------ */
 /* Date formatting — UTC, always labelled                              */
@@ -161,16 +176,20 @@ export function AgreementsWorkbench({ versions }: { versions: AgreementVersionVi
      * measure, not at whatever the viewport allows.
      */
     <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
-      <AgreementEditorPanel
-        key={
-          // Remount on mode change so the editor, the title and the date all
-          // reset together. Without this, switching from "amend v2" to "new"
-          // would leave v2's prose in a form that publishes something else.
-          mode.kind === "new" ? "new" : `${mode.kind}-${mode.version.id}`
-        }
-        mode={mode}
-        onDone={resetToNew}
-      />
+      {mode.kind === "view" ? (
+        <AgreementReaderPanel version={mode.version} onDone={resetToNew} />
+      ) : (
+        <AgreementEditorPanel
+          key={
+            // Remount on mode change so the editor, the title and the date all
+            // reset together. Without this, switching from "amend v2" to "new"
+            // would leave v2's prose in a form that publishes something else.
+            mode.kind === "new" ? "new" : `${mode.kind}-${mode.version.id}`
+          }
+          mode={mode}
+          onDone={resetToNew}
+        />
+      )}
       <VersionHistory versions={versions} mode={mode} onSelect={setMode} />
     </div>
   );
@@ -180,7 +199,15 @@ export function AgreementsWorkbench({ versions }: { versions: AgreementVersionVi
 /* Left — the editor                                                   */
 /* ------------------------------------------------------------------ */
 
-function AgreementEditorPanel({ mode, onDone }: { mode: Mode; onDone: () => void }) {
+type EditorMode = Exclude<Mode, { kind: "view" }>;
+
+function AgreementEditorPanel({
+  mode,
+  onDone,
+}: {
+  mode: EditorMode;
+  onDone: () => void;
+}) {
   const editing = mode.kind === "edit";
   const source = mode.kind === "new" ? null : mode.version;
 
@@ -252,9 +279,11 @@ function AgreementEditorPanel({ mode, onDone }: { mode: Mode; onDone: () => void
               placeholder="Start with a heading — what the customer is booking…"
             />
             <span className="text-xs text-muted-foreground">
-              Headings, emphasis, lists, quotes and dividers. Links, images and tables are
-              deliberately unavailable: an agreement&apos;s terms have to live in the
-              version, not behind one.
+              Headings, emphasis, lists, quotes, dividers, links and tables. Images stay
+              unavailable: a picture of a clause is a clause nobody can search, quote or
+              read aloud. A link may point at a web page or an email address and nothing
+              else &mdash; and remember that terms behind a link are not versioned with
+              this document, so anything a customer is agreeing TO belongs in the text.
             </span>
           </div>
 
@@ -286,6 +315,63 @@ function AgreementEditorPanel({ mode, onDone }: { mode: Mode; onDone: () => void
             {editing ? "Save changes" : "Publish version"}
           </Button>
         </form>
+      </CardContent>
+    </Card>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Left — reading a published version                                  */
+/* ------------------------------------------------------------------ */
+
+/**
+ * A published version, exactly as a customer sees it.
+ *
+ * ONE RENDERER, EVERYWHERE AN AGREEMENT BODY APPEARS. `<Markdown>` draws the
+ * inline card on the trip page, the printable `/trips/[id]/agreement`, and
+ * this. An operator checking a clause is looking at the customer's view of it
+ * rather than at a console-specific approximation, which is the only way
+ * "does this read right?" is a question worth asking here.
+ *
+ * NO FORM, NO ACTION, NO SUBMIT. That is the point of the mode: reading and
+ * publishing are now different screens rather than the same screen with a
+ * different button label.
+ */
+function AgreementReaderPanel({
+  version,
+  onDone,
+}: {
+  version: AgreementVersionView;
+  onDone: () => void;
+}) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex flex-wrap items-center justify-between gap-2 text-base">
+          <span className="flex items-center gap-2">
+            v{version.version} &mdash; {version.title}
+            {version.current ? (
+              <Badge variant="success">current</Badge>
+            ) : version.scheduled ? (
+              <Badge variant="warning">scheduled</Badge>
+            ) : (
+              <Badge variant="secondary">past</Badge>
+            )}
+          </span>
+          <Button type="button" variant="ghost" size="sm" onClick={onDone}>
+            Close
+          </Button>
+        </CardTitle>
+        <CardDescription>
+          In effect from {utcStamp(version.effectiveFromIso)}. This is the customer&apos;s
+          view, drawn by the same renderer their trip page uses. Nothing here can change
+          it &mdash; use Amend on the right to publish a new version from this text.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <article className="rounded-md border border-border px-4 py-3">
+          <Markdown>{version.bodyMd}</Markdown>
+        </article>
       </CardContent>
     </Card>
   );
@@ -371,21 +457,35 @@ function VersionHistory({
                   <span className="text-[11px] text-muted-foreground">
                     {utcStamp(version.effectiveFromIso)}
                   </span>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="h-7 justify-start px-2 text-xs"
-                    onClick={() =>
-                      onSelect(
-                        version.scheduled
-                          ? { kind: "edit", version }
-                          : { kind: "amend", version },
-                      )
-                    }
-                  >
-                    {version.scheduled ? "Edit" : "Amend as new version"}
-                  </Button>
+                  <div className="flex flex-wrap gap-1">
+                    {/* Read comes FIRST, and is the quieter of the two. The
+                        common reason to open a version is to check what it
+                        says; publishing from it is the rarer, louder act. */}
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 justify-start px-2 text-xs"
+                      onClick={() => onSelect({ kind: "view", version })}
+                    >
+                      Read
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-7 justify-start px-2 text-xs"
+                      onClick={() =>
+                        onSelect(
+                          version.scheduled
+                            ? { kind: "edit", version }
+                            : { kind: "amend", version },
+                        )
+                      }
+                    >
+                      {version.scheduled ? "Edit" : "Amend as new version"}
+                    </Button>
+                  </div>
                 </div>
               ))}
             </div>

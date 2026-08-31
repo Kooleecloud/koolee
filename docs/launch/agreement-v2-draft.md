@@ -24,8 +24,12 @@ This draft is a starting point for counsel, not a substitute for one.
 1. Admin console → **Agreements**.
 2. Paste the body below into the editor. It uses only what the agreement AST
    allows — headings, paragraphs, bold, italic, one level of bullets, a rule.
-   No links: an agreement whose terms live behind a link is an agreement whose
-   terms are not versioned.
+   The editor also offers **links and tables** (slice F4); this draft uses
+   neither, and if counsel adds a link, keep the rule that made links a
+   deliberate omission for so long in mind: **terms behind a link are not
+   versioned with this document.** Anything a customer is agreeing TO belongs
+   in the body. A link to something informational — a support page, an email
+   address — is fine.
 3. Leave **effective from** blank for "immediately", or set a future date.
    A future date is editable until it takes effect; a version in force is
    frozen at the database (migration 0024), because `agreement_acceptances`
