@@ -38,6 +38,20 @@ export function AvatarCard({
         </CardDescription>
       </CardHeader>
       <CardContent>
+        {/*
+          THE SAME AFFORDANCE THE CUSTOMER GETS. The default `row` layout
+          renders a "Change photo" button and a bare "Remove" link beside the
+          avatar; the customer's profile has used `overlay` — the picker ON
+          the photo — since it was built, so staff and customers were being
+          shown two different controls for one action. Reused rather than
+          restyled: `AvatarUploader` already had the layout, nobody had
+          passed it here.
+
+          `allowRemove={false}` matches too. Removing a photo is not an
+          action either app offers — replacing it is — and a link that only
+          ever appears beside a photo somebody just added invites an undo
+          nobody asked for.
+        */}
         <AvatarUploader
           endpoint="/api/avatars"
           currentUrl={currentUrl}
@@ -45,6 +59,8 @@ export function AvatarCard({
           accept={BUCKETS.avatars.mimeTypes}
           maxBytes={BUCKETS.avatars.maxUploadBytes}
           onUploaded={() => router.refresh()}
+          layout="overlay"
+          allowRemove={false}
         />
       </CardContent>
     </Card>

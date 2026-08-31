@@ -1,6 +1,7 @@
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
+import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
 import postgres from "postgres";
@@ -8,6 +9,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import {
   airlineCutoffs,
   airports,
+  bookings,
   createDb,
   pickupTasks,
   pricingRules,
@@ -24,6 +26,7 @@ import { TEST_AIRPORTS } from "../test-utils/airport-fixtures";
 import { createBooking } from "./create-booking";
 import { ensureAddress } from "./customers";
 import { getStaffWorkHistory, staffHistoryRange } from "./staff-history";
+import { listStaffWorkloadToday } from "./staff";
 
 /**
  * What one person did, derived rather than bookkept.
@@ -275,6 +278,129 @@ describeIntegration("staff work history (integration)", () => {
       counts: { verificationsDone: 0, pickupsDone: 0, open: 0, failed: 0 },
       rows: [],
     });
+  });
+
+  /**
+   * WHAT EACH PERSON HAS ON TODAY — the roster's workload column.
+   *
+   * Two claims that a wrong number would make quietly and permanently: it is
+   * counted BY BOOKING, and it is derived rather than bookkept.
+   *
+   * The by-booking half is the one that matters. In v1 the same person holds
+   * both the verification and the pickup task for one trip, so counting TASKS
+   * reports two jobs for one address — and "6 assigned" beside somebody with
+   * three doors to visit is worse than showing nothing.
+   */
+  describe("what each person has on today", () => {
+    it("counts one booking once, not once per task", async () => {
+      const booking = await aBooking("DL700");
+      await db.insert(verificationTasks).values({
+        bookingId: booking.id,
+        assigneeUserId: ninaId,
+        status: "assigned",
+      });
+      await db.insert(pickupTasks).values({
+        bookingId: booking.id,
+        assigneeUserId: ninaId,
+        status: "assigned",
+      });
+
+      const [row] = await workloadForDayOf(booking);
+      expect(row).toMatchObject({ staffUserId: ninaId, assigned: 1 });
+    });
+
+    it("adds up separate bookings, and keeps people apart", async () => {
+      const one = await aBooking("DL701");
+      const two = await aBooking("DL702");
+      const theirs = await aBooking("DL703");
+      await db.insert(verificationTasks).values([
+        { bookingId: one.id, assigneeUserId: ninaId, status: "assigned" },
+        { bookingId: two.id, assigneeUserId: ninaId, status: "assigned" },
+        { bookingId: theirs.id, assigneeUserId: samId, status: "assigned" },
+      ]);
+
+      const rows = await workloadForDayOf(one);
+      expect(rows.find((r) => r.staffUserId === ninaId)?.assigned).toBe(2);
+      expect(rows.find((r) => r.staffUserId === samId)?.assigned).toBe(1);
+    });
+
+    /* The one they are on right now, for a link straight into it. */
+    it("names the in-progress booking by ref", async () => {
+      const idle = await aBooking("DL704");
+      const active = await aBooking("DL705");
+      await db.insert(verificationTasks).values([
+        { bookingId: idle.id, assigneeUserId: ninaId, status: "assigned" },
+        { bookingId: active.id, assigneeUserId: ninaId, status: "in_progress" },
+      ]);
+
+      const [row] = await workloadForDayOf(idle);
+      expect(row?.assigned).toBe(2);
+      expect(row?.inProgress).toEqual({ bookingId: active.id, ref: active.ref });
+    });
+
+    it("reports no in-progress booking when nothing has started", async () => {
+      const booking = await aBooking("DL706");
+      await db.insert(verificationTasks).values({
+        bookingId: booking.id,
+        assigneeUserId: ninaId,
+        status: "assigned",
+      });
+      const [row] = await workloadForDayOf(booking);
+      expect(row?.inProgress).toBeNull();
+    });
+
+    /*
+     * A cancelled or completed booking is not work anybody has on. Without this
+     * the column would keep counting a trip that stopped days ago — the same
+     * mistake the agent's day view made before F5.
+     */
+    it.each(["cancelled", "completed"] as const)(
+      "does not count a %s booking",
+      async (status) => {
+        const booking = await aBooking("DL707");
+        await db.insert(verificationTasks).values({
+          bookingId: booking.id,
+          assigneeUserId: ninaId,
+          status: "assigned",
+        });
+        await db.update(bookings).set({ status }).where(eq(bookings.id, booking.id));
+
+        expect(await workloadForDayOf(booking)).toHaveLength(0);
+      },
+    );
+
+    /* Somebody else's day is not this day. */
+    it("ignores a booking whose window falls outside the day asked for", async () => {
+      const booking = await aBooking("DL708");
+      await db.insert(verificationTasks).values({
+        bookingId: booking.id,
+        assigneeUserId: ninaId,
+        status: "assigned",
+      });
+
+      const start = new Date(booking.pickupWindowStart!);
+      const dayBefore = new Date(start.getTime() - 24 * HOUR);
+      expect(
+        await listStaffWorkloadToday(
+          db,
+          dayBefore,
+          new Date(dayBefore.getTime() + 24 * HOUR),
+        ),
+      ).toHaveLength(0);
+    });
+
+    /** The UTC day the booking's window falls in — what the console asks for. */
+    function workloadForDayOf(booking: Booking) {
+      const start = new Date(booking.pickupWindowStart!);
+      const dayStart = new Date(
+        Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), start.getUTCDate()),
+      );
+      return listStaffWorkloadToday(
+        db,
+        dayStart,
+        new Date(dayStart.getTime() + 24 * HOUR),
+      );
+    }
   });
 });
 

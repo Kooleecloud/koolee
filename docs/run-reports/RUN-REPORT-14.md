@@ -876,3 +876,120 @@ screen-reader text and a tooltip on the number itself.
 workload, trucks editable during an active shift, booking-detail section
 consolidation, booking-list filters applying immediately with a debounced
 search, and agent/admin profile parity with the customer app.
+
+---
+
+## Phase 5 (part 2) — the rest of the admin batch
+
+### Zone removal asks first
+
+The "×" was a bare submit on a chip `h-6 px-1.5`, in a row of eight or ten
+identical chips. One mis-aimed click silently narrowed an agent's coverage, and
+the only way to notice was that auto-assign quietly stopped picking them for a
+neighbourhood. The dialog names BOTH the ZIP and the agent, because the row is
+dense enough that "are you sure?" would leave somebody checking which chip they
+had actually hit. Styled ordinary rather than destructive — re-adding is one
+form away; the cost is an afternoon, not a record.
+
+### Trucks: the validation, and a reversed comment
+
+Editing name, capacity and reserve during an active shift **already worked** —
+only deactivation was blocked. What was missing was the guard, and adding it
+**reverses a documented decision**, which is worth stating plainly.
+
+`updateTruck`'s header said capacity could be cut below what was aboard,
+because the number is being corrected and refusing would not unload the van.
+That is true, and nothing breaks — `bookableSpaces` floors at zero, so the van
+simply stops being offered. **That silence is the problem.** On a truck with an
+open shift, the overwhelmingly likelier cause of "capacity 5" on a van that
+holds 15 is a typo, and the consequence of accepting it is a driver vanishing
+from every customer's shortlist for the rest of their shift with nothing
+anywhere saying why.
+
+So bookable capacity may not fall below the shift's committed bag load, and the
+refusal names the numbers: _"Van Live has 4 bags committed on its open shift,
+and 6 capacity minus 5 reserved leaves only 1."_ **The correction is deferred,
+not lost** — the rule applies only while a shift is open, and that escape is in
+the message. The form says the constraint before it is hit, so an operator does
+not have to be refused to learn it. Deactivation stays blocked outright: that
+one has no safe degradation at all.
+
+### Staff: grouped, filtered, and carrying a workload
+
+Grouped by role, because they are two lists that happened to share a table — an
+agent is somebody you dispatch, an admin is somebody with console access, and
+sorted by `createdAt` the roster interleaved them.
+
+Two filters, in the URL like the bookings board, and **deliberately different
+shapes**: active/everyone is a segmented control (two views of one list),
+"can drive" is a checkbox (an additional narrowing). A third tab reading "can
+drive" would imply it were exclusive with the other two. Default is active
+only, with a "Showing 12 of 16" beside it so the default never hides anything
+silently.
+
+**Workload counted BY BOOKING, not by task.** In v1 one person holds both the
+verification and the pickup task for the same trip, so counting tasks reports
+six jobs for three addresses — and that number beside somebody's name is worse
+than no number. Derived on every read; no counter column, no `staff_stats`
+table, per the standing rule. The in-progress booking is a link, because "who
+is on what right now" is always followed by "show me".
+
+### Booking list: the search grew a debounce
+
+Filters already applied immediately. The search was submit-on-enter, and the
+note here argued for it: an operator types an identifier they already have, and
+a query per keystroke would fire ten searches to find one booking. That
+objection is right and is now answered by **300 ms + a three-character
+minimum** rather than by the Enter key — which had its own cost, since nothing
+on screen said Enter was required and a half-typed ref sat there returning the
+unfiltered board.
+
+Under the minimum is "no search", not "search for two characters", so
+backspacing restores the full board. Enter still works and skips the wait.
+
+Written with **no state for the term**: the obvious version holds the text in
+`useState` and re-seeds it from the URL in an effect, which sets state inside
+an effect (a cascading render the lint rule correctly refuses). The input holds
+its own text, `key={search}` re-seeds it by remounting, and every read is
+`event.target.value` — a handler reading a captured value here would search for
+the previous keystroke, which this codebase has already paid for once.
+
+### Booking detail: three cards became one story, and one deviation
+
+- **Details & payments** are one card. Two cards put a rule between "what was
+  bought" and "what was paid for it", and an operator checking a refund reads
+  both or neither.
+- **Verify & seal** is the identity gate and the seals together, with the
+  assigned agent named at the top as a FACT. Reading the seals without the gate
+  is how somebody concludes a bag was sealed properly when the gate that
+  permits sealing had not passed.
+- **Assignment** absorbs the pickup run: one question asked twice, and the two
+  gates that answer it close at different moments — precisely what an operator
+  needs side by side.
+
+**The deviation:** the brief asked for Assignment to join the visit's record on
+the left. It stays in the act column. The page's own arrangement is
+read-left / act-right, and the visit's record is reading while reassigning is
+acting. What the left card gained instead is the agent's name, so the visit
+reads as one story without the forms following it there.
+
+### Profile parity: one prop, and it was never passed
+
+The customer's profile has used `AvatarUploader`'s `overlay` layout — the
+picker ON the photo — since it was built. The agent's account page and the
+admin's settings sheet used the default `row` layout, which renders a "Change
+photo" button and a bare "Remove" link beside the avatar. Same component, two
+different controls for one action, purely because nobody had passed the prop.
+Both now match, `allowRemove={false}` included: replacing a photo is the action
+either app offers, and a Remove link that appears beside one somebody just
+added invites an undo nobody asked for.
+
+### Verified
+
+| Check                                         | Result                                                                                                                                                                                                                                  |
+| --------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm format:check` / `typecheck` / `lint`    | clean, 6/6, 6/6                                                                                                                                                                                                                         |
+| `pnpm turbo test`                             | 1,042 passed, 1 skipped                                                                                                                                                                                                                 |
+| `pnpm --filter @koolee/core test:integration` | 379 passed, 3 skipped (+13: 7 truck-capacity, 6 workload)                                                                                                                                                                               |
+| `pnpm turbo build`                            | 3/3                                                                                                                                                                                                                                     |
+| Browser (admin, headed)                       | Roster groups as "Agents · 8 / Admins · 4", the tabs move the URL to `?show=all` and the count to 16 of 16; the booking detail renders "Details & payments", "Verify & seal" naming the agent, and Assignment with Pickup run inside it |

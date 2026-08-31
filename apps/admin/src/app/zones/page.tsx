@@ -125,6 +125,7 @@ export default async function ZonesPage() {
                           key={zip}
                           agentUserId={agent.userId}
                           zip={zip}
+                          agentName={agent.fullName ?? agent.email}
                         />
                       ))}
                     </div>

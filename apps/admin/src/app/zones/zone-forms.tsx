@@ -1,8 +1,10 @@
 "use client";
 
+import * as React from "react";
 import { useActionState } from "react";
 import {
   Button,
+  ConfirmDialog,
   FormMessage,
   Input,
   Label,
@@ -71,33 +73,69 @@ export function AddZonesForm({ agents }: { agents: ZoneAgentOption[] }) {
   );
 }
 
+/**
+ * Taking a ZIP off an agent — behind a confirm.
+ *
+ * IT WAS A BARE "×" ON A CHIP, in a row of eight or ten identical chips, at
+ * `h-6 px-1.5`. One mis-aimed click silently narrowed an agent's coverage, and
+ * the only way to notice was that auto-assign quietly stopped picking them for
+ * a neighbourhood. Nothing on the page said what had changed.
+ *
+ * The dialog NAMES BOTH the ZIP and the agent, because the row is dense enough
+ * that "are you sure?" would leave somebody checking which chip they had
+ * actually hit. `ConfirmDialog` is the app's existing pattern for exactly this
+ * — see its own header: never fire an irreversible action from a bare button.
+ *
+ * It is not destructive in the red sense (re-adding a ZIP is one form away),
+ * so the confirm is styled ordinary rather than as a warning. The cost is a
+ * dispatcher's afternoon, not a lost record.
+ */
 export function RemoveZoneButton({
   agentUserId,
   zip,
+  agentName,
 }: {
   agentUserId: string;
   zip: string;
+  /** Named in the dialog. Falls back to a generic phrase when unknown. */
+  agentName?: string | null;
 }) {
   const [state, formAction, pending] = useActionState<ZoneActionState, FormData>(
     removeZone,
     {},
   );
+  const formRef = React.useRef<HTMLFormElement>(null);
 
   return (
-    <form action={formAction} className="inline">
+    <form action={formAction} ref={formRef} className="inline">
       <input type="hidden" name="agentUserId" value={agentUserId} />
       <input type="hidden" name="zip" value={zip} />
-      <Button
-        type="submit"
-        variant="ghost"
-        size="sm"
-        loading={pending}
-        aria-label={`Remove ZIP ${zip}`}
-        title={state.error ?? `Remove ${zip}`}
-        className="h-6 px-1.5 font-mono text-xs"
-      >
-        {`${zip} ×`}
-      </Button>
+      <ConfirmDialog
+        trigger={
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            loading={pending}
+            aria-label={`Remove ZIP ${zip}`}
+            title={state.error ?? `Remove ${zip}`}
+            className="h-6 px-1.5 font-mono text-xs"
+          >
+            {`${zip} ×`}
+          </Button>
+        }
+        title={`Remove ${zip}?`}
+        description={
+          <>
+            {agentName ?? "This agent"} will no longer cover <strong>{zip}</strong>.
+            Auto-assign stops picking them for it; bookings already assigned are
+            untouched. You can add it back at any time.
+          </>
+        }
+        confirmLabel="Remove it"
+        cancelLabel="Keep it"
+        onConfirm={() => formRef.current?.requestSubmit()}
+      />
     </form>
   );
 }

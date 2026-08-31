@@ -376,6 +376,7 @@ export {
 } from "./staff-history";
 
 export {
+  listStaffWorkloadToday,
   createStaffMember,
   getActiveStaffRole,
   getStaffIdentity,
@@ -390,6 +391,7 @@ export {
   type StaffIdentity,
   type StaffMemberWithIdentity,
   type StaffRole,
+  type StaffWorkloadToday,
 } from "./staff";
 
 export {
