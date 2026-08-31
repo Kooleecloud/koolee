@@ -103,12 +103,15 @@ export function DriverChoice({
   bookingId,
   candidates,
   pickup,
+  pickupAddressLine = null,
   bestShiftId,
 }: {
   bookingId: string;
   candidates: DriverCandidateView[];
   /** The door, for the map. Null when the address has no coordinates. */
   pickup: { lat: number; lng: number } | null;
+  /** The doorstep in words, for the pickup pin's card. */
+  pickupAddressLine?: string | null;
   /**
    * Who "pick the best" would choose, decided SERVER-SIDE by `bestCandidate`.
    *
@@ -302,6 +305,7 @@ export function DriverChoice({
             allowFullscreen
             frame={false}
             recenterLabel="Back to my pickup"
+            pickupAddressLine={pickupAddressLine}
             // Taller than it was when a list sat under it: this IS the view
             // now, and a map you have to squint at is not one.
             className="h-80 sm:h-[26rem]"
@@ -524,7 +528,9 @@ function DriverPopup({
       <input type="hidden" name="bookingId" value={bookingId} />
       <input type="hidden" name="shiftId" value={driver.shiftId} />
 
-      <div className="flex items-center gap-2">
+      {/* `pr-5` on the top row only: the close button sits over that corner,
+          and padding the whole card would leave everything below it short. */}
+      <div className="flex items-center gap-2 pr-5">
         <Avatar size="sm" name={driver.givenName} src={driver.avatarUrl} alt="" />
         <div className="min-w-0">
           <p className="truncate text-sm font-medium">
@@ -595,11 +601,14 @@ export function DriverTracking({
   live,
   /** The door, for the map. Null when the address has no coordinates. */
   pickup,
+  pickupAddressLine = null,
   cancelled = false,
 }: {
   driver: SelectedDriverView;
   live: boolean;
   pickup: { lat: number; lng: number } | null;
+  /** The doorstep in words, for the pickup pin's card. */
+  pickupAddressLine?: string | null;
   /**
    * The booking was cancelled after a driver was chosen.
    *
@@ -689,6 +698,7 @@ export function DriverTracking({
               },
             ]}
             frame={false}
+            pickupAddressLine={pickupAddressLine}
             className="h-64 sm:h-72"
             label={`Map showing ${driver.givenName ?? "your driver"} on the way to your pickup address`}
           />

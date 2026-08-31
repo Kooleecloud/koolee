@@ -129,6 +129,17 @@ export interface LiveMapProps {
   workerUrl?: string;
   /** Accessible description of what the map is showing. */
   label: string;
+  /**
+   * What the pickup pin says when it is tapped, and what a screen reader
+   * announces it as.
+   *
+   * A second line — the street, usually — is optional and is the reason this
+   * is a pair rather than a string: "Your pickup" answers which pin it is, and
+   * the address answers whether it is the right one, which is the question
+   * somebody who booked for a friend actually has.
+   */
+  pickupLabel?: string;
+  pickupAddressLine?: string | null;
   /*
    * THERE IS DELIBERATELY NO "WHERE AM I" CONTROL, and this is the second
    * time that decision has been made.
@@ -290,6 +301,8 @@ export function LiveMap({
   label,
   allowFullscreen = false,
   frame = true,
+  pickupLabel = "Your pickup",
+  pickupAddressLine = null,
   popupDriverId = null,
   renderPopup,
   onPopupClose,
@@ -300,6 +313,11 @@ export function LiveMap({
   // `Map` here is MapLibre's, so the JS one needs its global name spelled out.
   const markers = React.useRef(new globalThis.Map<string, Marker>());
   const pickupMarker = React.useRef<Marker | null>(null);
+  /**
+   * The pickup pin's own card. Created with the map, moved and refilled on
+   * each tap — one instance, like the driver one, for the same reason.
+   */
+  const pickupPopup = React.useRef<Popup | null>(null);
   /**
    * In-flight pin animations, by driver id.
    *
@@ -510,13 +528,33 @@ export function LiveMap({
     if (!instance || !ready) return;
 
     if (!pickupMarker.current) {
-      pickupMarker.current = new Marker({ element: pickupPin() })
+      const element = pickupPin(pickupLabel);
+      /*
+       * ITS OWN POPUP, and deliberately not the driver one.
+       *
+       * What the pickup pin says involves no page state — no selection, no
+       * race, nothing to commit — so routing it through the controlled
+       * `popupDriverId` would mean the page owning a fact it has no use for,
+       * and two things that can be open would have to agree about which. Two
+       * instances cannot conflict: MapLibre closes neither, and each is
+       * anchored to its own coordinate.
+       */
+      element.addEventListener("click", (event) => {
+        event.stopPropagation();
+        const instance = map.current;
+        if (!instance) return;
+        pickupPopup.current
+          ?.setLngLat([pickup.lng, pickup.lat])
+          .setDOMContent(pickupPopupContent(pickupLabel, pickupAddressLine))
+          .addTo(instance);
+      });
+      pickupMarker.current = new Marker({ element })
         .setLngLat([pickup.lng, pickup.lat])
         .addTo(instance);
     } else {
       pickupMarker.current.setLngLat([pickup.lng, pickup.lat]);
     }
-  }, [pickup.lat, pickup.lng, ready]);
+  }, [pickup.lat, pickup.lng, ready, pickupLabel, pickupAddressLine]);
 
   /* --- the drivers ---------------------------------------------------- */
   React.useEffect(() => {
@@ -617,10 +655,22 @@ export function LiveMap({
     popup.current = created;
     setPopupHost(host);
 
+    const forPickup = new Popup({
+      closeButton: true,
+      closeOnClick: false,
+      closeOnMove: false,
+      offset: 20,
+      maxWidth: "15rem",
+      className: "koolee-map-popup",
+    });
+    pickupPopup.current = forPickup;
+
     return () => {
       created.remove();
       popup.current = null;
       setPopupHost(null);
+      forPickup.remove();
+      pickupPopup.current = null;
     };
   }, [ready]);
 
@@ -989,15 +1039,122 @@ function markerRoot(): HTMLElement {
   return element;
 }
 
-/** The door: navy, static, unmistakably not a vehicle. */
-function pickupPin(): HTMLElement {
+/**
+ * What the pickup pin says when tapped.
+ *
+ * Built as DOM rather than portalled through React like the driver card,
+ * because it is two lines of static text with nothing to click: a portal and
+ * a render pass for that would be machinery in place of a paragraph.
+ *
+ * `textContent`, never `innerHTML` — the second line is an ADDRESS somebody
+ * typed, and the one rule about strings a customer supplied is that they
+ * never become markup.
+ */
+function pickupPopupContent(label: string, addressLine: string | null): HTMLElement {
+  const root = document.createElement("div");
+  // `pr-9` reserves the close button's corner: on a one-line card the text
+  // otherwise runs straight under it.
+  root.className = "flex flex-col gap-0.5 p-4 pr-9";
+
+  const title = document.createElement("p");
+  title.className = "text-sm font-medium";
+  title.textContent = label;
+  root.appendChild(title);
+
+  if (addressLine) {
+    const address = document.createElement("p");
+    address.className = "text-xs text-muted-foreground";
+    address.textContent = addressLine;
+    root.appendChild(address);
+  }
+
+  return root;
+}
+
+/**
+ * The door: the Koolee bag, static, unmistakably not a vehicle.
+ *
+ * IT WAS A PLAIN NAVY DOT, which said "a place" and nothing else — on a map
+ * whose entire subject is bags being collected from that place. The glyph is
+ * the same sealed case the hero animation puts on the stoop
+ * (`hero-route-scene.tsx`, `[data-bags]`): a rounded body, a handle, and the
+ * orange seal dot that is the brand's own mark for "closed, and nobody has
+ * been in it". Reused rather than redrawn, at pin scale, so the thing a
+ * customer watched on the marketing page is the thing on their trip.
+ *
+ * THE SAME MARK AS `JourneyGlyph name="seal"`, simplified rather than
+ * redrawn, and the same way round: a navy bag on white with the tag in the
+ * brand's `#FF6B35`. Bag, handle, highlight, and the orange tag HANGING off
+ * the side —
+ * that hanging tag is the gesture the marketing glyph makes, and a dot on the
+ * front of the bag (the first attempt) read as a different icon that happened
+ * to share a colour. The glyph keeps its serial ticks and its grommet detail
+ * because it is drawn at four times this size; a pin that tried to carry them
+ * would be mud.
+ *
+ * SQUARE-ISH, NOT A CIRCLE, and that is deliberate against the driver pins:
+ * they are rounded pills, this is a rounded square. Shape carries the
+ * difference before colour does, which is what a colour-blind reader and a
+ * small screen both need.
+ *
+ * BIGGER THAN THE VANS, also deliberately. It is the one fixed thing on the
+ * map — everything else is moving relative to it — and at the size of a driver
+ * pin the glyph inside was too small to read as a bag at all, which is the
+ * whole reason for drawing one. 44px square is also the smallest comfortable
+ * touch target, and it is now a button.
+ *
+ * A BUTTON, because it now says what it is when tapped. Previously
+ * `aria-hidden` — a decoration. It is the anchor of the whole map, and "which
+ * of these is my house" is a fair question to be able to ask it.
+ */
+function pickupPin(label: string): HTMLElement {
   const root = markerRoot();
-  const dot = document.createElement("div");
-  dot.className =
-    "flex size-6 items-center justify-center rounded-full border-2 border-white bg-navy-800 shadow-lg";
-  dot.innerHTML = '<span class="block size-2 rounded-full bg-white"></span>';
-  root.setAttribute("aria-hidden", "true");
-  root.appendChild(dot);
+
+  const button = document.createElement("button");
+  button.type = "button";
+  button.dataset.pin = "pickup";
+  button.setAttribute("aria-label", label);
+  button.className = [
+    /*
+     * WHITE GROUND, NAVY BAG, ORANGE TAG — the same way round as the
+     * `seal` journey glyph on the marketing page. The first version inverted
+     * it (navy ground, white bag) and read as a different icon that happened
+     * to share a silhouette: the bag is a navy object, and making it the hole
+     * rather than the shape is exactly the kind of difference somebody
+     * notices without being able to name.
+     */
+    "flex size-11 cursor-pointer items-center justify-center rounded-xl border-2 border-navy-800",
+    "bg-white text-navy-800 shadow-lg",
+    // Only `scale`, and only on the child — see the note above `markerRoot`.
+    "transition-[scale] duration-150 hover:scale-110",
+    "focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring",
+  ].join(" ");
+
+  /*
+   * The bag, normalised from the hero's own coordinates onto a 24-box: body,
+   * handle, the highlight across the front, and the seal. The seal is the one
+   * element drawn in tag orange rather than inheriting `currentColor` — it is
+   * the brand's accent and the only part of the mark that means something on
+   * its own.
+   */
+  button.innerHTML = [
+    '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" aria-hidden="true">',
+    // Handle, body, highlight — the bag.
+    '<path d="M8.5 8.5V6.6A2.1 2.1 0 0 1 10.6 4.5h2.3a2.1 2.1 0 0 1 2.1 2.1v1.9" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>',
+    '<rect x="3.4" y="8.5" width="12.7" height="11.2" rx="2" fill="currentColor"/>',
+    // The highlight across the front is WHITE on the navy body, as it is in
+    // the glyph — a darker line would read as a seam rather than a catch of
+    // light.
+    '<line x1="3.4" y1="12.6" x2="16.1" y2="12.6" stroke="#FFFFFF" stroke-opacity="0.35" stroke-width="1.1"/>',
+    // The tag, HANGING off the side rather than a dot on the front — the same
+    // gesture the `seal` journey glyph makes, at a twentieth of the size.
+    '<path d="M16.1 12.4c1.7 0 2.3.4 2.8 1.1" stroke="currentColor" stroke-opacity="0.55" stroke-width="1.1" stroke-linecap="round"/>',
+    '<rect x="17.6" y="11.5" width="6.2" height="4.6" rx="1.8" fill="#FF6B35"/>',
+    '<circle cx="19.3" cy="13.8" r="0.8" fill="#FFFFFF"/>',
+    "</svg>",
+  ].join("");
+
+  root.appendChild(button);
   return root;
 }
 

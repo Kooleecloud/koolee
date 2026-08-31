@@ -606,3 +606,56 @@ and friends directly — which is exactly why the door can be this decisive.
 The ten new cases cover the reset, the stash round-trip, the ticket-prefill
 carry, the no-progress and leftover-stash cases, the mirror being offered rather
 than entered, and the mirror failing without costing the customer the funnel.
+
+---
+
+## Phase 2 addendum — the pickup pin, and where the popup chrome lives
+
+Four rounds of TD's feedback on the map, all after the gates above.
+
+**The map's note moved into the header.** "Tap a van to see who it is and
+choose them" sat under the map, which forced a gap between the map and the
+card's own edge — exactly the padding the section had just been stripped of.
+Under the description it reads as part of the instructions, and the map can sit
+flush with nothing after it.
+
+**Both maps bleed properly now.** `LiveMap` gained `frame` (default true);
+`false` drops its own border and rounding so a map spanning a card's full width
+does not draw a second rule a pixel inside the card's, and the card clips
+instead — so the map takes the card's own corner radius.
+
+**The pickup pin is the Koolee bag.** It was a plain navy dot, which said "a
+place" and nothing else, on a map whose whole subject is bags being collected
+from that place. It is now the same mark as `JourneyGlyph name="seal"` on the
+marketing page — simplified rather than redrawn, and after a correction from
+TD, _the same way round_: a **navy bag on white with the tag in `#FF6B35`**. The
+first attempt inverted it (navy ground, white bag) and read as a different icon
+that happened to share a silhouette. An earlier attempt also put the orange as a
+dot on the bag's front; it is a tag HANGING off the side, because that gesture
+is what the glyph makes.
+
+It is square-ish against the drivers' rounded pills — shape carries the
+difference before colour does — and larger than them at 44px, because it is the
+one fixed thing on the map, because the glyph is unreadable at pin size, and
+because it is now a button and 44px is the smallest comfortable touch target.
+
+**It says what it is.** Tapping it opens its own popup: "Your pickup" and the
+street. Previously `aria-hidden`, a decoration. It is the anchor of the whole
+map, and "which of these is my house" is a fair question to be able to ask —
+most of all for somebody who booked for a friend and has no local sense of the
+map. Its own `Popup` instance, not the controlled driver one: what it says
+involves no page state, and routing it through `popupDriverId` would make the
+page own a fact it has no use for. Built as DOM with `textContent`, never
+`innerHTML` — the second line is an address somebody typed.
+
+**The popup chrome moved to `packages/ui/styles/map.css`.** It was written in
+`apps/web/globals.css`, where Storybook could not see it — so the story showed
+square corners and a close button proud of its own card while the app did not,
+and the story is the one place this component is actually reviewed. Both import
+it now. Not imported from `live-map.tsx`, because `@koolee/ui` declares
+`sideEffects: false` and a CSS import inside it is droppable, silently — the
+same reason the MapLibre stylesheet is imported per app.
+
+Verified in the browser after each round: pin 44×44 and focusable, `aria-label`
+"Your pickup", the card opens with the right text and our own corner radius in
+Storybook as well as the app. Gates re-run clean — 1,027 unit, builds 3/3.

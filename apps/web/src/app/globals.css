@@ -11,42 +11,4 @@
  */
 @import "maplibre-gl/dist/maplibre-gl.css";
 
-/*
- * The anchored driver card, dressed as one of ours.
- *
- * MapLibre's default popup is a white box with a hard corner, a 10px sans
- * serif and a close button in the top-right — beside a Koolee card it reads
- * as a browser dialog that wandered in. These four rules make the frame
- * ours; everything INSIDE it is React (see `renderPopup` in `LiveMap`).
- *
- * It lives here rather than in `packages/ui` for the same reason the import
- * above does: `@koolee/ui` declares `sideEffects: false`, so a CSS import
- * inside a component of that package is droppable, silently.
- */
-.koolee-map-popup .maplibregl-popup-content {
-  border-radius: var(--radius-lg);
-  border: 1px solid var(--color-border);
-  box-shadow: var(--shadow-lift-lg);
-  padding: 0;
-  font: inherit;
-}
-
-/* The little triangle has to match the body, or the card looks pieced together. */
-.koolee-map-popup .maplibregl-popup-tip {
-  border-top-color: var(--color-background);
-  border-bottom-color: var(--color-background);
-}
-
-.koolee-map-popup .maplibregl-popup-close-button {
-  width: 1.75rem;
-  height: 1.75rem;
-  border-radius: var(--radius-md);
-  font-size: 1.125rem;
-  line-height: 1;
-  color: var(--color-muted-foreground);
-}
-
-.koolee-map-popup .maplibregl-popup-close-button:hover {
-  background: var(--color-muted);
-  color: var(--color-foreground);
-}
+@import "@koolee/ui/styles/map.css";

@@ -354,6 +354,17 @@ export default async function TripPage({
   // The door, for both maps. Null when the address never got coordinates —
   // both components fall back to the list-and-number view they had before.
   const pickupPoint = pickupCoordinates(pickupAddress);
+  /*
+   * The doorstep in words, for the pickup pin's card. Same fields the Pickup
+   * details block renders, on one line — "22 W 34th St, New York" answers the
+   * question a coordinate cannot: is this the right door? It matters most to
+   * somebody who booked for a friend and has no local sense of the map.
+   */
+  const pickupAddressLine = pickupAddress
+    ? [pickupAddress.line1, pickupAddress.line2, pickupAddress.city]
+        .filter((part): part is string => Boolean(part))
+        .join(", ")
+    : null;
 
   /*
    * Cancelling: the offer, and the record.
@@ -386,12 +397,14 @@ export default async function TripPage({
       // cannot answer "who was coming?".
       cancelled={booking.status === "cancelled"}
       pickup={pickupPoint}
+      pickupAddressLine={pickupAddressLine}
     />
   ) : canChooseDriver ? (
     <DriverChoice
       bookingId={booking.id}
       candidates={candidateViews}
       pickup={pickupPoint}
+      pickupAddressLine={pickupAddressLine}
       bestShiftId={best?.shiftId ?? null}
     />
   ) : null;
