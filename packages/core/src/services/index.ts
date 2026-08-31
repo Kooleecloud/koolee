@@ -304,6 +304,7 @@ export {
 
 export {
   adminReassignPickup,
+  adminUnassignPickup,
   DRIVER_SELECTABLE_STATUSES,
   DRIVER_SHORTLIST_SIZE,
   getSelectedDriver,
@@ -314,6 +315,8 @@ export {
   reportEmptyDriverPool,
   selectDriver,
   type AdminReassignPickupInput,
+  type AdminUnassignPickupInput,
+  type AdminUnassignPickupResult,
   type AdminReassignPickupResult,
   type DriverCandidate,
   type ListCandidateDriversInput,

@@ -974,6 +974,115 @@ export async function adminReassignPickup(
   });
 }
 
+export interface AdminUnassignPickupInput {
+  bookingId: string;
+  adminUserId: string;
+  /** Free text, written into the custody trail. Optional. */
+  reason?: string;
+}
+
+export interface AdminUnassignPickupResult {
+  /** The shift the pickup was taken off, or null if it had none. */
+  releasedShiftId: string | null;
+}
+
+/**
+ * Takes the driver off a pickup and leaves it UNASSIGNED.
+ *
+ * WHY THIS EXISTS SEPARATELY FROM REASSIGN. The console could move a pickup
+ * from one shift to another and nothing else. So an admin who needed to undo
+ * an assignment — the driver called in sick, the van broke down, the customer
+ * picked somebody who then went off shift, or the assignment was simply wrong
+ * — had to park the booking on some OTHER driver who was not going to do it
+ * either. Every one of those is a lie told to the dispatch board, and the
+ * board is what decides who gets chased.
+ *
+ * An unassigned sealed booking is not a gap in the record; it is exactly what
+ * the board's at-risk flag exists to surface (`dispatch.ts`,
+ * `awaitingDriverToday`). This puts the booking back in front of a human
+ * instead of hiding it behind a name.
+ *
+ * THE TASK GOES BACK TO `pending`, not to a half state — the same release
+ * `adminForceEndShift` performs when a shift ends under its load: shift
+ * cleared, assignee cleared, `started_at` cleared. The customer's shortlist
+ * reopens, so they can choose again.
+ *
+ * REFUSED ONCE THE BAGS ARE IN THE VAN. `in_transit` and beyond means the
+ * driver physically has the luggage, and re-listing the booking for another
+ * driver to collect from a door the bags have already left would be a lie of
+ * a different kind. `adminForceEndShift` handles that case by raising an
+ * EXCEPTION, which pages ops — that is the honest route, and this one names
+ * it rather than duplicating it. TD chose the refusal over silently doing
+ * something exceptional under a routine button.
+ */
+export async function adminUnassignPickup(
+  config: CoreConfig,
+  input: AdminUnassignPickupInput,
+): Promise<AdminUnassignPickupResult> {
+  const { db } = config;
+  const [booking] = await db
+    .select()
+    .from(bookings)
+    .where(eq(bookings.id, input.bookingId))
+    .limit(1);
+  if (!booking) throw new NotFoundError("Booking", input.bookingId);
+
+  if (
+    booking.status === "in_transit" ||
+    booking.status === "delivered_to_bagdrop" ||
+    booking.status === "completed"
+  ) {
+    throw new ConflictError(
+      "driver",
+      booking.status === "in_transit"
+        ? `The bags for ${booking.ref} are already in this driver's van. Unassigning would re-list them for collection from a door they have left. Force-end the shift instead — that releases the run AND raises an exception, which pages ops.`
+        : `Booking ${booking.ref} is ${booking.status} — the bags are already with the airline.`,
+    );
+  }
+
+  return db.transaction(async (tx) => {
+    const task = await tx.query.pickupTasks.findFirst({
+      where: eq(pickupTasks.bookingId, booking.id),
+    });
+    if (!task) throw new NotFoundError("Pickup task for booking", booking.id);
+
+    const releasedShiftId = task.driverShiftId;
+    if (releasedShiftId === null && task.assigneeUserId === null) {
+      throw new ConflictError(
+        "driver",
+        `Nobody is assigned to ${booking.ref} — there is nothing to remove.`,
+      );
+    }
+
+    await tx
+      .update(pickupTasks)
+      .set({
+        driverShiftId: null,
+        assigneeUserId: null,
+        status: "pending",
+        // Same reset a reassignment performs: a cleared run has not started,
+        // and a stale `started_at` would make the customer's page claim
+        // somebody is on the way who is not.
+        startedAt: null,
+        updatedAt: new Date(),
+      })
+      .where(eq(pickupTasks.id, task.id));
+
+    await tx.insert(custodyEvents).values({
+      bookingId: booking.id,
+      actorUserId: input.adminUserId,
+      actorRole: "admin",
+      eventType: PICKUP_EVENT_TYPES.unassigned,
+      metadata: {
+        ...(releasedShiftId ? { releasedShiftId } : {}),
+        ...(input.reason?.trim() ? { reason: input.reason.trim() } : {}),
+      },
+    });
+
+    return { releasedShiftId };
+  });
+}
+
 /**
  * Open shifts a pickup can be moved to, with whether each would need an
  * override. The console's reassign picker.

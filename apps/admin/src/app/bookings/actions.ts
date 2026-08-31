@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import {
   adminReassignPickup,
+  adminUnassignPickup,
   applyTransitionForSession,
   assignAgentToBooking,
   autoAssignBooking,
@@ -272,5 +273,67 @@ export async function reassignPickup(
     }
     console.error("[dispatch] pickup reassignment failed", error);
     return { error: "Couldn't move that pickup." };
+  }
+}
+
+const unassignPickupSchema = z.object({
+  bookingId: z.uuid(),
+  reason: z.string().trim().max(500).optional(),
+});
+
+/**
+ * Take the driver off a pickup and leave it unassigned.
+ *
+ * The console could only ever MOVE a pickup from one shift to another, so an
+ * admin undoing an assignment — a driver called in sick, a van broke down, the
+ * customer picked somebody who then went off shift — had to park the booking
+ * on some other driver who was not going to do it either. Every one of those
+ * is a lie told to the dispatch board, and the board is what decides who gets
+ * chased. An unassigned sealed booking is not a gap in the record; it is
+ * exactly what the at-risk flag exists to surface.
+ *
+ * The reason is OPTIONAL, unlike force-end's. Force-ending a shift touches
+ * every booking on it and strands bags; this touches one booking that has not
+ * been collected yet.
+ */
+export async function unassignPickup(
+  _prev: DispatchActionState,
+  form: FormData,
+): Promise<DispatchActionState> {
+  const session = await getAdminSession();
+  if (!session) return { error: "Not signed in." };
+
+  const raw = String(form.get("reason") ?? "").trim();
+  const parsed = unassignPickupSchema.safeParse({
+    bookingId: String(form.get("bookingId") ?? ""),
+    ...(raw ? { reason: raw } : {}),
+  });
+  if (!parsed.success) return { error: "Couldn't read that request." };
+
+  let core;
+  try {
+    core = getCore();
+  } catch {
+    return { error: "Database not configured." };
+  }
+
+  try {
+    await adminUnassignPickup(core, {
+      bookingId: parsed.data.bookingId,
+      adminUserId: session.userId,
+      ...(parsed.data.reason ? { reason: parsed.data.reason } : {}),
+    });
+    revalidatePath(`/bookings/${parsed.data.bookingId}`);
+    revalidatePath("/bookings");
+    revalidatePath("/shifts");
+    return {
+      ok: "Driver removed. The pickup is back in the pool and shows as awaiting a driver.",
+    };
+  } catch (error) {
+    if (error instanceof ConflictError || error instanceof NotFoundError) {
+      return { error: error.message };
+    }
+    console.error("[dispatch] pickup unassign failed", error);
+    return { error: "Couldn't remove that driver." };
   }
 }

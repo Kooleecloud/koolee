@@ -33,6 +33,8 @@ export const PICKUP_EVENT_TYPES = {
   shift_force_ended: "pickup.shift_force_ended",
   /** An admin moved this pickup to a different shift. */
   reassigned: "pickup.reassigned",
+  /** An admin took the driver off this pickup, leaving it unassigned. */
+  unassigned: "pickup.unassigned",
 } as const;
 
 export type PickupEventType =
