@@ -11,6 +11,7 @@ import {
 } from "@koolee/core";
 
 import { JobCard } from "@/components/job/job-card";
+import { JourneyList } from "@/components/job/journey-list";
 import { LiveTasks } from "@/components/live-tasks";
 import { AgentMain } from "@/components/shell/agent-main";
 import { GpsPinger } from "@/components/shift/gps-pinger";
@@ -19,7 +20,7 @@ import {
   type ActiveShiftView,
   type TruckOptionView,
 } from "@/components/shift/shift-bar";
-import { groupJobs, type Job } from "@/lib/job";
+import { groupJobs, startablePickupTaskId, type Job } from "@/lib/job";
 import { tryGetCore } from "@/lib/core";
 import { getAgentIdentity } from "@/lib/session";
 
@@ -107,7 +108,6 @@ export default async function AgentHomePage() {
   });
 
   const outstanding = todays.filter((job) => job.state !== "done");
-  const [current, ...rest] = outstanding;
   const finished = todays.filter((job) => job.state === "done");
 
   // Work with no window on it still has to surface somewhere, or it is simply
@@ -147,30 +147,27 @@ export default async function AgentHomePage() {
         <DatabaseNotConfigured />
       ) : (
         <>
-          {current ? (
-            <section className="flex flex-col gap-2">
+          {/*
+            ONE RAIL, NOT TWO SECTIONS. "Up next" and "Later today" were two
+            headings over identical cards, which said nothing about the thing
+            a driver most needs — that these stops happen in an order, and
+            which one they are on. See `JourneyList`.
+          */}
+          {outstanding.length > 0 && (
+            <section className="flex flex-col gap-3">
               <h2 className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">
-                Up next
+                Your route · {outstanding.length}{" "}
+                {outstanding.length === 1 ? "stop" : "stops"}
               </h2>
-              <JobCard job={current} emphasis />
-            </section>
-          ) : null}
-
-          {rest.length > 0 && (
-            <section className="flex flex-col gap-2">
-              <h2 className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">
-                Later today
-              </h2>
-              <ul className="flex flex-col gap-3">
-                {rest.map((job) => (
-                  <li key={job.bookingId}>
-                    <JobCard job={job} />
-                  </li>
-                ))}
-              </ul>
+              <JourneyList stops={outstanding} />
             </section>
           )}
 
+          {/*
+            Kept OUT of the rail. A stop with no window has no place in a
+            sequence ordered by time, and slotting it in would put a made-up
+            position on the one job whose position is genuinely unknown.
+          */}
           {unscheduled.length > 0 && (
             <section className="flex flex-col gap-2">
               <h2 className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">
@@ -179,7 +176,7 @@ export default async function AgentHomePage() {
               <ul className="flex flex-col gap-3">
                 {unscheduled.map((job) => (
                   <li key={job.bookingId}>
-                    <JobCard job={job} />
+                    <JobCard job={job} startsPickupTaskId={startablePickupTaskId(job)} />
                   </li>
                 ))}
               </ul>

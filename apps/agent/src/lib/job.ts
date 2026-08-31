@@ -129,6 +129,31 @@ export function groupJobs(tasks: AssignedTasks): Job[] {
   );
 }
 
+/**
+ * The pickup task that tapping Navigate on this job should START, or null.
+ *
+ * Four ways to be null, and each is a real state rather than a guard against
+ * a bug:
+ *
+ *  - the next thing to do is the VERIFICATION visit, and a pickup does not
+ *    start before the bags it collects have been sealed;
+ *  - the customer has not chosen a driver, so no shift owns the leg yet;
+ *  - the leg is already under way, which is idempotent in core but should not
+ *    say "Start & navigate" on the button;
+ *  - the job is finished.
+ *
+ * Kept here rather than in the card so the rule is testable without rendering
+ * anything, and so there is one answer rather than one per surface.
+ */
+export function startablePickupTaskId(job: Job): string | null {
+  const next = job.next;
+  if (!next || next.kind !== "pickup") return null;
+  if (next.awaitingDriverChoice) return null;
+  // Anything past "waiting to be done" has already started or ended.
+  if (next.status !== "pending" && next.status !== "assigned") return null;
+  return next.taskId;
+}
+
 /** The full address on one line, for display and for the maps query. */
 export function addressText(booking: TaskBookingContext): string {
   return [

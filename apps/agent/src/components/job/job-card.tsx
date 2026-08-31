@@ -85,7 +85,16 @@ function PhaseRow({ phase, isNext }: { phase: JobPhase; isNext: boolean }) {
   );
 }
 
-export function JobCard({ job, emphasis = false }: { job: Job; emphasis?: boolean }) {
+export function JobCard({
+  job,
+  emphasis = false,
+  /** Passed through to `JobActions` — see `startablePickupTaskId`. */
+  startsPickupTaskId = null,
+}: {
+  job: Job;
+  emphasis?: boolean;
+  startsPickupTaskId?: string | null;
+}) {
   const { booking, tz, next } = job;
   // A finished job still opens — a driver checking what they did needs a way
   // back in — but it opens on its last phase rather than nothing.
@@ -163,7 +172,7 @@ export function JobCard({ job, emphasis = false }: { job: Job; emphasis?: boolea
           must not also open the job. */}
       {job.state !== "done" && (
         <div className="border-t border-border p-4 pt-3">
-          <JobActions booking={booking} />
+          <JobActions booking={booking} startsPickupTaskId={startsPickupTaskId} />
         </div>
       )}
     </Card>

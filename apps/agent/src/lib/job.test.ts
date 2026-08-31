@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
 import type { AssignedTasks, PickupTask, VerificationTask } from "@koolee/core";
 
-import { finishedJobs, groupIntoSections, groupJobs, type Job } from "./job";
+import {
+  finishedJobs,
+  groupIntoSections,
+  groupJobs,
+  startablePickupTaskId,
+  type Job,
+} from "./job";
 
 /**
  * `groupJobs` is presentation over two task tables, and the thing worth
@@ -240,5 +246,57 @@ describe("finishedJobs", () => {
       job({ bookingId: "new", state: "done", startsAt: new Date("2026-06-10T14:00:00Z") }),
     ];
     expect(finishedJobs(jobs).map((j) => j.bookingId)).toEqual(["new", "old"]);
+  });
+});
+
+/**
+ * The rule that decides whether tapping Navigate also STARTS the pickup leg.
+ *
+ * It writes a custody event and makes the customer's map go live, so every
+ * "no" here is protecting something real: bags that are not sealed yet, a leg
+ * nobody has been assigned to, or one that is already under way.
+ */
+describe("startablePickupTaskId", () => {
+  it("starts the pickup when it is the next thing to do", () => {
+    const job = groupJobs({
+      verification: [verification({ status: "done" })],
+      pickup: [pickup({ status: "assigned", driverShiftId: "shift-1" })],
+    })[0]!;
+    expect(startablePickupTaskId(job)).toBe("pt-1");
+  });
+
+  it("refuses while the verification visit is still outstanding", () => {
+    // A pickup collects sealed bags. There are none yet.
+    const job = groupJobs({
+      verification: [verification({ status: "assigned" })],
+      pickup: [pickup({ status: "assigned", driverShiftId: "shift-1" })],
+    })[0]!;
+    expect(startablePickupTaskId(job)).toBeNull();
+  });
+
+  it("refuses while the customer has not chosen a driver", () => {
+    // No shift owns the leg, so there is nobody for it to be under way FOR.
+    const job = groupJobs({
+      verification: [verification({ status: "done" })],
+      pickup: [pickup({ status: "assigned", driverShiftId: null })],
+    })[0]!;
+    expect(startablePickupTaskId(job)).toBeNull();
+  });
+
+  it("refuses once the leg is already under way", () => {
+    // Idempotent in core, but the button must not offer to start it again.
+    const job = groupJobs({
+      verification: [verification({ status: "done" })],
+      pickup: [pickup({ status: "in_progress", driverShiftId: "shift-1" })],
+    })[0]!;
+    expect(startablePickupTaskId(job)).toBeNull();
+  });
+
+  it("refuses on a finished job", () => {
+    const job = groupJobs({
+      verification: [verification({ status: "done" })],
+      pickup: [pickup({ status: "done", driverShiftId: "shift-1" })],
+    })[0]!;
+    expect(startablePickupTaskId(job)).toBeNull();
   });
 });
