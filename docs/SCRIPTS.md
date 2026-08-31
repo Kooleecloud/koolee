@@ -1,7 +1,7 @@
 # Scripts & Commands
 
 > **Every command in this repo, what it actually does, and when to reach for it.**
-> Baseline: `dev` @ `2fe3a2b`. Related: [ENVIRONMENT.md](ENVIRONMENT.md) ·
+> Baseline: `dev` @ `5db21a4`. Related: [ENVIRONMENT.md](ENVIRONMENT.md) ·
 > [MIGRATIONS.md](MIGRATIONS.md)
 
 ---
@@ -61,6 +61,7 @@ at the **hosted** project. See [ENVIRONMENT.md §6](ENVIRONMENT.md#6--the-sharpe
 | `pnpm --filter @koolee/core test:integration` | Integration suites (see §4)                             |
 | `pnpm env:verify`                             | Does an environment have the variables its apps refuse to boot without? Reads NAMES, never values — see §8 |
 | `pnpm check:sw-headers`                       | Asserts `/sw.js` still gets `no-cache` + `Service-Worker-Allowed` after `withSentryConfig` composes the Next config. Both failure modes are silent |
+| `pnpm push:vapid`                             | Generate the VAPID keypair for Web Push. Prints four values; paste **the same four into all three apps**. Regenerating invalidates every stored subscription — see [ENVIRONMENT §4.5](ENVIRONMENT.md#45--web-push-all-four-vapid-vars-or-none--all-three-apps) |
 
 ### `pnpm clean:cache` — the one to run periodically
 
@@ -328,9 +329,9 @@ vitest run integration.test; rc=$?; pnpm --filter @koolee/db seed:local; exit $r
 | `apps/web`        | `dev` (`:3000`), `build`, `start`, `lint`, `typecheck`, `test`, `clean`                                   |
 | `apps/agent`      | same, `:3001`                                                                                             |
 | `apps/admin`      | same, `:3002`                                                                                             |
-| `packages/core`   | `lint`, `typecheck`, `test` (excludes integration), `test:watch`, `test:integration`, `clean`             |
-| `packages/db`     | `db:generate`, `db:migrate`, `db:status`, `db:studio`, `seed`, `seed:local`, `lint`, `typecheck`, `clean` |
-| `packages/ui`     | `lint`, `typecheck`, `storybook` (`:6006`), `build-storybook`, `clean`                                    |
+| `packages/core`   | `lint`, `typecheck`, `test` (excludes integration), `test:watch`, `test:integration`, `push:vapid`, `clean` |
+| `packages/db`     | `db:generate`, `db:migrate`, `db:status`, `db:studio`, `seed`, `seed:local`, `bootstrap:staff`, `create:staff`, `test`, `lint`, `typecheck`, `clean` |
+| `packages/ui`     | `lint`, `typecheck`, `test`, `storybook` (`:6006`), `build-storybook`, `clean`                            |
 | `packages/config` | none — config-only package                                                                                |
 
 Target one with `pnpm --filter <name> <script>`, e.g.
