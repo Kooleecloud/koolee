@@ -371,7 +371,7 @@ Listed so nobody goes looking for it:
   Supabase dashboard, never in app env.
 - **Pickup-window capacity.** Windows deliberately accept unlimited bookings.
   Re-introducing seat limits would need both a schema and a concurrency story.
-  `trucks.reserved_spaces` exists, is editable, and is **not yet enforced**.
+  `trucks.reserved_spaces` is editable and **enforced** — held back from booking capacity.
 - **Dynamic pricing.** The lead-time curve is a configurable placeholder; the
   seam it will replace is `resolveLeadTimeMultiplier` in the pricing engine.
 - **Route optimisation.** The agent's day is ordered by scheduled time, never

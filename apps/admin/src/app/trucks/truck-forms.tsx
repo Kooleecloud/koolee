@@ -66,7 +66,9 @@ export function AddTruckForm() {
             max={500}
             defaultValue={0}
           />
-          <p className="text-xs text-muted-foreground">Not yet enforced.</p>
+          <p className="text-xs text-muted-foreground">
+            Held back from booking capacity. Must be fewer than the capacity.
+          </p>
         </div>
       </div>
 

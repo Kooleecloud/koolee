@@ -34,16 +34,16 @@ console configured" are different errands, on different days.**
 
 ### Configuration
 
-| Route             | Does                                                                                                          |
-| ----------------- | ------------------------------------------------------------------------------------------------------------- |
-| `/pricing`        | The active pricing rule and the lead-time curve — **a path to change a price that is not SQL**                |
-| `/cutoffs`        | Airline bag-drop cutoffs per airline × airport × domestic/international                                       |
-| `/blocks`         | Window blackouts — **the only lever over what customers can book** (§3)                                       |
-| `/zones`          | Agent ZIP coverage, feeding auto-assignment                                                                   |
-| `/agreements`     | Versioned booking agreements. "Current" is derived, never a flag                                              |
-| `/trucks`         | The fleet: name, bag capacity, active toggle. `reserved_spaces` is editable and labelled **not yet enforced** |
-| `/staff`          | Invite / list / deactivate agents and admins                                                                  |
-| `/staff/[userId]` | One staff member — their history, their zones, `can_drive`                                                    |
+| Route             | Does                                                                                                                           |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `/pricing`        | The active pricing rule and the lead-time curve — **a path to change a price that is not SQL**                                 |
+| `/cutoffs`        | Airline bag-drop cutoffs per airline × airport × domestic/international                                                        |
+| `/blocks`         | Window blackouts — **the only lever over what customers can book** (§3)                                                        |
+| `/zones`          | Agent ZIP coverage, feeding auto-assignment                                                                                    |
+| `/agreements`     | Versioned booking agreements. "Current" is derived, never a flag                                                               |
+| `/trucks`         | The fleet: name, bag capacity, active toggle. `reserved_spaces` is editable and **enforced** — held back from booking capacity |
+| `/staff`          | Invite / list / deactivate agents and admins                                                                                   |
+| `/staff/[userId]` | One staff member — their history, their zones, `can_drive`                                                                     |
 
 Plus `/login`, `/login/reset` and `/set-password`, which sit outside the rail.
 

@@ -32,6 +32,7 @@ import {
   getSelectedDriver,
   POSITION_FRESH_MS,
   listCandidateDrivers,
+  listReassignOptions,
   recordDriverPosition,
   selectDriver,
 } from "./driver-selection";
@@ -161,10 +162,15 @@ describeIntegration("driver selection (integration)", () => {
     return userId;
   }
 
-  async function makeTruck(name: string, bagCapacity: number, active = true) {
+  async function makeTruck(
+    name: string,
+    bagCapacity: number,
+    active = true,
+    reservedSpaces = 0,
+  ) {
     const [row] = await db
       .insert(trucks)
-      .values({ name, bagCapacity, active })
+      .values({ name, bagCapacity, active, reservedSpaces })
       .returning();
     return row!;
   }
@@ -539,8 +545,14 @@ describeIntegration("driver selection (integration)", () => {
   it("two concurrent selections for the last space: exactly one wins", async () => {
     const verifier = await makeDriver("Verifier", { canDrive: false });
     const driver = await makeDriver("Nina Petrov");
-    // Three spaces, two customers wanting two bags each. Only one can fit.
-    const truck = await makeTruck("Van A", 3);
+    // Five spaces with TWO HELD BACK, so three are bookable — and two
+    // customers wanting two bags each. Only one can fit, and the reserve is
+    // what makes that true: on raw capacity both would have fitted.
+    //
+    // The race is what this proves. `bookableSpaces` is applied inside the
+    // transaction, under the advisory lock, so the loser is refused by the
+    // recount rather than by a filter that ran before either click.
+    const truck = await makeTruck("Van A", 5, true, 2);
     const shift = await startShift(config, { staffUserId: driver, truckId: truck.id });
 
     const one = await sealedBooking(2, verifier);
@@ -572,6 +584,100 @@ describeIntegration("driver selection (integration)", () => {
       .from(pickupTasks)
       .where(eq(pickupTasks.driverShiftId, shift.shift.id));
     expect(onShift).toHaveLength(1);
+  });
+
+  /* --- the reserve -------------------------------------------------- */
+
+  /**
+   * `reserved_spaces` HELD BACK FROM BOOKING CAPACITY.
+   *
+   * The column existed since Tier 4, the admin form edited it, and it was
+   * labelled "not yet enforced" because every capacity check read
+   * `bag_capacity` raw. An operator holding two spaces back for a wheelchair
+   * or a fragile case had a van that kept accepting bookings into them.
+   *
+   * Four readers share one formula now, and all four are exercised here — the
+   * shortlist filter, the candidate it renders, the transactional recheck
+   * under the advisory lock, and the console's reassign picker. A reserve
+   * honoured in three of four is a race no unit test could see.
+   */
+  describe("reserved spaces", () => {
+    it("keeps a driver off the shortlist when the reserve leaves too little", async () => {
+      const verifier = await makeDriver("Verifier", { canDrive: false });
+      const driver = await makeDriver("Nina Petrov", { zip: pickupAddress.zip });
+      // Ten spaces, eight held back: two bookable, and this booking is three.
+      const truck = await makeTruck("Van A", 10, true, 8);
+      await startShift(config, { staffUserId: driver, truckId: truck.id });
+
+      const { booking } = await sealedBooking(3, verifier);
+      const candidates = await listCandidateDrivers(config, { bookingId: booking.id });
+      expect(candidates).toHaveLength(0);
+    });
+
+    it("reports availableCapacity net of the reserve, not the raw capacity", async () => {
+      const verifier = await makeDriver("Verifier", { canDrive: false });
+      const driver = await makeDriver("Nina Petrov", { zip: pickupAddress.zip });
+      const truck = await makeTruck("Van A", 10, true, 4);
+      await startShift(config, { staffUserId: driver, truckId: truck.id });
+
+      const { booking } = await sealedBooking(2, verifier);
+      const [candidate] = await listCandidateDrivers(config, { bookingId: booking.id });
+      expect(candidate!.bagCapacity).toBe(10);
+      expect(candidate!.reservedSpaces).toBe(4);
+      // Six bookable, none used yet.
+      expect(candidate!.availableCapacity).toBe(6);
+    });
+
+    it("refuses a selection the reserve does not leave room for", async () => {
+      const verifier = await makeDriver("Verifier", { canDrive: false });
+      const driver = await makeDriver("Nina Petrov", { zip: pickupAddress.zip });
+      const truck = await makeTruck("Van A", 10, true, 0);
+      const shift = await startShift(config, { staffUserId: driver, truckId: truck.id });
+
+      const { booking } = await sealedBooking(3, verifier);
+      // The shortlist said yes; ops raises the reserve before the click lands.
+      // This is the recheck under the lock, and it is the one that matters.
+      await db.update(trucks).set({ reservedSpaces: 8 }).where(eq(trucks.id, truck.id));
+
+      await expect(
+        selectDriver(config, {
+          bookingId: booking.id,
+          userId: customerId,
+          shiftId: shift.shift.id,
+        }),
+      ).rejects.toThrow(/filled up/);
+    });
+
+    it("marks a reserved-out truck as having no room in the reassign picker", async () => {
+      const verifier = await makeDriver("Verifier", { canDrive: false });
+      const driver = await makeDriver("Nina Petrov", { zip: pickupAddress.zip });
+      const truck = await makeTruck("Van A", 10, true, 9);
+      await startShift(config, { staffUserId: driver, truckId: truck.id });
+
+      const { booking } = await sealedBooking(3, verifier);
+      const [option] = await listReassignOptions(db, booking.id);
+      expect(option!.reservedSpaces).toBe(9);
+      expect(option!.hasRoom).toBe(false);
+    });
+
+    it("still offers a driver when the reserve leaves exactly enough", async () => {
+      const verifier = await makeDriver("Verifier", { canDrive: false });
+      const driver = await makeDriver("Nina Petrov", { zip: pickupAddress.zip });
+      // Boundary: 10 − 7 = 3 bookable, and the booking is exactly 3.
+      const truck = await makeTruck("Van A", 10, true, 7);
+      const shift = await startShift(config, { staffUserId: driver, truckId: truck.id });
+
+      const { booking } = await sealedBooking(3, verifier);
+      expect(await listCandidateDrivers(config, { bookingId: booking.id })).toHaveLength(
+        1,
+      );
+      const result = await selectDriver(config, {
+        bookingId: booking.id,
+        userId: customerId,
+        shiftId: shift.shift.id,
+      });
+      expect(result.candidate.availableCapacity).toBe(0);
+    });
   });
 
   /* --- reads -------------------------------------------------------- */

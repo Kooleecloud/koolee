@@ -48,12 +48,21 @@ export const trucks = pgTable(
      * Spaces held back from customer selection — for a same-day walk-up, a
      * return leg, an oversize item.
      *
-     * UNWIRED. The column exists so the number has a home the day ops needs
-     * it, and NOTHING reads it: `listCandidateDrivers` computes available
-     * capacity as `bag_capacity − assigned bags`, with no reserve subtracted.
-     * The admin UI labels it "not yet enforced" for the same reason. Wiring
-     * it is one subtraction in one function plus a test; do that rather than
-     * assuming it already happens.
+     * ENFORCED (slice F4). Every capacity answer in the product comes from
+     * `bookableSpaces()` in `services/driver-selection.ts`:
+     *
+     *     bag_capacity − reserved_spaces − bags already on board
+     *
+     * Four readers share it — the shortlist filter, the candidate it renders,
+     * the transactional recheck under the advisory lock, and the console's
+     * reassign picker — because each of them used to compute the subtraction
+     * itself, and a reserve honoured in three of four would be a race no test
+     * could see.
+     *
+     * `reserved_spaces < bag_capacity` is enforced in `createTruck` /
+     * `updateTruck` rather than as a CHECK: the two columns are edited by one
+     * form and the message has to name both numbers. A van with nothing
+     * bookable belongs out of service, where the console says so.
      */
     reservedSpaces: integer("reserved_spaces").notNull().default(0),
     active: boolean("active").notNull().default(true),

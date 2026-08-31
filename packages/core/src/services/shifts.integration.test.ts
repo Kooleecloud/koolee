@@ -29,10 +29,12 @@ import { ensureAddress } from "./customers";
 import { PICKUP_EVENT_TYPES } from "./pickup-events";
 import {
   adminForceEndShift,
+  createTruck,
   endShift,
   getActiveShift,
   listTruckOptions,
   startShift,
+  updateTruck,
 } from "./shifts";
 
 /**
@@ -428,5 +430,77 @@ describeIntegration("driver shifts (integration)", () => {
         reason: "too late",
       }),
     ).rejects.toThrow(/already ended/);
+  });
+
+  /* --- the fleet ---------------------------------------------------- */
+
+  /**
+   * A RESERVE MUST LEAVE AT LEAST ONE BOOKABLE SPACE.
+   *
+   * `reserved_spaces >= bag_capacity` is a truck that can never be offered to
+   * anybody — `bookableSpaces` returns 0 for every booking, so it vanishes
+   * from every shortlist and every reassign picker while still looking active
+   * and fully crewed in the console. Taking a van out of service is what the
+   * `active` toggle is for, and it says so on screen; a reserve doing the same
+   * thing silently is a van nobody can explain.
+   */
+  describe("reserved spaces must leave room", () => {
+    it("refuses a new truck whose reserve equals its capacity", async () => {
+      await expect(
+        createTruck(db, { name: "Van Z", bagCapacity: 10, reservedSpaces: 10 }),
+      ).rejects.toThrow(/nothing bookable/i);
+    });
+
+    it("refuses a reserve above the capacity", async () => {
+      await expect(
+        createTruck(db, { name: "Van Z", bagCapacity: 10, reservedSpaces: 11 }),
+      ).rejects.toThrow(/nothing bookable/i);
+    });
+
+    it("accepts a reserve one below the capacity", async () => {
+      const truck = await createTruck(db, {
+        name: "Van Z",
+        bagCapacity: 10,
+        reservedSpaces: 9,
+      });
+      expect(truck.reservedSpaces).toBe(9);
+    });
+
+    it("refuses raising the reserve past an unchanged capacity", async () => {
+      const truck = await createTruck(db, { name: "Van Z", bagCapacity: 10 });
+      await expect(updateTruck(db, { id: truck.id, reservedSpaces: 10 })).rejects.toThrow(
+        /nothing bookable/i,
+      );
+    });
+
+    /**
+     * The half a single-field check would miss. An edit form posts BOTH
+     * numbers, and lowering the capacity under an existing reserve is the
+     * same mistake arriving from the other direction.
+     */
+    it("refuses lowering the capacity under an existing reserve", async () => {
+      const truck = await createTruck(db, {
+        name: "Van Z",
+        bagCapacity: 10,
+        reservedSpaces: 6,
+      });
+      await expect(updateTruck(db, { id: truck.id, bagCapacity: 6 })).rejects.toThrow(
+        /nothing bookable/i,
+      );
+      // …and the pair moving together is fine.
+      const ok = await updateTruck(db, {
+        id: truck.id,
+        bagCapacity: 6,
+        reservedSpaces: 2,
+      });
+      expect(ok.bagCapacity).toBe(6);
+      expect(ok.reservedSpaces).toBe(2);
+    });
+
+    it("still refuses a negative reserve, with its own message", async () => {
+      await expect(
+        createTruck(db, { name: "Van Z", bagCapacity: 10, reservedSpaces: -1 }),
+      ).rejects.toThrow(/cannot be negative/i);
+    });
   });
 });

@@ -273,6 +273,30 @@ export async function listShifts(
 /* Fleet administration                                                */
 /* ------------------------------------------------------------------ */
 
+/**
+ * A RESERVE MUST LEAVE AT LEAST ONE BOOKABLE SPACE.
+ *
+ * `reserved_spaces >= bag_capacity` is a truck that can never be offered to
+ * anybody: `bookableSpaces` returns 0 for every booking, so it disappears from
+ * every shortlist and every reassign picker while still looking active and
+ * fully crewed in the console. Taking a van out of service is what the
+ * `active` toggle is for, and it says so on screen; a reserve that silently
+ * does the same thing is a van nobody can explain.
+ *
+ * Enforced here rather than as a CHECK constraint because the two columns are
+ * edited together by one form, and the message an operator needs names both
+ * numbers. A constraint would say `23514`.
+ */
+function assertReserveLeavesRoom(reservedSpaces: number, bagCapacity: number): void {
+  if (reservedSpaces >= bagCapacity) {
+    throw new InvalidInputError(
+      "reservedSpaces",
+      `Holding ${reservedSpaces} of ${bagCapacity} spaces back would leave nothing bookable. ` +
+        `Reserve fewer than the capacity, or take the truck out of service instead.`,
+    );
+  }
+}
+
 export interface CreateTruckInput {
   name: string;
   bagCapacity: number;
@@ -289,6 +313,7 @@ export async function createTruck(db: Database, input: CreateTruckInput): Promis
   if (!Number.isInteger(reservedSpaces) || reservedSpaces < 0) {
     throw new InvalidInputError("reservedSpaces", "Reserved spaces cannot be negative.");
   }
+  assertReserveLeavesRoom(reservedSpaces, input.bagCapacity);
 
   try {
     const [row] = await db
@@ -364,6 +389,13 @@ export async function updateTruck(db: Database, input: UpdateTruckInput): Promis
   ) {
     throw new InvalidInputError("reservedSpaces", "Reserved spaces cannot be negative.");
   }
+  // Checked against whichever of the two is CHANGING, plus whichever is not.
+  // Lowering capacity under an existing reserve is the same mistake as raising
+  // the reserve past capacity, and an edit form posts both fields.
+  assertReserveLeavesRoom(
+    input.reservedSpaces ?? existing.reservedSpaces,
+    input.bagCapacity ?? existing.bagCapacity,
+  );
 
   try {
     const [row] = await db

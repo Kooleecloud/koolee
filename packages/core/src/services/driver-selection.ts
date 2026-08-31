@@ -59,6 +59,36 @@ import { OPEN_TASK_STATUSES } from "./tasks";
  * alert rather than leaving the customer looking at nothing.
  */
 
+/**
+ * HOW MANY BAGS A VAN CAN STILL TAKE FROM A BOOKING.
+ *
+ *     bag_capacity − reserved_spaces − bags already on board
+ *
+ * `reserved_spaces` is the middle term, and until slice F4 it was not there.
+ * The column existed, the admin form edited it, and it was labelled "not yet
+ * enforced" — every capacity check in this file read `bag_capacity` raw. An
+ * operator holding two spaces back for a wheelchair, a fragile case or a
+ * return leg had a van that kept accepting bookings into them.
+ *
+ * ONE FUNCTION, FOUR READERS, and that is the point of extracting it. The
+ * shortlist filter, the candidate it renders, the transactional recheck under
+ * the advisory lock and the console's reassign picker each computed
+ * `bagCapacity - bagsOnBoard` independently, so a reserve honoured in three
+ * of them and forgotten in the fourth would have been a race the tests could
+ * not see.
+ *
+ * CLAMPED AT ZERO. `reserved_spaces < bag_capacity` is enforced on write
+ * (`createTruck` / `updateTruck`), so a negative is unreachable for a truck
+ * entered today — but a row predating that guard must render "0 spaces left",
+ * not "-2".
+ */
+export function bookableSpaces(
+  truck: { bagCapacity: number; reservedSpaces: number },
+  bagsOnBoard: number,
+): number {
+  return Math.max(0, truck.bagCapacity - truck.reservedSpaces - bagsOnBoard);
+}
+
 /** Statuses from which a customer may choose (or re-choose) a driver. */
 export const DRIVER_SELECTABLE_STATUSES = [
   "verified_sealed",
@@ -78,9 +108,11 @@ export interface DriverCandidate {
   avatarStoragePath: string | null;
   truckName: string;
   bagCapacity: number;
+  /** Held back from booking capacity by ops. Usually 0. */
+  reservedSpaces: number;
   /** Bags already committed to this shift. */
   bagsOnBoard: number;
-  /** `bagCapacity − bagsOnBoard`. Always ≥ the booking's bag count. */
+  /** `bookableSpaces(truck, bagsOnBoard)`. Always ≥ the booking's bag count. */
   availableCapacity: number;
   /**
    * True when this driver does not cover the pickup ZIP and only appears
@@ -118,6 +150,7 @@ interface EligibleRow {
   avatarStoragePath: string | null;
   truckName: string;
   bagCapacity: number;
+  reservedSpaces: number;
   bagsOnBoard: number;
   inZone: boolean;
   driverLat: number | null;
@@ -152,6 +185,7 @@ async function eligibleShifts(db: Database, zip: string): Promise<EligibleRow[]>
       avatarStoragePath: users.avatarStoragePath,
       truckName: trucks.name,
       bagCapacity: trucks.bagCapacity,
+      reservedSpaces: trucks.reservedSpaces,
       bagsOnBoard,
       // `agent_zones` is shared with agents and NOT renamed: 198 live rows, an
       // admin CRUD, and an FK to `users` that already fits a driver. What
@@ -243,7 +277,9 @@ export async function listCandidateDrivers(
 
   const rows = await eligibleShifts(db, pickup.zip);
 
-  const withRoom = rows.filter((r) => r.bagCapacity - r.bagsOnBoard >= booking.bagCount);
+  const withRoom = rows.filter(
+    (r) => bookableSpaces(r, r.bagsOnBoard) >= booking.bagCount,
+  );
 
   const inZone = withRoom.filter((r) => r.inZone);
   // Widen only when the first pass is EMPTY, never to pad a short list: a
@@ -306,8 +342,9 @@ function toCandidate(
     avatarStoragePath: row.avatarStoragePath,
     truckName: row.truckName,
     bagCapacity: row.bagCapacity,
+    reservedSpaces: row.reservedSpaces,
     bagsOnBoard: row.bagsOnBoard,
-    availableCapacity: row.bagCapacity - row.bagsOnBoard,
+    availableCapacity: bookableSpaces(row, row.bagsOnBoard),
     outOfZone,
     eta,
     position: toCoordinates(row.driverLat, row.driverLng),
@@ -423,6 +460,9 @@ export async function selectDriver(
         shift: driverShifts,
         truckName: trucks.name,
         bagCapacity: trucks.bagCapacity,
+        // Re-read under the lock with everything else: ops can raise a
+        // reserve between the shortlist rendering and the customer clicking.
+        reservedSpaces: trucks.reservedSpaces,
         fullName: users.fullName,
         avatarStoragePath: users.avatarStoragePath,
         canDrive: staffMembers.canDrive,
@@ -463,7 +503,7 @@ export async function selectDriver(
       );
 
     const bagsOnBoard = load?.bags ?? 0;
-    const availableCapacity = row.bagCapacity - bagsOnBoard;
+    const availableCapacity = bookableSpaces(row, bagsOnBoard);
     if (availableCapacity < booking.bagCount) {
       throw new ConflictError(
         "driver",
@@ -523,6 +563,7 @@ export async function selectDriver(
       avatarStoragePath: row.avatarStoragePath,
       truckName: row.truckName,
       bagCapacity: row.bagCapacity,
+      reservedSpaces: row.reservedSpaces,
       bagsOnBoard: bagsOnBoard + booking.bagCount,
       availableCapacity: availableCapacity - booking.bagCount,
       outOfZone: false,
@@ -840,6 +881,7 @@ export async function adminReassignPickup(
         shift: driverShifts,
         truckName: trucks.name,
         bagCapacity: trucks.bagCapacity,
+        reservedSpaces: trucks.reservedSpaces,
         canDrive: staffMembers.canDrive,
         staffActive: staffMembers.active,
       })
@@ -879,7 +921,7 @@ export async function adminReassignPickup(
           sql`${pickupTasks.bookingId} <> ${booking.id}`,
         ),
       );
-    const availableCapacity = row.bagCapacity - (load?.bags ?? 0);
+    const availableCapacity = bookableSpaces(row, load?.bags ?? 0);
     const hasRoom = availableCapacity >= booking.bagCount;
 
     const overrode: ("zone" | "capacity")[] = [];
@@ -942,6 +984,8 @@ export interface ReassignOption {
   driverName: string | null;
   truckName: string;
   bagCapacity: number;
+  /** Held back by ops. The console shows it so a "full" van is explicable. */
+  reservedSpaces: number;
   bagsOnBoard: number;
   inZone: boolean;
   hasRoom: boolean;
@@ -965,8 +1009,9 @@ export async function listReassignOptions(
     driverName: r.fullName,
     truckName: r.truckName,
     bagCapacity: r.bagCapacity,
+    reservedSpaces: r.reservedSpaces,
     bagsOnBoard: r.bagsOnBoard,
+    hasRoom: bookableSpaces(r, r.bagsOnBoard) >= row.bagCount,
     inZone: r.inZone,
-    hasRoom: r.bagCapacity - r.bagsOnBoard >= row.bagCount,
   }));
 }

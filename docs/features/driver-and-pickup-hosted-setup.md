@@ -134,9 +134,11 @@ Capacity is the denominator of every driver-selection decision: a customer is
 only offered a driver whose truck has room for their bags. Getting it wrong
 quietly changes who customers can pick.
 
-`reserved_spaces` is editable and **not yet enforced** — nothing subtracts it
-from the space offered. The field says so on screen. Leave it at 0 unless you
-are recording an intention for later.
+`reserved_spaces` is editable and **enforced**: a van is offered
+`bag_capacity − reserved_spaces − bags already on board`, so spaces you hold
+back for a same-day walk-up, a return leg or an oversize item stay empty. It
+must be fewer than the capacity — a van with nothing bookable belongs out of
+service, and the console refuses the save and says so.
 
 Then **take the two `DEV Truck …` fixtures out of service** on the same page.
 Deactivating is refused while a truck is out with a driver, and names them.

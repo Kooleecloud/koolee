@@ -93,8 +93,17 @@ export default async function TrucksPage() {
                       {truck.heldByUserId
                         ? `${truck.bagsOnBoard} of ${truck.bagCapacity} bag spaces in use`
                         : `Holds ${truck.bagCapacity} bags`}
+                      {/* Enforced now (slice F4). The number in brackets is
+                          what a customer can actually be offered, which is the
+                          question an operator is asking when they read this
+                          line at all. */}
                       {truck.reservedSpaces > 0
-                        ? ` · ${truck.reservedSpaces} reserved (not yet enforced)`
+                        ? ` · ${truck.reservedSpaces} held back — ${Math.max(
+                            0,
+                            truck.bagCapacity -
+                              truck.reservedSpaces -
+                              (truck.heldByUserId ? truck.bagsOnBoard : 0),
+                          )} bookable`
                         : ""}
                     </CardDescription>
                   </div>
@@ -121,9 +130,12 @@ export default async function TrucksPage() {
           <CardHeader>
             <CardTitle className="text-base">Add a truck</CardTitle>
             <CardDescription>
-              Bag capacity is what decides who a customer can pick. Reserved spaces are
-              recorded but <strong>not yet enforced</strong> — nothing subtracts them from
-              the space offered.
+              Bag capacity is what decides who a customer can pick, and reserved spaces
+              are <strong>held back from booking capacity</strong>: a van is offered{" "}
+              <em>capacity &minus; reserved &minus; bags already on board</em>, so two
+              spaces kept for a wheelchair or a fragile case stay empty. Reserve fewer
+              than the capacity &mdash; a van with nothing bookable should be taken out of
+              service instead, where the console says so.
             </CardDescription>
           </CardHeader>
           <CardContent>

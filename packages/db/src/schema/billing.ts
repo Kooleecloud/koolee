@@ -96,6 +96,20 @@ export const pricingRules = pgTable(
       precision: 8,
       scale: 4,
     }).notNull(),
+    /**
+     * HISTORICAL. DO NOT BUILD ON THIS COLUMN.
+     *
+     * A price multiplier per slot TIER, from the fixed-grid model that
+     * `slots` belonged to. Windows are virtual now and priced by LEAD TIME —
+     * how far ahead of the flight the pickup is — which is
+     * `lead_time_multipliers` below. The pricing engine reads that and never
+     * this: `engine.test.ts` still passes `slotTierMultiplier: {}` because
+     * the field is on the type, not because anything consults it.
+     *
+     * Kept rather than dropped because dropping it is a migration with no
+     * feature behind it and the admin `/pricing` page publishes new rules
+     * rather than editing live ones, so the default `{}` costs nothing.
+     */
     slotTierMultiplier: jsonb("slot_tier_multiplier")
       .$type<SlotTierMultiplier>()
       .notNull()

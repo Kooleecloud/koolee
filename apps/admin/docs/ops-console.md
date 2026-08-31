@@ -103,7 +103,8 @@ which is the whole reason these pages exist.
   DERIVED — `max(version)` where `effective_from <= now()`. There is no
   `is_active` column and there must not be one.
 - **Trucks** (`/trucks`): the fleet — name, bag capacity, active toggle.
-  `reserved_spaces` is editable and labelled **not yet enforced**.
+  `reserved_spaces` is editable and **enforced**: a van is offered
+  `bag_capacity − reserved_spaces − bags on board`.
 - **Staff** (`/staff`): list, invite, deactivate — exactly three
   capabilities, no reactivate/edit/delete. See `staff-auth.md`.
 - **Staff detail** (`/staff/[userId]`): one staff member — their history, their

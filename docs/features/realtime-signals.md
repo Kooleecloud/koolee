@@ -53,9 +53,13 @@ blind spot that let the pre-`0009` storage-policy bug ship twice. One narrow
 table means one policy to get right, and a bounded blast radius when it is
 wrong.
 
-`custody_events` still carries the `0001` policies and its publication
-membership. Nothing subscribes to it; it is left alone rather than removed,
-because removing a published table is a migration with no upside.
+`custody_events` keeps its `0001` policy and **has left the publication**
+(migration `0034`). The reasoning above — "left alone rather than removed,
+because removing a published table is a migration with no upside" — had the
+cost the wrong way round: a published table with no grant is a trap, not a
+neutral. It delivers nothing, says nothing, and reads to the next person as a
+subscription that ought to work. The upside of removing it is that the trap is
+gone; the policy stays, because it is correct and costs nothing.
 
 ### The policy
 
@@ -180,9 +184,12 @@ and no browser received a single event, because `authenticated` had no `SELECT`
 privilege on the table — RLS narrows what a role may already read and cannot
 widen it. `0031` grants it explicitly rather than relying on an environment's
 default privileges, which local and hosted disagree about. See that migration's
-header, and note that `custody_events` has carried the same shape since `0001`
-(RLS on, policies, published, no grant) — nothing subscribes to it, so it was
-deliberately left alone.
+header. `custody_events` carried the same shape since `0001` (RLS on, a
+policy, published, no grant) and was deliberately left alone at the time;
+`0034` removed it from the publication instead, because an armed-looking
+subscription that can never deliver is worse than no subscription at all. If
+it is ever re-added, **the grant must go with it** — that is this lesson,
+stated once.
 
 `TripLive` sits at **page** level, not inside the driver card. The interval it
 replaces lived in `DriverTracking`, which meant the page went live only after a
