@@ -101,13 +101,34 @@ export default async function AgentHomePage() {
   const now = new Date();
   // "Today" is today AT THE AIRPORT, per job. A UTC server would otherwise
   // start an Eastern driver's day at 8 PM the previous evening.
+  const dayOf = (job: Job) => airportLocalDayBounds(now, job.tz);
   const todays = jobs.filter((job) => {
     if (!job.startsAt) return false;
-    const { start, end } = airportLocalDayBounds(now, job.tz);
+    const { start, end } = dayOf(job);
     return job.startsAt >= start && job.startsAt < end;
   });
 
-  const outstanding = todays.filter((job) => job.state !== "done");
+  /*
+   * OVERDUE STOPS LEAD THE ROUTE.
+   *
+   * They used to appear nowhere on this screen: "Today" filtered to jobs whose
+   * window falls inside today, so a driver with four stops they were late for
+   * opened their home screen to "Nothing assigned for today" while the
+   * Schedule tab said "Overdue · 4". The home screen was hiding the most
+   * urgent work in the app.
+   *
+   * They are still doable — a pickup stays actionable right up to the
+   * airline's bag-drop cutoff (see actionability), which is exactly why
+   * hiding them is the wrong answer rather than a tidy one. They sort first
+   * because a stop you are behind on outranks one you are not.
+   */
+  const overdue = jobs.filter((job) => {
+    if (!job.startsAt || job.state === "done") return false;
+    return job.startsAt < dayOf(job).start;
+  });
+  const lateIds = new Set(overdue.map((job) => job.bookingId));
+
+  const outstanding = [...overdue, ...todays.filter((job) => job.state !== "done")];
   const finished = todays.filter((job) => job.state === "done");
 
   // Work with no window on it still has to surface somewhere, or it is simply
@@ -158,8 +179,9 @@ export default async function AgentHomePage() {
               <h2 className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">
                 Your route · {outstanding.length}{" "}
                 {outstanding.length === 1 ? "stop" : "stops"}
+                {lateIds.size > 0 ? ` · ${lateIds.size} late` : ""}
               </h2>
-              <JourneyList stops={outstanding} />
+              <JourneyList stops={outstanding} lateIds={lateIds} />
             </section>
           )}
 

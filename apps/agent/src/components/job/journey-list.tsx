@@ -1,7 +1,11 @@
 import Link from "next/link";
 import { Check, ChevronRight, MapPin } from "lucide-react";
 import { Badge, cn } from "@koolee/ui";
-import { formatHourInAirportTz, formatHourRangeInAirportTz } from "@koolee/core";
+import {
+  formatDayInAirportTz,
+  formatHourInAirportTz,
+  formatHourRangeInAirportTz,
+} from "@koolee/core";
 
 import { addressText, startablePickupTaskId, type Job } from "@/lib/job";
 
@@ -31,7 +35,19 @@ import { JobCard } from "./job-card";
  * arrives it will have to reason about windows, and this component will render
  * whatever order it produces without changing.
  */
-export function JourneyList({ stops }: { stops: Job[] }) {
+export function JourneyList({
+  stops,
+  /**
+   * Stops whose window has already passed. They lead the route rather than
+   * being hidden — see the note on the Today page — and they are marked,
+   * because a driver reading a rail top to bottom would otherwise take the
+   * first row as "next" rather than "late".
+   */
+  lateIds,
+}: {
+  stops: Job[];
+  lateIds?: ReadonlySet<string>;
+}) {
   if (stops.length === 0) return null;
 
   // The first unfinished stop is where the driver is. Everything before it in
@@ -43,6 +59,19 @@ export function JourneyList({ stops }: { stops: Job[] }) {
       {stops.map((job, index) => {
         const isCurrent = index === currentIndex;
         const isPast = currentIndex !== -1 && index < currentIndex;
+        const late = lateIds?.has(job.bookingId) ?? false;
+        /*
+         * A LATE STOP CARRIES ITS DATE, and the rail is unreadable without it.
+         *
+         * Late stops lead the route and are, by definition, from an earlier
+         * day — so a rail showing only clock times renders "11:00 AM" above
+         * "8:00 AM" and reads as a sorting bug. It is not: they are two
+         * different days, correctly ordered. The date is what makes that
+         * legible. Today's stops stay bare, because repeating today's date on
+         * every row is noise.
+         */
+        const dayLabel =
+          late && job.startsAt ? formatDayInAirportTz(job.startsAt, job.tz) : null;
         return (
           <li key={job.bookingId} className="relative flex gap-3 pb-4 last:pb-0">
             {/*
@@ -67,10 +96,17 @@ export function JourneyList({ stops }: { stops: Job[] }) {
                 <JobCard
                   job={job}
                   emphasis
+                  late={late}
+                  dayLabel={dayLabel}
                   startsPickupTaskId={startablePickupTaskId(job)}
                 />
               ) : (
-                <CompactStop job={job} dimmed={isPast} />
+                <CompactStop
+                  job={job}
+                  dimmed={isPast}
+                  late={late}
+                  dayLabel={dayLabel}
+                />
               )}
             </div>
           </li>
@@ -127,7 +163,18 @@ function StopDot({
  * still has bags on a doorstep, and "Start & navigate" on a future leg would
  * start it for real.
  */
-function CompactStop({ job, dimmed }: { job: Job; dimmed: boolean }) {
+function CompactStop({
+  job,
+  dimmed,
+  late,
+  dayLabel,
+}: {
+  job: Job;
+  dimmed: boolean;
+  late: boolean;
+  /** Set only on stops from an earlier day — see the note at the call site. */
+  dayLabel: string | null;
+}) {
   const { booking, tz, next } = job;
   const target = next ?? job.phases.at(-1)!;
 
@@ -149,6 +196,11 @@ function CompactStop({ job, dimmed }: { job: Job; dimmed: boolean }) {
     >
       <span className="flex min-w-0 flex-1 flex-col gap-0.5">
         <span className="flex flex-wrap items-baseline gap-x-2">
+          {dayLabel ? (
+            <span className="text-xs font-semibold tracking-wide text-warning-foreground uppercase">
+              {dayLabel}
+            </span>
+          ) : null}
           <span className="font-display font-semibold text-navy-800">{when}</span>
           <span className="truncate text-sm">{booking.paxName}</span>
         </span>
@@ -159,6 +211,10 @@ function CompactStop({ job, dimmed }: { job: Job; dimmed: boolean }) {
       </span>
 
       {job.state === "problem" && <Badge variant="destructive">Problem</Badge>}
+      {/* "Late", not "Overdue": the driver is the one reading it, and it says
+          what to do about it more directly. Still collectable — the badge is a
+          warning, never a refusal. */}
+      {late && job.state !== "problem" && <Badge variant="warning">Late</Badge>}
       {job.state === "done" && <Badge variant="success">Done</Badge>}
       <ChevronRight aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />
     </Link>
