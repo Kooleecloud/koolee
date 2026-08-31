@@ -84,9 +84,26 @@ export interface DriverCandidate {
   outOfZone: boolean;
   /**
    * Null when the driver has never pinged a position — a real state, not an
-   * error. Render `formatEtaRange(null)`, never a guess.
+   * error. Render `formatEtaMinutes(null)`, never a guess.
    */
   eta: EtaRange | null;
+  /**
+   * The driver's last reported position, for the map.
+   *
+   * WHAT THIS DISCLOSES AND TO WHOM. A shortlist is at most four drivers who
+   * are on shift, have room for these bags, and (all but the widened case)
+   * cover this pickup's ZIP — and it is only ever built for a customer whose
+   * own bags are sealed and waiting. So this is the live position of somebody
+   * about to drive to that customer's door, shown to that customer, which is
+   * the same bargain every ride-hail app strikes and the reason the pool is
+   * filtered before it is drawn.
+   *
+   * It is a 45-second-old foreground ping, not a track: `driver_positions`
+   * holds ONE mutable row per driver and keeps no history (schema/ops.ts).
+   * Null the moment a phone goes into a pocket, which the map renders as an
+   * absent pin rather than a stale one.
+   */
+  position: Coordinates | null;
 }
 
 interface EligibleRow {
@@ -295,6 +312,7 @@ function toCandidate(
     availableCapacity: row.bagCapacity - row.bagsOnBoard,
     outOfZone,
     eta,
+    position: toCoordinates(row.driverLat, row.driverLng),
   };
 }
 
@@ -508,6 +526,8 @@ export async function selectDriver(
       availableCapacity: availableCapacity - booking.bagCount,
       outOfZone: false,
       eta,
+      // Re-read under the lock along with everything else on this row.
+      position: toCoordinates(row.driverLat, row.driverLng),
     };
 
     return { candidate, releasedShiftId, custodyEventId: selectedEvent?.id ?? null };

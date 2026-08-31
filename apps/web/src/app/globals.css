@@ -1,2 +1,12 @@
 @import "tailwindcss";
 @import "@koolee/ui/styles/theme.css";
+
+/*
+ * MapLibre's own stylesheet — the canvas positioning, the attribution control
+ * and the zoom buttons. Imported HERE rather than from `live-map.tsx` on
+ * purpose: `@koolee/ui` declares `sideEffects: false`, so a bare CSS import
+ * inside a component of that package is exactly the kind of thing a bundler is
+ * entitled to drop, and the failure mode is a map that renders as a blank
+ * rectangle with no error anywhere.
+ */
+@import "maplibre-gl/dist/maplibre-gl.css";

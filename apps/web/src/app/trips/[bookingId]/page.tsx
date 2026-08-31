@@ -28,6 +28,7 @@ import {
   formatMiles,
   haversineKm,
   listCandidateDrivers,
+  pickupCoordinates,
   reportEmptyDriverPool,
   type AssignedAgent,
 } from "@koolee/core";
@@ -249,6 +250,9 @@ export default async function TripPage({
       outOfZone: candidate.outOfZone,
       etaLabel: formatEtaMinutes(candidate.eta),
       hasEta: candidate.eta !== null,
+      // For the map. Null is ordinary — a phone in a pocket stops reporting —
+      // and such a driver keeps their card while having no pin.
+      position: candidate.position,
     })),
   );
 
@@ -289,6 +293,7 @@ export default async function TripPage({
           booking.status,
           selectedDriver.travelStartedAt !== null,
         ),
+        position: selectedDriver.position,
       }
     : null;
 
@@ -313,13 +318,22 @@ export default async function TripPage({
             ? "choose_driver"
             : booking.status;
 
+  // The door, for both maps. Null when the address never got coordinates —
+  // both components fall back to the list-and-number view they had before.
+  const pickupPoint = pickupCoordinates(pickupAddress);
+
   const driverSection = driverView ? (
     <DriverTracking
       driver={driverView}
       live={booking.status !== "delivered_to_bagdrop" && booking.status !== "completed"}
+      pickup={pickupPoint}
     />
   ) : canChooseDriver ? (
-    <DriverChoice bookingId={booking.id} candidates={candidateViews} />
+    <DriverChoice
+      bookingId={booking.id}
+      candidates={candidateViews}
+      pickup={pickupPoint}
+    />
   ) : null;
 
   // Bag and custody photos live in a private bucket and are stored as paths;

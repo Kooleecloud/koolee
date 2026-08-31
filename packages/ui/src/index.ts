@@ -46,6 +46,7 @@ export {
 } from "./components/dialog";
 export { Toaster, toast } from "./components/sonner";
 export { KooleeLogo, type KooleeLogoProps } from "./components/koolee-logo";
+export { LiveMap, type LiveMapProps, type MapDriver, type MapPoint } from "./components/live-map";
 export {
   BrandLoader,
   BrandLoadingOverlay,

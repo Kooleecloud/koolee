@@ -13,6 +13,7 @@ import {
   CardHeader,
   CardTitle,
   FormMessage,
+  LiveMap,
   ProgressTrack,
 } from "@koolee/ui";
 
@@ -32,11 +33,22 @@ import { PICKUP_STEPS } from "@/lib/pickup-progress";
  *     behind the scenes) rather than showing an empty list;
  *  3. a chosen driver, their distance, their ETA and where the bags are.
  *
- * WHY THERE IS NO MAP. A map is a library, tiles from a third-party host, and
- * a coordinate for a person's live position rendered at street resolution. A
- * distance and an updating ETA answer the actual question — "how long until
- * somebody knocks" — with none of that. This is a deliberate scope decision
- * for the slice, not an oversight; see RUN-REPORT-7.
+ * THERE IS A MAP NOW, and the old note here said there deliberately was not:
+ * "a distance and an updating ETA answer the actual question — how long until
+ * somebody knocks". That was half right. The other question somebody sitting
+ * with sealed bags is asking is "is anything actually happening", and a number
+ * that changes every 45 seconds answers it worse than a pin that moves.
+ *
+ * The map is `LiveMap` in @koolee/ui — MapLibre over OpenFreeMap tiles, no key
+ * and no per-load billing, deliberately not Google's Maps JS (a separate SKU
+ * needing a browser-side key, where every Maps call this product makes today
+ * is server-side). It NEVER gates: a tile host that is down, or a browser with
+ * no WebGL, leaves the list and the ETA below it untouched.
+ *
+ * CHOOSING IS STILL A LIST DECISION. The pins are a second way to reach the
+ * same four cards — click a pin, its card highlights and scrolls into view —
+ * because a name, a van's remaining capacity and an ETA do not fit in a map
+ * pin, and those are what somebody actually chooses on.
  */
 
 export interface DriverCandidateView {
@@ -51,6 +63,12 @@ export interface DriverCandidateView {
   etaLabel: string;
   /** True when the ETA is a real estimate rather than the fallback phrase. */
   hasEta: boolean;
+  /**
+   * Last known position, for the map. Null is ordinary — a phone in a pocket
+   * stops reporting — and such a driver simply has no pin while keeping their
+   * card, because they are still perfectly choosable.
+   */
+  position: { lat: number; lng: number } | null;
 }
 
 export interface SelectedDriverView {
@@ -64,6 +82,8 @@ export interface SelectedDriverView {
   lastSeenLabel: string | null;
   /** Where the bags are, as a milestone index into `PICKUP_STEPS`. */
   stepIndex: number;
+  /** Where they are right now. Null until the first ping. */
+  position: { lat: number; lng: number } | null;
 }
 
 /* ------------------------------------------------------------------ */
@@ -73,15 +93,28 @@ export interface SelectedDriverView {
 export function DriverChoice({
   bookingId,
   candidates,
+  pickup,
 }: {
   bookingId: string;
   candidates: DriverCandidateView[];
+  /** The door, for the map. Null when the address has no coordinates. */
+  pickup: { lat: number; lng: number } | null;
 }) {
   const router = useRouter();
   const [state, formAction, pending] = useActionState<SelectDriverState, FormData>(
     selectDriverAction,
     {},
   );
+  /**
+   * Which pin was clicked. PURELY A HIGHLIGHT — it commits nothing.
+   *
+   * Choosing a driver is irreversible (the pickup task is claimed and the
+   * shortlist closes), so a click on a map pin must never be the click that
+   * does it. Tapping a pin highlights its card and brings it into view; the
+   * card's own button is what chooses.
+   */
+  const [focused, setFocused] = React.useState<string | null>(null);
+  const cardRefs = React.useRef(new Map<string, HTMLLIElement>());
 
   // A lost race is not a dead end. `revalidatePath` already ran server-side;
   // this pulls the refreshed shortlist so the customer's next click is a
@@ -93,6 +126,21 @@ export function DriverChoice({
   if (candidates.length === 0) return <NoDriverYet />;
 
   const allOutOfZone = candidates.every((c) => c.outOfZone);
+  const pins = candidates
+    .filter((candidate) => candidate.position !== null)
+    .map((candidate) => ({
+      id: candidate.shiftId,
+      position: candidate.position!,
+      label: candidate.givenName,
+      selected: focused === candidate.shiftId,
+    }));
+
+  const onPinClick = (shiftId: string) => {
+    setFocused(shiftId);
+    cardRefs.current
+      .get(shiftId)
+      ?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  };
 
   return (
     <Card>
@@ -104,16 +152,48 @@ export function DriverChoice({
             : "Your bags are sealed and ready. Pick whoever suits you; they will collect your bags and deliver them to your airline's bag drop."}
         </CardDescription>
       </CardHeader>
-      <CardContent className="flex flex-col gap-3">
+      <CardContent className="flex flex-col gap-4">
         {state.error ? <FormMessage variant="error">{state.error}</FormMessage> : null}
+
+        {/* Drawn only when we know where the door is. A map of vans with no
+            reference point is worse than no map. */}
+        {pickup && pins.length > 0 && (
+          <>
+            <LiveMap
+              pickup={pickup}
+              drivers={pins}
+              onDriverClick={onPinClick}
+              className="h-64 sm:h-72"
+              label={`Map showing your pickup address and ${pins.length} available ${
+                pins.length === 1 ? "driver" : "drivers"
+              }`}
+            />
+            <p className="text-xs text-muted-foreground">
+              Tap a van to see who it is. You choose below — nothing is booked from
+              the map.
+            </p>
+          </>
+        )}
 
         <ul className="grid gap-3 sm:grid-cols-2">
           {candidates.map((candidate) => (
-            <li key={candidate.shiftId}>
+            <li
+              key={candidate.shiftId}
+              ref={(node) => {
+                if (node) cardRefs.current.set(candidate.shiftId, node);
+                else cardRefs.current.delete(candidate.shiftId);
+              }}
+            >
               <form action={formAction}>
                 <input type="hidden" name="bookingId" value={bookingId} />
                 <input type="hidden" name="shiftId" value={candidate.shiftId} />
-                <div className="flex h-full flex-col gap-3 rounded-lg border border-border p-4">
+                <div
+                  className={
+                    focused === candidate.shiftId
+                      ? "flex h-full flex-col gap-3 rounded-lg border border-tag-400 bg-tag-50/60 p-4 ring-1 ring-tag-300"
+                      : "flex h-full flex-col gap-3 rounded-lg border border-border p-4"
+                  }
+                >
                   <div className="flex items-center gap-3">
                     <Avatar
                       size="md"
@@ -200,10 +280,21 @@ export function DriverTracking({
   driver,
   /** False once the bags are delivered — nothing left to track. */
   live,
+  /** The door, for the map. Null when the address has no coordinates. */
+  pickup,
 }: {
   driver: SelectedDriverView;
   live: boolean;
+  pickup: { lat: number; lng: number } | null;
 }) {
+  /*
+   * THE MAP IS ONLY FOR A JOURNEY IN PROGRESS. Once the bags are at the bag
+   * drop there is no van to watch, and a map of where somebody was is not a
+   * receipt — the custody timeline is. Also gated on having both ends: a pin
+   * with no reference point tells nobody anything.
+   */
+  const showMap = live && pickup !== null && driver.position !== null;
+
   return (
     <Card>
       <CardHeader>
@@ -230,6 +321,26 @@ export function DriverTracking({
             </div>
           ) : null}
         </div>
+
+        {showMap && (
+          <LiveMap
+            pickup={pickup}
+            drivers={[
+              {
+                // One driver, and the id is stable for the life of the card,
+                // so the pin MOVES between refreshes instead of being torn
+                // down and re-added. That is what makes a van look like it is
+                // driving rather than teleporting.
+                id: "selected",
+                position: driver.position!,
+                label: driver.givenName,
+                selected: true,
+              },
+            ]}
+            className="h-64 sm:h-72"
+            label={`Map showing ${driver.givenName ?? "your driver"} on the way to your pickup address`}
+          />
+        )}
 
         <PickupProgress stepIndex={driver.stepIndex} />
 
