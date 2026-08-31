@@ -76,7 +76,7 @@ export async function touchBookingSignal(
  * Rings it for several bookings at once.
  *
  * One statement, because the caller with more than one is the GPS ping: a
- * driver holding three bookings' bags pings every ~45 seconds, and three
+ * driver holding three bookings' bags pings every 20–45 seconds, and three
  * round-trips per ping is the shape that turns a cheap path into an expensive
  * one.
  */

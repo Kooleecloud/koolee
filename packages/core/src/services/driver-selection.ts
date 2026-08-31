@@ -423,7 +423,7 @@ export async function selectDriver(
   // and a network round-trip inside `db.transaction` would hold the shift's
   // advisory lock open for its duration, serialising every other customer
   // choosing that same driver behind a third party's latency. The position it
-  // reads is at most one GPS ping (~45s) older than the one re-read under the
+  // reads is at most one GPS ping (20–45s) older than the one re-read under the
   // lock; a null either way renders as "ETA on the way".
   const eta = await snapshotDriverEta(config, input.shiftId, pickup.coords);
 
@@ -647,18 +647,27 @@ export async function reportEmptyDriverPool(
  * How old a GPS fix may be and still count as "where the driver is".
  *
  * `driver_positions` holds ONE mutable row per driver with no history, and the
- * agent app pings every 45 seconds while a pickup is under way — but only in
- * the foreground. A phone in a pocket stops reporting, and the row keeps the
- * last fix indefinitely, including one from a JOB THE DRIVER FINISHED
- * YESTERDAY. Rendering that on a map draws a van somewhere it is not, with the
- * same confidence as a live one.
+ * agent app pings only in the FOREGROUND. A phone in a pocket stops reporting,
+ * and the row keeps the last fix indefinitely — including one from a JOB THE
+ * DRIVER FINISHED YESTERDAY. Rendering that on a map draws a van somewhere it
+ * is not, with exactly the confidence of a live one.
  *
- * Four missed pings. Long enough to survive a tunnel, a lock screen or a
- * dropped request; short enough that nobody watches a frozen pin and believes
- * it. Past this, `positionIsFresh` is false and the surfaces fall back to what
- * they said before there was a map: a distance, and "Position updating".
+ * NINETY SECONDS, which is roughly four missed pings at the twenty-second
+ * cadence the agent app uses while a driver is en route to a door
+ * (`PING_INTERVAL_MS`, `components/shift/gps-pinger.tsx`). Long enough to
+ * survive a tunnel, a lock screen or a dropped request; short enough that
+ * nobody watches a frozen pin and believes it.
+ *
+ * It was three minutes, sized against a flat 45-second ping. That is a long
+ * time to be wrong about a moving vehicle: a van in city traffic covers the
+ * better part of a kilometre in it, so the pin could sit a dozen blocks from
+ * the truck while looking perfectly current. The rule of thumb is ~4× the
+ * ACTIVE ping interval, and the active interval is now 20s.
+ *
+ * Past this, `positionIsFresh` is false and every surface falls back to what
+ * it said before there was a map: a distance, and "Position updating".
  */
-export const POSITION_FRESH_MS = 3 * 60_000;
+export const POSITION_FRESH_MS = 90_000;
 
 export interface SelectedDriver {
   shiftId: string;
@@ -685,7 +694,7 @@ export async function getSelectedDriver(
   /**
    * Explicit, and defaulted — the same shape `listCustomerTrips` uses. Only
    * `positionIsFresh` reads it, and a test that wants a stale fix should be
-   * able to say so without waiting three minutes.
+   * able to say so without waiting out the freshness window.
    */
   now: Date = new Date(),
 ): Promise<SelectedDriver | null> {

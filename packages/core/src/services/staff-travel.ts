@@ -21,7 +21,7 @@ import { formatEtaMinutes } from "../geo/eta";
  * slice; the person actually driving had neither.
  *
  * IT READS THEIR OWN LAST PING. `driver_positions` holds one mutable row per
- * staff member, written every 45 seconds by the agent app's `GpsPinger` while
+ * staff member, written every 20–45 seconds by the agent app's `GpsPinger` while
  * a pickup is under way. That is a foreground-only ping, so a phone in a
  * pocket stops reporting and this goes quiet — which is honest, and better
  * than a stale position presented as current.

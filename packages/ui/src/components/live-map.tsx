@@ -169,11 +169,12 @@ const LOAD_TIMEOUT_MS = 10_000;
 /**
  * How long a pin takes to walk from one fix to the next.
  *
- * The driver's phone reports every 45 seconds, so without this the van
- * TELEPORTS three quarters of a minute at a time — which reads as a broken
- * map rather than a moving vehicle. 1.2s is long enough to be unmistakably
- * motion and far short of the next fix, so a pin is always at rest by the time
- * the following one lands: it never looks like it is lagging reality.
+ * The driver's phone reports every 20 seconds while they are on their way to
+ * a door (45 once the bags are aboard — see `GpsPinger`), so without this the
+ * van TELEPORTS a third of a minute at a time, which reads as a broken map
+ * rather than a moving vehicle. 1.2s is long enough to be unmistakably motion
+ * and far short of the next fix, so a pin is always at rest by the time the
+ * following one lands: it never looks like it is lagging reality.
  *
  * This is a straight line between two points, NOT a route. Interpolating along
  * roads would mean a polyline per update from a billed routing API, for an
@@ -184,11 +185,13 @@ const MOVE_DURATION_MS = 1200;
 /**
  * Past this, jump instead of animating.
  *
- * A van covers roughly 600m in 45 seconds through city traffic. Two and a half
- * kilometres between consecutive fixes is a GPS glitch, a phone that woke up
- * somewhere else, or a different driver on the same pin — and animating it
- * would draw a smooth 1.2-second drive that never happened. A jump is the
- * honest rendering of "we do not know how they got there".
+ * A van covers something like 270m in 20 seconds through city traffic, and
+ * 600m in 45. Two and a half kilometres between consecutive fixes is a GPS
+ * glitch, a phone that woke up somewhere else, or a different driver on the
+ * same pin — and animating it would draw a smooth 1.2-second drive that never
+ * happened. A jump is the honest rendering of "we do not know how they got
+ * there". Kept well clear of both cadences on purpose: this threshold exists
+ * to catch nonsense, not to second-guess a fast road.
  */
 const MAX_SMOOTH_METRES = 2500;
 
@@ -494,7 +497,7 @@ export function LiveMap({
     /*
      * FRAME ON A NEW SET OF DRIVERS, NOT ON EVERY POSITION.
      *
-     * The tracking map re-renders every time the driver pings — every 45
+     * The tracking map re-renders every time the driver pings — every 20 to 45
      * seconds — and this used to `fitBounds` on each one, because `drivers` is
      * a fresh array identity per render. So a customer who pinned the map on
      * their own street, or zoomed in to see which corner the van was on, had
