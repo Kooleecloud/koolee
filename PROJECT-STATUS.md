@@ -59,6 +59,47 @@ package-specific in `packages/<pkg>/docs/`. Nothing new accumulates at the root.
 
 ## 3. Snapshot — where we are right now
 
+- **Slice F4 in flight: fixes, latent traps, CI, on-behalf shifts
+  (2026-08-31, `fix/f4-fixes-and-ci`, cut from `origin/dev` @ `78d2d5d`).**
+  Rows 113–120. Migrations **0034 + 0035, LOCAL ONLY** — hosted gets both from
+  CI on merge. **No new environment variables in any app or in core.**
+
+  **(a) This repository now checks a pull request.** `migrate.yml` was the
+  whole of CI, so a branch could arrive red on typecheck, lint, tests, builds
+  and formatting and nothing would say so. `ci.yml` runs all of it plus the
+  core integration tier against an ephemeral Postgres it builds itself, and
+  holds no database credential. Finding: `packages/db/README.md`'s claim that
+  the migrations run on a plain Postgres is **false** — `0008` writes
+  `storage.buckets` unguarded — and the migrations cannot be corrected without
+  putting every applied database into permanent hash drift, so the environment
+  moves instead.
+
+  **(b) Three of the slice's stated causes were wrong, and checking first is
+  the through-line.** The agreement page's "raw markdown" was not the
+  `useMemo` client-trap the file's own header predicted (that was defused when
+  the warning was written) but three missing `case`s. `custody_events` was
+  expected to carry two RLS policies; it carries one, and TD ratified removing
+  it from the realtime publication rather than granting SELECT to a
+  subscription nothing uses. `reserved_spaces` was billed as "one subtraction
+  in one function"; it is four readers, and a reserve honoured in three of
+  four is a race no test could see.
+
+  **(c) Two silent product failures, both about honesty.** With zero published
+  agreement versions the gate fails closed for every booking — correct — and
+  the customer saw an empty "Action needed", the agent was told the customer
+  had not accepted, and the console said nothing. A refused ZIP at the flight
+  step wiped the whole form and returned the customer to the UPLOAD DOOR,
+  because being refused made them look like a first-time visitor.
+
+  **(d) The console gained the two halves it was missing:** starting a shift
+  (it could only end one) and removing a driver (it could only move one).
+
+  **(e) A defect found in a fresh container that CI would have hit on its
+  first run:** two integration tests depended on an `airline_cutoffs` row
+  another suite inserts and nothing wipes. Confirmed pre-existing against the
+  committed tree. Full record:
+  [RUN-REPORT-13](docs/run-reports/RUN-REPORT-13.md).
+
 - **The UX pass (2026-08-30, `feat/ux-pass-addresses-profile`, stacked on
   tier5).** Rows 107–112, migration 0033. Twenty-four complaints in one message,
   taken in six batches. The one with teeth is the **pickup-address snapshot**:
@@ -562,6 +603,14 @@ the linked row is the current behaviour)
 | 110 | An agreement you can keep, in miles, with one number (2026-08-30) | ✅ | UX pass. The agreement and passport were two equal cards that never collapsed; they are a numbered sequence that becomes one green line each, and "you accepted version 3" now has somewhere to go — `/trips/[id]/agreement` is a print-styled page of the version the booking is BOUND by, which every browser saves as a PDF. Distance is miles (km stays the internal unit everywhere). The ETA is one number leaning 60% up the band, because "40–75 min" means being at the door for 35 minutes; `formatEtaRange` survives for operators. |
 | 111 | The driver gets the number and the distance (2026-08-30) | ✅ | UX pass. Most jobs showed a disabled "No number": both agent contexts selected name and face only, and `contact_phone` is set only for email-only customers. `doorContact` resolves ONE field — the booking's own contact, else the account's verified number — for the assignee of a live task, the same relationship that already grants the address and the traveller's face. `staffTravelToDoor` adds "3.2 miles away · about 15 min" from the driver's own last ping. |
 | 112 | A live map, without a browser Maps key (2026-08-30) | ✅ | UX pass. "3.2 km away · Position updating" answered "how long" and not "is anything happening". `LiveMap` is MapLibre over OpenFreeMap — no key, no account, no per-load billing — deliberately NOT Google's Maps JS, which is a separate SKU needing a referrer-restricted key in the bundle. Choosing stays a list decision: pins highlight a card, the card's button chooses, because choosing is irreversible. Three defects found by driving a browser that typecheck, lint, 908 tests and a production build were all green over — see RUN-REPORT-12. |
+| 113 | Every PR is checked, on a database CI builds itself (2026-08-31) | ✅ | Slice F4. `migrate.yml` was the whole of CI, so a branch could arrive red on typecheck, lint, tests, builds and formatting and nothing said so. `ci.yml` runs all of it plus the core integration tier against an **ephemeral `postgres:16`**, holds no database credential and cannot obtain one. The finding: `packages/db/README.md` claims the migrations run on a plain Postgres and **they do not** — `0008` writes `storage.buckets` unguarded and the run dies there. They cannot be corrected (`db:status` compares by content hash; editing an applied migration is permanent drift), so `scripts/ci-postgres-bootstrap.sql` moves the environment instead. The build step is given NO environment on purpose, which turns `env.ts`'s zero-config-boot promise into an assertion — proven in a clean worktree, 3/3 apps. A 247-file prettier baseline landed first so the pipeline was not born red. |
+| 114 | The agreement renderer had no branch for #, links or tables (2026-08-31) | ✅ | Slice F4. "The /agreement page renders raw markdown" was NOT the `useMemo` client-trap the file's own header predicted — the directive that defuses it was added by the row-73 sweep, so it never sprang. `parseAgreementMarkdown` degrades the unrecognised to paragraph text and had no case for `#`, `[label](href)` or a table, so a legal document displayed `# Koolee booking agreement` and a line of pipes. Three symptoms, one missing `case`. All three built end to end — AST, serializer, ProseMirror conversion, editor toolbar, renderer — because the exclusions were documented and never enforced, and "unsupported" and "rendered as gibberish" are not the same policy. `safeLinkHref` allow-lists `http`/`https`/`mailto` **in the AST**, so the parser, the editor conversion and the toolbar cannot disagree. `packages/ui` gained a `react-dom/server` test that is also a server-safety test. |
+| 115 | Nobody was told when no agreement was published (2026-08-31) | ✅ | Slice F4. Zero versions is a total outage — the gate fails closed for every booking, correctly — and all three surfaces described it wrongly: the customer saw "Action needed / 1 thing to do" over an empty row, the agent at a doorstep read "the customer has not accepted" about somebody with no button to press, and the console said nothing at all. `no_agreement_published` is its own blocker; the customer gets a calm holding state **and the passport step opens**, because it has no agreement dependency; the console banners the consequence. A failed count reads `-1`, never `0`, so a database blip cannot cry wolf. |
+| 116 | A refused ZIP cost the customer their whole form (2026-08-31) | ✅ | Slice F4. Three things were true at once: `submitFlight` returned every rejection BEFORE `writeDraft`; `usePreservedFormValues` covers a round trip inside one mount and the out-of-area card does not stay mounted (its retry is a real LINK); and `flightEntryMode` chose the door on `draftHasFlight`, which is false precisely because the step never committed — **being refused made you look like a first-time visitor**. `rejectedEntrySchema` is a quarantined per-step key, so a refusal costs a correction. Two existing tests asserted `writeDraft` was not called; they assert the quarantine BOUNDARY now, which is stronger. |
+| 117 | A cancelled booking stopped being work, without disappearing (2026-08-31) | ✅ | Slice F4. Cancelling touches no task — `applyTransition` writes one row and one custody event — and every derivation in the agent's day reads TASK status, so a cancelled booking rendered as an upcoming stop with a working "Start & navigate". Core refused the action all along (`actionability.ts`), so nothing could happen except an agent driving to a door for a pickup that was not coming. `JobState.cancelled` comes off the BOOKING; `StageDot` gains a struck-through state and `ProgressTrack` a `cancelled` prop, distinct from `currentIndex: -1` ("nothing now" vs "nothing ever"). The stop STAYS: a schedule that quietly loses stops cannot be reconciled against what was actually done. |
+| 118 | reserved_spaces enforced; custody_events unpublished (2026-08-31) | ✅ | Slice F4, migration **0034**. The checklist called `reserved_spaces` "one subtraction in `listCandidateDrivers`"; it is FOUR readers, each computing capacity independently, so a reserve honoured in three would have been a race no test could see. One `bookableSpaces()` now, plus `reserved < capacity` on write, checked against whichever column is changing AND whichever is not. `custody_events` went the OPPOSITE way to the slice's default: it LEAVES the realtime publication, because nothing subscribes (the doorbell is `booking_signals`) and the coverage was not what the note claimed — ONE policy, not two, with no staff half. A published table with no grant is a trap, not a neutral. |
+| 119 | The console can start a shift, not only end one (2026-08-31) | ✅ | Slice F4, migration **0035**. `adminForceEndShift` shipped in Tier 4 with no pair, so a driver with a dead phone could be taken OFF the road and not put back on. `adminStartShiftOnBehalf` CALLS `startShift` — the same guards, the same 23505 path — because a second implementation is how the two drift. The actor could not go in `custody_events` (`booking_id` is NOT NULL and a shift belongs to no booking), so `driver_shifts.started_by_user_id` holds it; `admin_audit_log` stays deferred. The driver's app needed nothing new: `useBookingSignal`'s fallback already polls with an empty id list. |
+| 120 | One tile error killed the map; the console can now unassign (2026-08-31) | ✅ | Slice F4, TD's own two items. `instance.on("error", () => setFailed(true))` treated every MapLibre error as fatal AND permanent — a single 404 tile or an aborted request replaced a working map with "the map can't load right now", with no way back. Fatal only before `load` now; `data-map-state` on the DOM so the next report is diagnosable. And the console could only MOVE a pickup, so undoing an assignment meant parking the booking on another driver who was not going to do it either — a lie told to the board. `adminUnassignPickup` releases it properly, refused once the bags are in the van. Also fixed: two integration tests depended on another suite's `airline_cutoffs` row and **would have gone red on CI's first fresh container**. |
 
 ---
 

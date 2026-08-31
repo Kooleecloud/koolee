@@ -36,6 +36,45 @@ scripted end-to-end pass to run when this list is finished.
 non-backward-compatible migration must not ride that race — ship it on its own
 merge.
 
+### A9 — ⚠️ `0033` is that migration, and promoting it to `main` needs a decision
+
+**Read [MIGRATIONS §9.5](../MIGRATIONS.md#the-ordering-caveat) before the merge
+that carries `0033`.** It adds eight `pickup_*` columns to `bookings`,
+backfills them, and then sets four of them `NOT NULL` — **the contract rides
+the same migration as the expand**, so neither deploy order is clean:
+
+| Order                                         | What breaks                                                                           |
+| --------------------------------------------- | ------------------------------------------------------------------------------------- |
+| Migration lands first, old code still serving | old `createBooking` omits `pickup_line1` → **NOT NULL violation → new bookings fail** |
+| Deploy lands first, migration not yet applied | new code reads and writes columns that do not exist yet                               |
+
+The window is the length of the deploy, and only **booking creation** is
+affected — existing bookings, the agent app and the console are untouched
+either way.
+
+**Two options. Pick one knowingly; do not discover it.**
+
+- **A. Accept the window (the default, pre-launch).** With no traffic and no
+  real customers, a few minutes in which a booking cannot be created costs
+  nothing. Merge normally and let the workflow race the build. This is what
+  the launch checklist assumes.
+- **B. Sequence it by hand.** For a `main` that is already serving real
+  bookings:
+  1. Put `apps/web` into `NEXT_PUBLIC_LAUNCH_MODE=coming_soon` (or take the
+     funnel down) so no booking can be created during the window;
+  2. merge and let `migrate.yml` apply `0033` **on its own**, with no code
+     change riding along;
+  3. confirm `DIRECT_DATABASE_URL='<prod direct>' pnpm db:status` is in sync;
+  4. deploy the code;
+  5. flip the launch mode back and create one booking to prove the path.
+
+**No migration was written to fix this and none should be.** `0033` is already
+applied to local and to dev; splitting it now would change an applied
+migration's content hash and put every database that has it into permanent
+drift. The expand/contract discipline is the lesson — see the §6 note in
+MIGRATIONS.md — and this runbook step is how the one migration that broke it
+gets deployed safely.
+
 ---
 
 ## B. Storage buckets
@@ -54,12 +93,13 @@ click. Verify, do not create:
 
 ## C. Realtime
 
-| #   | Step                                                                                                                                                                                                                                                                                                                         | Who |
-| --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --- |
-| C1  | 0030 sets `REPLICA IDENTITY FULL` and adds `public.booking_signals` to the `supabase_realtime` publication.                                                                                                                                                                                                                  | CI  |
-| C2  | **Database → Replication**: confirm the publication exists and lists `booking_signals`. The migration's block is a no-op if `supabase_realtime` does not exist.                                                                                                                                                              | TD  |
-| C3  | Verify the GRANT: `select grantee, privilege_type from information_schema.role_table_grants where table_name='booking_signals' and privilege_type='SELECT'` → `authenticated`, and nobody else. **A missing grant is silently dead realtime** — an RLS policy grants nothing, it only narrows. 0031 exists for exactly this. | TD  |
-| C4  | Expect `relrowsecurity = t`, `relreplident = f`, exactly one policy (`booking_signals_select_watchable`), and **four** triggers on `custody_events`.                                                                                                                                                                         | TD  |
+| #   | Step                                                                                                                                                                                                                                                                                                                                                                       | Who |
+| --- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --- |
+| C1  | 0030 sets `REPLICA IDENTITY FULL` and adds `public.booking_signals` to the `supabase_realtime` publication.                                                                                                                                                                                                                                                                | CI  |
+| C2  | **Database → Replication**: confirm the publication exists and lists `booking_signals`. The migration's block is a no-op if `supabase_realtime` does not exist.                                                                                                                                                                                                            | TD  |
+| C3  | Verify the GRANT: `select grantee, privilege_type from information_schema.role_table_grants where table_name='booking_signals' and privilege_type='SELECT'` → `authenticated`, and nobody else. **A missing grant is silently dead realtime** — an RLS policy grants nothing, it only narrows. 0031 exists for exactly this.                                               | TD  |
+| C4  | Expect `relrowsecurity = t`, `relreplident = f`, exactly one policy (`booking_signals_select_watchable`), and **four** triggers on `custody_events`.                                                                                                                                                                                                                       | TD  |
+| C5  | `0034` **removes** `custody_events` from the publication, so C2's list must show `booking_signals` and nothing else. Nothing subscribes to `custody_events` — the doorbell is `booking_signals`, and the client refetches through the ordinary server path. If it is ever re-added, **the GRANT must go with it** or the subscription is silently dead. See MIGRATIONS §6. | TD  |
 
 ---
 

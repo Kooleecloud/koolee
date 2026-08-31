@@ -335,3 +335,229 @@ status". Recorded rather than rebuilt.
 
 An exception still returns 0. Paused is not abandoned, and changing it is not
 this slice's call.
+
+---
+
+## Phase 4 — the two latent traps
+
+Commit `6b4a807`. Migration **0034**, LOCAL ONLY.
+
+### 4.1 `reserved_spaces` was four subtractions, not one
+
+The checklist said "one subtraction in `listCandidateDrivers` plus a test"
+(P3). Four places computed `bagCapacity - bagsOnBoard` independently:
+
+| Reader                         | What it decides                              |
+| ------------------------------ | -------------------------------------------- |
+| `listCandidateDrivers`' filter | who reaches the shortlist                    |
+| `toCandidate`                  | the number the customer's card shows         |
+| `selectDriver`'s recheck       | the answer under the advisory lock, on click |
+| `listReassignOptions`          | whether the console says a van has room      |
+
+A reserve honoured in three of four is a race no test could see, which is why
+`bookableSpaces()` is extracted rather than four subtractions being edited.
+
+`reserved_spaces < bag_capacity` is guarded in core, checked against whichever
+column is CHANGING plus whichever is not — lowering the capacity under an
+existing reserve is the same mistake from the other direction, and an edit
+form posts both. Not a CHECK constraint: the message has to name both numbers,
+and a constraint says `23514`.
+
+The existing concurrency race was **extended rather than duplicated**: five
+spaces with two held back, two customers wanting two bags each, exactly one
+wins. On raw capacity both would have fitted.
+
+### 4.2 D2 reversed — `custody_events` leaves the publication
+
+The slice's embedded default was to grant `authenticated` SELECT, matching 0031. It instructed me to verify the policies first. Two things:
+
+1. **The recorded note is wrong about the coverage.** 0031's header and
+   MIGRATIONS §6 both say `custody_events` carries _two_ policies. It carries
+   **one** (`custody_events_select_own`, from 0001). No staff policy exists.
+2. **Nothing subscribes, and nothing should.** The realtime layer is
+   `booking_signals` — a doorbell saying THAT a booking changed, after which
+   the client refetches through the ordinary server path. A second table
+   streaming custody rows to browsers would be the first exception to §7's
+   "realtime is a signal, never a source of truth".
+
+TD ratified the reverse. **A published table with no grant is a trap, not a
+neutral:** it delivers nothing, errors nothing, and reads to the next person
+as a subscription that ought to work — so "add the grant" looks like the fix
+long before "nobody meant to open this" does.
+
+Left alone deliberately: the policy (correct, free, a record of intent),
+`REPLICA IDENTITY FULL` (pointless and costless — the table is append-only, so
+no UPDATE or DELETE can reach it), and `booking_signals`, whose trigger still
+fires on `custody_events` AFTER INSERT.
+
+Verified on a throwaway container and then on the local stack: publication
+membership `booking_signals, custody_events` → `booking_signals`.
+
+### 4.3 One correction to the brief on the dead columns
+
+`slots.booked_count` is not quite "read by nothing". `payment-lifecycle.ts`
+still DECREMENTS it when a booking carrying a `slot_id` is cancelled. No
+booking made today has one, so it is a no-op on anything current, and nothing
+reads either column to make a decision — but the schema comment says exactly
+that rather than rounding it to "dead".
+
+---
+
+## Phase 5 — starting a shift for somebody
+
+Commit `ac86b92`. Migration **0035**, LOCAL ONLY.
+
+`adminForceEndShift` shipped in Tier 4 with no pair, so the console could take
+a driver OFF the road and not put one back on.
+
+**The eligibility rules are not re-implemented.** `adminStartShiftOnBehalf`
+calls `startShift`, so the guards, both partial unique indexes and the 23505
+path are the same code the driver's own button runs. Only the second person is
+re-pointed: "You are already on shift with Van A" becomes "They are". A second
+implementation is how the two would drift, and the one that drifts is the one
+nobody drives every day.
+
+**Where the actor went.** The slice asked for a "custody-style record" and
+there is nowhere to put one — `custody_events.booking_id` is NOT NULL and a
+shift belongs to no booking. Force-end gets away with it because it always
+touches bookings; a start touches none. `admin_audit_log` is P19 and deferred.
+TD ratified a column on the row the fact is about.
+
+**The driver's app needed nothing.** `LiveTasks` is mounted unconditionally on
+the agent's Today page and `useBookingSignal`'s fallback polls every 30s
+whether or not there are bookings to watch — its own comment says an empty id
+list means POLL-ONLY. Verified by reading the hook rather than by adding a
+subscription to it, which is what the slice asked for.
+
+### The trap I set, and the tool that caught it
+
+0034's journal timestamp was hand-written as `previous + 1 day`, which put it
+ABOVE 0035's generated one. Drizzle applies a file only when its
+`folderMillis` exceeds the newest `created_at` in the database, so **0035 was
+skipped — silently, with `db:migrate` reporting success.** `db:status`'s
+STRANDED check named it exactly:
+
+```
+STRANDED: 1 pending migration(s) have a timestamp at or below this database's
+watermark (1788225533956).
+  ✗ 0035_luxuriant_sphinx (when=1788188483494)
+```
+
+Fixed the way that check instructs: by raising 0035 above the watermark, never
+by editing journal rows in databases that have already recorded them.
+
+---
+
+## Phase 7 — TD's two items, outside the slice prompt
+
+Commit `4704243`.
+
+### 7.1 One tile error killed the map, permanently
+
+`instance.on("error", () => setFailed(true))` treated **every** MapLibre error
+as fatal and permanent. MapLibre emits `error` for things that are neither: a
+tile that 404s at one zoom, a glyph or sprite range that misses, a request
+aborted because the pin moved. One of those on a slow connection swapped a
+drawn, working map for "the map can't load right now" — with no way back,
+because `failed` is never cleared and the early return unmounts the container,
+which tears the instance down.
+
+Fatal only BEFORE `load` now. After it the map is drawing and MapLibre retries
+tiles itself; the worst case is a blank square rather than a page claiming to
+be broken. The ten-second deadline still catches the failure that raises no
+error at all.
+
+**I cannot prove this was TD's instance without their browser.** It is a real
+defect that produces exactly that sentence, and it is now impossible. The
+container carries `data-map-state` so the next report is diagnosable from the
+DOM — the `data-live-signal` precedent, and what this one had to be diagnosed
+without.
+
+### 7.2 Removing a driver, not only moving one
+
+The console could only MOVE a pickup between shifts, so undoing an assignment
+meant parking the booking on another driver who was not going to do it either
+— a lie told to the dispatch board, which is what decides who gets chased.
+
+`adminUnassignPickup` releases the task the way force-end does and writes
+`pickup.unassigned`. The reason is OPTIONAL: force-end touches every booking on
+a shift and strands bags; this touches one booking whose bags are still at the
+door. **Refused once the bags are in the van**, per TD's call, naming
+force-end — which raises an exception and pages ops — rather than doing
+something exceptional under a routine button.
+
+### 7.3 The defect CI would have hit on its first run
+
+Two "once the airline's bag drop has closed" tests depend on a DL/JFK
+`airline_cutoffs` row that their own file never inserts and never wipes. They
+passed only on a database where `agent-visit.integration.test.ts` had already
+seeded one. On a fresh database the cutoff resolves to nothing, `phaseOf` never
+reaches `missed_cutoff`, and `listCandidateDrivers` offers a driver for a
+flight whose bag drop has closed.
+
+**Confirmed pre-existing** by stashing this branch's work and reproducing it
+against the committed tree. CI builds a new container every run, so this would
+have gone red on the first one for a reason unrelated to any feature.
+
+---
+
+## Phase 6 — close-out
+
+### Ratification list
+
+| #   | Default in the prompt            | What shipped                                | Why                                                                                |
+| --- | -------------------------------- | ------------------------------------------- | ---------------------------------------------------------------------------------- |
+| D1  | Wire `reserved_spaces`           | **As written**                              | —                                                                                  |
+| D2  | Grant SELECT on `custody_events` | **Reversed** — removed from the publication | One policy, not two; nothing subscribes; a published table with no grant is a trap |
+| —   | Add h1, links, tables            | **All three, full stack**                   | The exclusions were documented and never enforced                                  |
+| —   | Fix the "preview tab"            | **A read-only version view**                | There is no preview tab, and no read-only view existed at all                      |
+| —   | Custody-style actor record       | **A column on `driver_shifts`**             | `custody_events.booking_id` is NOT NULL; a shift has no booking                    |
+| —   | `RUN-REPORT-12.md`               | **`RUN-REPORT-13.md`**                      | 12 is the UX pass; reports are history                                             |
+| —   | Commit policy                    | **Phase-sized commits, no push, no PR**     | Codified from runs 10–11                                                           |
+
+### Deviations, recorded
+
+- **Phase 0's order is reversed** — the formatting baseline lands before the
+  workflow, so the pipeline is not born red over 247 files nobody touched.
+- **CI runs 311 of 314 non-GoTrue integration tests.** `upgrade-guard` and
+  `staff-auth` need a real GoTrue and refuse to skip. Eleven Supabase
+  containers per run for two files is not a trade this pipeline makes; they are
+  a documented LOCAL pre-PR step. **This is the one place CI is weaker than
+  the slice asked for.**
+- **LAUNCH-CHECKLIST L4 was rewritten, not added beside.** It already was the
+  "≥1 agreement version published" item, and the file's own rule is that
+  nothing is owned twice.
+- **The admin booking view was not changed for cancelled bookings.** It
+  already shows `BookingStatusBadge status="cancelled"` and the append-only
+  custody trail carrying `booking.cancelled`. Recorded rather than rebuilt.
+- **An exception still returns progress index 0**, not `-1`. Paused is not
+  abandoned; changing it was not this slice's call.
+
+### Deferred, with reasons
+
+- **P20, a DOM harness for `@koolee/ui`.** `markdown.test.tsx` renders through
+  `react-dom/server`, which needs no DOM — so it tests static output and
+  server-safety, and still cannot click, type or fire a blur. The date-field
+  regression that motivated P20 would pass under it.
+- **P19, `admin_audit_log`.** Phase 5 needed one field, not a table. The
+  actor lives on `driver_shifts` instead; the general answer is still owed.
+- **`custody_events`' RLS policy** stays, though nothing can use it — correct,
+  free, and a record of intent if a client read is ever wanted.
+- **`slots` and `slot_tier_multiplier`** are documented, not dropped:
+  a migration with no feature behind it.
+
+### Final gate
+
+| Check             | Result                                               |
+| ----------------- | ---------------------------------------------------- |
+| `format:check`    | clean                                                |
+| `turbo typecheck` | 6/6                                                  |
+| `turbo lint`      | 6/6                                                  |
+| Unit tiers        | 971 across six packages                              |
+| Core integration  | **340 on a brand-new container**                     |
+| Prod builds       | 3/3                                                  |
+| `db:status`       | 36 of 36, matched by content hash, local + throwaway |
+
+**The new CI workflow has not run.** There is no `act` in this environment and
+nothing is pushed, so its first green happens on the PR — which is the
+manual item at the top of this report.
