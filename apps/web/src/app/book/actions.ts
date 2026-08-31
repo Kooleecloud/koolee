@@ -218,6 +218,36 @@ export async function useTicketAlternativeLeg(form: FormData): Promise<void> {
  * Confirming the flight review form is the moment funnel state is first
  * persisted server-side: anonymous session + `public.users` row + draft row.
  */
+/**
+ * Persist what the customer typed at the flight step, then return the
+ * rejection.
+ *
+ * EVERY refusal in `submitFlight` goes through this. The alternative — the
+ * one that shipped — is a `return { error }` that leaves the cookie untouched
+ * and a page reload with nothing to seed the form from. `usePreservedFormValues`
+ * covers the round trip inside one mount; it cannot survive the navigation an
+ * out-of-area ZIP forces, because the waitlist card replaces the form and its
+ * "Try another ZIP" is a real link.
+ *
+ * Quarantined under `flightEntry`, never into the real draft keys — see
+ * `rejectedEntrySchema`. Writing a refused ZIP into `draft.zip` would make
+ * `stepCompletion` count a step the customer never cleared.
+ */
+async function rejectFlight(form: FormData, state: ActionState): Promise<ActionState> {
+  await writeDraft({
+    flightEntry: {
+      zip: str(form, "zip"),
+      flightNumber: str(form, "flightNumber"),
+      departureAirport: str(form, "departureAirport"),
+      destinationAirport: str(form, "destinationAirport"),
+      departureAt: str(form, "departureAt"),
+      scope: str(form, "scope"),
+      paxName: str(form, "paxName"),
+    },
+  });
+  return state;
+}
+
 export async function submitFlight(
   _prev: ActionState,
   form: FormData,
@@ -227,12 +257,15 @@ export async function submitFlight(
   const zip = str(form, "zip");
   const coverage = checkCoverage(zip);
   if (!coverage.covered) {
-    return coverage.reason === "malformed"
-      ? { error: "That ZIP code does not look right." }
-      : {
-          error: "We do not serve that ZIP code yet.",
-          outOfCoverageZip: coverage.zip ?? zip,
-        };
+    return rejectFlight(
+      form,
+      coverage.reason === "malformed"
+        ? { error: "That ZIP code does not look right." }
+        : {
+            error: "We do not serve that ZIP code yet.",
+            outOfCoverageZip: coverage.zip ?? zip,
+          },
+    );
   }
 
   const flightNumber = str(form, "flightNumber").toUpperCase().replace(/\s+/g, "");
@@ -255,13 +288,13 @@ export async function submitFlight(
   const destinationAirport = destinationRaw.length === 3 ? destinationRaw : undefined;
 
   if (!/^[A-Z0-9]{2,3}\d{1,4}$/.test(flightNumber)) {
-    return { error: "Enter a flight number like DL123 or UA1189." };
+    return rejectFlight(form, { error: "Enter a flight number like DL123 or UA1189." });
   }
   if (!AIRPORTS.includes(departureAirport)) {
-    return { error: "Choose JFK, LGA, or EWR." };
+    return rejectFlight(form, { error: "Choose JFK, LGA, or EWR." });
   }
   if (!departureAtLocal) {
-    return { error: "Enter your departure date and time." };
+    return rejectFlight(form, { error: "Enter your departure date and time." });
   }
 
   // A `datetime-local` value carries no zone, so it has to be read in the
@@ -279,13 +312,13 @@ export async function submitFlight(
   try {
     departureAt = airportLocalDateTime(departureAtLocal, airportTz);
   } catch {
-    return { error: "That departure time is not valid." };
+    return rejectFlight(form, { error: "That departure time is not valid." });
   }
   if (departureAt.getTime() < Date.now()) {
-    return { error: "That flight has already departed." };
+    return rejectFlight(form, { error: "That flight has already departed." });
   }
   if (!paxName) {
-    return { error: "Enter the name on the ticket." };
+    return rejectFlight(form, { error: "Enter the name on the ticket." });
   }
 
   // Airline code is the leading token of the flight number. IATA codes are
@@ -324,6 +357,10 @@ export async function submitFlight(
     paxName,
     destinationAirport,
     ticketPrefill: undefined,
+    // Cleared the moment the step succeeds: it exists only to survive a
+    // refusal, and a stale copy would seed the form on a later visit with
+    // values the customer has since corrected.
+    flightEntry: undefined,
     ...(flightChanged ? { windowStart: undefined, windowEnd: undefined } : {}),
   });
 
@@ -344,6 +381,33 @@ export async function submitFlight(
 /* Step 2 — pickup (address + bags)                                     */
 /* ------------------------------------------------------------------ */
 
+/**
+ * The pickup step's half of the same fix. See `rejectFlight`.
+ *
+ * The address fields are the more expensive ones to lose: a street, a unit, a
+ * city, a state and a ZIP, typed or picked from autocomplete. The waitlist
+ * card's "Try another ZIP" points at `/book/pickup`, which re-reads the draft
+ * — and the draft only ever held an address that had already been ACCEPTED.
+ *
+ * The Places precision (`lat`/`lng`/`placeId`) is deliberately NOT carried
+ * here. It belongs to an address the customer is about to change, and stale
+ * coordinates are worse than none: they would point a driver at the previous
+ * door while looking exactly as confident.
+ */
+async function rejectPickup(form: FormData, state: ActionState): Promise<ActionState> {
+  await writeDraft({
+    pickupEntry: {
+      line1: str(form, "line1"),
+      line2: str(form, "line2"),
+      city: str(form, "city"),
+      state: str(form, "state"),
+      zip: str(form, "zip"),
+      bagCount: str(form, "bagCount"),
+    },
+  });
+  return state;
+}
+
 export async function submitPickup(
   _prev: ActionState,
   form: FormData,
@@ -362,20 +426,23 @@ export async function submitPickup(
   const precision = readAddressPrecision(form);
 
   if (!line1 || !city || !state || !zip) {
-    return { error: "Fill in street, city, state, and ZIP." };
+    return rejectPickup(form, { error: "Fill in street, city, state, and ZIP." });
   }
   if (!Number.isInteger(bagCount) || bagCount < 1 || bagCount > 10) {
-    return { error: "Choose between 1 and 10 bags." };
+    return rejectPickup(form, { error: "Choose between 1 and 10 bags." });
   }
 
   const coverage = checkCoverage(zip);
   if (!coverage.covered) {
-    return coverage.reason === "malformed"
-      ? { error: "That ZIP code does not look right." }
-      : {
-          error: "We do not serve that ZIP code yet.",
-          outOfCoverageZip: coverage.zip ?? zip,
-        };
+    return rejectPickup(
+      form,
+      coverage.reason === "malformed"
+        ? { error: "That ZIP code does not look right." }
+        : {
+            error: "We do not serve that ZIP code yet.",
+            outOfCoverageZip: coverage.zip ?? zip,
+          },
+    );
   }
 
   /*
@@ -396,7 +463,13 @@ export async function submitPickup(
   const quotedZip = draft.quotedZip ?? draft.zip;
   const changingZip = Boolean(quotedZip) && !sameZip(quotedZip!, coverage.zip);
   if (changingZip && str(form, "confirmZipChange") !== "1") {
-    return { zipMismatch: { quotedZip: quotedZip!, addressZip: coverage.zip } };
+    // Not an error — the form stays mounted and offers a one-click re-quote —
+    // but a reload mid-decision would still lose the address, and this is the
+    // exact moment a customer is most likely to open a new tab and check
+    // which ZIP they actually live in.
+    return rejectPickup(form, {
+      zipMismatch: { quotedZip: quotedZip!, addressZip: coverage.zip },
+    });
   }
 
   const next = await writeDraft({
@@ -412,6 +485,8 @@ export async function submitPickup(
     lat: precision.lat,
     lng: precision.lng,
     placeId: precision.placeId,
+    // Cleared on success, like `flightEntry`.
+    pickupEntry: undefined,
     // Re-quoting means this ZIP is now the one the price is computed for.
     // The chosen window goes with it: its lead-time price and its drive-time
     // headroom were both derived from the old location, the same reason

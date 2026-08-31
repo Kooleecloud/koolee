@@ -87,3 +87,50 @@ describe("draftHasFlight", () => {
     expect(draftHasFlight({})).toBe(false);
   });
 });
+
+/**
+ * THE FOURTH PERSON: one we refused.
+ *
+ * `draftHasFlight` is false for them — the step never committed, because it
+ * never succeeded — so the door check let them through to a file-drop area.
+ * They had typed a flight number, an airport, a date, a time and a name, and
+ * what they got wrong was a ZIP one street outside coverage.
+ *
+ * The out-of-area card makes this reachable rather than theoretical: it
+ * replaces the whole form, and its "Try another ZIP" is a real link back to
+ * this page.
+ */
+describe("flightEntryMode after a refusal", () => {
+  const rejected: TypedBookingDraft["flightEntry"] = {
+    zip: "90210",
+    flightNumber: "DL123",
+    departureAirport: "JFK",
+    departureAt: "2026-09-03T18:00",
+    paxName: "Casey Rivera",
+  };
+
+  it("does NOT send a refused customer back to the upload door", () => {
+    expect(flightEntryMode({ draft: { flightEntry: rejected } })).toBe("manual");
+  });
+
+  it("is still the door when the refusal carried nothing", () => {
+    // A draft with no rejected entry and no flight is a first visit.
+    expect(flightEntryMode({ draft: {} })).toBe("door");
+  });
+
+  it("does not outrank a fresh ticket reading", () => {
+    // They uploaded again after being refused. The reading is newer.
+    expect(
+      flightEntryMode({
+        from: "ticket",
+        draft: { ticketPrefill: prefill, flightEntry: rejected },
+      }),
+    ).toBe("review");
+  });
+
+  it("leaves a committed draft reading manual, as before", () => {
+    expect(flightEntryMode({ draft: { ...filled, flightEntry: rejected } })).toBe(
+      "manual",
+    );
+  });
+});

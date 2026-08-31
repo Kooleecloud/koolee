@@ -96,8 +96,22 @@ describe("submitPickup — ZIP reconciliation", () => {
 
     expect(state.zipMismatch).toEqual({ quotedZip: "10001", addressZip: "11201" });
     expect(state.error).toBeUndefined();
-    // Nothing is written until the customer chooses.
-    expect(h.writeDraft).not.toHaveBeenCalled();
+    /*
+     * NO BOOKING FIELD IS WRITTEN until the customer chooses — which is what
+     * this test has always been about, and still is.
+     *
+     * What changed is that "nothing is written" is no longer the way to say
+     * it. The address is now preserved under the quarantined `pickupEntry`
+     * key so a reload mid-decision does not cost the customer their address
+     * (see `rejectedEntrySchema`), and asserting the QUARANTINE BOUNDARY is a
+     * stronger claim than asserting silence: it proves the refused values
+     * cannot reach `zip`, `quotedZip`, `bagCount` or the precision fields,
+     * where `stepCompletion` would count them as progress.
+     */
+    expect(h.writeDraft).toHaveBeenCalledTimes(1);
+    expect(Object.keys(h.writeDraft.mock.calls[0]![0] as object)).toEqual([
+      "pickupEntry",
+    ]);
   });
 
   it("re-quotes for the new ZIP once the customer confirms", async () => {
@@ -155,7 +169,46 @@ describe("submitPickup — ZIP reconciliation", () => {
     expect(state.outOfCoverageZip).toBe("90210");
     expect(state.error).toBe("We do not serve that ZIP code yet.");
     expect(state.zipMismatch).toBeUndefined();
-    expect(h.writeDraft).not.toHaveBeenCalled();
+    // Same boundary as above: the refused address is preserved for the
+    // customer to correct, and cannot leak into a booking field.
+    expect(h.writeDraft).toHaveBeenCalledTimes(1);
+    const patch = h.writeDraft.mock.calls[0]![0] as Record<string, unknown>;
+    expect(Object.keys(patch)).toEqual(["pickupEntry"]);
+    expect(patch.pickupEntry).toMatchObject({
+      line1: "200 Joralemon St",
+      city: "Brooklyn",
+      state: "NY",
+      zip: "90210",
+      bagCount: "2",
+    });
+  });
+
+  /**
+   * The refusal must cost a correction, not the address.
+   *
+   * Out-of-area swaps the whole form for the waitlist card, and its "Try
+   * another ZIP" is a real link back to `/book/pickup` — which re-reads the
+   * draft. Before this, the draft only ever held an address that had already
+   * been ACCEPTED, so a first-time customer got an empty form and no
+   * explanation of where their typing had gone.
+   */
+  it("preserves a refused address without ever letting it reach a booking field", async () => {
+    h.readDraft.mockResolvedValue({ quotedZip: "10001", zip: "10001" });
+    h.checkCoverage.mockReturnValue({
+      covered: false,
+      reason: "out_of_area",
+      zip: "90210",
+    });
+
+    await submitPickup({}, form({ ...ADDRESS, line2: "Apt 4B", zip: "90210" }));
+
+    const patch = h.writeDraft.mock.calls[0]![0] as Record<string, unknown>;
+    // Everything they typed, including the unit.
+    expect(patch.pickupEntry).toMatchObject({ line2: "Apt 4B" });
+    // …and NONE of the keys `stepCompletion` reads as progress.
+    for (const key of ["zip", "quotedZip", "line1", "city", "state", "bagCount"]) {
+      expect(key in patch).toBe(false);
+    }
   });
 
   it("adopts the address ZIP when the draft never carried a quote", async () => {

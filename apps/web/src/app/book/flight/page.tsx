@@ -43,6 +43,18 @@ export default async function FlightStepPage({
   const prefill = draft.ticketPrefill;
   const fromTicket = from === "ticket" && Boolean(prefill);
 
+  /**
+   * WHAT THEY TYPED LAST TIME, IF WE REFUSED IT.
+   *
+   * Third in the precedence below, and only because it is only ever set when
+   * the two above it are not: a rejected entry means the step did not commit,
+   * so there are no committed draft values to prefer, and `submitFlight`
+   * clears it the moment the step succeeds.
+   *
+   * Without it, a refusal cost the whole form. See `rejectedEntrySchema`.
+   */
+  const rejected = fromTicket ? undefined : draft.flightEntry;
+
   // Which face this step shows, decided once in a pure function so the
   // "somebody stepping back to edit must not be sent to the door" rule is
   // answerable from a test rather than from a browser. See lib/flight-entry.
@@ -75,27 +87,34 @@ export default async function FlightStepPage({
   // step finds their 6 PM departure showing as 22:00 (the server renders UTC).
   const departureAtDefault = fromTicket
     ? (prefill?.departureAtLocal ?? "")
-    : draft.departureAt
-      ? formatDateTimeLocalInAirportTz(new Date(draft.departureAt), airportTz)
-      : "";
+    : (rejected?.departureAt ??
+      (draft.departureAt
+        ? formatDateTimeLocalInAirportTz(new Date(draft.departureAt), airportTz)
+        : ""));
+  // `rejected` wins over the committed draft wherever both exist: it is only
+  // ever set when the LAST submit failed, so it holds the fresher keystrokes.
+  // A customer who stepped back, retyped, and was refused must see what they
+  // just typed, not what they typed successfully an hour ago.
 
   const flightNumberDefault = fromTicket
     ? (prefill?.flightNumber ?? "")
-    : (draft.flightNumber ?? "");
+    : (rejected?.flightNumber ?? draft.flightNumber ?? "");
   // NEVER fall back to JFK on a ticket the extractor could not place: an
   // unchosen dropdown showing "JFK" reads as a value the customer picked.
   const airportDefault = fromTicket
     ? (prefill?.departureAirport ?? draft.departureAirport ?? "")
-    : (draft.departureAirport ?? "JFK");
+    : (rejected?.departureAirport ?? draft.departureAirport ?? "JFK");
   const scopeDefault = fromTicket
     ? (prefill?.scope ?? draft.scope ?? "domestic")
-    : (draft.scope ?? "domestic");
-  const paxNameDefault = fromTicket ? (prefill?.paxName ?? "") : (draft.paxName ?? "");
+    : (rejected?.scope ?? draft.scope ?? "domestic");
+  const paxNameDefault = fromTicket
+    ? (prefill?.paxName ?? "")
+    : (rejected?.paxName ?? draft.paxName ?? "");
   // Read off the ticket when we could, otherwise whatever they typed last.
   // Display only — see the column note on `bookings.destination_airport`.
   const destinationDefault = fromTicket
     ? (prefill?.destinationAirport ?? "")
-    : (draft.destinationAirport ?? "");
+    : (rejected?.destinationAirport ?? draft.destinationAirport ?? "");
 
   /**
    * Remount key for the form below.
@@ -114,9 +133,16 @@ export default async function FlightStepPage({
    * Keying on the seed values makes the form remount whenever what it is
    * seeded FROM changes, which is the only correct trigger.
    */
+  /*
+   * The refused ZIP comes BACK, deliberately. "We don't serve 90210" beside
+   * an empty ZIP box asks the customer to remember what they just typed in
+   * order to correct one digit of it.
+   */
+  const zipDefault = rejected?.zip ?? draft.zip ?? "";
+
   const formSeedKey = [
     fromTicket ? "ticket" : "manual",
-    draft.zip ?? "",
+    zipDefault,
     flightNumberDefault,
     airportDefault,
     departureAtDefault,
@@ -263,7 +289,7 @@ export default async function FlightStepPage({
               name="zip"
               inputMode="numeric"
               placeholder="10001"
-              defaultValue={draft.zip ?? ""}
+              defaultValue={zipDefault}
               autoComplete="postal-code"
               maxLength={10}
               required
