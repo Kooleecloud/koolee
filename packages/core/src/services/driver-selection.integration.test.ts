@@ -735,6 +735,53 @@ describeIntegration("driver selection (integration)", () => {
     expect((await getSelectedDriver(db, booking.id))?.position).toEqual(MIDTOWN);
   });
 
+  /*
+   * THE SAME RULE, ON THE SHORTLIST — which did not have it.
+   *
+   * The tracking card has asked "is this fresh?" since the map shipped; the
+   * shortlist read `driver_positions` raw. That was survivable while the pins
+   * were a nicety beside a list somebody actually chose from. In F5 the map
+   * BECAME the chooser, so a pin is a claim about where a van is — and a
+   * driver who finished a run yesterday still has yesterday's row, because
+   * `recordDriverPosition` overwrites one mutable row per driver and keeps no
+   * history.
+   *
+   * The ETA goes with it, and that half matters more: a pin drawn on the wrong
+   * street is misleading, but "about 15 min" computed from it is the number
+   * `bestCandidate` ranks on.
+   */
+  it("drops a stale position from the shortlist, pin and ETA together", async () => {
+    const verifier = await makeDriver("Shortlist Verifier", { canDrive: false });
+    const driver = await makeDriver("Rosa Marin");
+    const truck = await makeTruck("Van Stale", 30);
+    await startShift(config, { staffUserId: driver, truckId: truck.id });
+    await recordDriverPosition(config, {
+      staffUserId: driver,
+      lat: 40.71277,
+      lng: -73.95371,
+    });
+
+    const { booking } = await sealedBooking(2, verifier);
+
+    // Fresh: a pin and an estimate.
+    const [live] = await listCandidateDrivers(config, { bookingId: booking.id });
+    expect(live!.position).not.toBeNull();
+    expect(live!.eta).not.toBeNull();
+
+    // The same driver, read past the window. Still perfectly choosable — the
+    // CARD remains, which is why the list is not a fallback — but nothing is
+    // drawn and nothing is estimated.
+    const later = createCoreConfig({
+      db,
+      payments: new FakePaymentProvider(),
+      clock: fixedClock(new Date(now.getTime() + POSITION_FRESH_MS + 1_000)),
+    });
+    const [stale] = await listCandidateDrivers(later, { bookingId: booking.id });
+    expect(stale!.shiftId).toBe(live!.shiftId);
+    expect(stale!.position).toBeNull();
+    expect(stale!.eta).toBeNull();
+  });
+
   it("a fix older than POSITION_FRESH_MS is reported as not fresh", async () => {
     /*
      * The case that put a van on the wrong street: `driver_positions` keeps

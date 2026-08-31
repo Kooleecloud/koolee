@@ -155,6 +155,8 @@ interface EligibleRow {
   inZone: boolean;
   driverLat: number | null;
   driverLng: number | null;
+  /** When that fix was taken. Null when the driver has never reported. */
+  driverPositionAt: Date | null;
 }
 
 const givenNameOf = (fullName: string | null): string | null =>
@@ -204,6 +206,7 @@ async function eligibleShifts(db: Database, zip: string): Promise<EligibleRow[]>
           ),
       )}`,
       driverLat: driverPositions.lat,
+      driverPositionAt: driverPositions.recordedAt,
       driverLng: driverPositions.lng,
     })
     .from(driverShifts)
@@ -292,9 +295,9 @@ export async function listCandidateDrivers(
     .sort((a, b) => a.bagsOnBoard - b.bagsOnBoard || a.shiftId.localeCompare(b.shiftId))
     .slice(0, DRIVER_SHORTLIST_SIZE);
 
-  const etas = await shortlistEtas(config, shortlist, pickup.coords);
-
-  return shortlist.map((row, i) => toCandidate(row, outOfZone, etas[i] ?? null));
+  const now = config.clock.now();
+  const etas = await shortlistEtas(config, shortlist, pickup.coords, now);
+  return shortlist.map((row, i) => toCandidate(row, outOfZone, etas[i] ?? null, now));
 }
 
 /**
@@ -364,13 +367,20 @@ export function bestCandidate(
  *
  * Drivers with no position yet are left out of the call and get `null`, which
  * the card renders as "ETA on the way".
+ *
+ * A STALE POSITION COUNTS AS NO POSITION HERE TOO. An estimate computed from
+ * where somebody was yesterday is the same lie as a pin drawn there, and it is
+ * the worse half: the pin is only misleading, whereas "about 15 min" is the
+ * number the shortcut ranks on. `freshPosition` is the one answer to "where is
+ * this driver", so the map and the ETA cannot disagree about it.
  */
 async function shortlistEtas(
   config: CoreConfig,
   rows: readonly EligibleRow[],
   pickupCoords: Coordinates | null,
+  now: Date,
 ): Promise<(EtaRange | null)[]> {
-  const origins = rows.map((r) => toCoordinates(r.driverLat, r.driverLng));
+  const origins = rows.map((r) => freshPosition(r, now));
   if (pickupCoords === null) return origins.map(() => null);
 
   const known = origins.filter((c): c is Coordinates => c !== null);
@@ -386,10 +396,33 @@ async function shortlistEtas(
   return origins.map((coords) => (coords === null ? null : (estimates[next++] ?? null)));
 }
 
+/**
+ * A candidate's position, or null when it is too old to draw.
+ *
+ * THE SHORTLIST DID NOT ASK THIS, and the tracking card always did. Before F5
+ * the pins were a nicety beside a list somebody actually chose from; now the
+ * map IS the chooser, and a pin is a claim about where a van is. A driver who
+ * finished a run yesterday has a `driver_positions` row from yesterday —
+ * `recordDriverPosition` overwrites one mutable row per driver and keeps no
+ * history — so without this the shortlist drew them on a street they left
+ * hours ago, with exactly the confidence of a live one.
+ *
+ * Same window as `getSelectedDriver` (`POSITION_FRESH_MS`), because "is this
+ * where they are" cannot have two answers on one page. A driver with no fresh
+ * fix keeps their CARD and simply has no pin — they are perfectly choosable,
+ * and the list is the view that says so.
+ */
+function freshPosition(row: EligibleRow, now: Date): Coordinates | null {
+  if (row.driverPositionAt === null) return null;
+  if (now.getTime() - row.driverPositionAt.getTime() > POSITION_FRESH_MS) return null;
+  return toCoordinates(row.driverLat, row.driverLng);
+}
+
 function toCandidate(
   row: EligibleRow,
   outOfZone: boolean,
   eta: EtaRange | null,
+  now: Date,
 ): DriverCandidate {
   return {
     shiftId: row.shiftId,
@@ -403,7 +436,7 @@ function toCandidate(
     availableCapacity: bookableSpaces(row, row.bagsOnBoard),
     outOfZone,
     eta,
-    position: toCoordinates(row.driverLat, row.driverLng),
+    position: freshPosition(row, now),
   };
 }
 

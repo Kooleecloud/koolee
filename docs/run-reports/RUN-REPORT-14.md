@@ -1079,3 +1079,66 @@ Nothing is pushed and no PR is open. CI has not run on the branch — the
 workflow needs a GitHub runner, so its first green will be on the PR.
 
 **Databases touched: LOCAL ONLY**, throughout, and no migration was written.
+
+---
+
+## Found while writing the testing steps: the shortlist drew stale pins
+
+Verifying what TD would actually see turned up a real one, and it is a
+consequence of the change this slice made rather than something that was always
+broken.
+
+`getSelectedDriver` has asked "is this fix fresh?" since the map shipped.
+**`listCandidateDrivers` never did** — it read `driver_positions` raw. That was
+survivable while the pins were a nicety beside a list somebody actually chose
+from. In Phase 2 the map BECAME the chooser, so a pin is now a claim about
+where a van is.
+
+`recordDriverPosition` overwrites **one mutable row per driver and keeps no
+history**, so a driver who finished a run yesterday still has yesterday's
+coordinates on file. The shortlist drew them on a street they left hours ago
+with exactly the confidence of a live one — the precise failure `POSITION_FRESH_MS`
+was written to prevent, on the one surface that had never consulted it.
+
+**The ETA went with it, and that half matters more.** A pin on the wrong street
+is misleading; "about 15 min" computed from that street is the number
+`bestCandidate` ranks on, so "pick the best for me" could have chosen on a
+day-old position. `freshPosition` is now the single answer to "where is this
+driver", used by both the pin and the estimate, so the map and the ETA cannot
+disagree.
+
+A driver with no fresh fix keeps their **card** and simply has no pin — they
+are perfectly choosable, and the list is the view that says so.
+
+### The related gap, NOT fixed, and it is a product decision
+
+**Drivers do not report a position while they are idle on shift.** `GpsPinger`
+runs only when a pickup task is `in_progress`, so a driver who has clocked on
+and is waiting for work pings nobody. Combined with the freshness window above,
+that means **a candidate driver usually has no pin at all** — the shortlist map
+will often show the pickup pin and nothing else, and will not render at all
+when no candidate has a fresh fix.
+
+Left alone deliberately, because the fix is not a code change so much as a
+choice with two real costs:
+
+- **Battery.** A foreground ping every 20–45 seconds for an entire shift, on a
+  device a driver needs all day, for a map that is only being watched while
+  somebody is mid-selection.
+- **Privacy.** Tracking somebody continuously because they are clocked on is a
+  different proposition from tracking them while they are carrying a customer's
+  bags, and it is the sort of thing that belongs in a staff policy rather than
+  in a commit.
+
+Three options, if TD wants the shortlist map populated:
+
+1. **Ping while on shift, at the slow cadence** (45s). Simple; the costs above.
+2. **Ping only while a shortlist is open on this driver** — needs a signal back
+   to the agent app that does not exist today.
+3. **Leave it.** The list view is complete and always works, the toggle makes
+   it one tap, and the map fills in the moment a driver is genuinely en route.
+
+**My recommendation is (1) at the slow cadence**, gated on an explicit
+staff-facing sentence about when location is shared — it is the difference
+between a map-first chooser that usually has something on it and one that
+usually does not. But it is TD's call, not mine.

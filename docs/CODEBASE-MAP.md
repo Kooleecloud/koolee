@@ -968,6 +968,19 @@ driver. A driver with no ETA never wins and stays choosable by hand. It runs the
 SAME `selectDriverAction`, so there is exactly one way to be assigned a driver
 and one set of races.
 
+**A candidate's position must be FRESH to be drawn.** `freshPosition` applies
+the same `POSITION_FRESH_MS` window `getSelectedDriver` has always used, to the
+pin AND to the ETA — `driver_positions` keeps one mutable row per driver with no
+history, so a driver who finished a run yesterday still has yesterday's
+coordinates. A stale ETA is the worse half: it is the number `bestCandidate`
+ranks on. A driver with no fresh fix keeps their card and has no pin.
+
+⚠️ **And idle drivers do not report at all.** `GpsPinger` runs only while a
+pickup is `in_progress`, so a driver clocked on and waiting for work pings
+nobody — which means the shortlist map often has no driver pins. Left as a
+product decision (battery and privacy against a populated map); see
+RUN-REPORT-14's close-out for the three options.
+
 **The shortlist refreshes on a 12-second poll, not on realtime.**
 `recordDriverPosition` signals only bookings already bound to that driver's
 shift, and a booking still choosing has none. Widening that would make one
