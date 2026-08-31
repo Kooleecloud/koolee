@@ -41,6 +41,12 @@ packages/db/.drizzle-tmp/
 npm-debug.log*
 pnpm-debug.log*
 
+# MapLibre's tile-parsing worker, copied out of node_modules by
+# scripts/copy-maplibre-worker.mjs before every dev and every build. Generated,
+# version-locked to the installed maplibre-gl, and never committed — a vendored
+# copy would drift silently on the next version bump.
+**/public/maplibre/
+
 # next-pwa generated service worker artifacts
 apps/agent/public/workbox-*.js
 apps/agent/public/sw.js.map

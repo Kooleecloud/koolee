@@ -7,7 +7,14 @@ import * as React from "react";
  * bundler that papers over it you get `undefined.Map is not a function` at
  * runtime instead.
  */
-import { LngLatBounds, Map as MapLibreMap, Marker, NavigationControl } from "maplibre-gl";
+import {
+  getWorkerUrl,
+  LngLatBounds,
+  Map as MapLibreMap,
+  Marker,
+  NavigationControl,
+  setWorkerUrl,
+} from "maplibre-gl";
 
 import { cn } from "../lib/utils";
 
@@ -51,6 +58,41 @@ import { cn } from "../lib/utils";
 /** OpenFreeMap's "liberty" style. No key, no limit, attribution automatic. */
 const DEFAULT_STYLE_URL = "https://tiles.openfreemap.org/styles/liberty";
 
+/**
+ * Where the app serves MapLibre's tile-parsing worker from.
+ *
+ * THIS IS THE FIX FOR "THE MAP CAN'T LOAD RIGHT NOW", and it is not what
+ * anybody looking at that sentence would guess. maplibre-gl 6 works out where
+ * its worker lives from `import.meta.url`:
+ *
+ *     const here = import.meta.url;
+ *     if (!/^https?:/.test(here)) return "";
+ *     return new URL("./maplibre-gl-worker.mjs", here).href;
+ *
+ * That holds only when the library is served unbundled over HTTP. Under
+ * Turbopack `import.meta.url` is not an `http(s):` URL, so it returns the
+ * EMPTY STRING and MapLibre goes on to call `new Worker("", {type:"module"})`.
+ * An empty URL resolves against the document, so the browser fetches the
+ * current PAGE and tries to execute the HTML as a module; the Worker emits an
+ * `error`, and MapLibre never re-raises it as a map `error`.
+ *
+ * The result is a map that fetches its style, its TileJSON and its sprites
+ * successfully — all 200 — and then never requests one glyph or one vector
+ * tile, never fires `load`, and reports nothing. The ten-second deadline below
+ * was the only thing catching it, which is why the customer saw an apology
+ * rather than a map, on a laptop and on Vercel alike.
+ *
+ * `scripts/copy-maplibre-worker.mjs` copies the worker (and the shared module
+ * it imports) out of `node_modules` into the app's `public/maplibre/` before
+ * every dev and every build. Same-origin, so MapLibre constructs the worker
+ * directly rather than going through its cross-origin blob path.
+ *
+ * AN APP THAT MOUNTS THIS COMPONENT MUST RUN THAT SCRIPT. Only `apps/web`
+ * does today. If admin or agent ever render a map, add the step to its `dev`
+ * and `build` scripts — the failure otherwise is exactly the silent one above.
+ */
+const DEFAULT_WORKER_URL = "/maplibre/maplibre-gl-worker.mjs";
+
 export interface MapPoint {
   lat: number;
   lng: number;
@@ -76,9 +118,24 @@ export interface LiveMapProps {
   className?: string;
   /** Override the tile style. See the header — this is the swap point. */
   styleUrl?: string;
+  /**
+   * Override where the tile-parsing worker is served from. See
+   * {@link DEFAULT_WORKER_URL} — an app that mounts this component must serve
+   * it, or the map dies silently.
+   */
+  workerUrl?: string;
   /** Accessible description of what the map is showing. */
   label: string;
 }
+
+/**
+ * Why a map gave up, for the DOM and for the console.
+ *
+ * `failed` alone answered "is it broken" and never "how", which is precisely
+ * what made the worker bug above take three attempts to find: the two causes
+ * look identical on screen and have nothing in common underneath.
+ */
+type MapFailure = "webgl" | "style" | "timeout";
 
 /**
  * Frames the door and every driver, with room to breathe — and MORE room at
@@ -164,6 +221,7 @@ export function LiveMap({
   onDriverClick,
   className,
   styleUrl = DEFAULT_STYLE_URL,
+  workerUrl = DEFAULT_WORKER_URL,
   label,
 }: LiveMapProps) {
   const container = React.useRef<HTMLDivElement | null>(null);
@@ -179,7 +237,7 @@ export function LiveMap({
    * make it stutter between two destinations.
    */
   const moves = React.useRef(new globalThis.Map<string, number>());
-  const [failed, setFailed] = React.useState(false);
+  const [failed, setFailed] = React.useState<MapFailure | null>(null);
   const [ready, setReady] = React.useState(false);
   /**
    * `ready`, readable from inside the create-once effect.
@@ -214,6 +272,24 @@ export function LiveMap({
   React.useEffect(() => {
     if (map.current || !container.current) return;
 
+    /*
+     * BEFORE the first `new MapLibreMap`, and every time, because MapLibre
+     * reads `WORKER_URL` when it acquires the worker pool rather than at
+     * import. Idempotent, and cheap enough that guarding it would only add a
+     * way to get the ordering wrong.
+     *
+     * `getWorkerUrl()` returning "" here is the bug in {@link
+     * DEFAULT_WORKER_URL} arriving; the log names it rather than leaving the
+     * next person to rediscover it from a blank rectangle.
+     */
+    if (!getWorkerUrl()) {
+      console.info(
+        "[live-map] maplibre derived no worker url from import.meta.url (expected under a bundler); serving it from",
+        workerUrl,
+      );
+    }
+    setWorkerUrl(workerUrl);
+
     let instance: MapLibreMap;
     try {
       instance = new MapLibreMap({
@@ -236,7 +312,7 @@ export function LiveMap({
       // Deferred rather than set synchronously: a setState in the body of an
       // effect cascades a second render before paint. Same treatment as
       // `GpsPinger`'s unsupported branch in the agent app.
-      const timer = setTimeout(() => setFailed(true), 0);
+      const timer = setTimeout(() => setFailed("webgl"), 0);
       return () => clearTimeout(timer);
     }
 
@@ -245,7 +321,20 @@ export function LiveMap({
 
     // The deadline above. Armed before `load` is wired so a map that never
     // starts is caught as surely as one that starts and stalls.
-    const deadline = setTimeout(() => setFailed(true), LOAD_TIMEOUT_MS);
+    const deadline = setTimeout(() => {
+      /*
+       * A map that reached neither `load` nor an `error` in ten seconds. The
+       * cause is almost always the worker — see {@link DEFAULT_WORKER_URL} —
+       * and the console line is the whole diagnosis, because this failure
+       * produces no other evidence anywhere.
+       */
+      console.error(
+        `[live-map] no load event in ${LOAD_TIMEOUT_MS}ms. Worker url: ${
+          getWorkerUrl() || "(none)"
+        } — if that 404s, the app is not running scripts/copy-maplibre-worker.mjs.`,
+      );
+      setFailed("timeout");
+    }, LOAD_TIMEOUT_MS);
     instance.on("load", () => {
       clearTimeout(deadline);
       loaded.current = true;
@@ -282,7 +371,8 @@ export function LiveMap({
         console.warn("[live-map] non-fatal error after load", event);
         return;
       }
-      setFailed(true);
+      console.error("[live-map] fatal error before load", event);
+      setFailed("style");
     });
 
     map.current = instance;
@@ -306,7 +396,7 @@ export function LiveMap({
     // Created once. `pickup` is only the initial centre; the effect below
     // keeps the actual pin in step.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [styleUrl]);
+  }, [styleUrl, workerUrl]);
 
   /* --- the door ------------------------------------------------------- */
   React.useEffect(() => {
@@ -446,6 +536,13 @@ export function LiveMap({
   if (failed) {
     // Deliberately quiet. The customer is not missing anything they need — the
     // driver list and the ETA are right below this.
+    //
+    // The SENTENCE stays generic on purpose. "Map style not configured" or
+    // "worker script missing" is true and is also somebody else's problem
+    // described to a person waiting on their bags; the copy rules do not admit
+    // it. What the customer gets is honest and actionable ("everything else is
+    // up to date"); what an engineer gets is `data-map-failure` and a console
+    // line naming the cause exactly.
     return (
       <div
         // Same idea as `data-live-signal` on the realtime probe: "is this map
@@ -453,6 +550,7 @@ export function LiveMap({
         // DOM rather than by asking somebody to open a console. This is what
         // TD's report had to be diagnosed WITHOUT.
         data-map-state="failed"
+        data-map-failure={failed}
         className={cn(
           "flex items-center justify-center rounded-lg border border-dashed border-border bg-muted/30 p-6 text-center text-sm text-muted-foreground",
           className,

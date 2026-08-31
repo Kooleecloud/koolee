@@ -18,8 +18,8 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf .turbo node_modules dist *.tsbuildinfo",
-    "storybook": "storybook dev -p 6006",
-    "build-storybook": "storybook build"
+    "storybook": "node ../../scripts/copy-maplibre-worker.mjs packages/ui && storybook dev -p 6006",
+    "build-storybook": "node ../../scripts/copy-maplibre-worker.mjs packages/ui && storybook build"
   },
   "dependencies": {
     "@gsap/react": "^2.1.2",
