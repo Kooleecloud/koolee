@@ -990,3 +990,96 @@ Docs index, `SCRIPTS.md` (new §8 on `env:verify`) and a
 | `pnpm check:sw-headers` | 3/3                                                                                       |
 | `pnpm env:verify`       | demonstrated both ways: clean for web, exit-1 forbidden for agent                         |
 | Migrations              | none                                                                                      |
+
+---
+
+## Phase 6 — The checklist, and close-out
+
+### 6.1 `docs/LAUNCH-CHECKLIST.md`
+
+Seeded from the pre-flight's §5 — 49 items with a citation each — reorganised
+into four tables (launch-blocking, launch data, post-launch, blocked-external),
+each row carrying an **owner** that is exactly one of `TD` / `code` / `CI`. It
+opens with TD's own list in dependency order, because that is the actual
+question: _what do I do after merge._
+
+**It says at the top that it replaces tier numbering as the tracking
+instrument**, and `PROJECT-STATUS §4` now says the same from the other side.
+The reasoning is in both: Tier 5 was the last slice with features in it, and
+what remains is configuration, verification, real data, and three things
+blocked on other people. A tier number cannot express that.
+
+Nine items the slice closed are listed separately with what closed each. One
+item was ADDED that the report did not have: **P19, `admin_audit_log`** — both
+new console surfaces are admin-session-gated and neither records WHO changed a
+price or a cutoff. Out of scope here, and the first thing to add if more than
+one person enters launch data.
+
+### 6.2 PROJECT-STATUS and CODEBASE-MAP
+
+- **§2** gains the three new doc homes (`LAUNCH-CHECKLIST.md`, `runbooks/`,
+  `launch/`).
+- **§3** gains the Tier 5 snapshot entry.
+- **§4** gains rows 99–106 and the note that the table is history.
+- **§5** gains the timeline row.
+- **§7** gains seven standing constraints: the seed's refusal; ETA is never
+  load-bearing and the seam is async (including "never awaited inside a
+  transaction"); a price is geometry and never a network call; coordinates
+  belong to an address and expire with it; the alerter swallows its own
+  failures; a pricing rule is published and never edited in place; and a cutoff
+  without provenance is one nobody can trust.
+- **CODEBASE-MAP** gains the ETA/Routes rewrite, the pricing-distance module,
+  the Places adapter, chapter 10.5 on observability, `StageDot`/`ProgressTrack`
+  in chapter 11, the two new services, and the env manifest.
+
+### 6.3 Final gate
+
+| Gate                                                          | Result                                                                                           |
+| ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `turbo typecheck`                                             | **6/6**                                                                                          |
+| `turbo lint`                                                  | **6/6**                                                                                          |
+| `turbo test` (unit)                                           | **6/6** — core 573 passed / 1 skipped, web 144, ui 107, admin 32, agent 24, db 8 · **888 tests** |
+| `pnpm --filter @koolee/core test:integration` (`koolee_test`) | **31 files passed / 1 skipped, 313 passed / 3 skipped**                                          |
+| `turbo build`                                                 | **3/3**                                                                                          |
+| `pnpm check:sw-headers`                                       | **3/3**                                                                                          |
+| `pnpm env:verify`                                             | demonstrated clean (web, `--live --push`) and exit-1 (agent, forbidden)                          |
+| `pnpm db:status` (local)                                      | **33 of 33, matched by content hash. In sync.**                                                  |
+| Migrations generated                                          | **NONE.** The pre-flight expected none and none were needed                                      |
+| Databases touched                                             | local `postgres` and the disposable `koolee_test`. **Hosted never contacted**                    |
+
+Test counts, start → end: core 513 → 573, web 134 → 144, ui 104 → 107,
+db 0 → 8 (the package had no runner), integration 286 → 313.
+
+---
+
+## What was and was not done
+
+|                    |                                                                                                                                                                                                                                                                                             |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Migrations         | **none generated, none applied**                                                                                                                                                                                                                                                            |
+| Hosted databases   | **never contacted**                                                                                                                                                                                                                                                                         |
+| Commits            | 6, one per phase, on `feat/tier5-launch-readiness`                                                                                                                                                                                                                                          |
+| Pushed / PR opened | **no** — TD's step                                                                                                                                                                                                                                                                          |
+| New dependencies   | `@sentry/nextjs@10.72.0` (×3 apps), `vitest@^4.1.10` (dev, `packages/db`)                                                                                                                                                                                                                   |
+| New env variables  | `GOOGLE_MAPS_SERVER_KEY` (renamed from `GOOGLE_MAPS_API_KEY`, web only), `NEXT_PUBLIC_SENTRY_DSN` (renamed from `SENTRY_DSN`, ×3), `SENTRY_ORG` / `SENTRY_PROJECT` / `SENTRY_AUTH_TOKEN` (×3), `CRON_SECRET` added to admin + agent, `SEED_ALLOW_HOSTED` (a shell variable, never deployed) |
+
+### Deliberate deviations from the slice prompt, each recorded in place
+
+1. **§4.6(3) (the stale Maps hint strings) moved from Phase 0 to Phase 1.**
+   They are code attached to `GOOGLE_MAPS_API_KEY`, and Phase 1 replaced that
+   variable and every line around it. Fixing them twice would be churn.
+2. **No client-runtime test error.** The only place to put one on a deployed
+   app is a publicly reachable "throw an error" affordance, which is an
+   alert-noise and support-ticket generator; the client boundary is exercised
+   by any real error. The checklist verifies the browser half with
+   `!!window.__SENTRY__`.
+3. **The pricing distance is geometry, not "the estimator's distance".**
+   Determinism across the three moments a booking is priced beats accuracy to
+   the kilometre. Reasoning in `geo/distance.ts` and §1.3 above.
+4. **Coverage ZIPs stay in code.** Giving them a table would move the source of
+   truth for where Koolee sells out of review; the gap is closed by naming it a
+   PR-and-deploy step in the runbook rather than by building a form.
+5. **Two things beyond the brief**, both found while doing it: `ensureAddress`'s
+   dedupe key (two apartments at one street address were one row), and the
+   `Routes` range asymmetry, which the report explicitly said "needs a
+   decision, not a default".

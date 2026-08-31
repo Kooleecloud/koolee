@@ -1080,6 +1080,17 @@ push works.** `scripts/check-sw-headers.mjs` imports each composed config and
 asserts `/sw.js` still carries `no-cache` and `Service-Worker-Allowed: /`;
 `pnpm check:sw-headers` runs it. Both failure modes are silent.
 
+**The env manifest** ([scripts/env-manifest.json](../scripts/env-manifest.json))
+is the other half of the same idea: the required-variable inventory per app,
+derived from the boot gates in `apps/*/src/env.ts`, in four buckets — `always`,
+`whenLive`, `whenPush`, `recommended` — plus a `forbidden` list (`apps/agent`
+must never hold `SUPABASE_SERVICE_ROLE_KEY` or `STRIPE_SECRET_KEY`).
+`pnpm env:verify` reads it and answers what a boot would answer, without
+deploying: names only, never values, which is what makes
+`vercel env ls | pnpm env:verify --stdin` work and its output safe to paste
+anywhere. It matters because production runs `coming_soon`, which exempts
+`apps/web` from most of its gates — flipping to `live` arms them all at once.
+
 ---
 
 ## Chapter 11 — UI package & brand

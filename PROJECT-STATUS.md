@@ -31,6 +31,9 @@ next to the code it describes.** Full index: [docs/README.md](docs/README.md).
 | ---------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
 | [README.md](README.md)                                                       | Entry point: quickstart, architecture sketch, the non-obvious rules                      |
 | [PROJECT-STATUS.md](PROJECT-STATUS.md)                                       | This tracker — the map                                                                   |
+| [docs/LAUNCH-CHECKLIST.md](docs/LAUNCH-CHECKLIST.md)                         | **The tracking instrument for opening.** Replaces tier numbering — §4 below is history now |
+| [docs/runbooks/](docs/runbooks/)                                             | Procedures with a blast radius: prod bring-up, the Stripe live flip, the cutover rehearsal |
+| [docs/launch/](docs/launch/)                                                 | Prepared launch material: the agreement v2 draft, a sample env file for `env:verify`      |
 | [docs/run-reports/](docs/run-reports/)                                       | Dated build logs. History, never edited to match later reality                           |
 | [docs/README.md](docs/README.md)                                             | Documentation index                                                                      |
 | [docs/learning/](docs/learning/)                                             | **Nine-chapter learning track.** Numbered sections, written to be re-entered             |
@@ -55,6 +58,35 @@ package-specific in `packages/<pkg>/docs/`. Nothing new accumulates at the root.
 ---
 
 ## 3. Snapshot — where we are right now
+
+- **Tier 5 in flight: launch readiness (2026-08-30, `feat/tier5-launch-readiness`).**
+  Rows 99–106. **No migration** — everything Tier 5 needed already had a table.
+  Six phases, and the through-line is that nothing left was a feature.
+  **(a) `pnpm seed` refuses a hosted database.** It is not additive: it resets
+  all 128 airline-cutoff rows to the 45/60 placeholders and rewrites the active
+  pricing rule, and six documents told you to point it at hosted. It is
+  idempotent with respect to itself, not to a human's work.
+  **(b) The ETA seam went async** and gained `estimateMany`, with a Routes API
+  adapter behind it that never throws; the funnel's four `distanceKm: 20`
+  literals became one resolver that also feeds the public pricing page, which
+  had been quoting up to $2.70 higher than the funnel for the same trip.
+  **(c) Places autocomplete** on the address step, through a server proxy so
+  the Maps key never reaches a browser — and `ensureAddress` learned to UPGRADE
+  a repeat address rather than returning it before it ever looked at
+  coordinates, which would have frozen every returning customer at a ZIP
+  centroid forever. Its dedupe key gained `line2`: two apartments at one street
+  address were one row, and a driver went to the first one.
+  **(d) Sentry, three apps, three projects**, with `global-error.tsx` (which
+  existed nowhere), a `SentryOpsAlerter` that swallows its own failures because
+  twelve of its call sites are unwrapped Inngest steps, and one handler that
+  captures terminal Inngest failures — which were recorded nowhere at all.
+  **(e) Pricing and airline cutoffs got admin pages**, closing the last two
+  "SQL only" rows; the cutoffs page counts how much of the matrix is still the
+  seed's invention, and that count is the launch-readiness number.
+  **(f) Four money boot gates** — including `CRON_SECRET`, whose absence lets
+  every other signal stay green while authorizations expire uncaptured — plus
+  `pnpm env:verify` and three runbooks.
+  Tracking moved to [docs/LAUNCH-CHECKLIST.md](docs/LAUNCH-CHECKLIST.md).
 
 - **Slice F3 in flight: notifications leave the tab, and dispatch stopped
   running months early (2026-08-30, `feat/f3-push-and-dispatch-timing`).**
@@ -382,6 +414,13 @@ separately.
 
 ## 4. Feature tracker
 
+> **This is history now, not a plan.** Tier 5 was the last slice with features
+> in it; what remains before opening is configuration, verification, real data
+> and three things blocked on other people, and a tier number cannot express
+> that. The tracking instrument is
+> [docs/LAUNCH-CHECKLIST.md](docs/LAUNCH-CHECKLIST.md). This table stays
+> because "when did X ship and why was it built that way" is still a question.
+
 Status legend: ✅ shipped · 🔨 in flight · 📋 spec'd (ready to build) ·
 💤 deferred (deliberate) · ⬜ not started · ⤳ superseded (row kept as history;
 the linked row is the current behaviour)
@@ -494,6 +533,15 @@ the linked row is the current behaviour)
 | 96 | "Did you see it?" — the only push verification that exists (2026-08-30) | ✅ | `feat/f3-push-and-dispatch-timing`: `showNotification` resolving means the notification was CREATED, not displayed. macOS with the browser switched off in System Settings reports success at every layer and draws nothing; so do Focus, an alert style of "None", and an enterprise policy. **No API on any platform reports it.** The agent app sends a real push through the full pipeline after enabling and asks a human, stamping `verified_at` on a Yes and showing platform-aware remediation on a No. Confirmed in a headed browser that `getNotifications()` does NOT list a notification the platform could not draw — so it is not a detection signal either. |
 | 97 | The did-you-see-it check was itself lying (2026-08-30) | ✅ | `feat/f3-push-and-dispatch-timing`: found by TD in review, after the slice reported itself green. `WebPushSender` lived in `apps/web`, so the agent and admin runtimes had **no real sender** and fell back to `ConsolePushSender` — which logs one line and returns `{ sent: n, failed: 0 }`. Their `/api/push/test` read those counts, answered `accepted: true`, and the card asked "Did a notification just appear?" about a push that never left the process. Fixes: the sender moved to `@koolee/core/web-push` (one implementation, three consumers, deliberately OUT of the barrel so Node-only crypto cannot reach a client bundle); `PushSender.delivers` makes "a log line is not a delivery" a type-level fact; the test route returns **503 `not_configured`** rather than pretending; `pnpm push:vapid` now distributes to all three apps idempotently, reusing any existing pair; and the card distinguishes "nothing was sent" from "you did not see it", because those have completely different fixes. |
 | 98 | Push ships DISABLED (2026-08-30) | ✅ | `feat/f3-push-and-dispatch-timing`: `NEXT_PUBLIC_PUSH_NOTIFICATIONS_ENABLED`, default `false` in every environment. Off ⇒ console sender regardless of VAPID, every enable affordance hidden, VAPID boot gate waived (a prod deploy that has never heard of VAPID boots clean). **Email and in-app realtime are untouched** — they carry the product. ONE variable rather than a server/public pair, following `NEXT_PUBLIC_LAUNCH_MODE`: two flags that can disagree is the exact shape of row 97. Subscriptions are never touched by the switch, so flipping it back on resumes delivery with nobody re-subscribing. |
+| 99 | `pnpm seed` refuses a hosted database (2026-08-30) | ✅ | Tier 5. The seed CONVERGES rather than merging: 128 airline-cutoff rows back to 45/60 with `source` overwritten, and the active pricing rule rewritten field by field. `seed-guard.ts` refuses any non-local host and says what it would have destroyed; `SEED_ALLOW_HOSTED=1` is for a brand-new project on day one and does NOT lift the older staff-roster refusal. Local hosts are a fixed list, not a private-range pattern — a pattern that admits `10.x` also admits a tunnel to production. Six docs corrected; `packages/db` gained its first test runner. |
+| 100 | ETA seam is async, with a Routes adapter (2026-08-30) | ✅ | Tier 5. `estimate` returns a promise and `estimateMany({from[], to})` is the batch shape — the shortlist is one call, not four serial round-trips, and the cutoff cron makes at most three however many bookings are moving. `selectDriver` takes its ETA BEFORE the transaction so a routing call cannot hold the shift's advisory lock. `GoogleRoutesEtaEstimator`: one `computeRouteMatrix` POST, plain fetch, key as a value, **never throws** — every failure falls back to haversine per origin. Its range is −15%/+45%, asymmetric because a drive can always take longer and essentially never takes dramatically less, and because `cutoffRiskMonitor` consumes the pessimistic end. |
+| 101 | One distance for every price (2026-08-30) | ✅ | Tier 5. Four funnel call sites passed `distanceKm: 20` while the public page priced JFK at 26 — $2.70 apart at 45¢/km, with the funnel quoting LOWER. `resolveQuoteDistanceKm` answers once: precise coordinates → the ZIP centroid → the per-airport typical, which the marketing page now imports instead of copying. **Geometry, never a network call**: a booking is priced three times minutes apart and a traffic-aware number would move between them. Its road factor is 1.2, calibrated against the three published typicals — not the ETA model's 1.5, which prices Midtown→JFK at 32.7 km. |
+| 102 | Places autocomplete, and coordinates that survive (2026-08-30) | ✅ | Tier 5. The address step suggests as you type and fills five fields plus a point and a `place_id`; typing still works exactly as it did. The key never reaches a browser — the funnel posts to `/api/places`, guarded by a draft cookie and a length floor, with Places session tokens because they are billing rather than plumbing. Coordinates ride the draft and are DROPPED by any hand edit: coordinates belonging to a different address are worse than none. `AutocompleteField` is in `@koolee/ui`; the fetch, the debounce and the token are the app's. |
+| 103 | `ensureAddress` upgrades instead of returning early (2026-08-30) | ✅ | Tier 5. The early return happened BEFORE the coordinate branch, so once autocomplete shipped every address a customer had used before would have kept its ZIP centroid forever and its `place_id` would have stayed null — on the address most likely to be repeated. It upgrades in place, only when there is something better to write, and never downgrades. Its dedupe key gained `line2`: `(user_id, line1, zip)` collapsed two apartments at one street address into one row, and a driver went to the first one. |
+| 104 | One progress motif (2026-08-30) | ✅ | Tier 5, at TD's ask. The driver-tracking strip drew its own dots and rails — smaller, a different blue, and NOTHING marking the step in progress — on the same page as the custody trail. The screen telling a customer where their bags are right now was the only one that never said which stage was now. `StageDot` is the marker, `ProgressTrack` draws it, `PickupProgress` is a one-line wrapper, and `CustodyTimeline`'s rendering is untouched: one vocabulary, not a redesign. |
+| 105 | Sentry, three apps, three projects (2026-08-30) | ✅ | Tier 5. Every error path used to terminate at `console.*`. `onRequestError` is the hook that matters most — the only thing that records an error thrown inside a server component, a route handler or a server action. `global-error.tsx` existed in NO app, so a failure in the root layout escaped `error.tsx` entirely. Policy (tracing 0, PII off, the tags) lives in `@koolee/core/observability` and imports nothing from Sentry; `SentryOpsAlerter` logs first and captures second and **swallows its own failures**; one `inngest/function.failed` handler covers all sixteen functions. `scripts/check-sw-headers.mjs` guards the `withSentryConfig` wrap, because the `/sw.js` headers are the only reason push works and both failure modes are silent. |
+| 106 | Launch data has a path that is not SQL (2026-08-30) | ✅ | Tier 5. `/pricing` PUBLISHES a rule rather than editing the live one (the partial unique index means two active rows cannot coexist even for an instant), and reactivating a previous rule is the undo. `/cutoffs` makes the readiness number visible — "128 of 128 rows are still the seed's placeholder" — requires a provenance line on every edit, and refuses to save the seed's own placeholder text back. Four money boot gates (`STRIPE_SECRET_KEY`, the publishable key, `STRIPE_WEBHOOK_SECRET`, `CRON_SECRET`), `pnpm env:verify` against a checked-in manifest, and three runbooks. Coverage ZIPs stay in code on purpose. |
+
 ---
 
 ## 5. Timeline (condensed)
@@ -512,6 +560,7 @@ the linked row is the current behaviour)
 | 2026-08-22/23 (overnight run 3)        | Three stacked branches, merged as PRs #8/#9/#10: #56 waitlist persistence (migration 0018), the full Tier 1+2 dispatch/email slice (#47 closed via 0019 on-paid auto-assign, 0020 one-active pricing + seed integrity, ResendNotifier, booking/confirmed + exception events actually emitted, confirmation/reminder/exception emails, Vercel Analytics, `packages/db/.env` → LOCAL default), #57 waitlist zone-opened sweep. Hosted migrated to 0020 + re-seeded same day. See [RUN-REPORT-3.md](docs/run-reports/RUN-REPORT-3.md)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | 2026-08-23 (release v0.2.0)            | `dev → main`, tagged `web/v0.2.0`, first deploy onto the **dedicated prod environment**: new Supabase project (us-east-2, Data API off, auto-RLS) migrated + seeded; old project demoted to dev-only; Vercel Production/Preview scoping split accordingly; CI migration lanes (merge → that branch's DB) proven green on both; Resend `koolee.cloud` domain verified; live smoke test — a real `/waitlist` signup persisted to prod. Seed gained the `Target host:` first line after two silent wrong-database seeds during the env split                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | 2026-08-23 (dev environment + UX pass) | `feat/app-ux-and-email-otp`: the **dev environment went live** — `dev.koolee.cloud` pinned to the `dev` branch in Vercel's Preview scope (GoDaddy CNAME), Preview-scoped variables against the dev Supabase project, Inngest synced per-environment (8 functions in dev, prod's app untouched — the app id is a shared hardcoded `"koolee"`, so separate signing keys are what keep the sync from repointing prod), Deployment Protection off for Preview because the SSO wall 302s Inngest and Stripe. Proven live: waitlist row landed in the dev DB and not prod, phone sign-in, a full test booking with its confirmation email. Supabase auth email fixed end to end — SMTP moved off Outlook (silently failing) to Resend, `{{ .Token }}` added to three templates, OTP length 8 → 6 (the app validates `/^\\d{6}$/`, so every code would have been rejected). All of it in ENVIRONMENT.md §6.6. **UX pass in the same branch:** `/dashboard/addresses` folded into `/dashboard/profile` (one card, name + phone + email, green check / amber question-mark indicators replacing "verified 21 minutes ago", inline code entry for an unverified email; the retired route redirects and the address actions now revalidate the page that actually renders them); the flight step's native `datetime-local` replaced with a Calendar + time popover that keeps the airport wall-clock STRING contract intact (no `Date` crosses the boundary, and `Intl.DateTimeFormat` is avoided per the TIME lint rule); bags select → +/- stepper as a labelled group; trip cards now carry pickup window, passenger, bags, total and a derived `KL-XXXXXX` reference (there is no ticket/PNR column, so the reference is derived from the booking id); login's email path moved from `sendMagicLink` (`shouldCreateUser: false`, which never sent anything for a new address) to `sendOtp`'s email branch (`shouldCreateUser: true`), so email now signs up as well as in and both channels land on the same verify screen. web 64/64, lint + typecheck 4/4. **Not done:** `noindex` on the preview host; the pre-payment phone gate; live flight status |
+| 2026-08-30 (Tier 5)                    | `feat/tier5-launch-readiness`, six phases, **no migration**: the seed refuses a hosted database and six docs stop recommending one; the ETA seam goes async with a Google Routes adapter behind it and the funnel's four `distanceKm: 20` literals become one resolver that the public pricing page shares; Places autocomplete on the address step through a server proxy, with `ensureAddress` upgrading a repeat address instead of returning it before it looks at coordinates, and its dedupe key gaining `line2`; the driver-tracking strip stops drawing its own dots and joins the custody timeline's `StageDot`; Sentry in all three apps with `global-error.tsx`, an ops alerter that swallows its own failures, and terminal Inngest failures captured for the first time; `/pricing` and `/cutoffs` close the last two SQL-only rows; four money boot gates, `pnpm env:verify` and three runbooks. Tracking moves to [docs/LAUNCH-CHECKLIST.md](docs/LAUNCH-CHECKLIST.md). See [RUN-REPORT-11.md](docs/run-reports/RUN-REPORT-11.md) |
 
 ---
 
@@ -720,6 +769,60 @@ user-confirmed values persist. `ANTHROPIC_API_KEY` present = Claude
   because driver selection requires `verified_sealed`, which a deferred
   booking cannot have reached. The `*/5` sweep is idempotent through 0019's
   unique index and invisible to already-assigned bookings by construction.
+- **`pnpm seed` REFUSES a non-local database.** It is not additive: it resets
+  all 128 `airline_cutoffs` rows to the placeholder 45/60 minutes (overwriting
+  `source`, where a verified value's provenance lives) and rewrites the active
+  pricing rule field by field. It is idempotent with respect to ITSELF, not to
+  a human's work, and the cutoff matrix decides whether a pickup can make its
+  flight. `SEED_ALLOW_HOSTED=1` is the escape hatch for a brand-new project on
+  day one; it does not lift the older, separate refusal on the staff roster.
+  Launch data is entered at the console — `/cutoffs`, `/pricing`,
+  `/agreements`, `/trucks`, `/shifts`, `/zones` — and coverage ZIPs stay in
+  code, because coverage decides where Koolee sells and belongs in review.
+- **ETA IS NEVER LOAD-BEARING, and the seam is async.** No booking, price,
+  gate or transition depends on an ETA, which is what lets
+  `GoogleRoutesEtaEstimator` fall back to arithmetic on any failure — quota,
+  network, a revoked key, an unroutable origin — per origin, with one log
+  line. `estimate` returns a promise and `estimateMany({from[], to})` is the
+  batch shape: a network provider behind the seam must never become N serial
+  round-trips inside a `.map`, and it must never be awaited inside a database
+  transaction (`selectDriver` takes its snapshot before the transaction so a
+  third party's latency cannot hold the shift's advisory lock).
+- **A PRICE is geometry, never a network call.** The ETA seam may ask a
+  routing provider; `resolveQuoteDistanceKm` may not. A booking is priced at
+  the window picker, again on the review page and again inside `createBooking`
+  — three moments, minutes apart — and a traffic-aware number would move
+  between them, so a customer would watch the total change between the page
+  that quoted it and the charge. Its road factor (1.2) is calibrated against
+  the per-airport typicals the public page publishes, and is deliberately not
+  the ETA model's 1.5.
+- **Coordinates belong to an address, and expire with it.** A hand edit to any
+  address field drops the `lat`/`lng`/`placeId` a Places suggestion supplied:
+  coordinates belonging to a different address are worse than none, because
+  the price and the driver's map link would both point at the wrong door while
+  looking exactly as confident as a correct one. `ensureAddress` UPGRADES a
+  matching row rather than returning it unchanged, and never downgrades.
+- **`SentryOpsAlerter` swallows its own failures, and that is a hard rule.**
+  Twelve of the seventeen `opsAlerter.alert` call sites are in the jobs layer
+  and are NOT wrapped in a try/catch (the five service-layer ones are, each
+  with a comment saying why). An alerter that throws there fails the Inngest
+  step and triggers a retry, turning "we could not tell ops about a failed
+  email" into "the email function is now failing and retrying". The alert is
+  the least important thing in any call stack it appears in; it must never be
+  the thing that breaks one. The console line is written FIRST, before the
+  capture is attempted, so the record survives a dead transport.
+- **A pricing rule is PUBLISHED, never edited in place.** A change writes a new
+  row and deactivates the old one in one transaction — the partial unique index
+  means two active rows cannot coexist even for an instant, so the deactivate
+  must land before the insert. Same model as agreements, for the same reason:
+  what a price WAS is a question somebody will ask. No booking is repriced;
+  `bookings.price_cents` is the authoritative charge.
+- **A cutoff without provenance is a cutoff nobody can trust.** `source` is
+  required on every edit at `/cutoffs`, and core refuses to save the seed's own
+  placeholder sentence back — otherwise pressing Save on an untouched row would
+  quietly mark 128 invented numbers as verified. The count of remaining
+  placeholders is derived from the data, never bookkept, and it is a
+  launch-readiness number rather than a statistic.
 - Copy rules: "delivered to your airline's bag drop" — never overclaim, no
   fabricated numbers ([README](README.md)).
 - **Documentation lives under `docs/`, never in the repo root.** The only two
