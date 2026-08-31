@@ -49,6 +49,11 @@ sequence.
 - [ ] Confirm on the deployed funnel: type three characters into the address
       field and watch suggestions appear. Absent ⇒ ETAs are haversine and the
       field is a plain input. Neither is a failure; both are worth knowing.
+- **Not on this key, and not a task:** the trip page's MAP. Rendering is
+      MapLibre over OpenFreeMap — no key, no account, no quota to watch.
+      Google's Maps JS is a separate SKU that would need a second,
+      referrer-restricted key in the browser bundle. See
+      [ARCHITECTURE.md §6](ARCHITECTURE.md).
 
 ### Sentry (mostly done — verify)
 
@@ -63,6 +68,12 @@ sequence.
       `curl -X POST -H "x-cron-secret: $CRON_SECRET" https://<origin>/api/observability/test-error`.
       The reply names the environment and release to expect beside the event.
 - [ ] Browser half, per app: devtools console → `!!window.__SENTRY__` → `true`.
+- **Before any of that**, if you just want to know it works: put the DSN in
+      `apps/<app>/.env.local`, restart the dev server, and
+      `curl -X POST http://localhost:3000/api/observability/test-error` — no
+      secret needed outside production, and `sent` tells you plainly whether
+      anything left the process. Only source maps and `release` are deploy-only.
+      See [prod-bringup.md](runbooks/prod-bringup.md).
 
 ### Production bring-up → [runbooks/prod-bringup.md](runbooks/prod-bringup.md)
 
@@ -181,7 +192,7 @@ Each was deferred with a recorded reason. None blocks opening.
 | P1 | **SMS** — parked on A2P. `NotificationDispatcher` is the seam; there is no code |
 | P2 | **AeroAPI flight lookup** — stubbed |
 | P3 | **`reserved_spaces` enforcement** — one subtraction in `listCandidateDrivers` plus a test. Editable, labelled "not yet enforced", read by nothing |
-| P4 | **A map on the customer trip page** — deliberate. Distance and an updating ETA answer the actual question |
+| ~~P4~~ | ~~**A map on the customer trip page**~~ — **shipped.** MapLibre over OpenFreeMap: no key, no account, no per-load billing. The reasoning that deferred it was half right — a distance answers "how long", and a moving pin answers "is anything happening". See RUN-REPORT-10 |
 | P5 | **`cutoffRiskMonitor` measuring from the DRIVER's position** rather than the pickup address |
 | P6 | **A driver-no-show check** — `agentNoShowCheck`'s twin, with the airline cutoff as its deadline |
 | P7 | **Reassignment machinery** — the no-show check pages a human rather than trying the next agent |
@@ -191,7 +202,8 @@ Each was deferred with a recorded reason. None blocks opening.
 | P11 | **Rejected-bag / lost-bag exception flows** — manual overrides via `/exceptions` for now |
 | P12 | **Seal technology decision** (RFID vs printed QR). `bags.seal_id` is opaque, so neither needs a migration |
 | P13 | **React Native app** |
-| P14 | **A Playwright harness** — the browser passes in Tier 5 were driven by hand through MCP; standing up a suite is its own slice |
+| P14 | **A Playwright harness** — the browser passes in Tier 5 and the UX pass were driven by hand through MCP; standing up a suite is its own slice |
+| P20 | **A DOM test harness for `@koolee/ui`** — it runs `environment: "node"`, so no test can render a component. The UX pass shipped a date field whose blur handler overwrote correct input from a stale closure, with all seven of its unit tests passing throughout, because the pure function it wraps was never wrong. That class of bug needs a rendered component; a real browser found it, and nothing in CI would have |
 | P15 | **`custody_events` SELECT grant** — its subscription has never worked and nothing subscribes |
 | P16 | **`X-Robots-Tag: noindex`** on the preview host while it serves the live funnel publicly |
 | P17 | **Route optimisation, position history, background GPS, customer-facing driver profiles** |

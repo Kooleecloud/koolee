@@ -24,5 +24,6 @@
 | [RUN-REPORT-10.md](RUN-REPORT-10.md)                         | Slice F3 — web push behind a default-off flag, assignment at a horizon, the duplicate-confirmation-email fix          |
 | [REPORT-tier5-preflight.md](REPORT-tier5-preflight.md)       | Read-only survey before Tier 5 — ETA/geo, Sentry, launch data, the prod bring-up list, and the launch-checklist seed  |
 | [RUN-REPORT-11.md](RUN-REPORT-11.md)                         | Tier 5 — launch readiness: seed guard, Routes/Places, Sentry, launch-data admin, boot gates, runbooks                 |
+| [RUN-REPORT-12.md](RUN-REPORT-12.md)                         | The UX pass — 24 complaints in six batches: the pickup-address snapshot, trip identity, the funnel, the live map      |
 | [VALIDATION-REPORT-tier1-2.md](VALIDATION-REPORT-tier1-2.md) | Independent validation pass over the Tier 1–2 work                                                                   |
 | [MIGRATION-NOTES.md](MIGRATION-NOTES.md)                     | The 10-phase dependency migration (Next 16 / Tailwind 4 / Stripe 22 / …)                                             |

@@ -27,19 +27,28 @@ export const dynamic = "force-dynamic";
  * See docs/runbooks/prod-bringup.md for the post-deploy step this belongs to.
  */
 export async function POST(request: Request) {
+  /*
+   * ON A LAPTOP THIS NEEDS NO SECRET — see the note in the web app's copy of
+   * this route. `NODE_ENV` comes from the runtime and cannot be spoofed by a
+   * request, so a deployed app still requires the secret exactly as before.
+   */
+  const development = process.env.NODE_ENV !== "production";
   const secret = optionalEnv("CRON_SECRET");
-  if (!secret) {
-    return NextResponse.json(
-      { error: "CRON_SECRET is not configured; refusing to run." },
-      { status: 503 },
-    );
-  }
 
-  const presented =
-    request.headers.get("x-cron-secret") ??
-    request.headers.get("authorization")?.replace(/^Bearer\s+/i, "");
-  if (presented !== secret) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  if (!development) {
+    if (!secret) {
+      return NextResponse.json(
+        { error: "CRON_SECRET is not configured; refusing to run." },
+        { status: 503 },
+      );
+    }
+
+    const presented =
+      request.headers.get("x-cron-secret") ??
+      request.headers.get("authorization")?.replace(/^Bearer\s+/i, "");
+    if (presented !== secret) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
   }
 
   const dsn = optionalEnv("NEXT_PUBLIC_SENTRY_DSN");
@@ -51,6 +60,9 @@ export async function POST(request: Request) {
 
   return NextResponse.json({
     sent: Boolean(dsn),
+    note: dsn
+      ? "Sent. Look for this stamp in Sentry under environment=development."
+      : "NOT sent: NEXT_PUBLIC_SENTRY_DSN is unset, so the SDK is disabled. Set it in .env.local and restart the dev server.",
     eventId: eventId ?? null,
     stamp,
     // What to expect beside the event in Sentry. `sent: false` with an

@@ -152,6 +152,41 @@ must not reach a credential that bypasses every policy.
 | I4 | Browser half: open the app, devtools console, `!!window.__SENTRY__` → `true`. That proves the client SDK initialised with the deployed DSN. | TD |
 | I5 | Confirm source maps uploaded — an event's stack should name real files, not `chunk-abc.js`. If not, `SENTRY_AUTH_TOKEN` was absent at build time. | TD |
 
+### Sentry ON A LAPTOP — you do not have to deploy to find out
+
+The wiring is not deploy-only. `sentryOptions` sets `enabled: Boolean(dsn)`, so
+a DSN in `.env.local` sends real events from `pnpm dev`, tagged
+`environment: "development"` and with no release. Nothing else has to change.
+
+```bash
+# 1. apps/<app>/.env.local — the same DSN the deployed app uses is fine;
+#    "development" is what keeps local noise out of your production filters.
+NEXT_PUBLIC_SENTRY_DSN=https://<key>@o<org>.ingest.sentry.io/<project>
+
+# 2. Restart the dev server. Sentry initialises at boot; a DSN added to a
+#    running server does nothing, which is the usual reason this "doesn't work".
+
+# 3. Prove it. No CRON_SECRET needed locally.
+curl -X POST http://localhost:3000/api/observability/test-error
+```
+
+The reply tells you which of the two things happened:
+
+- `"sent": true` — the event left the process. Search Sentry for the `stamp`
+  it printed, filtered to `environment:development`.
+- `"sent": false` — the DSN is unset, so the SDK is disabled and the event was
+  dropped. An `eventId` still comes back (the SDK mints one regardless), which
+  is why `sent` is the field to read and not the id.
+
+For the BROWSER half, open the app and check `!!window.__SENTRY__` in the
+console, or throw from any client component — the client SDK reads the same
+`NEXT_PUBLIC_SENTRY_DSN` at boot.
+
+Two things stay deploy-only, and neither affects whether events arrive:
+**source maps** (uploaded only when `SENTRY_AUTH_TOKEN`/`ORG`/`PROJECT` are all
+present, so a local stack names bundled files) and **`release`** (read from
+`VERCEL_GIT_COMMIT_SHA`, absent on a laptop).
+
 ---
 
 ## J. Launch data (the console, not the seed)
