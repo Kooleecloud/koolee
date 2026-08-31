@@ -34,16 +34,16 @@ console configured" are different errands, on different days.**
 
 ### Configuration
 
-| Route             | Does                                                                                                                           |
-| ----------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| `/pricing`        | The active pricing rule and the lead-time curve — **a path to change a price that is not SQL**                                 |
-| `/cutoffs`        | Airline bag-drop cutoffs per airline × airport × domestic/international                                                        |
-| `/blocks`         | Window blackouts — **the only lever over what customers can book** (§3)                                                        |
-| `/zones`          | Agent ZIP coverage, feeding auto-assignment                                                                                    |
-| `/agreements`     | Versioned booking agreements. "Current" is derived, never a flag                                                               |
-| `/trucks`         | The fleet: name, bag capacity, active toggle. `reserved_spaces` is editable and **enforced** — held back from booking capacity |
-| `/staff`          | Invite / list / deactivate agents and admins                                                                                   |
-| `/staff/[userId]` | One staff member — their history, their zones, `can_drive`                                                                     |
+| Route             | Does                                                                                                                                                                                    |
+| ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/pricing`        | The active pricing rule and the lead-time curve — **a path to change a price that is not SQL**                                                                                          |
+| `/cutoffs`        | Airline bag-drop cutoffs per airline × airport × domestic/international                                                                                                                 |
+| `/blocks`         | Window blackouts — **the only lever over what customers can book** (§3)                                                                                                                 |
+| `/zones`          | Agent ZIP coverage, feeding auto-assignment                                                                                                                                             |
+| `/agreements`     | Versioned booking agreements. "Current" is derived, never a flag                                                                                                                        |
+| `/trucks`         | The fleet: name, bag capacity, active toggle. `reserved_spaces` is editable and **enforced** — held back from booking capacity. Editable during an open shift, within the guard in §5.4 |
+| `/staff`          | Agents and admins, **grouped by role**, with active/everyone and can-drive filters in the URL and a per-person workload for today                                                       |
+| `/staff/[userId]` | One staff member — their history, their zones, `can_drive`                                                                                                                              |
 
 Plus `/login`, `/login/reset` and `/set-password`, which sit outside the rail.
 
@@ -160,6 +160,34 @@ staff. Never render a bare name without that fallback.
 
 ---
 
+## 4.5 — Every page's form is behind a button
+
+Six pages had grown the same layout: a list on the left and a form pinned
+permanently down the right in a `2fr 1fr` grid — invite staff, add a truck,
+assign ZIPs, block windows, add an airline, publish a pricing rule. Every one
+of those forms is used occasionally and read never, and each was taking a third
+of the page from the thing an operator came to look at.
+
+They are now `FormSheet`s behind labelled buttons in the page header. The
+agreement workbench's version history is the same move for the same reason: the
+editor is a rich-text surface for a legal document and wants every pixel, and
+picking a version closes the drawer rather than leaving it open over the editor
+it just loaded into.
+
+**Pricing was rebuilt rather than moved.** The publish form held the wide
+column and the live rule sat second and narrower _below_ it, so "what are we
+charging right now?" was answered after a form nobody came to fill in — and the
+figures existed only in the page subtitle. The live rule now leads with its
+base, per-bag and per-km at a size somebody can read across a desk; the history
+follows, each one click from being live again.
+
+**The booking detail consolidated too:** _Details & payments_ is one card
+(one fact split across a rule is not two facts), _Verify & seal_ is the identity
+gate and the seals together with the assigned agent named at the top, and
+_Assignment_ absorbs the pickup run. Assignment deliberately stays in the ACT
+column — the page is read-left / act-right, and the visit's record is reading
+while reassigning is acting.
+
 ## 5. Assignment
 
 **Auto, on `paid`.** Since 2026-08-23 `autoAssignOnPaid` runs when a booking is
@@ -175,6 +203,34 @@ balance by current workload. Managed from `/zones` (`addAgentZones`,
 
 🧭 It is explicitly labelled v1 in the source. Treat it as a placeholder with a
 correct _interface_, not as a solved routing problem.
+
+### 5.0 — When reassignment closes
+
+One function answers it — `assignmentGate` in `services/actionability.ts`, read
+by core to refuse and by the console to hide the control with the same
+sentence. It sits beside the five customer/agent gates and deliberately outside
+them: those are about TIME (a late booking is still savable, which is the whole
+reason `phase` exists), and this is about STANDING alone. A booking twenty
+minutes past its window can still be handed to a driver who can make the
+cutoff — that is exactly when a dispatcher needs it.
+
+**The two kinds close at different moments, and the asymmetry is the point.**
+
+- **Verification closes when the VISIT is done.** The seals, the photos and the
+  passport check are recorded against the agent who did them; reassigning would
+  reattribute somebody's evidence.
+- **Pickup closes when the BOOKING is done**, which is later — a driver can be
+  swapped right up until the bags are in a van, because until then the job is
+  "go to a door" and any driver can do it.
+
+Before F5 this was three separate status lists, one per call site, and **not
+one of them mentioned `cancelled`** — so a cancelled booking could have its
+driver swapped, and one that already had an agent skipped the check entirely
+because that branch only ran for a first assignment.
+
+The **in-transit** refusal stays in `adminUnassignPickup`, where its sentence
+can name force-end-shift as the honest route: that is a fact about the incident
+path rather than about standing.
 
 ### 5.1 — At-risk says WHICH now
 
@@ -213,6 +269,29 @@ they must, force-ends a shift with a required reason.
 
 ---
 
+### 5.4 — A truck's capacity may not strand its own load
+
+Name, capacity and `reserved_spaces` are all editable **during** an open shift;
+only deactivation is refused outright (an inactive truck is filtered out of
+every read in `driver-selection.ts`, so the driver would vanish while still
+holding bags).
+
+The one guard: while a shift is open, `capacity − reserved` may not fall below
+the bags already committed to it. The refusal names the numbers — _"Van Live
+has 4 bags committed on its open shift, and 6 capacity minus 5 reserved leaves
+only 1"_ — and the form says the constraint before it is hit.
+
+**This reversed a documented decision, on purpose.** `updateTruck`'s header
+used to say capacity could be cut below what was aboard, because the number is
+being corrected and refusing would not unload the van. That is true, and
+nothing breaks: `bookableSpaces` floors at zero, so the van simply stops being
+offered. **That silence is the problem.** On a truck with a shift open, the far
+likelier cause of "capacity 5" on a van that holds 15 is a typo, and the
+consequence of accepting it is a driver quietly leaving every customer's
+shortlist for the rest of their shift with nothing anywhere saying why. The
+correction is deferred, not lost: end the shift and the edit goes through, and
+the message says so.
+
 ## 6. Staff management
 
 **Invite-only. No self-signup.** `createStaffMember` issues the invite;
@@ -223,6 +302,23 @@ enforces.
 `NEXT_PUBLIC_AGENT_APP_URL` sits in admin's production boot gate. Missing it,
 invite links go to the wrong app — and that failure is silent, so the gate
 refuses to boot instead.
+
+**The roster is grouped by role**, because agents and admins are two different
+lists that happened to share a table — an agent is somebody you dispatch, an
+admin is somebody with console access, and sorted by `created_at` the two
+interleaved. Two filters live in the URL, in deliberately different shapes:
+active/everyone is a `SegmentedControl` (two views of one list) and "can drive"
+is a checkbox (an additional narrowing). Default is active only, with a
+"Showing 12 of 16" beside it so the default never hides anything silently.
+
+**Workload is counted BY BOOKING, not by task.** In v1 one person holds both
+the verification and the pickup task for the same trip, so counting task rows
+reports six jobs for three addresses — a number beside somebody's name that is
+worse than no number. `listStaffWorkloadToday` derives it on every read: no
+counter column, no `staff_stats` table, per the standing rule that a counter on
+a write path is a thing that has to be kept in step with what it counts. The
+in-progress booking is a link, because "who is on what right now" is always
+followed by "show me".
 
 ---
 

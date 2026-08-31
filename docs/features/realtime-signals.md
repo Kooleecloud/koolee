@@ -107,6 +107,20 @@ custody event on purpose, because a position is not evidence. It calls
 still open. Without it, the ETA on the customer's card would move only on the
 polling fallback, which is the one number a customer actually watches.
 
+**And it is SCOPED to that driver's own shift, which has a consequence worth
+knowing.** The filter is `pickup_tasks.driver_shift_id = <this shift>` — so a
+booking whose customer is still CHOOSING a driver has no shift on its pickup
+task and is signalled by nobody. **The driver shortlist therefore runs on the
+poll alone**, and gets the faster one (`SIGNAL_POLL_FAST_MS`, 12s) for that
+reason; the tracking map after selection gets the real signal.
+
+Widening it is the expensive answer, not an oversight. A driver on shift is a
+candidate for many bookings at once, so an unscoped ping would wake every
+customer currently choosing — and each wake is a **full trip-page re-render**,
+including an ETA round-trip per candidate through the Routes seam. Four
+candidates times three pings a minute times everybody choosing is a great deal
+of billable work for pins that move a block.
+
 **Nothing time-based rings.** "Running late" and "missed cutoff" are computed
 from the clock in `services/actionability.ts`, and nothing is written when they
 become true — so nothing _can_ be signalled. The polling fallback is what

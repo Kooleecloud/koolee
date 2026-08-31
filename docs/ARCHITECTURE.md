@@ -269,6 +269,19 @@ what it is genuinely better at and what we already pay for.
 Swapping tile hosts later (MapTiler, Protomaps, self-hosted) is the `styleUrl`
 prop on `LiveMap` — one string, not a rewrite.
 
+**What it does need is a build step, and it is not optional.** maplibre-gl 6
+works out where its tile-parsing worker lives from `import.meta.url`, and
+returns the EMPTY STRING when that is not an `http(s):` URL — which under any
+bundler it is not. It then calls `new Worker("")`, the browser fetches the
+current page and tries to run the HTML as a module, and MapLibre never
+re-raises the worker's error as a map error. The style, the TileJSON and the
+sprites all return 200 and **not one tile is ever requested**, silently.
+
+`scripts/copy-maplibre-worker.mjs` serves the worker from the app's own
+`public/maplibre/` and `setWorkerUrl` points at it. It runs inside `dev` and
+`build`; **an app that mounts `LiveMap` must run it.** There is still no key,
+no account and no environment variable — in any environment.
+
 ---
 
 ## 7. Folder tour

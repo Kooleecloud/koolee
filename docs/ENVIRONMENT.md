@@ -207,6 +207,20 @@ Source: [web/src/env.ts](../apps/web/src/env.ts) ·
 
 ---
 
+## 4.5 Things that look like they need a variable and do not
+
+**The map.** There is no map key, no map account and no map environment
+variable, in any environment — the trip page draws MapLibre over OpenFreeMap.
+If a map is blank, the variable is not what is missing: check that
+`/maplibre/maplibre-gl-worker.mjs` is being served. It is copied into the app's
+`public/` by `scripts/copy-maplibre-worker.mjs`, which runs inside `dev` and
+`build`, and the failure without it is completely silent — style, TileJSON and
+sprites all return 200 and no tile is ever requested. See
+[SCRIPTS.md](SCRIPTS.md#copy-maplibre-workermjs-and-why-a-map-needs-a-build-step).
+
+`GOOGLE_MAPS_SERVER_KEY` is for Places and Routes, both server-side, and must
+never reach a client bundle. It has nothing to do with rendering.
+
 ## 5. Secrets that must NOT be in app env
 
 **5.1 — Twilio / SMS credentials for auth OTP.** Owned entirely by Supabase Auth.

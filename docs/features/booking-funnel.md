@@ -35,8 +35,41 @@ shared by the client stepper _and_ the server guards:
 | 4   | `/book/pay`    | Review & pay | Price quote + payment. **The auth gate lives inside this step** |
 
 `/book` itself is a **route handler**, not a page
-([book/route.ts](../../apps/web/src/app/book/route.ts)): it resumes the draft
-wherever it left off.
+([book/route.ts](../../apps/web/src/app/book/route.ts)): it starts a NEW
+booking, and offers the old one.
+
+**It used to resume unconditionally**, so pressing "Book a pickup" dropped you
+back into a half-finished booking from days ago, at whatever step it had
+reached, with its flight and address prefilled. Right for somebody genuinely
+coming back; baffling for somebody booking a second trip, whose only way out
+was to notice and then edit every field.
+
+Two halves that pull against each other, and neither may be given up: a fresh
+entry must start **clean**, and nothing may be silently destroyed to achieve
+it. Clearing the draft makes a resume offer impossible; keeping it live means
+the entry was never clean. So the old draft is **moved** to
+`koolee_draft_prev` — the live cookie really goes, the first step really is
+empty, and `ResumeDraftOffer` puts it back in one tap.
+
+- The stash lives an hour, against the draft's 24. This is "you were in the
+  middle of something a moment ago", not an archive; account holders keep the
+  seven-day `booking_drafts` mirror regardless.
+- **Only a draft with progress is offered.** A cookie holding nothing but a
+  `draftId` minted by a ticket upload that went nowhere is not something
+  anybody remembers starting.
+- **The account-holder mirror is offered, not entered.** An empty cookie plus a
+  `booking_drafts` row is a draft from another device — worth proposing, no
+  longer worth redirecting into unasked.
+- **The extracted ticket data goes with it.** `ticketPrefill` is a key on that
+  cookie, so the reset takes the model's reading of somebody's itinerary with
+  it and a resume brings it back; otherwise "resume" would mean "start again
+  from the ZIP".
+
+**Movement INSIDE the funnel never comes through this door** — back and
+forward between steps, a rejected ZIP, a mid-funnel reload all address
+`/book/flight` and friends directly. That is exactly why the door can be this
+decisive, and why F4's "a refused ZIP must not cost the customer their whole
+form" is untouched.
 
 ### 2.1 — Retired routes still resolve
 
