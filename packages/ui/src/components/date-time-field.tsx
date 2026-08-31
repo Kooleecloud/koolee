@@ -197,12 +197,28 @@ function Segment({
         }
       }}
       onFocus={(event) => event.target.select()}
-      onBlur={() => {
-        // Pad on the way out, so "3" reads back as "03" and the row stays
-        // aligned. Done on blur rather than on change so typing "3" then "0"
-        // for the 30th still works.
-        if (value !== "" && spec.length === 2 && value.length === 1) {
-          onChange(value.padStart(2, "0"));
+      onBlur={(event) => {
+        /*
+         * Pad on the way out, so "3" reads back as "03" and the row stays
+         * aligned. On blur rather than on change, so typing "3" then "0" for
+         * the 30th still works.
+         *
+         * READ THE DOM, NOT THE PROP. `value` is this render's prop, and blur
+         * arrives in the SAME event turn as the auto-advance that caused it —
+         * before React has re-rendered with the character just typed. Closing
+         * over `value` therefore saw the PREVIOUS keystroke: typing "11" for
+         * November left the DOM correctly at "11", then this handler padded
+         * the stale "1" to "01" and wrote it back. Every two-digit segment was
+         * silently losing its second digit, for everybody, on every entry.
+         *
+         * `event.target.value` is what is actually in the field. Found by
+         * typing into a real browser; typecheck, lint and 116 unit tests were
+         * all green over it, because the pure conversion this component wraps
+         * was never wrong.
+         */
+        const raw = event.target.value;
+        if (spec.length === 2 && raw.length === 1) {
+          onChange(raw.padStart(2, "0"));
         }
       }}
       className={cn(
