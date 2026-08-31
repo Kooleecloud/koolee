@@ -105,14 +105,15 @@ export default async function TripsPage() {
           badge appearing here without a reload is the point. */}
       <TripLive />
 
-      <PageHeader
-        title="My Trips"
-        actions={
-          <CTAButton asChild>
-            <Link href="/book">Book a pickup</Link>
-          </CTAButton>
-        }
-      />
+      {/*
+        NO ACTION ON THIS HEADER. "Book a pickup" already sits in the app
+        header two inches above it, and again inside whichever empty state is
+        showing — three identical orange buttons on one screen, two of them
+        within a hand's width of each other. The header's is the persistent
+        one and the empty state's is the contextual one; this middle copy was
+        the one that said nothing the other two did not.
+      */}
+      <PageHeader title="My Trips" />
 
       {/* Renders nothing when the profile is done — see the component. */}
       <ProfileCompletenessCard missing={missing} />

@@ -234,6 +234,17 @@ export async function submitFlight(
   const departureAtLocal = str(form, "departureAt");
   const scope = (str(form, "scope") || "domestic") as CutoffScope;
   const paxName = str(form, "paxName");
+  /*
+   * Where they are flying TO. Optional, display-only, and validated loosely —
+   * three letters or nothing.
+   *
+   * A bad value here costs nothing (it appears on a history card and nowhere
+   * else), so it is never a reason to refuse a booking: anything that is not
+   * three letters is simply dropped rather than returned as an error the
+   * customer has to clear before they can pay.
+   */
+  const destinationRaw = str(form, "destinationAirport").toUpperCase().replace(/[^A-Z]/g, "");
+  const destinationAirport = destinationRaw.length === 3 ? destinationRaw : undefined;
 
   if (!/^[A-Z0-9]{2,3}\d{1,4}$/.test(flightNumber)) {
     return { error: "Enter a flight number like DL123 or UA1189." };
@@ -303,6 +314,7 @@ export async function submitFlight(
     departureAt: departureAt.toISOString(),
     scope,
     paxName,
+    destinationAirport,
     ticketPrefill: undefined,
     ...(flightChanged ? { windowStart: undefined, windowEnd: undefined } : {}),
   });

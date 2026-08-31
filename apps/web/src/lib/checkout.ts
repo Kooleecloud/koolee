@@ -139,6 +139,11 @@ export async function buildCheckoutSetup(
       airlineIata: draft.airlineIata,
       departureAirport: draft.departureAirport,
       departureAt: new Date(draft.departureAt),
+      // Display only, and often absent — a hand-typed booking has no
+      // destination unless the customer offered one.
+      ...(draft.destinationAirport
+        ? { destinationAirport: draft.destinationAirport }
+        : {}),
       scope: draft.scope ?? "domestic",
       paxName: draft.paxName,
       bagCount: draft.bagCount,

@@ -1,6 +1,5 @@
 import { and, asc, desc, eq, sql } from "drizzle-orm";
 import {
-  addresses,
   bags,
   bookings,
   custodyEvents,
@@ -24,6 +23,7 @@ import { assertActionable } from "./actionability";
 import { applyTransition } from "./bookings";
 import { resolveDisplayTz } from "./display-tz";
 import { confirmPassport, getPassportVerification } from "./passport";
+import { bookingPickupAddress, type PickupAddress } from "./pickup-address";
 
 /**
  * The verification visit — the agent app's core flow.
@@ -81,22 +81,16 @@ export interface VisitContext {
    */
   paymentStatus: Payment["status"] | null;
   /**
-   * The pickup address, resolved.
+   * The pickup address, off the booking's own snapshot.
    *
    * The agent app's visit screen used to render neither this nor the contact
    * number, which meant the one screen a driver looks at while standing on
-   * somebody's doorstep could not tell them which doorstep. `Booking` carries
-   * only `pickupAddressId`, so it has to be joined here.
+   * somebody's doorstep could not tell them which doorstep. It was a join on
+   * `addresses` until 0033; now the booking carries the doorstep it was made
+   * for, so a customer editing their saved address mid-week cannot move an
+   * agent who is already on their way.
    */
-  address: {
-    line1: string;
-    line2: string | null;
-    city: string;
-    state: string | null;
-    zip: string | null;
-    /** Google Place ID when the customer picked from autocomplete. */
-    placeId: string | null;
-  } | null;
+  address: PickupAddress;
   /**
    * The booking's display zone. The agent app renders every time through this
    * and never through the device or server zone: the agent has to show up for
@@ -118,6 +112,13 @@ export interface VisitContext {
     fullName: string | null;
     /** Key in the PRIVATE `avatars` bucket. Signed by whoever renders it. */
     avatarStoragePath: string | null;
+    /**
+     * The account's verified number, for the door. See `doorContact` — this
+     * is ONE field, granted by the same relationship that already gives this
+     * agent the address and the traveller's face, and nothing else about the
+     * customer's row travels with it.
+     */
+    phone: string | null;
   } | null;
   /** The two things that must both be true before any bag may be sealed. */
   identityGate: VisitIdentityGate;
@@ -188,7 +189,6 @@ export async function getVisitContext(
     tz,
     agreement,
     passport,
-    addressRows,
     customerRows,
   ] = await Promise.all([
     // By ordinal, never createdAt — see the note on `bags.ordinal`. This is the
@@ -217,25 +217,15 @@ export async function getVisitContext(
     // before the answer arrives.
     getBookingAgreementState(db, booking.id, now),
     getPassportVerification(db, booking.id),
-    // The doorstep. Left-joined in spirit: a booking always has an address,
-    // but a missing row must degrade to "no address on file" rather than
-    // failing the whole visit screen a driver is standing in front of.
+    // Name, face and the door number. Email and the verification timestamps
+    // stay unselected — see `doorContact` for why the phone stopped being on
+    // that list, and what is still withheld.
     db
       .select({
-        line1: addresses.line1,
-        line2: addresses.line2,
-        city: addresses.city,
-        state: addresses.state,
-        zip: addresses.zip,
-        placeId: addresses.placeId,
+        fullName: users.fullName,
+        avatarStoragePath: users.avatarStoragePath,
+        phone: users.phone,
       })
-      .from(addresses)
-      .where(eq(addresses.id, booking.pickupAddressId))
-      .limit(1),
-    // Name and face only. The agent app has no business reading a customer's
-    // phone, email or verification timestamps off this join.
-    db
-      .select({ fullName: users.fullName, avatarStoragePath: users.avatarStoragePath })
       .from(users)
       .where(eq(users.id, booking.userId))
       .limit(1),
@@ -247,7 +237,7 @@ export async function getVisitContext(
     bags: bagRows,
     timeline,
     paymentStatus: paymentRows[0]?.status ?? null,
-    address: addressRows[0] ?? null,
+    address: bookingPickupAddress(booking),
     tz,
     customer: customerRows[0] ?? null,
     identityGate: buildIdentityGate(agreement, passport),

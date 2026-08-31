@@ -34,6 +34,7 @@ import {
 } from "./payment-lifecycle";
 import { handlePaymentEvent } from "./webhooks";
 import { generateBookingRef } from "../booking/ref";
+import { pickupSnapshotOf } from "../test-utils/booking-fixtures";
 
 /**
  * Phase 5 acceptance — the payment lifecycle, end to end over the
@@ -422,7 +423,7 @@ describeIntegration("payment lifecycle (integration)", () => {
         departureAirport: "JFK",
         departureAt,
         paxName: "Legacy Customer",
-        pickupAddressId: address.id,
+        ...pickupSnapshotOf(address),
         bagCount: 1,
         slotId: slot!.id,
         displayTz: "America/New_York",

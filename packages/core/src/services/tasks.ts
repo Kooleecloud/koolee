@@ -1,9 +1,9 @@
 import { and, eq } from "drizzle-orm";
 import {
-  addresses,
   airports,
   bookings,
   pickupTasks,
+  users,
   verificationTasks,
   type Database,
   type PickupTask,
@@ -108,9 +108,17 @@ export interface TaskBookingContext {
   status: string;
   /** Street line, for recognising the stop. */
   addressLine1: string;
+  /** Apartment, floor, buzzer — the half that gets a driver past the door. */
+  addressLine2: string | null;
   addressCity: string;
   addressState: string | null;
   addressZip: string | null;
+  /**
+   * The doorstep's precise point, when Places supplied one. Null is ordinary
+   * (hand-typed address) and every consumer degrades to the ZIP centroid.
+   */
+  addressLat: number | null;
+  addressLng: number | null;
   /**
    * Google Place ID, when the address was picked from autocomplete. The agent
    * app prefers it for the "Navigate" link: a place id resolves to the exact
@@ -119,10 +127,12 @@ export interface TaskBookingContext {
    */
   addressPlaceId: string | null;
   /**
-   * The door contact. On the list, not just the visit detail — a driver
-   * running late calls before opening the job.
+   * The number typed FOR this pickup, when there is one. Only email-only
+   * customers have one; read it through `doorContact`, never directly.
    */
   contactPhone: string | null;
+  /** The account's verified number. Also read through `doorContact`. */
+  customerPhone: string | null;
 }
 
 export interface AssignedTasks {
@@ -152,12 +162,27 @@ export async function listAssignedTasks(
     departureAt: bookings.departureAt,
     bagCount: bookings.bagCount,
     status: bookings.status,
-    addressLine1: addresses.line1,
-    addressCity: addresses.city,
-    addressState: addresses.state,
-    addressZip: addresses.zip,
-    addressPlaceId: addresses.placeId,
+    // The booking's OWN doorstep (0033). These were a join on `addresses`
+    // until the snapshot landed, which meant a customer editing their saved
+    // address could move a stop out from under a driver already holding the
+    // job.
+    addressLine1: bookings.pickupLine1,
+    addressLine2: bookings.pickupLine2,
+    addressCity: bookings.pickupCity,
+    addressState: bookings.pickupState,
+    addressZip: bookings.pickupZip,
+    addressLat: bookings.pickupLat,
+    addressLng: bookings.pickupLng,
+    addressPlaceId: bookings.pickupPlaceId,
     contactPhone: bookings.contactPhone,
+    /**
+     * The account's verified number, resolved against `contactPhone` by
+     * `doorContact`. On the LIST, not just the visit detail: a driver running
+     * late calls before opening the job, and until now most jobs showed a
+     * disabled "No number" because `contactPhone` is only set for email-only
+     * customers.
+     */
+    customerPhone: users.phone,
   };
 
   const [verification, pickup] = await Promise.all([
@@ -166,7 +191,7 @@ export async function listAssignedTasks(
       .from(verificationTasks)
       .innerJoin(bookings, eq(bookings.id, verificationTasks.bookingId))
       .innerJoin(airports, eq(airports.code, bookings.departureAirport))
-      .innerJoin(addresses, eq(addresses.id, bookings.pickupAddressId))
+      .innerJoin(users, eq(users.id, bookings.userId))
       .where(eq(verificationTasks.assigneeUserId, assigneeUserId))
       .orderBy(verificationTasks.scheduledStart),
     db
@@ -174,7 +199,7 @@ export async function listAssignedTasks(
       .from(pickupTasks)
       .innerJoin(bookings, eq(bookings.id, pickupTasks.bookingId))
       .innerJoin(airports, eq(airports.code, bookings.departureAirport))
-      .innerJoin(addresses, eq(addresses.id, bookings.pickupAddressId))
+      .innerJoin(users, eq(users.id, bookings.userId))
       .where(eq(pickupTasks.assigneeUserId, assigneeUserId))
       .orderBy(pickupTasks.scheduledStart),
   ]);

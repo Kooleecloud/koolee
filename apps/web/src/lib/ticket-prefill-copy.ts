@@ -100,46 +100,99 @@ export function describePrefill(prefill: TicketPrefill | undefined): PrefillNoti
 }
 
 /**
- * One row of the read-back list: the route, the flight, and whether this is a
- * leg we can collect bags for.
+ * The flights on this ticket WE CAN ACTUALLY COLLECT FOR, as something to
+ * choose between.
  *
- * `collectable` is not "is this the chosen leg" — a round trip has two New
- * York departures and only one of them is prefilled, and both are collectable.
- * The list has to say which legs the product can serve so that "we only filled
- * in one of your three legs" reads as a boundary rather than a failure.
+ * WHAT THIS REPLACES. The review form used to print every leg it had read,
+ * eligible or not, each with a clause explaining itself:
+ *
+ *     We read 2 flights on this ticket:
+ *     DEL → JFK · AI101 · Jan 6, 1:35 AM — not leaving New York, so we can't
+ *       collect for it
+ *     EWR → DEL · AI144 · Dec 12, 1:15 PM — filled in below
+ *
+ * That is a paragraph of reading to answer a question the customer did not
+ * ask. They know their own itinerary; what they need to know is which leg this
+ * form is about, and how to change it if we picked the wrong one. Legs we
+ * cannot serve are not choices, and listing them with an apology each makes
+ * the eligible one harder to find, not easier.
+ *
+ * So this returns only the collectable legs — the one prefilled plus every
+ * alternative we could swap to — and the count of what was dropped, which the
+ * page renders as ONE quiet line. Nothing is lost: `useTicketAlternativeLeg`
+ * swaps the chosen leg for an alternative and puts the old one back in the
+ * list, so every eligible leg stays reachable however many times somebody
+ * changes their mind.
  */
-export interface ReadBackLeg {
+export interface EligibleLeg {
+  /** "EWR → DEL", or just "EWR" when the destination is unknown. */
   route: string;
   flightNumber?: string;
   stamp?: string;
+  /** True for the leg currently filling the form. */
   chosen: boolean;
-  collectable: boolean;
+  /**
+   * Index into `prefill.alternatives`, for the swap form. Absent on the chosen
+   * leg, which is not something you can swap TO.
+   */
+  alternativeIndex?: number;
 }
 
-export function describeItinerary(
-  prefill: TicketPrefill | undefined,
-): ReadBackLeg[] {
-  const legs = prefill?.legs ?? [];
-  if (legs.length < 2) return [];
-  const serviced = AIRPORT_CODES as readonly string[];
-  return legs.map((leg: PrefillLeg, index: number) => ({
-    route: leg.destinationAirport
-      ? `${leg.departureAirport} → ${leg.destinationAirport}`
-      : leg.departureAirport,
+export interface EligibleLegs {
+  legs: EligibleLeg[];
+  /** Legs we read but cannot collect for — a count, never a list. */
+  skipped: number;
+}
+
+function routeOf(leg: { departureAirport?: string; destinationAirport?: string }): string {
+  return leg.destinationAirport
+    ? `${leg.departureAirport} → ${leg.destinationAirport}`
+    : `${leg.departureAirport}`;
+}
+
+function toEligible(
+  leg: { departureAirport?: string; destinationAirport?: string; flightNumber?: string; departureAtLocal?: string },
+  extra: { chosen: boolean; alternativeIndex?: number },
+): EligibleLeg {
+  const stamp = formatLocalStamp(leg.departureAtLocal);
+  return {
+    route: routeOf(leg),
     ...(leg.flightNumber ? { flightNumber: leg.flightNumber } : {}),
-    ...(formatLocalStamp(leg.departureAtLocal)
-      ? { stamp: formatLocalStamp(leg.departureAtLocal)! }
-      : {}),
-    chosen: index === prefill?.chosenLegIndex,
-    collectable: serviced.includes(leg.departureAirport),
-  }));
+    ...(stamp ? { stamp } : {}),
+    ...extra,
+  };
 }
 
-/** "the EWR → DEL leg on Sep 12, 1:15 PM" — the swap button's label. */
-export function describeAlternative(leg: {
-  departureAirport?: string;
-  destinationAirport?: string;
-  departureAtLocal?: string;
-}): string {
-  return describeLeg(leg);
+export function describeEligibleLegs(
+  prefill: TicketPrefill | undefined,
+): EligibleLegs {
+  if (!prefill) return { legs: [], skipped: 0 };
+
+  const alternatives = prefill.alternatives ?? [];
+  const legs: EligibleLeg[] = [];
+
+  // The chosen leg first and always — it is what the form below is showing.
+  if (prefill.departureAirport) {
+    legs.push(toEligible(prefill, { chosen: true }));
+  }
+  alternatives.forEach((leg, index) =>
+    legs.push(toEligible(leg, { chosen: false, alternativeIndex: index })),
+  );
+
+  /*
+   * How many legs we read and cannot serve.
+   *
+   * Derived from `legs` (every leg in print order) rather than from
+   * `alternatives` (only the swappable ones), because that is the difference
+   * between "we read three flights and can collect for one" and "we read one".
+   * `legs` is absent on older draft cookies, in which case we say nothing —
+   * silence is better than a wrong count.
+   */
+  const read = prefill.legs ?? [];
+  const serviced = AIRPORT_CODES as readonly string[];
+  const skipped = read.filter(
+    (leg: PrefillLeg) => !serviced.includes(leg.departureAirport),
+  ).length;
+
+  return { legs, skipped };
 }

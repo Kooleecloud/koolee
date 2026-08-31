@@ -1,5 +1,9 @@
 @import "tailwindcss";
 @import "../styles/theme.css";
+/* MapLibre's own stylesheet, so `LiveMap`'s stories render the real control
+   chrome rather than an unpositioned canvas. The apps import this from their
+   own globals.css for the same reason — see the note there. */
+@import "maplibre-gl/dist/maplibre-gl.css";
 
 /* Apps set these via next/font; Storybook loads the same faces from Google
    Fonts in preview-head.html. */

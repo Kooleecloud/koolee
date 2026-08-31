@@ -1,4 +1,9 @@
-export { haversineKm, toCoordinates, type Coordinates } from "./coordinates";
+export {
+  formatMiles,
+  haversineKm,
+  toCoordinates,
+  type Coordinates,
+} from "./coordinates";
 export {
   FALLBACK_DISTANCE_KM,
   PRICING_ROAD_FACTOR,
@@ -8,6 +13,8 @@ export {
   type QuoteDistanceSource,
 } from "./distance";
 export {
+  etaDisplayMinutes,
+  formatEtaMinutes,
   formatEtaRange,
   HaversineEtaEstimator,
   toEtaRange,

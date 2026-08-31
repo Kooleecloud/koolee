@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import {
+  BrandLoader,
   Card,
   CardContent,
   CardDescription,
@@ -37,6 +38,13 @@ export default async function ProcessingPage({
         title="Confirming your payment"
         subtitle="Your bank is still confirming the authorization. This usually takes a moment."
       />
+
+      {/* The same waiting animation the authorize step shows, for the same
+          reason: this is a page about money in flight, and a page of prose
+          with no motion on it reads as a page that has stopped. */}
+      <div className="flex justify-center py-2">
+        <BrandLoader size="lg" label="Confirming your payment" />
+      </div>
 
       <Card>
         <CardHeader>

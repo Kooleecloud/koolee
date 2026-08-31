@@ -20,6 +20,7 @@ import { TEST_AIRPORTS } from "../test-utils/airport-fixtures";
 
 import { cleanupAnonymousUsers } from "./cleanup-anonymous-users";
 import { generateBookingRef } from "../booking/ref";
+import { pickupSnapshotOf } from "../test-utils/booking-fixtures";
 
 /**
  * Integration tests for the anonymous-user GC against a real Postgres.
@@ -152,7 +153,7 @@ describeIntegration("cleanupAnonymousUsers (integration)", () => {
       departureAirport: "JFK",
       departureAt: daysAgo(-5),
       paxName: "Jordan Alvarez",
-      pickupAddressId: address!.id,
+      ...pickupSnapshotOf(address!),
       bagCount: 2,
       priceCents: 9900,
     });

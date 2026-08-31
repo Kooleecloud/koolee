@@ -1,6 +1,5 @@
 import { and, asc, eq, exists, inArray, isNull, sql } from "drizzle-orm";
 import {
-  addresses,
   agentZones,
   bookings,
   custodyEvents,
@@ -22,6 +21,7 @@ import { touchBookingSignals } from "./booking-signals";
 import { toCoordinates, type Coordinates } from "../geo/coordinates";
 import type { EtaRange } from "../geo/eta";
 import { PICKUP_EVENT_TYPES } from "./pickup-events";
+import { bookingPickupAddress } from "./pickup-address";
 import { OPEN_TASK_STATUSES } from "./tasks";
 
 /**
@@ -84,9 +84,26 @@ export interface DriverCandidate {
   outOfZone: boolean;
   /**
    * Null when the driver has never pinged a position — a real state, not an
-   * error. Render `formatEtaRange(null)`, never a guess.
+   * error. Render `formatEtaMinutes(null)`, never a guess.
    */
   eta: EtaRange | null;
+  /**
+   * The driver's last reported position, for the map.
+   *
+   * WHAT THIS DISCLOSES AND TO WHOM. A shortlist is at most four drivers who
+   * are on shift, have room for these bags, and (all but the widened case)
+   * cover this pickup's ZIP — and it is only ever built for a customer whose
+   * own bags are sealed and waiting. So this is the live position of somebody
+   * about to drive to that customer's door, shown to that customer, which is
+   * the same bargain every ride-hail app strikes and the reason the pool is
+   * filtered before it is drawn.
+   *
+   * It is a 45-second-old foreground ping, not a track: `driver_positions`
+   * holds ONE mutable row per driver and keeps no history (schema/ops.ts).
+   * Null the moment a phone goes into a pocket, which the map renders as an
+   * absent pin rather than a stale one.
+   */
+  position: Coordinates | null;
 }
 
 interface EligibleRow {
@@ -178,23 +195,23 @@ async function loadSelectionContext(
   db: Database,
   bookingId: string,
 ): Promise<SelectionContext> {
-  const [row] = await db
-    .select({
-      booking: bookings,
-      zip: addresses.zip,
-      lat: addresses.lat,
-      lng: addresses.lng,
-    })
+  // No join: the doorstep is on the booking since 0033, so the zone a booking
+  // dispatches into cannot change when somebody edits their saved address.
+  const [booking] = await db
+    .select()
     .from(bookings)
-    .innerJoin(addresses, eq(addresses.id, bookings.pickupAddressId))
     .where(eq(bookings.id, bookingId))
     .limit(1);
 
-  if (!row) throw new NotFoundError("Booking", bookingId);
+  if (!booking) throw new NotFoundError("Booking", bookingId);
 
+  const pickupAddress = bookingPickupAddress(booking);
   return {
-    booking: row.booking,
-    pickup: { zip: row.zip.slice(0, 5), coords: toCoordinates(row.lat, row.lng) },
+    booking,
+    pickup: {
+      zip: pickupAddress.zip.slice(0, 5),
+      coords: toCoordinates(pickupAddress.lat, pickupAddress.lng),
+    },
   };
 }
 
@@ -295,6 +312,7 @@ function toCandidate(
     availableCapacity: row.bagCapacity - row.bagsOnBoard,
     outOfZone,
     eta,
+    position: toCoordinates(row.driverLat, row.driverLng),
   };
 }
 
@@ -508,6 +526,8 @@ export async function selectDriver(
       availableCapacity: availableCapacity - booking.bagCount,
       outOfZone: false,
       eta,
+      // Re-read under the lock along with everything else on this row.
+      position: toCoordinates(row.driverLat, row.driverLng),
     };
 
     return { candidate, releasedShiftId, custodyEventId: selectedEvent?.id ?? null };
@@ -578,6 +598,23 @@ export async function reportEmptyDriverPool(
 }
 
 /** The driver a booking currently has, for the trip page and the console. */
+/**
+ * How old a GPS fix may be and still count as "where the driver is".
+ *
+ * `driver_positions` holds ONE mutable row per driver with no history, and the
+ * agent app pings every 45 seconds while a pickup is under way — but only in
+ * the foreground. A phone in a pocket stops reporting, and the row keeps the
+ * last fix indefinitely, including one from a JOB THE DRIVER FINISHED
+ * YESTERDAY. Rendering that on a map draws a van somewhere it is not, with the
+ * same confidence as a live one.
+ *
+ * Four missed pings. Long enough to survive a tunnel, a lock screen or a
+ * dropped request; short enough that nobody watches a frozen pin and believes
+ * it. Past this, `positionIsFresh` is false and the surfaces fall back to what
+ * they said before there was a map: a distance, and "Position updating".
+ */
+export const POSITION_FRESH_MS = 3 * 60_000;
+
 export interface SelectedDriver {
   shiftId: string;
   staffUserId: string;
@@ -589,11 +626,23 @@ export interface SelectedDriver {
   /** Latest position, or null when the driver has not pinged. */
   position: Coordinates | null;
   positionRecordedAt: Date | null;
+  /**
+   * Whether `position` is recent enough to present as current — see
+   * `POSITION_FRESH_MS`. False with a non-null `position` is the case that
+   * matters: we know where they were, and it is too old to draw.
+   */
+  positionIsFresh: boolean;
 }
 
 export async function getSelectedDriver(
   db: Database,
   bookingId: string,
+  /**
+   * Explicit, and defaulted — the same shape `listCustomerTrips` uses. Only
+   * `positionIsFresh` reads it, and a test that wants a stale fix should be
+   * able to say so without waiting three minutes.
+   */
+  now: Date = new Date(),
 ): Promise<SelectedDriver | null> {
   const [row] = await db
     .select({
@@ -630,6 +679,9 @@ export async function getSelectedDriver(
     travelStartedAt: row.travelStartedAt,
     position: toCoordinates(row.lat, row.lng),
     positionRecordedAt: row.recordedAt,
+    positionIsFresh:
+      row.recordedAt !== null &&
+      now.getTime() - row.recordedAt.getTime() <= POSITION_FRESH_MS,
   };
 }
 
@@ -890,9 +942,8 @@ export async function listReassignOptions(
   bookingId: string,
 ): Promise<ReassignOption[]> {
   const [row] = await db
-    .select({ bagCount: bookings.bagCount, zip: addresses.zip })
+    .select({ bagCount: bookings.bagCount, zip: bookings.pickupZip })
     .from(bookings)
-    .innerJoin(addresses, eq(addresses.id, bookings.pickupAddressId))
     .where(eq(bookings.id, bookingId))
     .limit(1);
   if (!row) throw new NotFoundError("Booking", bookingId);

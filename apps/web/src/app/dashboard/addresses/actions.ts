@@ -42,12 +42,27 @@ const addressSchema = z.object({
   city: z.string().min(1, "Enter the city.").max(100),
   state: z.string().length(2, "Two-letter state."),
   zip: z.string().min(5).max(10),
+  /**
+   * Posted as hidden fields by the autocomplete, and only ever present when
+   * the customer picked a suggestion — the form clears them on any hand edit.
+   * Coerced from strings because that is what a form sends; anything
+   * unparseable becomes undefined and the ZIP centroid answers instead.
+   */
+  lat: z.coerce.number().min(-90).max(90).optional(),
+  lng: z.coerce.number().min(-180).max(180).optional(),
+  placeId: z.string().max(255).optional().or(z.literal("")),
 });
 
 async function requireSession() {
   const authUser = await getAuthUser();
   if (!authUser || authUser.isAnonymous) return null;
   return customerSessionFromAuthUser(authUser);
+}
+
+/** Undefined rather than "" — the schema's coercion turns "" into 0. */
+function optional(form: FormData, key: string): string | undefined {
+  const raw = String(form.get(key) ?? "").trim();
+  return raw.length > 0 ? raw : undefined;
 }
 
 function parseAddress(form: FormData) {
@@ -58,6 +73,9 @@ function parseAddress(form: FormData) {
     city: String(form.get("city") ?? "").trim(),
     state: String(form.get("state") ?? "").trim().toUpperCase(),
     zip: String(form.get("zip") ?? "").trim(),
+    lat: optional(form, "lat"),
+    lng: optional(form, "lng"),
+    placeId: optional(form, "placeId"),
   });
 }
 
@@ -84,6 +102,9 @@ export async function createAddress(
       city: parsed.data.city,
       state: parsed.data.state,
       zip: parsed.data.zip,
+      lat: parsed.data.lat ?? null,
+      lng: parsed.data.lng ?? null,
+      placeId: parsed.data.placeId || null,
     });
   } catch (error) {
     if (error instanceof OutOfCoverageError) {
@@ -123,6 +144,9 @@ export async function updateAddress(
       city: parsed.data.city,
       state: parsed.data.state,
       zip: parsed.data.zip,
+      lat: parsed.data.lat ?? null,
+      lng: parsed.data.lng ?? null,
+      placeId: parsed.data.placeId || null,
     });
   } catch (error) {
     if (error instanceof OutOfCoverageError) {

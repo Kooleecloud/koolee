@@ -312,19 +312,7 @@ export async function ensureAddress(
   const found = existing[0];
   if (found) return upgradeAddressPrecision(db, found, input);
 
-  let lat = input.lat ?? null;
-  let lng = input.lng ?? null;
-  if (lat === null || lng === null) {
-    const [centroid] = await db
-      .select({ lat: zipCentroids.lat, lng: zipCentroids.lng })
-      .from(zipCentroids)
-      .where(eq(zipCentroids.zip, zip.slice(0, 5)))
-      .limit(1);
-    if (centroid) {
-      lat = centroid.lat;
-      lng = centroid.lng;
-    }
-  }
+  const { lat, lng } = await resolveAddressPoint(db, zip, input);
 
   const [created] = await db
     .insert(addresses)
@@ -343,6 +331,41 @@ export async function ensureAddress(
 
   if (!created) throw new Error("Insert of address returned no row");
   return created;
+}
+
+/**
+ * The point to store for an address: what Places gave us, else the ZIP's
+ * centroid, else nothing.
+ *
+ * Exported because the account area saves addresses through
+ * `createAddressForSession` rather than through `ensureAddress`, and an
+ * address added on the profile page must not be less precise than the same
+ * address typed in the funnel. Both now resolve the point the same way, which
+ * is the only way "the price and the driver's map link agree" stays true
+ * whichever door the address came in through.
+ *
+ * The centroid is read from `zip_centroids` rather than the TS module so a
+ * dataset refresh lands without a deploy. It is coarse on purpose: it answers
+ * "roughly how far is the driver", never "which door".
+ */
+export async function resolveAddressPoint(
+  db: Database,
+  zip: string,
+  input: { lat?: number | null; lng?: number | null },
+): Promise<{ lat: number | null; lng: number | null }> {
+  // Both halves or neither: half a coordinate is not a point.
+  if (input.lat !== null && input.lat !== undefined && input.lng !== null && input.lng !== undefined) {
+    return { lat: input.lat, lng: input.lng };
+  }
+
+  const [centroid] = await db
+    .select({ lat: zipCentroids.lat, lng: zipCentroids.lng })
+    .from(zipCentroids)
+    .where(eq(zipCentroids.zip, zip.slice(0, 5)))
+    .limit(1);
+  // A ZIP with no centroid leaves both NULL, and the ETA seam renders "ETA on
+  // the way" rather than inventing a position.
+  return { lat: centroid?.lat ?? null, lng: centroid?.lng ?? null };
 }
 
 /**

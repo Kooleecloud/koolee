@@ -88,6 +88,18 @@ export {
   type SavedAddressInput,
 } from "./addresses";
 
+export { doorContact, type DoorContact } from "./door-contact";
+
+export { staffTravelToDoor, type StaffTravel } from "./staff-travel";
+
+export {
+  bookingPickupAddress,
+  formatPickupAddressLine,
+  pickupCoordinates,
+  type BookingWithPickupAddress,
+  type PickupAddress,
+} from "./pickup-address";
+
 export {
   createSlotBlock,
   deleteSlotBlock,
@@ -291,6 +303,7 @@ export {
   DRIVER_SHORTLIST_SIZE,
   getSelectedDriver,
   listCandidateDrivers,
+  POSITION_FRESH_MS,
   listReassignOptions,
   recordDriverPosition,
   reportEmptyDriverPool,

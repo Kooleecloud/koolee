@@ -22,11 +22,7 @@ import { TicketUpload } from "@/components/ticket-upload";
 import { readDraft } from "@/lib/booking-draft";
 import { flightEntryMode } from "@/lib/flight-entry";
 import { ticketExtractionDebugEnabled, tryGetCore } from "@/lib/core";
-import {
-  describeAlternative,
-  describeItinerary,
-  describePrefill,
-} from "@/lib/ticket-prefill-copy";
+import { describeEligibleLegs, describePrefill } from "@/lib/ticket-prefill-copy";
 
 export const metadata = { title: "Your flight" };
 export const dynamic = "force-dynamic";
@@ -64,11 +60,12 @@ export default async function FlightStepPage({
   // One sentence saying WHICH leg we used and why — the difference between a
   // form that quietly decided something and one that shows its work.
   const notice = fromTicket ? describePrefill(prefill) : null;
-  const alternatives = fromTicket ? (prefill?.alternatives ?? []) : [];
-  // Every leg we read, not only the ones we can collect for. A three-leg
-  // itinerary that came back as one flight number is indistinguishable from a
-  // one-way ticket unless the form says what it read.
-  const itinerary = fromTicket ? describeItinerary(prefill) : [];
+  // Only the legs we can actually collect for — see `describeEligibleLegs`.
+  // Legs out of an airport we do not serve are counted, not listed: they are
+  // not choices, and an apology beside each one buried the leg that is.
+  const eligible = fromTicket
+    ? describeEligibleLegs(prefill)
+    : { legs: [], skipped: 0 };
 
   // Extracted fields get an attention ring (sky, matching the info banner —
   // Tag Orange stays reserved for CTAs per the brand system).
@@ -96,6 +93,11 @@ export default async function FlightStepPage({
     ? (prefill?.scope ?? draft.scope ?? "domestic")
     : (draft.scope ?? "domestic");
   const paxNameDefault = fromTicket ? (prefill?.paxName ?? "") : (draft.paxName ?? "");
+  // Read off the ticket when we could, otherwise whatever they typed last.
+  // Display only — see the column note on `bookings.destination_airport`.
+  const destinationDefault = fromTicket
+    ? (prefill?.destinationAirport ?? "")
+    : (draft.destinationAirport ?? "");
 
   /**
    * Remount key for the form below.
@@ -122,6 +124,7 @@ export default async function FlightStepPage({
     departureAtDefault,
     scopeDefault,
     paxNameDefault,
+    destinationDefault,
   ].join("|");
 
   if (showDoor) {
@@ -184,54 +187,69 @@ export default async function FlightStepPage({
         )
       )}
 
-      {/* What we read, in full. Legs out of an airport we do not serve are
-          listed and explained rather than dropped — silently showing one leg
-          of three reads as a bad extraction even when the reading was right. */}
-      {itinerary.length > 0 && (
-        <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-sm">
-          <p className="font-medium text-slate-700">
-            We read {itinerary.length} flights on this ticket:
-          </p>
-          <ul className="mt-2 flex flex-col gap-1">
-            {itinerary.map((leg, index) => (
-              <li
-                key={`${leg.route}-${index}`}
-                className={
-                  leg.chosen ? "font-medium text-slate-900" : "text-slate-600"
-                }
-              >
-                <span className="tabular-nums">{leg.route}</span>
-                {leg.flightNumber ? ` · ${leg.flightNumber}` : ""}
-                {leg.stamp ? ` · ${leg.stamp}` : ""}
-                {leg.chosen ? " — filled in below" : ""}
-                {!leg.chosen && !leg.collectable
-                  ? " — not leaving New York, so we can't collect for it"
-                  : ""}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
+      {/*
+        WHICH FLIGHT, as a choice rather than a read-back.
 
-      {/* A round trip has a leg we did not pick. Rather than making the
-          customer retype it, offer the one we read as a single click. */}
-      {alternatives.length > 0 && (
-        <div className="flex flex-col gap-2 rounded-md border border-sky-200 bg-sky-50 p-3 text-sm">
-          <p className="text-slate-700">
-            This ticket has another flight leaving New York:
-          </p>
-          {alternatives.map((leg, index) => (
-            <form key={`${leg.departureAirport}-${index}`} action={useTicketAlternativeLeg}>
-              <input type="hidden" name="index" value={index} />
-              <button
-                type="submit"
-                className="text-left font-medium text-sky-900 underline underline-offset-2"
+        Only rendered when there is more than one to choose between: a ticket
+        with a single eligible leg needs no picker, and the sentence above
+        already says which leg was used. Choosing swaps the form's contents
+        and puts the previous leg back in this list, so nothing is lost
+        however many times somebody changes their mind.
+      */}
+      {eligible.legs.length > 1 && (
+        <fieldset className="flex flex-col gap-2 rounded-lg border border-sky-200 bg-sky-50/60 p-3">
+          <legend className="px-1 text-sm font-medium text-navy-800">
+            Which flight are your bags catching?
+          </legend>
+          {eligible.legs.map((leg) =>
+            leg.chosen ? (
+              <div
+                key={leg.route + (leg.flightNumber ?? "")}
+                aria-current="true"
+                className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-md border border-sky-400 bg-background px-3 py-2 text-sm shadow-lift-lg ring-1 ring-sky-300"
               >
-                Use {describeAlternative(leg)} instead
-              </button>
-            </form>
-          ))}
-        </div>
+                <span className="font-medium text-navy-800">{leg.route}</span>
+                {leg.flightNumber && (
+                  <span className="text-muted-foreground">{leg.flightNumber}</span>
+                )}
+                {leg.stamp && <span className="text-muted-foreground">{leg.stamp}</span>}
+                <span className="ml-auto text-xs font-medium text-sky-800">
+                  Filled in below
+                </span>
+              </div>
+            ) : (
+              <form
+                key={leg.route + (leg.flightNumber ?? "")}
+                action={useTicketAlternativeLeg}
+              >
+                <input type="hidden" name="index" value={leg.alternativeIndex} />
+                <button
+                  type="submit"
+                  className="flex w-full flex-wrap items-center gap-x-2 gap-y-1 rounded-md border border-border bg-background px-3 py-2 text-left text-sm transition-colors hover:border-sky-400 hover:bg-sky-50 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  <span className="font-medium text-navy-800">{leg.route}</span>
+                  {leg.flightNumber && (
+                    <span className="text-muted-foreground">{leg.flightNumber}</span>
+                  )}
+                  {leg.stamp && (
+                    <span className="text-muted-foreground">{leg.stamp}</span>
+                  )}
+                  <span className="ml-auto text-xs font-medium text-sky-700">
+                    Use this one
+                  </span>
+                </button>
+              </form>
+            ),
+          )}
+          {/* One line for everything we cannot serve, not one line each. */}
+          {eligible.skipped > 0 && (
+            <p className="px-1 text-xs text-muted-foreground">
+              {eligible.skipped === 1
+                ? "One other flight on this ticket doesn't leave New York, so we can't collect for it."
+                : `${eligible.skipped} other flights on this ticket don't leave New York, so we can't collect for them.`}
+            </p>
+          )}
+        </fieldset>
       )}
 
       <CoverageStepForm key={formSeedKey} action={submitFlight} retryHref="/book/flight">
@@ -313,7 +331,11 @@ export default async function FlightStepPage({
 
         <div className="grid items-start gap-4 sm:grid-cols-2">
           <div className="grid gap-2">
-            <Label htmlFor="scope">Destination</Label>
+            {/* "Trip type", not "Destination" — this picks a bag-drop cutoff
+                (45 vs 60 minutes), and sitting next to a field that asks
+                where you are flying to, the old label read as the same
+                question asked twice. */}
+            <Label htmlFor="scope">Trip type</Label>
             <Select
               id="scope"
               name="scope"
@@ -325,6 +347,29 @@ export default async function FlightStepPage({
             </Select>
           </div>
 
+          <div className="grid gap-2">
+            <Label htmlFor="destinationAirport">Flying to (optional)</Label>
+            <Input
+              id="destinationAirport"
+              name="destinationAirport"
+              placeholder="LAX"
+              maxLength={3}
+              defaultValue={destinationDefault}
+              className={flagged(prefill?.destinationAirport)}
+              autoComplete="off"
+            />
+            {/*
+              Says what it is FOR. Nobody volunteers an airport code to a form
+              that does not explain itself, and this one earns its place only
+              on the trips list months later.
+            */}
+            <p className="text-xs text-muted-foreground">
+              Airport code — it&apos;s how you&apos;ll recognise this trip later.
+            </p>
+          </div>
+        </div>
+
+        <div className="grid items-start gap-4 sm:grid-cols-2">
           <div className="grid gap-2">
             <Label htmlFor="paxName">Name on the ticket</Label>
             <Input
@@ -345,11 +390,16 @@ export default async function FlightStepPage({
         <TurnstileFormField />
       </CoverageStepForm>
 
-      <OrDivider />
+      {/* No divider above a ticket-filled form: an "or" between a form we
+          just filled in and an upload card offers a choice the customer has
+          already made. It stays in the manual modes, where the two really are
+          alternatives. */}
+      {!fromTicket && <OrDivider />}
 
-      {/* Still here in the form modes: somebody who started typing, or whose
-          first file failed, can hand us the document instead. */}
-      <TicketUpload />
+      {/* Still here in every mode: somebody who started typing, whose first
+          file failed, or who uploaded the wrong ticket can hand us another
+          document. The words change — see `replacing`. */}
+      <TicketUpload replacing={fromTicket} />
 
       {ticketExtractionDebugEnabled() && <TicketExtractionDebug />}
     </div>

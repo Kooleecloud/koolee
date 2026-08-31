@@ -60,8 +60,19 @@ const MAX_MB = Math.round(MAX_TICKET_UPLOAD_BYTES / (1024 * 1024));
 
 export function TicketUpload({
   variant = "compact",
+  /**
+   * True once a ticket has already been read and the form below is showing
+   * what came off it.
+   *
+   * It only changes the words. "Upload your e-ticket … we'll fill in the form
+   * above for you to review" sitting UNDER a form already filled in from a
+   * ticket reads as an instruction the customer has just followed, and it is
+   * the second thing they see after the thing they asked for worked.
+   */
+  replacing = false,
 }: {
   variant?: "door" | "compact";
+  replacing?: boolean;
 }) {
   const router = useRouter();
   const fileRef = React.useRef<HTMLInputElement>(null);
@@ -161,10 +172,13 @@ export function TicketUpload({
     return (
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Upload your e-ticket</CardTitle>
+          <CardTitle className="text-base">
+            {replacing ? "Wrong ticket?" : "Upload your e-ticket"}
+          </CardTitle>
           <CardDescription>
-            PDF or a photo — we&apos;ll read your flight details off it and fill in the
-            form above for you to review.
+            {replacing
+              ? "Upload a different one and we'll read that instead — what's in the form above will be replaced."
+              : "PDF or a photo — we'll read your flight details off it and fill in the form above for you to review."}
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-3">
@@ -175,7 +189,11 @@ export function TicketUpload({
             loading={phase === "uploading"}
             onClick={() => fileRef.current?.click()}
           >
-            {phase === "uploading" ? "Reading your ticket…" : "Upload ticket"}
+            {phase === "uploading"
+              ? "Reading your ticket…"
+              : replacing
+                ? "Upload a different ticket"
+                : "Upload ticket"}
           </Button>
           {error && <FormMessage variant="error">{error}</FormMessage>}
         </CardContent>

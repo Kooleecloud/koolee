@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { GooglePlacesClient, MIN_AUTOCOMPLETE_INPUT } from "@koolee/core";
 
+import { getAuthUser } from "@/lib/auth";
 import { readDraft } from "@/lib/booking-draft";
 import { optionalEnv } from "@/env";
 
@@ -27,10 +28,13 @@ export const runtime = "nodejs";
  * without a password, because the funnel is anonymous until the verify step.
  * Three things keep it boring:
  *
- *  1. **A draft cookie is required.** Somebody who has walked the funnel far
- *     enough to be typing an address has one; a script pointed at the URL does
- *     not. The cookie is httpOnly and same-site, so this is not a token to
- *     steal, just a cost of entry.
+ *  1. **A draft cookie OR a signed-in account.** Somebody who has walked the
+ *     funnel far enough to be typing an address has a draft; the cookie is
+ *     httpOnly and same-site, so this is not a token to steal, just a cost of
+ *     entry. A signed-in customer is a stronger claim than a draft and had to
+ *     be admitted too — the account page's "Add an address" form uses the same
+ *     autocomplete, has no booking in progress, and was getting a flat 403
+ *     with no visible symptom beyond suggestions that never appeared.
  *  2. **A length floor and ceiling** — under three characters is not an
  *     address, and every keystroke that reaches Google is billed.
  *  3. **Session tokens**, minted per typing session by the browser and passed
@@ -64,9 +68,17 @@ export async function POST(request: Request) {
   // fault, and the field it belongs to works without it.
   if (!places) return new NextResponse(null, { status: 204 });
 
+  // Either claim is enough. Checked in this order because the funnel is the
+  // hot path and reads a cookie, where the account check resolves a session.
   const draft = await readDraft();
   if (!draft.draftId) {
-    return NextResponse.json({ error: "Start a booking first." }, { status: 403 });
+    const authUser = await getAuthUser();
+    if (!authUser || authUser.isAnonymous) {
+      return NextResponse.json(
+        { error: "Start a booking or sign in first." },
+        { status: 403 },
+      );
+    }
   }
 
   let body: unknown;

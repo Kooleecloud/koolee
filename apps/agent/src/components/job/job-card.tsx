@@ -85,7 +85,25 @@ function PhaseRow({ phase, isNext }: { phase: JobPhase; isNext: boolean }) {
   );
 }
 
-export function JobCard({ job, emphasis = false }: { job: Job; emphasis?: boolean }) {
+export function JobCard({
+  job,
+  emphasis = false,
+  /** The window has passed. A warning, never a refusal — it is still doable. */
+  late = false,
+  /**
+   * The stop's day, when it is not today. Without it a rail led by late stops
+   * shows "11:00 AM" above "8:00 AM" and reads as a sorting bug.
+   */
+  dayLabel = null,
+  /** Passed through to `JobActions` — see `startablePickupTaskId`. */
+  startsPickupTaskId = null,
+}: {
+  job: Job;
+  emphasis?: boolean;
+  late?: boolean;
+  dayLabel?: string | null;
+  startsPickupTaskId?: string | null;
+}) {
   const { booking, tz, next } = job;
   // A finished job still opens — a driver checking what they did needs a way
   // back in — but it opens on its last phase rather than nothing.
@@ -103,6 +121,7 @@ export function JobCard({ job, emphasis = false }: { job: Job; emphasis?: boolea
         "flex flex-col",
         emphasis && "border-navy-200 shadow-lift-lg",
         job.state === "problem" && "border-destructive/50",
+        late && job.state !== "problem" && "border-warning/60",
         job.state === "done" && "opacity-75",
       )}
     >
@@ -114,6 +133,11 @@ export function JobCard({ job, emphasis = false }: { job: Job; emphasis?: boolea
           <div className="flex min-w-0 flex-col">
             {/* The clock leads. A driver plans the day by time and only then
                 asks which stop this is. */}
+            {dayLabel ? (
+              <span className="text-xs font-semibold tracking-wide text-warning-foreground uppercase">
+                {dayLabel}
+              </span>
+            ) : null}
             <span
               className={cn(
                 "font-display font-semibold text-balance text-navy-800",
@@ -132,6 +156,9 @@ export function JobCard({ job, emphasis = false }: { job: Job; emphasis?: boolea
               </Badge>
             )}
             {job.state === "active" && <Badge variant="warning">In progress</Badge>}
+            {late && job.state !== "problem" && job.state !== "active" && (
+              <Badge variant="warning">Late</Badge>
+            )}
             {job.state === "done" && <Badge variant="success">Done</Badge>}
             <ChevronRight aria-hidden="true" className="size-5 text-muted-foreground" />
           </span>
@@ -163,7 +190,7 @@ export function JobCard({ job, emphasis = false }: { job: Job; emphasis?: boolea
           must not also open the job. */}
       {job.state !== "done" && (
         <div className="border-t border-border p-4 pt-3">
-          <JobActions booking={booking} />
+          <JobActions booking={booking} startsPickupTaskId={startsPickupTaskId} />
         </div>
       )}
     </Card>

@@ -17,12 +17,14 @@ import {
   trucks,
   users,
   type Database,
+  type Address,
 } from "@koolee/db";
 
 import { createCoreConfig, fixedClock, type CoreConfig } from "../config";
 import { ConflictError, NotAuthorizedError } from "../errors";
 import { FakePaymentProvider } from "../payments/fake";
 import { TEST_AIRPORTS } from "../test-utils/airport-fixtures";
+import { pickupSnapshotOf } from "../test-utils/booking-fixtures";
 import { ensureAddress } from "./customers";
 import { PICKUP_EVENT_TYPES } from "./pickup-events";
 import {
@@ -63,7 +65,7 @@ describeIntegration("driver shifts (integration)", () => {
   const departureAt = new Date("2025-06-12T22:00:00Z");
 
   let customerId: string;
-  let addressId: string;
+  let pickupAddress: Address;
   let adminId: string;
   let refCounter = 0;
 
@@ -109,14 +111,12 @@ describeIntegration("driver shifts (integration)", () => {
       .values({ phone: "+15551200001", role: "customer" })
       .returning();
     customerId = customer!.id;
-    addressId = (
-      await ensureAddress(db, customerId, {
-        line1: "1 Test St",
-        city: "New York",
-        state: "NY",
-        zip: "10018",
-      })
-    ).id;
+    pickupAddress = await ensureAddress(db, customerId, {
+      line1: "1 Test St",
+      city: "New York",
+      state: "NY",
+      zip: "10018",
+    });
 
     const [admin] = await db
       .insert(users)
@@ -164,7 +164,7 @@ describeIntegration("driver shifts (integration)", () => {
         departureAirport: "JFK",
         departureAt,
         paxName: "Casey Rivera",
-        pickupAddressId: addressId,
+        ...pickupSnapshotOf(pickupAddress),
         bagCount: 2,
         displayTz: "America/New_York",
         priceCents: 5000,

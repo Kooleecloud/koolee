@@ -1,6 +1,7 @@
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
+import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
 import postgres from "postgres";
@@ -8,6 +9,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import {
   airlineCutoffs,
   airports,
+  bookings,
   createDb,
   custodyEvents,
   pricingRules,
@@ -238,11 +240,41 @@ describeIntegration("customer account area (integration)", () => {
     expect(row?.line1).toBe("9 Private Rd");
   });
 
-  it("an address on a booking's record can't be deleted — typed conflict, not a DB error", async () => {
+  it("an address a LIVE booking is counting on can't be deleted — typed conflict, not a DB error", async () => {
     const { booking } = await bookFor(userA);
     await expect(
-      deleteAddressForSession(db, customerSession(userA), booking.pickupAddressId),
+      deleteAddressForSession(db, customerSession(userA), booking.pickupAddressId!),
     ).rejects.toThrow(ConflictError);
+  });
+
+  /*
+   * The other half of that rule, and the reason 0033 exists.
+   *
+   * Before the pickup snapshot, an address used by ANY booking was
+   * undeletable forever — the booking held no address of its own, so the row
+   * was evidence. Now the booking carries the doorstep it was made for, so a
+   * finished trip places no claim on the customer's saved list, and what the
+   * booking says happened is unchanged by the deletion.
+   */
+  it("an address is deletable once its bookings are done, and the booking keeps the doorstep", async () => {
+    const { booking } = await bookFor(userA);
+    const addressId = booking.pickupAddressId!;
+    await db
+      .update(bookings)
+      .set({ status: "completed" })
+      .where(eq(bookings.id, booking.id));
+
+    await deleteAddressForSession(db, customerSession(userA), addressId);
+
+    expect(await listAddressesForSession(db, customerSession(userA))).toHaveLength(0);
+
+    const after = await db.query.bookings.findFirst({
+      where: eq(bookings.id, booking.id),
+    });
+    // Provenance goes null; the address the pickup was for does not.
+    expect(after?.pickupAddressId).toBeNull();
+    expect(after?.pickupLine1).toBe("1 Booking St");
+    expect(after?.pickupZip).toBe("10001");
   });
 
   it("booking detail renders that booking's custody events, bags and payments — and only that booking's", async () => {

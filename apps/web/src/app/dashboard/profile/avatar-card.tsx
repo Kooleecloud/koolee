@@ -5,10 +5,19 @@ import { useRouter } from "next/navigation";
 // `@koolee/db` → the `postgres` driver, which cannot resolve `fs` in a
 // browser bundle. `@koolee/core/uploads` imports nothing.
 import { BUCKETS } from "@koolee/core/uploads";
-import { AvatarUploader, Card, CardContent, CardHeader, CardTitle } from "@koolee/ui";
+import { AvatarUploader } from "@koolee/ui";
 
 /**
- * Thin client wrapper: the shared uploader plus this app's way of re-rendering.
+ * The customer's profile picture, as ONE control inside the details card.
+ *
+ * It used to be its own card with a heading, a full-width "Change photo"
+ * button, a "Remove" button and a paragraph of explanation. Three changes:
+ *
+ *  - **No card.** The picture is a field of an identity, not a subject.
+ *  - **No Remove.** The journey is initials → a photo → a different photo.
+ *    Going back to initials is not something anybody wants, and offering it
+ *    put a destructive control next to a cosmetic one.
+ *  - **A camera badge**, not a button. See `layout="overlay"`.
  *
  * `AvatarUploader` lives in `@koolee/ui`, which holds no Next dependency, so
  * the refresh is passed in rather than imported there. `router.refresh()` is
@@ -25,24 +34,15 @@ export function AvatarCard({
   const router = useRouter();
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-base">Profile picture</CardTitle>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-3">
-        <AvatarUploader
-          endpoint="/api/avatars"
-          currentUrl={currentUrl}
-          name={name}
-          accept={BUCKETS.avatars.mimeTypes}
-          maxBytes={BUCKETS.avatars.maxUploadBytes}
-          onUploaded={() => router.refresh()}
-        />
-        <p className="text-xs text-muted-foreground">
-          Your agent sees this when they arrive, so they know they have the right person.
-          Optional — we show your initials otherwise.
-        </p>
-      </CardContent>
-    </Card>
+    <AvatarUploader
+      endpoint="/api/avatars"
+      currentUrl={currentUrl}
+      name={name}
+      accept={BUCKETS.avatars.mimeTypes}
+      maxBytes={BUCKETS.avatars.maxUploadBytes}
+      onUploaded={() => router.refresh()}
+      layout="overlay"
+      allowRemove={false}
+    />
   );
 }

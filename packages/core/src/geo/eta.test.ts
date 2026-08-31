@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
 
 import { haversineKm, toCoordinates, type Coordinates } from "./coordinates";
-import { formatEtaRange, HaversineEtaEstimator } from "./eta";
+import {
+  etaDisplayMinutes,
+  formatEtaMinutes,
+  formatEtaRange,
+  HaversineEtaEstimator,
+} from "./eta";
 import { createEtaEstimator } from "./factory";
 import { GoogleRoutesEtaEstimator } from "./routes";
 
@@ -187,5 +192,36 @@ describe("formatEtaRange", () => {
 
   it("says the ETA is on the way when there is no position to work from", () => {
     expect(formatEtaRange(null)).toBe("ETA on the way");
+  });
+});
+
+/**
+ * The customer-facing number.
+ *
+ * The range is still what every estimator returns and what the cutoff monitor
+ * consumes — these assertions are about the one place a range becomes a
+ * sentence somebody reads while waiting for a van.
+ */
+describe("formatEtaMinutes", () => {
+  it("answers with a single number, not a band", () => {
+    expect(formatEtaMinutes({ minMinutes: 20, maxMinutes: 30 })).toBe("about 25 min");
+  });
+
+  it("leans late rather than to the midpoint", () => {
+    // 40–75: the midpoint is 57.5. Being ready early costs a few minutes;
+    // being told 40 and answering the door at 70 is the failure people
+    // remember, so the number sits 60% up the band.
+    expect(etaDisplayMinutes({ minMinutes: 40, maxMinutes: 75 })).toBe(60);
+    expect(etaDisplayMinutes({ minMinutes: 20, maxMinutes: 30 })).toBe(25);
+  });
+
+  it("rounds to five, and never claims less than five minutes", () => {
+    expect(etaDisplayMinutes({ minMinutes: 5, maxMinutes: 10 })).toBe(10);
+    expect(etaDisplayMinutes({ minMinutes: 5, maxMinutes: 5 })).toBe(5);
+  });
+
+  it("says so when there is no estimate at all", () => {
+    // A driver who has not pinged is a real state, not a zero.
+    expect(formatEtaMinutes(null)).toBe("ETA on the way");
   });
 });

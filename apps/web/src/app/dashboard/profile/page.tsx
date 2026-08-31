@@ -58,9 +58,9 @@ function ContactRow({
 }
 
 /**
- * Account page: one card for name + verified contact channels, then saved
- * addresses below it. `/dashboard/addresses` redirects here — they were two
- * pages describing the same account.
+ * Account page: one card for the picture, the name and the verified contact
+ * channels, then saved addresses below it. `/dashboard/addresses` redirects
+ * here — they were two pages describing the same account.
  *
  * Phone and email stay read-only: changing either re-runs verification through
  * the funnel's guarded OTP path, never a second mechanism (see actions.ts).
@@ -121,16 +121,22 @@ export default async function ProfilePage() {
           when there is nothing left, which is the whole design. */}
       <ProfileCompletenessCard missing={profileCompleteness(userRow).missing} />
 
-      <AvatarCard currentUrl={avatarUrl} name={userRow?.fullName ?? (paxName || null)} />
-
       <ProfileForm
         defaults={{
           fullName: userRow?.fullName ?? paxName,
           email: emailVerified ? "" : email,
           emailLocked: Boolean(email),
         }}
+        avatar={
+          <AvatarCard
+            currentUrl={avatarUrl}
+            name={userRow?.fullName ?? (paxName || null)}
+          />
+        }
         contact={
           <div className="flex flex-col gap-3 text-sm">
+            {/* Name is the editable field above; these two are read-only and
+                follow it, so the order down the card is Name, Phone, Email. */}
             <ContactRow label="Phone" value={phone} verified={phoneVerified} />
             <ContactRow label="Email" value={email} verified={emailVerified} />
             {/* The code field lives here rather than behind a button: anyone

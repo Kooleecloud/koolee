@@ -186,14 +186,38 @@ refactor cannot quietly break them.
 | **Cloudflare Turnstile**   | Bot protection — token forwarded to Supabase, **app never calls siteverify**                                                                       | CAPTCHA silently off             |
 | **Resend**                 | Transactional email                                                                                                                                | Notifier logs to console         |
 | **FlightAware AeroAPI**    | Flight lookup                                                                                                                                      | **Stubbed**                      |
-| **Google Maps**            | Drive time / ETA                                                                                                                                   | Fixed estimate                   |
+| **Google Places (New)**    | Address autocomplete + details, **server-side only** via `/api/places`, session-token billed                                                        | Plain text input, route 204s     |
+| **Google Routes**          | Traffic-aware drive time (`computeRouteMatrix`, field-masked, 2.5s timeout)                                                                        | Haversine arithmetic             |
+| **MapLibre + OpenFreeMap** | Map rendering, customer trip page. **No key, no account, no per-load billing**                                                                     | List + ETA, map says so          |
 | **Anthropic**              | Ticket-PDF extraction                                                                                                                              | Heuristic/fake extractor         |
 | **Sentry**                 | Error reporting                                                                                                                                    | Logs to console                  |
 
-🧭 Note how many of these are still **stubbed or seam-only**: AeroAPI, Maps,
+🧭 Note how many of these are still **stubbed or seam-only**: AeroAPI,
 custody-event SMS. The seams exist and are typed; the integrations do not. That
 is the honest state of the system, tracked in
 [PROJECT-STATUS.md](../PROJECT-STATUS.md).
+
+### Why Google does two of those three jobs and not the third
+
+The split is deliberate and it is about **which key ships to a browser**.
+
+`GOOGLE_MAPS_SERVER_KEY` is server-restricted and never enters a client bundle —
+`/api/places` exists precisely so the funnel's address field can autocomplete
+without one. Both Google integrations keep that property: Places is proxied
+(with a per-typing-session token, so Google bills one autocomplete plus one
+details call rather than one per keystroke) and Routes is called from the server
+behind the `EtaEstimator` seam.
+
+Rendering a map is the one job that CANNOT be done server-side. Google's Maps
+JavaScript API is a separate SKU from those two — Dynamic Maps bills per map
+load past a 10,000/month free tier — and it needs a second, referrer-restricted
+key in the client bundle, which anybody can read and spend. So map rendering
+goes to **MapLibre GL** over **OpenFreeMap** vector tiles: open source, no key,
+no account, no rate limit, attribution added automatically. Google keeps doing
+what it is genuinely better at and what we already pay for.
+
+Swapping tile hosts later (MapTiler, Protomaps, self-hosted) is the `styleUrl`
+prop on `LiveMap` — one string, not a rewrite.
 
 ---
 

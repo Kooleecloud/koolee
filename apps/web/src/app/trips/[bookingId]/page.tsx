@@ -17,7 +17,7 @@ import {
 } from "@koolee/ui";
 import {
   DRIVER_SELECTABLE_STATUSES,
-  formatEtaRange,
+  formatEtaMinutes,
   formatInstantInAirportTz,
   formatWindowInAirportTz,
   getBookingActionability,
@@ -25,8 +25,10 @@ import {
   getBookingDetailForSession,
   getPassportVerification,
   getSelectedDriver,
+  formatMiles,
   haversineKm,
   listCandidateDrivers,
+  pickupCoordinates,
   reportEmptyDriverPool,
   type AssignedAgent,
 } from "@koolee/core";
@@ -50,6 +52,7 @@ import {
   type SelectedDriverView,
 } from "@/components/trip-driver";
 import { signAvatarUrlsForBooking, signShortlistAvatarUrl } from "@/lib/avatars";
+import { flightRouteLabel, flightRouteText } from "@/lib/flight-label";
 import { pickupStepIndexFor } from "@/lib/pickup-progress";
 import { signBagPhotoUrls } from "@/lib/bag-photos";
 import { tryGetCore } from "@/lib/core";
@@ -83,7 +86,7 @@ export async function generateMetadata({
   const detail = await loadTripDetail(bookingId);
   if (!detail) return { title: "Trip" };
   return {
-    title: `${detail.booking.flightNumber} · ${detail.booking.departureAirport} pickup`,
+    title: `${flightRouteText(detail.booking)} · ${detail.booking.flightNumber}`,
   };
 }
 
@@ -245,17 +248,23 @@ export default async function TripPage({
       truckName: candidate.truckName,
       availableCapacity: candidate.availableCapacity - booking.bagCount,
       outOfZone: candidate.outOfZone,
-      etaLabel: formatEtaRange(candidate.eta),
+      etaLabel: formatEtaMinutes(candidate.eta),
       hasEta: candidate.eta !== null,
+      // For the map. Null is ordinary — a phone in a pocket stops reporting —
+      // and such a driver keeps their card while having no pin.
+      position: candidate.position,
     })),
   );
 
   // Awaited before the view is assembled: `estimate` became async in Tier 5 so
   // a routing provider can sit behind the seam. It is not load-bearing — the
-  // adapter falls back to arithmetic on any failure and `formatEtaRange(null)`
+  // adapter falls back to arithmetic on any failure and `formatEtaMinutes(null)`
   // is a complete answer — so nothing below branches on it.
   const selectedDriverEta =
-    selectedDriver?.position && pickupAddress?.lat != null && pickupAddress.lng != null
+    selectedDriver?.position &&
+    selectedDriver.positionIsFresh &&
+    pickupAddress.lat != null &&
+    pickupAddress.lng != null
       ? await core.etaEstimator.estimate({
           from: selectedDriver.position,
           to: { lat: pickupAddress.lat, lng: pickupAddress.lng },
@@ -267,13 +276,21 @@ export default async function TripPage({
         givenName: selectedDriver.givenName,
         avatarUrl: relatedAvatars.get(selectedDriver.staffUserId) ?? null,
         truckName: selectedDriver.truckName,
-        etaLabel: formatEtaRange(selectedDriverEta),
+        etaLabel: formatEtaMinutes(selectedDriverEta),
+        // Miles, because the customer waiting for this van is in New York.
+        // Kilometres stay the internal unit everywhere else — pricing, the
+        // centroids, the haversine — and nothing about that changes.
         distanceLabel:
-          selectedDriver.position && pickupAddress?.lat != null && pickupAddress.lng != null
-            ? `${haversineKm(selectedDriver.position, {
-                lat: pickupAddress.lat,
-                lng: pickupAddress.lng,
-              }).toFixed(1)} km away`
+          selectedDriver.position &&
+          selectedDriver.positionIsFresh &&
+          pickupAddress.lat != null &&
+          pickupAddress.lng != null
+            ? `${formatMiles(
+                haversineKm(selectedDriver.position, {
+                  lat: pickupAddress.lat,
+                  lng: pickupAddress.lng,
+                }),
+              )} away`
             : null,
         lastSeenLabel: selectedDriver.positionRecordedAt
           ? formatInstantInAirportTz(selectedDriver.positionRecordedAt, tz)
@@ -282,6 +299,19 @@ export default async function TripPage({
           booking.status,
           selectedDriver.travelStartedAt !== null,
         ),
+        /*
+         * Only a FRESH fix reaches the map. `driver_positions` keeps one
+         * mutable row per driver with no history, so a driver who has been
+         * chosen but has not set off yet — or whose phone went into a pocket
+         * — still has a position on file, possibly from yesterday's job.
+         * Drawing that puts a van on a street it left hours ago, looking
+         * exactly as live as a real one. Stale degrades to what this card
+         * said before there was a map: a distance, and "Position updating".
+         */
+        position: selectedDriver.positionIsFresh ? selectedDriver.position : null,
+        // Distinguishes "nobody is coming yet" from "we have lost sight of
+        // somebody who is". Both render as no map; only one is a problem.
+        travelStarted: selectedDriver.travelStartedAt !== null,
       }
     : null;
 
@@ -306,13 +336,22 @@ export default async function TripPage({
             ? "choose_driver"
             : booking.status;
 
+  // The door, for both maps. Null when the address never got coordinates —
+  // both components fall back to the list-and-number view they had before.
+  const pickupPoint = pickupCoordinates(pickupAddress);
+
   const driverSection = driverView ? (
     <DriverTracking
       driver={driverView}
       live={booking.status !== "delivered_to_bagdrop" && booking.status !== "completed"}
+      pickup={pickupPoint}
     />
   ) : canChooseDriver ? (
-    <DriverChoice bookingId={booking.id} candidates={candidateViews} />
+    <DriverChoice
+      bookingId={booking.id}
+      candidates={candidateViews}
+      pickup={pickupPoint}
+    />
   ) : null;
 
   // Bag and custody photos live in a private bucket and are stored as paths;
@@ -337,12 +376,15 @@ export default async function TripPage({
       </BackLink>
 
       <PageHeader
-        title={`${booking.flightNumber} · ${booking.departureAirport}`}
+        // Same rule as the trip cards: the route is what identifies a trip to
+        // the person who took it, and the flight number is a detail.
+        title={flightRouteLabel(booking)}
         subtitle={
           <>
-            <span className="font-mono">{booking.ref}</span> ·{" "}
+            {booking.flightNumber} ·{" "}
             {formatInstantInAirportTz(booking.departureAt, tz)} · {booking.bagCount}{" "}
-            {booking.bagCount === 1 ? "bag" : "bags"} · {booking.paxName}
+            {booking.bagCount === 1 ? "bag" : "bags"} · {booking.paxName} ·{" "}
+            <span className="font-mono">{booking.ref}</span>
           </>
         }
         actions={<BookingStatusBadge status={booking.status} />}
@@ -391,7 +433,7 @@ export default async function TripPage({
 
       <Card>
         <CardHeader>
-          <CardTitle className="font-display text-base">Your pickup</CardTitle>
+          <CardTitle className="font-display text-base">Pickup details</CardTitle>
           <CardDescription>
             Times are local to {booking.departureAirport}. Please have your bags and your
             passport ready when your agent arrives.

@@ -11,6 +11,7 @@ import {
 } from "@koolee/core";
 
 import { JobCard } from "@/components/job/job-card";
+import { JourneyList } from "@/components/job/journey-list";
 import { LiveTasks } from "@/components/live-tasks";
 import { AgentMain } from "@/components/shell/agent-main";
 import { GpsPinger } from "@/components/shift/gps-pinger";
@@ -19,7 +20,7 @@ import {
   type ActiveShiftView,
   type TruckOptionView,
 } from "@/components/shift/shift-bar";
-import { groupJobs, type Job } from "@/lib/job";
+import { groupJobs, startablePickupTaskId, type Job } from "@/lib/job";
 import { tryGetCore } from "@/lib/core";
 import { getAgentIdentity } from "@/lib/session";
 
@@ -100,14 +101,34 @@ export default async function AgentHomePage() {
   const now = new Date();
   // "Today" is today AT THE AIRPORT, per job. A UTC server would otherwise
   // start an Eastern driver's day at 8 PM the previous evening.
+  const dayOf = (job: Job) => airportLocalDayBounds(now, job.tz);
   const todays = jobs.filter((job) => {
     if (!job.startsAt) return false;
-    const { start, end } = airportLocalDayBounds(now, job.tz);
+    const { start, end } = dayOf(job);
     return job.startsAt >= start && job.startsAt < end;
   });
 
-  const outstanding = todays.filter((job) => job.state !== "done");
-  const [current, ...rest] = outstanding;
+  /*
+   * OVERDUE STOPS LEAD THE ROUTE.
+   *
+   * They used to appear nowhere on this screen: "Today" filtered to jobs whose
+   * window falls inside today, so a driver with four stops they were late for
+   * opened their home screen to "Nothing assigned for today" while the
+   * Schedule tab said "Overdue · 4". The home screen was hiding the most
+   * urgent work in the app.
+   *
+   * They are still doable — a pickup stays actionable right up to the
+   * airline's bag-drop cutoff (see actionability), which is exactly why
+   * hiding them is the wrong answer rather than a tidy one. They sort first
+   * because a stop you are behind on outranks one you are not.
+   */
+  const overdue = jobs.filter((job) => {
+    if (!job.startsAt || job.state === "done") return false;
+    return job.startsAt < dayOf(job).start;
+  });
+  const lateIds = new Set(overdue.map((job) => job.bookingId));
+
+  const outstanding = [...overdue, ...todays.filter((job) => job.state !== "done")];
   const finished = todays.filter((job) => job.state === "done");
 
   // Work with no window on it still has to surface somewhere, or it is simply
@@ -147,30 +168,28 @@ export default async function AgentHomePage() {
         <DatabaseNotConfigured />
       ) : (
         <>
-          {current ? (
-            <section className="flex flex-col gap-2">
+          {/*
+            ONE RAIL, NOT TWO SECTIONS. "Up next" and "Later today" were two
+            headings over identical cards, which said nothing about the thing
+            a driver most needs — that these stops happen in an order, and
+            which one they are on. See `JourneyList`.
+          */}
+          {outstanding.length > 0 && (
+            <section className="flex flex-col gap-3">
               <h2 className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">
-                Up next
+                Your route · {outstanding.length}{" "}
+                {outstanding.length === 1 ? "stop" : "stops"}
+                {lateIds.size > 0 ? ` · ${lateIds.size} late` : ""}
               </h2>
-              <JobCard job={current} emphasis />
-            </section>
-          ) : null}
-
-          {rest.length > 0 && (
-            <section className="flex flex-col gap-2">
-              <h2 className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">
-                Later today
-              </h2>
-              <ul className="flex flex-col gap-3">
-                {rest.map((job) => (
-                  <li key={job.bookingId}>
-                    <JobCard job={job} />
-                  </li>
-                ))}
-              </ul>
+              <JourneyList stops={outstanding} lateIds={lateIds} />
             </section>
           )}
 
+          {/*
+            Kept OUT of the rail. A stop with no window has no place in a
+            sequence ordered by time, and slotting it in would put a made-up
+            position on the one job whose position is genuinely unknown.
+          */}
           {unscheduled.length > 0 && (
             <section className="flex flex-col gap-2">
               <h2 className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">
@@ -179,7 +198,7 @@ export default async function AgentHomePage() {
               <ul className="flex flex-col gap-3">
                 {unscheduled.map((job) => (
                   <li key={job.bookingId}>
-                    <JobCard job={job} />
+                    <JobCard job={job} startsPickupTaskId={startablePickupTaskId(job)} />
                   </li>
                 ))}
               </ul>

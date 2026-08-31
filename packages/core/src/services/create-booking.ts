@@ -86,7 +86,11 @@ function normalizeZip(zip: string): string {
 
 export interface CreateBookingInput {
   userId: string;
-  /** Must already exist and belong to `userId`. */
+  /**
+   * The saved address to snapshot FROM. Must already exist and belong to
+   * `userId` — it is read here, copied onto the booking, and thereafter only
+   * kept as provenance. Deleting it later does not touch the booking.
+   */
   pickupAddressId: string;
   /**
    * The ZIP this booking's coverage answer and price were computed for.
@@ -111,6 +115,12 @@ export interface CreateBookingInput {
   airlineIata: string;
   departureAirport: AirportCode;
   departureAt: Date;
+  /**
+   * Where the flight lands, when the caller knows — off an e-ticket, or
+   * offered by the customer on the flight form. Display only: it makes a trip
+   * recognisable in a history list months later. Absent is ordinary.
+   */
+  destinationAirport?: string | null;
   /** Domestic and international cutoffs differ; the caller must say which. */
   scope: CutoffScope;
   paxName: string;
@@ -268,7 +278,30 @@ export async function createBooking(
           departureAirport: input.departureAirport,
           departureAt: input.departureAt,
           paxName: input.paxName,
+          destinationAirport: input.destinationAirport
+            ? input.destinationAirport.toUpperCase()
+            : null,
+          // PROVENANCE, not the address. Nullable and ON DELETE SET NULL: the
+          // customer may delete this saved address tomorrow, and the booking
+          // must survive it intact.
           pickupAddressId: input.pickupAddressId,
+          /*
+           * The doorstep, snapshotted — same rule as `displayTz` below.
+           *
+           * `address` is the row validated at the top of this function, so
+           * these are the values coverage and the ZIP check were run against.
+           * They are never updated afterwards: an agent standing at a door
+           * next Tuesday and a dispute settled next year read the same
+           * address, whatever has happened to the customer's saved list.
+           */
+          pickupLine1: address.line1,
+          pickupLine2: address.line2,
+          pickupCity: address.city,
+          pickupState: address.state,
+          pickupZip: address.zip,
+          pickupLat: address.lat,
+          pickupLng: address.lng,
+          pickupPlaceId: address.placeId,
           bagCount: input.bagCount,
           pickupWindowStart: input.pickupWindowStart,
           pickupWindowEnd: input.pickupWindowEnd,

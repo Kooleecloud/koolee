@@ -1,6 +1,5 @@
 import { and, asc, count, eq, gt, inArray, isNotNull, isNull, lt, lte } from "drizzle-orm";
 import {
-  addresses,
   agentZones,
   airports,
   bookings,
@@ -183,13 +182,9 @@ export async function autoAssignBooking(
     };
   }
 
-  const pickup = await db.query.addresses.findFirst({
-    where: eq(addresses.id, booking.pickupAddressId),
-    columns: { zip: true },
-  });
-  if (!pickup) {
-    return { ok: false, reason: "no_coverage", detail: "Pickup address not found." };
-  }
+  // The booking's own ZIP (0033) — no join, and no "address not found" branch:
+  // a booking cannot exist without a snapshotted doorstep.
+  const pickup = { zip: booking.pickupZip };
 
   // AGENTS STAY SHIFT-BLIND, BY DESIGN — this is the decision, not an
   // oversight.

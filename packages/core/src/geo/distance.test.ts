@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 
+import { formatMiles } from "./coordinates";
+
 import type { Coordinates } from "./coordinates";
 import {
   FALLBACK_DISTANCE_KM,
@@ -98,3 +100,23 @@ describe("quoteDistanceKm", () => {
     ]);
   });
 });
+
+describe("formatMiles", () => {
+  /**
+   * Kilometres stay the internal unit — pricing, the centroids, the haversine.
+   * This is only about the sentence a customer standing in Manhattan reads.
+   */
+  it("converts and reads as miles", () => {
+    expect(formatMiles(5)).toBe("3.1 miles");
+    expect(formatMiles(1.609)).toBe("1 mile");
+  });
+
+  it("drops the decimal above ten miles — the estimate does not deserve it", () => {
+    // The input is often a ZIP centroid; "12.4 miles" is false precision.
+    expect(formatMiles(20)).toBe("12 miles");
+  });
+
+  it("does not render a driver at the door as zero", () => {
+    expect(formatMiles(0.05)).toBe("less than 0.1 miles");
+  });
+})

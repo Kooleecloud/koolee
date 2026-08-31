@@ -19,15 +19,18 @@ import {
   trucks,
   users,
   type Database,
+  type Address,
 } from "@koolee/db";
 
 import { createCoreConfig, fixedClock, type CoreConfig } from "../config";
 import { BookingNotActionableError, ConflictError } from "../errors";
 import { FakePaymentProvider } from "../payments/fake";
 import { TEST_AIRPORTS } from "../test-utils/airport-fixtures";
+import { pickupSnapshotOf } from "../test-utils/booking-fixtures";
 import { ensureAddress } from "./customers";
 import {
   getSelectedDriver,
+  POSITION_FRESH_MS,
   listCandidateDrivers,
   recordDriverPosition,
   selectDriver,
@@ -73,7 +76,7 @@ describeIntegration("driver selection (integration)", () => {
   const departureAt = new Date("2025-06-12T22:00:00Z");
 
   let customerId: string;
-  let addressId: string;
+  let pickupAddress: Address;
   let refCounter = 0;
 
   beforeAll(async () => {
@@ -125,7 +128,7 @@ describeIntegration("driver selection (integration)", () => {
       state: "NY",
       zip: "10018",
     });
-    addressId = address.id;
+    pickupAddress = address;
     refCounter = 0;
   });
 
@@ -180,7 +183,7 @@ describeIntegration("driver selection (integration)", () => {
         departureAirport: "JFK",
         departureAt,
         paxName: "Casey Rivera",
-        pickupAddressId: addressId,
+        ...pickupSnapshotOf(pickupAddress),
         bagCount,
         displayTz: "America/New_York",
         priceCents: 5000,
@@ -588,6 +591,41 @@ describeIntegration("driver selection (integration)", () => {
 
     await recordDriverPosition(config, { staffUserId: driver, ...MIDTOWN });
     expect((await getSelectedDriver(db, booking.id))?.position).toEqual(MIDTOWN);
+  });
+
+  it("a fix older than POSITION_FRESH_MS is reported as not fresh", async () => {
+    /*
+     * The case that put a van on the wrong street: `driver_positions` keeps
+     * one mutable row per driver and no history, so a driver chosen but not
+     * yet set off still has yesterday's position on file. The map must not
+     * draw it as current.
+     */
+    const verifier = await makeDriver("Stale Verifier", { canDrive: false });
+    const driver = await makeDriver("Omar Diaz");
+    const truck = await makeTruck("Van S", 30);
+    const shift = await startShift(config, { staffUserId: driver, truckId: truck.id });
+    const { booking } = await sealedBooking(2, verifier);
+    await selectDriver(config, {
+      bookingId: booking.id,
+      userId: customerId,
+      shiftId: shift.shift.id,
+    });
+    await recordDriverPosition(config, { staffUserId: driver, ...MIDTOWN });
+
+    // The suite's `now`, not the wall clock: `recordDriverPosition` stamps
+    // `recorded_at` from `config.clock`, which is fixed at 2025-06-10 here.
+    // Comparing that against a real `new Date()` makes every fix look years
+    // stale — which is what this assertion caught on its first run.
+    const fresh = await getSelectedDriver(db, booking.id, now);
+    expect(fresh?.positionIsFresh).toBe(true);
+    expect(fresh?.position).toEqual(MIDTOWN);
+
+    const later = new Date(now.getTime() + POSITION_FRESH_MS + 1_000);
+    const stale = await getSelectedDriver(db, booking.id, later);
+    // The position is still KNOWN — it is simply too old to present as where
+    // the driver is, and the caller is the one that drops it.
+    expect(stale?.position).toEqual(MIDTOWN);
+    expect(stale?.positionIsFresh).toBe(false);
   });
 
   it("records one position row per driver, overwriting rather than appending", async () => {
