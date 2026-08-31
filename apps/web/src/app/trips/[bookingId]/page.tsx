@@ -20,6 +20,7 @@ import {
   formatEtaMinutes,
   formatInstantInAirportTz,
   formatWindowInAirportTz,
+  bestCandidate,
   cancellationFromTimeline,
   customerCancelEligibility,
   getBookingActionability,
@@ -240,6 +241,17 @@ export default async function TripPage({
     await reportEmptyDriverPool(core, { bookingId: booking.id });
   }
 
+  /*
+   * Who "pick the best" would choose, decided HERE rather than in the browser.
+   *
+   * `bestCandidate` is the rule — nearest by ETA, tie-broken on bag load — and
+   * it lives in core where it is tested against the same `DriverCandidate`
+   * rows the shortlist is built from. Recomputing it client-side from the
+   * VIEW models would mean ranking on a preformatted string like "about 25
+   * min", which is a different comparison wearing the same label.
+   */
+  const best = bestCandidate(candidates);
+
   const candidateViews: DriverCandidateView[] = await Promise.all(
     candidates.map(async (candidate) => ({
       shiftId: candidate.shiftId,
@@ -380,6 +392,7 @@ export default async function TripPage({
       bookingId={booking.id}
       candidates={candidateViews}
       pickup={pickupPoint}
+      bestShiftId={best?.shiftId ?? null}
     />
   ) : null;
 

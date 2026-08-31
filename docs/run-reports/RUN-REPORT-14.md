@@ -392,3 +392,160 @@ That is a deliberate scoping in `recordDriverPosition` ("so a ping does not
 wake pages for bookings whose bags are still on a doorstep"), not a bug — but
 Phase 2's "pins refresh on the existing signal/poll cadence" means 30 s there,
 and the copy around the shortlist must not imply anything faster.
+
+---
+
+## Phase 2 — The map becomes the way you choose
+
+### The pin flicker (TD, and it was not a hover bug)
+
+Hovering only made it visible. MapLibre positions a marker by writing
+
+```js
+element.style.transform = "translate(-50%,-50%) translate(412px, 233px) …";
+```
+
+on the marker's own ROOT element, on **every render frame**. The pin carried
+`transition-transform`, and in Tailwind v4 that compiles to
+`transition-property: transform, translate, scale, rotate` — so the browser was
+asked to animate every one of those position writes over 150ms. During
+`walkMarker`'s 1.2s `requestAnimationFrame` walk, and during any pan or zoom,
+the transition restarted before the previous one finished: the pin lagged the
+map and jittered. Growing it on hover put a second animation on the same
+element and made the fight obvious.
+
+**A correction to the earlier note in this report:** it said `scale-110` was not
+transitioned at all because Tailwind v4 emits the standalone `scale` property.
+The property is standalone, but `transition-transform` covers it — checked in
+the compiled CSS. The transition was working; it was working on `transform` too,
+which is what broke.
+
+Fixed the standard MapLibre way: the marker root is now a bare positioning
+shell, and everything visual lives on a child MapLibre never touches.
+`data-selected` stays on the root (the drivers effect already reconciles it) and
+the child styles off it with `group-data-*`; `aria-pressed` moved to the button,
+where a screen reader expects it, with one helper keeping the two in step.
+
+Proved in a browser rather than by reading it:
+
+```
+root transition-property : "opacity"      (nothing transform-related)
+child transition-property: "scale"        (only the growth)
+root transform, hovered == root transform, not hovered   → true
+```
+
+### The four controls
+
+| Control              | State                                                                                      |
+| -------------------- | ------------------------------------------------------------------------------------------ |
+| Recenter when panned | Built. Bottom-left — zoom/fullscreen own the top right, attribution owns the bottom right. |
+| Cooperative gestures | On. One finger scrolls the page, two pan the map; ctrl+wheel zooms.                        |
+| Fullscreen           | On.                                                                                        |
+| ~~GeolocateControl~~ | **Removed on TD's reasoning — see below.**                                                 |
+
+**Why the viewer's own location came back out.** It was wired in, because the
+slice asked for the customer's live dot. TD's argument is better than the
+requirement: _the pickup address is the anchor, not the viewer._ Somebody
+booking a pickup for a friend across the city is shown a dot that is irrelevant
+and looks like it means something, when the question the map answers is "how
+close is a van to THE DOOR". Even standing at the address it adds nothing the
+pickup pin does not already say — and it costs a geolocation permission prompt,
+which is one-shot per origin in most browsers. Spending that on a feature that
+cannot help is worse than not having it.
+
+**The recenter rule changed once, mid-build.** The first version showed the
+button only when the viewer had moved the map _and_ something had gone off
+screen. Verified in the browser and it was too clever: a small nudge left the
+customer disoriented with no button, because technically everything was still in
+frame. It now appears the moment a real gesture arrives — which is exactly when
+automatic framing STOPS, so the pair reads as one idea: the map is yours now,
+and this gives it back.
+
+That auto-framing change matters on its own. The map used to re-frame itself
+whenever a driver left the viewport, so somebody who zoomed in to see which
+corner a van was on had the viewport pulled out from under them at the next
+ping, every ping. `originalEvent` is what separates a person's drag from our own
+`fitBounds` — MapLibre fires the same events for both.
+
+### Pin → card → select
+
+One `Popup`, moved rather than re-created, with its content node portalled into
+by React. MapLibre keeps it pinned through every pan and zoom, which is the
+whole reason not to hand-position a card with `map.project` and a `moveend`
+listener.
+
+Two settings are load-bearing and both were found by watching it fail:
+`closeOnClick: false`, because the click that opens a popup is a click on a pin
+which bubbles to the map — with it on, the card opened and closed in the same
+gesture; and `closeOnMove: false`, because the driver's own ping moves the map
+and a card that vanishes every twenty seconds while somebody is reading it is
+worse than no card.
+
+The card shows the same facts as the list row and runs the same
+`selectDriverAction`. Which pin is open is held by the PAGE, not the map — it is
+the same fact as which row is highlighted, and two components each keeping a
+copy is how they disagree.
+
+A driver who drops out takes the card with them, **derived rather than synced**:
+the obvious effect that clears the id renders one frame with a card for
+somebody who is gone, and sets state inside an effect. What is open is a
+function of the shortlist, so it is computed.
+
+### Pick the best (D3, implemented as written)
+
+`bestCandidate` in core: nearest by ETA, tie-broken on the lowest bag load, then
+shift id. Ranked on `minMinutes` because that is the number the card leads with
+— a shortcut that disagreed with the two ranges a customer is reading would be a
+different system wearing a shortcut's label. A driver with no ETA never wins
+(there is no honest way to rank an unknown against a number) but stays
+choosable by hand.
+
+It runs the SAME `selectDriverAction` with the shift id core picked, so the
+transaction, the advisory lock and the lost-race behaviour are identical to a
+manual pick. There is exactly one way to be assigned a driver.
+
+Decided server-side and passed down. Recomputing it in the browser would mean
+ranking on preformatted strings like "about 25 min".
+
+### The rest
+
+- **Map or list, one at a time — TD reversed M2 mid-build, and was right.** The
+  stacked version gave the map about a third of a phone screen and put the cards
+  below the fold: neither view was any good. It is now a `role="tablist"`
+  segmented control matching the agent app's schedule/history one, defaulting to
+  Map, with the driver count on the List tab.
+
+  Three things this had to get right. **The toggle only exists when a map is
+  possible** — no coordinates, or nobody has reported a position, and the list is
+  the only view rather than one of two; `showMap` is read once and drives both
+  the control and the view, so they cannot disagree. **The list is a full tab,
+  not a fallback**, always reachable, and it carries every driver including the
+  ones with no position to pin — the map view says so in a sentence when the two
+  counts differ, which is also why the count sits on the List tab alone. **After
+  selection there is no toggle at all:** `DriverTracking` is map-only, because
+  there is nothing left to compare.
+
+- **Both maps bleed to the section edge** (TD's spacing note). The card content
+  drops its inner padding and everything that is not the map puts it back.
+- **Refresh cadence on this surface is 30 s**, not the 45 s signal — see the
+  finding recorded above. Nothing in the copy implies faster.
+
+### Verified
+
+| Check                                         | Result                                                                                                                                      |
+| --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm format:check`                           | clean                                                                                                                                       |
+| `pnpm turbo typecheck` / `lint`               | 6/6, 6/6                                                                                                                                    |
+| `pnpm turbo test`                             | 1,017 passed, 1 skipped (+18 this phase: 10 `bestCandidate`, 8 `driverPins`)                                                                |
+| `pnpm --filter @koolee/core test:integration` | 366 passed, 3 skipped                                                                                                                       |
+| `pnpm turbo build`                            | 3/3                                                                                                                                         |
+| Browser — controls                            | `data-map-state="ready"`, 4 pins, zoom + fullscreen present, geolocate absent, cooperative-gesture layer present                            |
+| Browser — card                                | tap a pin → card anchored, correct driver, close button, `data-selected` on root and `aria-pressed` on button both true                     |
+| Browser — recenter                            | absent on an untouched map; appears after a 60px nudge as "Back to my pickup"; clicking restores all 4 markers to frame and the button goes |
+| Browser — flicker                             | root transitions `opacity` only; child transitions `scale` only; root transform unchanged by hover                                          |
+
+**Still not browser-verified:** the shortlist as the trip page renders it. No
+local booking has two candidates with reported positions (the one sealed booking
+has a single driver who has never pinged), so the pin/card/pick-the-best flow was
+exercised through the Storybook story instead — the same surface that caught both
+map bugs. TD's post-merge pass on dev covers the real thing.

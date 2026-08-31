@@ -319,6 +319,7 @@ export {
 export {
   adminReassignPickup,
   adminUnassignPickup,
+  bestCandidate,
   DRIVER_SELECTABLE_STATUSES,
   DRIVER_SHORTLIST_SIZE,
   getSelectedDriver,

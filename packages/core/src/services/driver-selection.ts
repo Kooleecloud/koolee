@@ -298,6 +298,62 @@ export async function listCandidateDrivers(
 }
 
 /**
+ * The best of a shortlist: nearest by ETA, tie-broken by the emptiest van.
+ *
+ * ONE TAP INSTEAD OF FOUR CARDS. Most customers have no basis for preferring
+ * one stranger's van over another and are being asked to anyway — the
+ * shortlist is a real choice for the person who wants it and a chore for
+ * everybody else. This is the shortcut, and it must be a shortcut rather than
+ * a different system: it picks FROM the same shortlist, by a rule the customer
+ * could have applied themselves looking at the same four cards.
+ *
+ * NEAREST BY ETA, and specifically by `minMinutes`. The seam returns a RANGE
+ * because an estimate built from ZIP centroids and an average speed is not
+ * accurate to the minute; comparing the optimistic ends of two ranges is the
+ * same comparison a person makes reading "about 15 min" against "about 25
+ * min", which is the whole point of matching what the cards show.
+ *
+ * A DRIVER WITH NO ETA IS NEVER "BEST". `eta` is null when they have never
+ * pinged a position — a real state, not an error — and there is no honest way
+ * to rank an unknown against a number. They stay perfectly choosable by hand;
+ * they are simply not what an automatic choice reaches for. If NOBODY has an
+ * ETA the tie-break decides on its own, which is the right answer: with no
+ * distance information, the emptiest van is the only thing left that means
+ * anything.
+ *
+ * TIE-BREAK ON BAG LOAD, then shift id. Two drivers a minute apart are the
+ * same answer to "when", so the second question is which van has more room —
+ * the same ordering `listCandidateDrivers` already sorts the shortlist by, so
+ * a tie resolves to the card nearest the top. The shift id last makes it
+ * deterministic: an unstable "best" would send two identical requests to two
+ * different drivers.
+ *
+ * PURE, and takes candidates rather than a booking id, because the rule is a
+ * claim about a list and ought to be provable without a database. The caller
+ * hands the result to the ORDINARY `selectDriver`, so the transaction, the
+ * advisory lock and the capacity recheck are identical to a manual pick —
+ * there is exactly one way to be assigned a driver.
+ */
+export function bestCandidate(
+  candidates: readonly DriverCandidate[],
+): DriverCandidate | null {
+  if (candidates.length === 0) return null;
+
+  const ranked = [...candidates].sort((a, b) => {
+    const aEta = a.eta?.minMinutes ?? null;
+    const bEta = b.eta?.minMinutes ?? null;
+    if (aEta !== bEta) {
+      if (aEta === null) return 1;
+      if (bEta === null) return -1;
+      return aEta - bEta;
+    }
+    return a.bagsOnBoard - b.bagsOnBoard || a.shiftId.localeCompare(b.shiftId);
+  });
+
+  return ranked[0] ?? null;
+}
+
+/**
  * One estimator call for the whole shortlist, not one per driver.
  *
  * `estimate` became async in Tier 5 so a routing provider could sit behind the

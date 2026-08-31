@@ -7,12 +7,15 @@ import * as React from "react";
  * bundler that papers over it you get `undefined.Map is not a function` at
  * runtime instead.
  */
+import { createPortal } from "react-dom";
 import {
+  FullscreenControl,
   getWorkerUrl,
   LngLatBounds,
   Map as MapLibreMap,
   Marker,
   NavigationControl,
+  Popup,
   setWorkerUrl,
 } from "maplibre-gl";
 
@@ -126,6 +129,54 @@ export interface LiveMapProps {
   workerUrl?: string;
   /** Accessible description of what the map is showing. */
   label: string;
+  /*
+   * THERE IS DELIBERATELY NO "WHERE AM I" CONTROL, and this is the second
+   * time that decision has been made.
+   *
+   * MapLibre ships a `GeolocateControl` and it was wired in here, because the
+   * slice asked for the customer's own dot. It came out again on TD's
+   * reasoning, which is better than the requirement: THE PICKUP ADDRESS IS THE
+   * ANCHOR, not the viewer.
+   *
+   * Somebody booking a pickup for a friend across the city — or from an
+   * office, or from another country — is shown a dot that is irrelevant and
+   * looks like it means something. The question this map answers is "how close
+   * is a van to THE DOOR", and the viewer's own position is not an input to
+   * it. Even in the common case where they are standing at the address, the
+   * pickup pin is already there and their dot adds nothing but a second thing
+   * to interpret.
+   *
+   * It also costs a permission prompt, which is one-shot per origin in most
+   * browsers — spending it on a feature that cannot help is worse than not
+   * having it.
+   */
+
+  /** Offer a fullscreen toggle. Worth it wherever the map is a chooser. */
+  allowFullscreen?: boolean;
+  /**
+   * Which driver has an anchored card open, or null for none.
+   *
+   * CONTROLLED, not internal state. Which pin is open is the same fact as
+   * which card is highlighted in the list below, and two components each
+   * holding their own copy of it is how they end up disagreeing. The page owns
+   * it; the map renders it.
+   */
+  popupDriverId?: string | null;
+  /**
+   * The card's contents, for the open driver. The map anchors it to the pin
+   * and keeps it there through every pan and zoom; everything inside is the
+   * caller's — a name, a capacity, an ETA and a button the map knows nothing
+   * about.
+   */
+  renderPopup?: (driverId: string) => React.ReactNode;
+  /** The viewer dismissed the card (its close button, or Escape). */
+  onPopupClose?: () => void;
+  /**
+   * What the recenter button says. Names the thing it goes back to, because
+   * "Reset" describes the mechanism and "Back to my pickup" describes the
+   * destination — and only one of those is what somebody is looking for.
+   */
+  recenterLabel?: string;
 }
 
 /**
@@ -226,6 +277,11 @@ export function LiveMap({
   styleUrl = DEFAULT_STYLE_URL,
   workerUrl = DEFAULT_WORKER_URL,
   label,
+  allowFullscreen = false,
+  popupDriverId = null,
+  renderPopup,
+  onPopupClose,
+  recenterLabel = "Back to my pickup",
 }: LiveMapProps) {
   const container = React.useRef<HTMLDivElement | null>(null);
   const map = React.useRef<MapLibreMap | null>(null);
@@ -240,6 +296,25 @@ export function LiveMap({
    * make it stutter between two destinations.
    */
   const moves = React.useRef(new globalThis.Map<string, number>());
+  /**
+   * The DOM node MapLibre's popup positions, and that React renders into.
+   *
+   * State rather than a ref because the portal below has to re-render the
+   * moment the node exists — a ref write does not schedule one, so the card
+   * would stay empty until something else happened to re-render the map.
+   */
+  const [popupHost, setPopupHost] = React.useState<HTMLDivElement | null>(null);
+  const popup = React.useRef<Popup | null>(null);
+  /**
+   * `onPopupClose`, held in a ref for the same reason `clickRef` exists: the
+   * popup is created once and its `close` listener would otherwise call the
+   * first render's handler forever.
+   */
+  const popupCloseRef = React.useRef(onPopupClose);
+  React.useEffect(() => {
+    popupCloseRef.current = onPopupClose;
+  }, [onPopupClose]);
+
   const [failed, setFailed] = React.useState<MapFailure | null>(null);
   const [ready, setReady] = React.useState(false);
   /**
@@ -306,6 +381,20 @@ export function LiveMap({
         pitchWithRotate: false,
         dragRotate: false,
         touchZoomRotate: true,
+        /*
+         * ONE FINGER SCROLLS THE PAGE; TWO PAN THE MAP.
+         *
+         * Without this a map sitting mid-page is a scroll trap on a phone:
+         * a thumb landing anywhere on it pans the map, and the page under it
+         * will not move — so somebody trying to reach the driver list below
+         * is stuck dragging a map they did not want to move. MapLibre shows
+         * its own hint the first time a single finger tries.
+         *
+         * On desktop it also means the wheel scrolls the page and ctrl+wheel
+         * zooms, which is the behaviour every embedded map has taught people
+         * to expect.
+         */
+        cooperativeGestures: true,
         attributionControl: { compact: true },
       });
     } catch {
@@ -321,7 +410,9 @@ export function LiveMap({
 
     instance.touchZoomRotate.disableRotation();
     instance.addControl(new NavigationControl({ showCompass: false }), "top-right");
-
+    if (allowFullscreen) {
+      instance.addControl(new FullscreenControl(), "top-right");
+    }
     // The deadline above. Armed before `load` is wired so a map that never
     // starts is caught as surely as one that starts and stalls.
     const deadline = setTimeout(() => {
@@ -446,9 +537,7 @@ export function LiveMap({
             else moves.current.set(driver.id, frame);
           },
         );
-        const element = existing.getElement();
-        element.dataset.selected = driver.selected ? "true" : "false";
-        element.setAttribute("aria-pressed", driver.selected ? "true" : "false");
+        setPinSelected(existing.getElement(), driver.selected ?? false);
         continue;
       }
 
@@ -476,6 +565,78 @@ export function LiveMap({
     }
   }, [drivers, ready]);
 
+  /* --- the anchored card ---------------------------------------------- */
+
+  /*
+   * ONE POPUP, MOVED — never one per driver, and never re-created per open.
+   *
+   * MapLibre keeps a popup pinned to a coordinate through every pan, zoom and
+   * resize, which is the entire reason to use it rather than positioning a
+   * card with `map.project` and a `moveend` listener. Its content node is
+   * created once and portalled into, so React reconciles the card's insides
+   * normally while MapLibre owns only where the box sits.
+   *
+   * `closeOnClick` is FALSE. The map click that opens a popup is a click on a
+   * pin, which bubbles to the map — with it on, a popup opened and closed in
+   * the same gesture and the card never appeared. `closeOnMove` is false for
+   * the same class of reason: the driver's own ping moves the map, and a card
+   * that vanishes every twenty seconds while somebody is reading it is worse
+   * than no card.
+   */
+  React.useEffect(() => {
+    const instance = map.current;
+    if (!instance || !ready) return;
+
+    const host = document.createElement("div");
+    const created = new Popup({
+      closeButton: true,
+      closeOnClick: false,
+      closeOnMove: false,
+      // Clear of the pin, which is anchored at its own centre.
+      offset: 18,
+      maxWidth: "17rem",
+      className: "koolee-map-popup",
+    }).setDOMContent(host);
+
+    // Fires for the close button AND for Escape, so both routes reach the
+    // page rather than leaving it believing a card is still open.
+    created.on("close", () => popupCloseRef.current?.());
+
+    popup.current = created;
+    setPopupHost(host);
+
+    return () => {
+      created.remove();
+      popup.current = null;
+      setPopupHost(null);
+    };
+  }, [ready]);
+
+  React.useEffect(() => {
+    const instance = map.current;
+    const card = popup.current;
+    if (!instance || !card || !ready) return;
+
+    const driver = popupDriverId
+      ? drivers.find((candidate) => candidate.id === popupDriverId)
+      : undefined;
+
+    /*
+     * A DRIVER WHO DISAPPEARS TAKES THEIR CARD WITH THEM. They clocked off,
+     * or their van filled up and the shortlist refreshed underneath an open
+     * card. Leaving it would offer a Select button for somebody who is no
+     * longer selectable — the race the page already handles, arriving here as
+     * a stale card instead of a stale click.
+     */
+    if (!driver) {
+      if (card.isOpen()) card.remove();
+      return;
+    }
+
+    card.setLngLat([driver.position.lng, driver.position.lat]);
+    if (!card.isOpen()) card.addTo(instance);
+  }, [popupDriverId, drivers, ready]);
+
   /** Nothing may keep animating a marker that is no longer on a map. */
   React.useEffect(() => {
     const inFlight = moves.current;
@@ -489,6 +650,90 @@ export function LiveMap({
 
   /** Which set of drivers the viewport was last framed for. */
   const framedFor = React.useRef<string | null>(null);
+  /**
+   * The viewer has moved the map themselves, so it is theirs now.
+   *
+   * A ref rather than state because the map's own listeners set it and no
+   * render depends on the flag itself — `offFrame` below is the rendered
+   * consequence, and it is recomputed on `moveend`.
+   */
+  const userMoved = React.useRef(false);
+  /**
+   * The viewer has taken the map, so the way back is offered.
+   *
+   * Mirrors `userMoved` into a render. It is deliberately NOT "something is
+   * off screen": that was the first rule and it was too clever — a customer
+   * who nudged the map and lost their bearings got no button, because
+   * technically everything was still in frame. The honest rule is the one the
+   * viewer can feel: the moment the map stops framing itself, it says so and
+   * offers the way back.
+   */
+  const [taken, setTaken] = React.useState(false);
+
+  /**
+   * Frames the door and every driver. The one place that decides the viewport.
+   */
+  const frameAll = React.useCallback(() => {
+    const instance = map.current;
+    if (!instance) return;
+
+    if (drivers.length === 0) {
+      instance.easeTo({ center: [pickup.lng, pickup.lat], zoom: SOLO_ZOOM });
+      return;
+    }
+    const bounds = new LngLatBounds([pickup.lng, pickup.lat], [pickup.lng, pickup.lat]);
+    for (const driver of drivers)
+      bounds.extend([driver.position.lng, driver.position.lat]);
+    // `maxZoom` matters: a driver already outside the building would otherwise
+    // frame two pins a few metres apart at street level, which is a map of
+    // nothing.
+    instance.fitBounds(bounds, { padding: FIT_PADDING, maxZoom: 15, duration: 600 });
+  }, [drivers, pickup.lat, pickup.lng]);
+
+  /*
+   * A USER GESTURE ENDS THE AUTO-FRAMING, AND OFFERS A WAY BACK.
+   *
+   * Before this the map re-framed itself whenever a driver left the viewport,
+   * which sounds considerate and is not: somebody who zoomed in to see which
+   * corner the van was on had the viewport pulled out from under them at the
+   * next ping, every ping, with no way to stop it. Their pan is theirs to
+   * keep — TD's report, and it is right.
+   *
+   * So the map frames itself only while nobody has touched it. The moment a
+   * real gesture arrives, automatic framing stops for good and a button
+   * appears instead whenever something worth seeing has gone off screen.
+   * Choosing to go back is a tap; being dragged back is not a choice.
+   *
+   * `originalEvent` is what separates a person's drag from our own
+   * `fitBounds`/`easeTo` — MapLibre fires the same events for both, and
+   * without the check the map would end its own auto-framing on the first
+   * frame it drew.
+   */
+  React.useEffect(() => {
+    const instance = map.current;
+    if (!instance || !ready) return;
+
+    /*
+     * `originalEvent` is what separates a person's drag from our own
+     * `fitBounds`/`easeTo`. MapLibre fires the same events for both, and
+     * without the check the map would end its own auto-framing on the very
+     * first frame it drew.
+     */
+    const onMoveStart = (event: { originalEvent?: unknown }) => {
+      if (!event.originalEvent) return;
+      userMoved.current = true;
+      setTaken(true);
+    };
+
+    instance.on("dragstart", onMoveStart);
+    instance.on("zoomstart", onMoveStart);
+    instance.on("rotatestart", onMoveStart);
+    return () => {
+      instance.off("dragstart", onMoveStart);
+      instance.off("zoomstart", onMoveStart);
+      instance.off("rotatestart", onMoveStart);
+    };
+  }, [ready]);
 
   React.useEffect(() => {
     const instance = map.current;
@@ -499,42 +744,31 @@ export function LiveMap({
      *
      * The tracking map re-renders every time the driver pings — every 20 to 45
      * seconds — and this used to `fitBounds` on each one, because `drivers` is
-     * a fresh array identity per render. So a customer who pinned the map on
-     * their own street, or zoomed in to see which corner the van was on, had
-     * the viewport yanked out from under them three quarters of a minute
-     * later, forever. Their pan is theirs to keep.
+     * a fresh array identity per render.
      *
-     * The one exception is a driver who has left the viewport: a map that has
-     * politely stopped showing the thing it is for is worse than a map that
-     * moves. So we re-frame then, and only then.
+     * A driver arriving or dropping out is still worth re-framing for, because
+     * the set of things the map is FOR has changed. A driver merely moving is
+     * not.
      */
     const signature = drivers
       .map((driver) => driver.id)
       .sort()
       .join("|");
-    if (framedFor.current === signature) {
-      if (drivers.length === 0) return;
-      const visible = instance.getBounds();
-      const allOnScreen = drivers.every((driver) =>
-        visible.contains([driver.position.lng, driver.position.lat]),
-      );
-      if (allOnScreen) return;
-    }
+    const sameSet = framedFor.current === signature;
     framedFor.current = signature;
 
-    if (drivers.length === 0) {
-      instance.easeTo({ center: [pickup.lng, pickup.lat], zoom: SOLO_ZOOM });
-      return;
-    }
+    // Once the viewer has taken the map, they keep it. The recenter button is
+    // the way back, and it is the only way back.
+    if (userMoved.current) return;
+    if (sameSet) return;
+    frameAll();
+  }, [drivers, ready, frameAll]);
 
-    const bounds = new LngLatBounds([pickup.lng, pickup.lat], [pickup.lng, pickup.lat]);
-    for (const driver of drivers)
-      bounds.extend([driver.position.lng, driver.position.lat]);
-    // `maxZoom` matters: a driver already outside the building would otherwise
-    // frame two pins a few metres apart at street level, which is a map of
-    // nothing.
-    instance.fitBounds(bounds, { padding: FIT_PADDING, maxZoom: 15, duration: 600 });
-  }, [drivers, pickup.lat, pickup.lng, ready]);
+  const recenter = React.useCallback(() => {
+    userMoved.current = false;
+    setTaken(false);
+    frameAll();
+  }, [frameAll]);
 
   if (failed) {
     // Deliberately quiet. The customer is not missing anything they need — the
@@ -565,16 +799,88 @@ export function LiveMap({
   }
 
   return (
-    <div
-      ref={container}
-      role="img"
-      aria-label={label}
-      data-map-state={ready ? "ready" : "loading"}
-      className={cn(
-        "overflow-hidden rounded-lg border border-border bg-muted/30",
-        className,
+    /*
+     * A wrapper, so the recenter button can sit OVER the map.
+     *
+     * The caller's `className` (a height, usually) lands HERE, and the map
+     * fills it. The button positions against this element.
+     *
+     * THE MAP FILLS ITS PARENT; IT IS NOT ABSOLUTELY POSITIONED.
+     *
+     * The obvious version — `absolute inset-0` on the container — silently
+     * does not work, and the way it fails is worth writing down. MapLibre adds
+     * `.maplibregl-map` to whatever element you hand it, and
+     * `maplibre-gl.css` sets `position: relative` on that class. Tailwind v4
+     * puts its utilities in `@layer utilities`, and unlayered CSS beats
+     * layered CSS regardless of specificity or source order — so MapLibre's
+     * `relative` wins over `.absolute` every time.
+     *
+     * The result was a container computing to `position: relative` with
+     * `inset: 0` doing nothing, collapsing to 2px tall while the canvas stayed
+     * 300px: a sliver of map, no error anywhere. `h-full w-full` needs no
+     * positioning at all and cannot lose that fight.
+     */
+    <div className={cn("relative", className)}>
+      <div
+        ref={container}
+        role="img"
+        aria-label={label}
+        data-map-state={ready ? "ready" : "loading"}
+        className="size-full overflow-hidden rounded-lg border border-border bg-muted/30"
+      />
+      {/*
+        Shown from the moment the viewer moves the map, and only then — a
+        button on an untouched map is clutter offering to undo something
+        nobody did.
+
+        It appears exactly when automatic framing STOPS, which is what makes
+        the pair legible: the map is yours now, and this gives it back.
+
+        Bottom-left: the zoom, fullscreen and geolocate controls are top-right
+        and the attribution is bottom-right, so this is the one corner nothing
+        else claims.
+      */}
+      {taken && (
+        <button
+          type="button"
+          onClick={recenter}
+          data-map-recenter
+          className={cn(
+            "absolute bottom-3 left-3 z-10 flex items-center gap-1.5 rounded-full",
+            "border border-border bg-background/95 px-3 py-1.5 shadow-lift",
+            "text-xs font-medium text-navy-800 backdrop-blur-sm",
+            "transition-colors hover:bg-background",
+            "focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring",
+          )}
+        >
+          <svg
+            viewBox="0 0 24 24"
+            width="14"
+            height="14"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            <circle cx="12" cy="12" r="3" />
+            <path d="M12 2v3M12 19v3M2 12h3M19 12h3" />
+          </svg>
+          {recenterLabel}
+        </button>
       )}
-    />
+
+      {/*
+        The card's insides, rendered by React into the node MapLibre carries.
+        A portal rather than markup inside the map container: MapLibre reparents
+        and repositions that node itself, and anything React tried to own the
+        position of would fight it.
+      */}
+      {popupHost && popupDriverId && renderPopup
+        ? createPortal(renderPopup(popupDriverId), popupHost)
+        : null}
+    </div>
   );
 }
 
@@ -635,40 +941,102 @@ function walkMarker(
   onFrame(requestAnimationFrame(step));
 }
 
+/*
+ * THE MARKER ROOT BELONGS TO MAPLIBRE. NOTHING ELSE MAY STYLE IT.
+ *
+ * This is the pin flicker TD reported, and it is not a hover bug — hovering
+ * only made it visible. MapLibre positions a marker by writing
+ *
+ *     element.style.transform = "translate(-50%,-50%) translate(412px, 233px)"
+ *
+ * on the marker's own root element, on EVERY render frame. The pin carried
+ * `transition-transform`, and in Tailwind v4 that covers `transform`,
+ * `translate`, `scale` and `rotate` — so the browser was asked to animate
+ * every one of those position writes over 150ms. During `walkMarker`'s 1.2s
+ * requestAnimationFrame walk, and during any pan or zoom, the transition
+ * restarted before the previous one finished: the pin lagged the map and
+ * jittered. Growing it on hover put a second animation on the same property
+ * and made the fight obvious.
+ *
+ * So the root is now a bare positioning shell with no classes that touch a
+ * transform, and everything visual — the pill, the hover growth, the
+ * transition — lives on a child MapLibre never touches. The standard MapLibre
+ * pattern, arrived at the hard way.
+ *
+ * `data-selected` stays on the ROOT because that is the element the drivers
+ * effect already reconciles, and the child styles off it with `group-data-*`.
+ */
+
+/** The positioning shell. MapLibre owns its transform; we own its children. */
+function markerRoot(): HTMLElement {
+  const element = document.createElement("div");
+  // `group` is what lets the child below react to `data-selected` on this
+  // element. No transform, no transition, no scale — see the note above.
+  element.className = "group";
+  return element;
+}
+
 /** The door: navy, static, unmistakably not a vehicle. */
 function pickupPin(): HTMLElement {
-  const element = document.createElement("div");
-  element.className =
+  const root = markerRoot();
+  const dot = document.createElement("div");
+  dot.className =
     "flex size-6 items-center justify-center rounded-full border-2 border-white bg-navy-800 shadow-lg";
-  element.innerHTML = '<span class="block size-2 rounded-full bg-white"></span>';
-  element.setAttribute("aria-hidden", "true");
-  return element;
+  dot.innerHTML = '<span class="block size-2 rounded-full bg-white"></span>';
+  root.setAttribute("aria-hidden", "true");
+  root.appendChild(dot);
+  return root;
 }
 
 /** A van. Tag orange when chosen, sky otherwise — the brand's own two accents. */
 function driverPin(driver: MapDriver): HTMLElement {
-  const element = document.createElement("button");
-  element.type = "button";
-  element.dataset.selected = driver.selected ? "true" : "false";
-  element.setAttribute("aria-pressed", driver.selected ? "true" : "false");
-  element.setAttribute(
+  const root = markerRoot();
+  root.dataset.selected = driver.selected ? "true" : "false";
+
+  const button = document.createElement("button");
+  button.type = "button";
+  button.dataset.pin = "driver";
+  button.setAttribute("aria-pressed", driver.selected ? "true" : "false");
+  button.setAttribute(
     "aria-label",
     driver.label ? `Driver ${driver.label}` : "Koolee driver",
   );
-  element.className = [
+  button.className = [
     "flex cursor-pointer items-center gap-1 rounded-full border-2 border-white px-2 py-1",
-    "text-xs font-semibold text-white shadow-lg transition-transform",
+    "text-xs font-semibold text-white shadow-lg",
+    // Only `scale` transitions. NOT `transition-transform`, which would also
+    // cover `transform` — the property MapLibre rewrites every frame on the
+    // parent, and which a child inherits nothing of but which it is far too
+    // easy to reintroduce here by habit.
+    "transition-[scale] duration-150",
     "bg-sky-600 hover:scale-110",
-    "data-[selected=true]:bg-tag-500 data-[selected=true]:scale-110",
+    "group-data-[selected=true]:bg-tag-500 group-data-[selected=true]:scale-110",
     "focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring",
   ].join(" ");
   // A truck glyph plus the driver's first name. The name is what turns four
   // identical pins into four people.
-  element.innerHTML = `<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 17h4V5H2v12h3"/><path d="M20 17h2v-3.34a4 4 0 0 0-1.17-2.83L19 9h-5v8h1"/><circle cx="7.5" cy="17.5" r="2.5"/><circle cx="17.5" cy="17.5" r="2.5"/></svg>`;
+  button.innerHTML = `<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 17h4V5H2v12h3"/><path d="M20 17h2v-3.34a4 4 0 0 0-1.17-2.83L19 9h-5v8h1"/><circle cx="7.5" cy="17.5" r="2.5"/><circle cx="17.5" cy="17.5" r="2.5"/></svg>`;
   if (driver.label) {
     const name = document.createElement("span");
     name.textContent = driver.label;
-    element.appendChild(name);
+    button.appendChild(name);
   }
-  return element;
+
+  root.appendChild(button);
+  return root;
+}
+
+/**
+ * Keeps a pin's selected state in step, on both elements that carry it.
+ *
+ * The root holds `data-selected` (what the child styles off, and what the
+ * drivers effect reconciles); the button holds `aria-pressed` (what a screen
+ * reader announces). One helper so the two cannot drift — they did, once,
+ * when the pin was a single element and both lived on it.
+ */
+function setPinSelected(root: HTMLElement, selected: boolean): void {
+  root.dataset.selected = selected ? "true" : "false";
+  root
+    .querySelector('[data-pin="driver"]')
+    ?.setAttribute("aria-pressed", selected ? "true" : "false");
 }
