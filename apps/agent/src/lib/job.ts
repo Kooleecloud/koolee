@@ -45,7 +45,7 @@ export const PHASE_WHERE: Record<JobPhaseKind, string> = {
   pickup: "to the bag drop",
 };
 
-export type JobState = "problem" | "active" | "upcoming" | "done";
+export type JobState = "problem" | "active" | "upcoming" | "done" | "cancelled";
 
 export interface Job {
   bookingId: string;
@@ -115,7 +115,30 @@ export function groupJobs(tasks: AssignedTasks): Job[] {
     // also the phase the card links to, so a tap always lands on work.
     job.next = job.phases.find((p) => !SETTLED.has(p.status)) ?? null;
 
-    if (job.phases.some((p) => p.status === "failed")) job.state = "problem";
+    /*
+     * A CANCELLED BOOKING IS NOT WORK, and nothing else here could tell.
+     *
+     * Cancelling a booking moves the BOOKING's status and deliberately leaves
+     * its tasks alone (`applyTransition` writes one row and one custody
+     * event; it touches no task). Every derivation below reads task status,
+     * so a cancelled booking kept a `pending` verification task and rendered
+     * as an ordinary upcoming stop with a working "Start & navigate" button.
+     *
+     * Core refuses the action — `standingOf("cancelled")` is `terminal` and
+     * `bookingActionability` returns `NOTHING` with "This booking was
+     * cancelled" (services/actionability.ts) — so nothing could actually
+     * happen. What could happen is an agent driving to a door for a pickup
+     * that is not coming, and finding out at the doorstep.
+     *
+     * The stop STAYS in the day. Dropping it would mean an agent who
+     * remembers being sent to that address finds no trace of it, and a
+     * schedule that quietly loses stops is one nobody can reconcile against
+     * what they actually did.
+     */
+    if (job.booking.status === "cancelled") {
+      job.state = "cancelled";
+      job.next = null;
+    } else if (job.phases.some((p) => p.status === "failed")) job.state = "problem";
     else if (job.phases.every((p) => p.status === "done")) job.state = "done";
     else if (job.phases.some((p) => p.status === "in_progress")) job.state = "active";
     else job.state = "upcoming";
@@ -140,12 +163,17 @@ export function groupJobs(tasks: AssignedTasks): Job[] {
  *  - the customer has not chosen a driver, so no shift owns the leg yet;
  *  - the leg is already under way, which is idempotent in core but should not
  *    say "Start & navigate" on the button;
- *  - the job is finished.
+ *  - the job is finished;
+ *  - the booking was cancelled.
  *
  * Kept here rather than in the card so the rule is testable without rendering
  * anything, and so there is one answer rather than one per surface.
  */
 export function startablePickupTaskId(job: Job): string | null {
+  // A fifth way to be null, and the only one that is about the BOOKING rather
+  // than the task: it was cancelled. `job.next` is already null above, so
+  // this is belt and braces — but the rule belongs where the answer is given.
+  if (job.state === "cancelled") return null;
   const next = job.next;
   if (!next || next.kind !== "pickup") return null;
   if (next.awaitingDriverChoice) return null;

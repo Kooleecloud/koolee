@@ -121,6 +121,9 @@ export function JobCard({
         "flex flex-col",
         emphasis && "border-navy-200 shadow-lift-lg",
         job.state === "problem" && "border-destructive/50",
+        // Same visual weight as a finished job: present, legible, and plainly
+        // not asking for anything.
+        job.state === "cancelled" && "opacity-75",
         late && job.state !== "problem" && "border-warning/60",
         job.state === "done" && "opacity-75",
       )}
@@ -149,6 +152,7 @@ export function JobCard({
             <span className="truncate text-base font-medium">{booking.paxName}</span>
           </div>
           <span className="flex shrink-0 items-center gap-2">
+            {job.state === "cancelled" && <Badge variant="secondary">Cancelled</Badge>}
             {job.state === "problem" && (
               <Badge variant="destructive">
                 <CircleAlert aria-hidden="true" className="mr-1 size-3" />
@@ -156,9 +160,12 @@ export function JobCard({
               </Badge>
             )}
             {job.state === "active" && <Badge variant="warning">In progress</Badge>}
-            {late && job.state !== "problem" && job.state !== "active" && (
-              <Badge variant="warning">Late</Badge>
-            )}
+            {/* A cancelled stop is never "Late". Its window passing is not a
+                thing anybody needs to chase. */}
+            {late &&
+              job.state !== "problem" &&
+              job.state !== "active" &&
+              job.state !== "cancelled" && <Badge variant="warning">Late</Badge>}
             {job.state === "done" && <Badge variant="success">Done</Badge>}
             <ChevronRight aria-hidden="true" className="size-5 text-muted-foreground" />
           </span>
@@ -188,7 +195,13 @@ export function JobCard({
 
       {/* Outside the Link: a nested anchor is invalid, and tapping Navigate
           must not also open the job. */}
-      {job.state !== "done" && (
+      {/*
+        NO ACTIONS ON A CANCELLED STOP. Navigate and Call are both offers to
+        do the job, and the job is not happening — core refuses every action
+        (`bookingActionability` returns `NOTHING` for a terminal standing), so
+        the only thing an affordance here could produce is a wasted drive.
+      */}
+      {job.state !== "done" && job.state !== "cancelled" && (
         <div className="border-t border-border p-4 pt-3">
           <JobActions booking={booking} startsPickupTaskId={startsPickupTaskId} />
         </div>

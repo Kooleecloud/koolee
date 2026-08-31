@@ -312,3 +312,77 @@ describe("startablePickupTaskId", () => {
     expect(startablePickupTaskId(job)).toBeNull();
   });
 });
+
+/**
+ * A CANCELLED BOOKING IS NOT WORK — and nothing in this module could tell.
+ *
+ * Cancelling a booking moves the BOOKING's status and deliberately leaves its
+ * tasks alone: `applyTransition` writes one row and one custody event, and
+ * touches no task table. Every derivation in `groupJobs` reads TASK status,
+ * so a cancelled booking kept its `pending` verification task and rendered as
+ * an ordinary upcoming stop with a working "Start & navigate" button.
+ *
+ * Core refuses the action — `standingOf("cancelled")` is `terminal` and
+ * `bookingActionability` returns `NOTHING` with "This booking was cancelled"
+ * (packages/core/src/services/actionability.ts) — so nothing could actually
+ * happen. What could happen is an agent driving to a door for a pickup that
+ * is not coming, and finding out on the doorstep.
+ */
+describe("a cancelled booking in the agent's day", () => {
+  const cancelledTasks = () => ({
+    verification: [
+      {
+        ...verification({ status: "pending" }),
+        booking: { ...BOOKING, status: "cancelled" },
+      },
+    ],
+    pickup: [
+      { ...pickup({ status: "pending" }), booking: { ...BOOKING, status: "cancelled" } },
+    ],
+  });
+
+  it("is its own state, not 'upcoming'", () => {
+    const [job] = groupJobs(cancelledTasks());
+    expect(job!.state).toBe("cancelled");
+  });
+
+  it("has nothing to do next, so no card can link to work", () => {
+    const [job] = groupJobs(cancelledTasks());
+    expect(job!.next).toBeNull();
+  });
+
+  it("offers no startable pickup, whatever the task rows say", () => {
+    const [job] = groupJobs(cancelledTasks());
+    expect(startablePickupTaskId(job!)).toBeNull();
+  });
+
+  it("STAYS in the day rather than disappearing from it", () => {
+    // A schedule that quietly drops stops is one nobody can reconcile against
+    // what they actually did. The agent who remembers being sent to that
+    // address must still find it.
+    const jobs = groupJobs(cancelledTasks());
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0]!.bookingId).toBe("b-1");
+    expect(jobs[0]!.phases).toHaveLength(2);
+  });
+
+  it("does not disturb a live booking beside it", () => {
+    const jobs = groupJobs({
+      verification: [
+        {
+          ...verification({ status: "pending" }),
+          booking: { ...BOOKING, status: "cancelled" },
+        },
+      ],
+      pickup: [
+        {
+          ...pickup({ id: "pt-2", status: "assigned", driverShiftId: "s-1" } as never),
+          booking: { ...BOOKING, id: "b-2", status: "awaiting_pickup" },
+        },
+      ],
+    });
+    const live = jobs.find((j) => j.bookingId === "b-2");
+    expect(live!.state).toBe("upcoming");
+    expect(live!.next).not.toBeNull();
+  });
+});

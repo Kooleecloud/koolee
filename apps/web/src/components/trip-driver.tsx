@@ -290,27 +290,43 @@ export function DriverTracking({
   live,
   /** The door, for the map. Null when the address has no coordinates. */
   pickup,
+  cancelled = false,
 }: {
   driver: SelectedDriverView;
   live: boolean;
   pickup: { lat: number; lng: number } | null;
+  /**
+   * The booking was cancelled after a driver was chosen.
+   *
+   * The card STAYS. A customer who picked a driver, watched the ETA and then
+   * cancelled should still see that the leg existed — dropping the card makes
+   * the trip page read as though no driver was ever assigned, which is not
+   * what happened and not what a dispute would be argued against.
+   */
+  cancelled?: boolean;
 }) {
   /*
    * THE MAP IS ONLY FOR A JOURNEY IN PROGRESS. Once the bags are at the bag
    * drop there is no van to watch, and a map of where somebody was is not a
    * receipt — the custody timeline is. Also gated on having both ends: a pin
    * with no reference point tells nobody anything.
+   *
+   * A cancelled booking is never live, whatever its position field still
+   * holds: a pin walking towards a door nobody is going to is the single most
+   * misleading thing this page could draw.
    */
-  const showMap = live && pickup !== null && driver.position !== null;
+  const showMap = live && !cancelled && pickup !== null && driver.position !== null;
 
   return (
-    <Card>
+    <Card className={cancelled ? "opacity-90" : undefined}>
       <CardHeader>
         <CardTitle className="font-display text-base">Your driver</CardTitle>
         <CardDescription>
-          {live
-            ? "Updating as your driver moves."
-            : "Your bags are with your airline now."}
+          {cancelled
+            ? "This trip was cancelled. Nobody is on the way."
+            : live
+              ? "Updating as your driver moves."
+              : "Your bags are with your airline now."}
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-5">
@@ -320,7 +336,7 @@ export function DriverTracking({
             <p className="font-medium">{driver.givenName ?? "Your Koolee driver"}</p>
             <p className="text-sm text-muted-foreground">{driver.truckName}</p>
           </div>
-          {live ? (
+          {live && !cancelled ? (
             <div className="ml-auto text-right">
               <p className="font-display text-lg">{driver.etaLabel}</p>
               <p className="text-sm text-muted-foreground">
@@ -338,7 +354,7 @@ export function DriverTracking({
           map that failed. After they start, a gap means we have lost sight of
           them, which is worth saying out loud rather than leaving as a blank.
         */}
-        {live && !showMap && (
+        {live && !cancelled && !showMap && (
           <p className="rounded-lg border border-dashed border-border bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
             {driver.travelStarted
               ? "We've lost the live position for a moment — it comes back on its own, and your driver is still on the way."
@@ -366,9 +382,9 @@ export function DriverTracking({
           />
         )}
 
-        <PickupProgress stepIndex={driver.stepIndex} />
+        <PickupProgress stepIndex={driver.stepIndex} cancelled={cancelled} />
 
-        {live && driver.lastSeenLabel ? (
+        {live && !cancelled && driver.lastSeenLabel ? (
           <p className="text-xs text-muted-foreground">
             Location last updated {driver.lastSeenLabel}.
           </p>
@@ -394,6 +410,15 @@ export function DriverTracking({
  * which is the only thing this needs to say" — correct, and the answer was a
  * component that does, not a private copy.
  */
-export function PickupProgress({ stepIndex }: { stepIndex: number }) {
-  return <ProgressTrack steps={PICKUP_STEPS} currentIndex={stepIndex} />;
+export function PickupProgress({
+  stepIndex,
+  cancelled = false,
+}: {
+  stepIndex: number;
+  /** The booking was cancelled: every stage draws struck through. */
+  cancelled?: boolean;
+}) {
+  return (
+    <ProgressTrack steps={PICKUP_STEPS} currentIndex={stepIndex} cancelled={cancelled} />
+  );
 }

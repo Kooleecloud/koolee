@@ -35,9 +35,22 @@ export interface ProgressTrackProps extends Omit<
   /**
    * The step in progress. Everything before it reads as done, everything
    * after as still to come. `-1` (or anything below zero) marks nothing
-   * current, which is how a cancelled or exception booking renders.
+   * current, which is how an exception booking renders.
    */
   currentIndex: number;
+  /**
+   * The whole progression stopped, and did not finish.
+   *
+   * Every stage draws as `cancelled` and the rail goes dashed throughout, so
+   * the track still SHOWS the journey that was planned while saying plainly
+   * that none of it is coming. The alternative — hiding the track on a
+   * cancelled booking — is what made a cancelled stop read as though it had
+   * never been booked.
+   *
+   * Separate from `currentIndex: -1`, which means "nothing is happening right
+   * now" (an exception, a pause). This means "nothing is going to".
+   */
+  cancelled?: boolean;
 }
 
 function stateFor(index: number, currentIndex: number): StageState {
@@ -46,13 +59,19 @@ function stateFor(index: number, currentIndex: number): StageState {
   return "upcoming";
 }
 
-function ProgressTrack({ steps, currentIndex, className, ...props }: ProgressTrackProps) {
+function ProgressTrack({
+  steps,
+  currentIndex,
+  cancelled = false,
+  className,
+  ...props
+}: ProgressTrackProps) {
   if (steps.length === 0) return null;
 
   return (
     <ol className={cn("flex flex-col sm:flex-row sm:items-start", className)} {...props}>
       {steps.map((step, i) => {
-        const state = stateFor(i, currentIndex);
+        const state: StageState = cancelled ? "cancelled" : stateFor(i, currentIndex);
         const isLast = i === steps.length - 1;
         return (
           <li
@@ -84,11 +103,17 @@ function ProgressTrack({ steps, currentIndex, className, ...props }: ProgressTra
                 state === "current" && "font-medium text-navy-800",
                 state === "complete" && "text-muted-foreground",
                 state === "upcoming" && "text-navy-300",
+                // Struck through, not hidden: the label is what makes the
+                // dot's meaning readable rather than decorative.
+                state === "cancelled" && "text-muted-foreground line-through",
               )}
             >
               {step}
               {state === "current" ? (
                 <span className="sr-only"> — current step</span>
+              ) : null}
+              {state === "cancelled" ? (
+                <span className="sr-only"> — cancelled</span>
               ) : null}
             </span>
           </li>
