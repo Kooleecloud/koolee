@@ -309,6 +309,9 @@ export default async function TripPage({
          * said before there was a map: a distance, and "Position updating".
          */
         position: selectedDriver.positionIsFresh ? selectedDriver.position : null,
+        // Distinguishes "nobody is coming yet" from "we have lost sight of
+        // somebody who is". Both render as no map; only one is a problem.
+        travelStarted: selectedDriver.travelStartedAt !== null,
       }
     : null;
 

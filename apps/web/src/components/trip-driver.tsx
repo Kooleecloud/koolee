@@ -82,8 +82,16 @@ export interface SelectedDriverView {
   lastSeenLabel: string | null;
   /** Where the bags are, as a milestone index into `PICKUP_STEPS`. */
   stepIndex: number;
-  /** Where they are right now. Null until the first ping. */
+  /** Where they are right now. Null until the first ping, or once it is stale. */
   position: { lat: number; lng: number } | null;
+  /**
+   * Whether the driver has started this leg (`startPickupTravel`).
+   *
+   * It is the difference between two silences that look identical on screen
+   * and are not: "nobody is coming yet, and that is fine" versus "somebody is
+   * coming and we have lost sight of them". The card says which.
+   */
+  travelStarted: boolean;
 }
 
 /* ------------------------------------------------------------------ */
@@ -316,11 +324,27 @@ export function DriverTracking({
             <div className="ml-auto text-right">
               <p className="font-display text-lg">{driver.etaLabel}</p>
               <p className="text-sm text-muted-foreground">
-                {driver.distanceLabel ?? "Position updating"}
+                {driver.distanceLabel ??
+                  (driver.travelStarted ? "Position updating" : "Not on the way yet")}
               </p>
             </div>
           ) : null}
         </div>
+
+        {/*
+          NO MAP IS TWO DIFFERENT FACTS, and an absent card says neither.
+          Before the driver starts the leg there is genuinely nothing to track,
+          and a customer staring at a card with no map cannot tell that from a
+          map that failed. After they start, a gap means we have lost sight of
+          them, which is worth saying out loud rather than leaving as a blank.
+        */}
+        {live && !showMap && (
+          <p className="rounded-lg border border-dashed border-border bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
+            {driver.travelStarted
+              ? "We've lost the live position for a moment — it comes back on its own, and your driver is still on the way."
+              : `Live tracking starts when ${driver.givenName ?? "your driver"} sets off for you.`}
+          </p>
+        )}
 
         {showMap && (
           <LiveMap

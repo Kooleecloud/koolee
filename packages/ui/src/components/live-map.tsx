@@ -114,6 +114,55 @@ const SOLO_ZOOM = 14;
  */
 const LOAD_TIMEOUT_MS = 10_000;
 
+/**
+ * How long a pin takes to walk from one fix to the next.
+ *
+ * The driver's phone reports every 45 seconds, so without this the van
+ * TELEPORTS three quarters of a minute at a time — which reads as a broken
+ * map rather than a moving vehicle. 1.2s is long enough to be unmistakably
+ * motion and far short of the next fix, so a pin is always at rest by the time
+ * the following one lands: it never looks like it is lagging reality.
+ *
+ * This is a straight line between two points, NOT a route. Interpolating along
+ * roads would mean a polyline per update from a billed routing API, for an
+ * illusion nobody is checking against the kerb at this zoom.
+ */
+const MOVE_DURATION_MS = 1200;
+
+/**
+ * Past this, jump instead of animating.
+ *
+ * A van covers roughly 600m in 45 seconds through city traffic. Two and a half
+ * kilometres between consecutive fixes is a GPS glitch, a phone that woke up
+ * somewhere else, or a different driver on the same pin — and animating it
+ * would draw a smooth 1.2-second drive that never happened. A jump is the
+ * honest rendering of "we do not know how they got there".
+ */
+const MAX_SMOOTH_METRES = 2500;
+
+/** Metres between two points. Good enough over a city; this is not navigation. */
+function metresBetween(a: MapPoint, b: MapPoint): number {
+  const R = 6_371_000;
+  const dLat = ((b.lat - a.lat) * Math.PI) / 180;
+  const dLng = ((b.lng - a.lng) * Math.PI) / 180;
+  const lat1 = (a.lat * Math.PI) / 180;
+  const lat2 = (b.lat * Math.PI) / 180;
+  const h =
+    Math.sin(dLat / 2) ** 2 + Math.sin(dLng / 2) ** 2 * Math.cos(lat1) * Math.cos(lat2);
+  return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)));
+}
+
+/** Ease-out cubic: quick off the mark, settling gently. How a vehicle stops. */
+const easeOut = (t: number): number => 1 - (1 - t) ** 3;
+
+function prefersReducedMotion(): boolean {
+  return (
+    typeof window !== "undefined" &&
+    typeof window.matchMedia === "function" &&
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches
+  );
+}
+
 export function LiveMap({
   pickup,
   drivers = [],
@@ -127,6 +176,14 @@ export function LiveMap({
   // `Map` here is MapLibre's, so the JS one needs its global name spelled out.
   const markers = React.useRef(new globalThis.Map<string, Marker>());
   const pickupMarker = React.useRef<Marker | null>(null);
+  /**
+   * In-flight pin animations, by driver id.
+   *
+   * Held so a fix that arrives mid-walk cancels the previous one rather than
+   * fighting it — two `requestAnimationFrame` loops writing the same marker
+   * make it stutter between two destinations.
+   */
+  const moves = React.useRef(new globalThis.Map<string, number>());
   const [failed, setFailed] = React.useState(false);
   const [ready, setReady] = React.useState(false);
 
@@ -244,12 +301,19 @@ export function LiveMap({
 
       if (existing) {
         /*
-         * MOVED, NOT REPLACED. Re-creating the marker would teleport the pin
-         * and drop any transition; `setLngLat` on the same element is what
-         * makes a van appear to drive. The class swap keeps the selected
-         * state in step without touching position.
+         * MOVED, NOT REPLACED, and WALKED rather than jumped. Re-creating the
+         * marker would teleport the pin and drop any transition; animating
+         * `setLngLat` on the same element is what makes a van appear to drive
+         * rather than blink from block to block every 45 seconds. The class
+         * swap keeps the selected state in step without touching position.
          */
-        existing.setLngLat([driver.position.lng, driver.position.lat]);
+        const from = existing.getLngLat();
+        walkMarker(existing, { lat: from.lat, lng: from.lng }, driver.position, (frame) => {
+          const previous = moves.current.get(driver.id);
+          if (previous !== undefined) cancelAnimationFrame(previous);
+          if (frame === null) moves.current.delete(driver.id);
+          else moves.current.set(driver.id, frame);
+        });
         const element = existing.getElement();
         element.dataset.selected = driver.selected ? "true" : "false";
         element.setAttribute("aria-pressed", driver.selected ? "true" : "false");
@@ -272,10 +336,22 @@ export function LiveMap({
     // A driver who clocked off, or whose phone stopped reporting.
     for (const [id, marker] of markers.current) {
       if (seen.has(id)) continue;
+      const frame = moves.current.get(id);
+      if (frame !== undefined) cancelAnimationFrame(frame);
+      moves.current.delete(id);
       marker.remove();
       markers.current.delete(id);
     }
   }, [drivers, ready]);
+
+  /** Nothing may keep animating a marker that is no longer on a map. */
+  React.useEffect(() => {
+    const inFlight = moves.current;
+    return () => {
+      for (const frame of inFlight.values()) cancelAnimationFrame(frame);
+      inFlight.clear();
+    };
+  }, []);
 
   /* --- framing -------------------------------------------------------- */
 
@@ -363,6 +439,51 @@ export function LiveMap({
  * enough to write by hand, and doing so keeps the map's frame budget entirely
  * outside React.
  */
+
+/**
+ * Walks a marker from one fix to the next over {@link MOVE_DURATION_MS}.
+ *
+ * `onFrame` hands the caller each `requestAnimationFrame` handle so it can
+ * cancel a walk in progress — the loop itself holds no state, which is what
+ * keeps it safe to call again before the previous one has finished.
+ *
+ * Three cases refuse to animate, all deliberately:
+ *  - a move of a few metres, which is GPS noise rather than travel, and would
+ *    make a parked van jitter continuously;
+ *  - a move beyond {@link MAX_SMOOTH_METRES}, which did not happen in 45
+ *    seconds and must not be drawn as though it did;
+ *  - `prefers-reduced-motion`, where the pin still updates and simply does not
+ *    slide there.
+ */
+function walkMarker(
+  marker: Marker,
+  from: MapPoint,
+  to: MapPoint,
+  onFrame: (frame: number | null) => void,
+): void {
+  const distance = metresBetween(from, to);
+
+  if (distance < 5 || distance > MAX_SMOOTH_METRES || prefersReducedMotion()) {
+    onFrame(null);
+    marker.setLngLat([to.lng, to.lat]);
+    return;
+  }
+
+  const started = performance.now();
+
+  const step = (nowMs: number) => {
+    const progress = Math.min(1, (nowMs - started) / MOVE_DURATION_MS);
+    const eased = easeOut(progress);
+    marker.setLngLat([
+      from.lng + (to.lng - from.lng) * eased,
+      from.lat + (to.lat - from.lat) * eased,
+    ]);
+    if (progress < 1) onFrame(requestAnimationFrame(step));
+    else onFrame(null);
+  };
+
+  onFrame(requestAnimationFrame(step));
+}
 
 /** The door: navy, static, unmistakably not a vehicle. */
 function pickupPin(): HTMLElement {

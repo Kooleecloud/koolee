@@ -66,6 +66,47 @@ export const TrackingOneDriver: Story = {
 };
 
 /**
+ * A driver reporting a new fix every few seconds, so the walk between them is
+ * visible without waiting 45 seconds for a real one.
+ *
+ * This is the story to open when touching `walkMarker`: the pin should ease
+ * from block to block rather than blink, and a `prefers-reduced-motion`
+ * browser should show it jumping instead, with nothing else different.
+ */
+export const DriverMoving: Story = {
+  render: function Moving() {
+    const [at, setAt] = React.useState(DRIVERS[0]!.position);
+
+    React.useEffect(() => {
+      // Roughly a block south-west each tick — the scale of 45 seconds of city
+      // driving, compressed so the animation is watchable.
+      const id = setInterval(() => {
+        setAt((current) => ({
+          lat: current.lat - 0.0016,
+          lng: current.lng - 0.0009,
+        }));
+      }, 2500);
+      return () => clearInterval(id);
+    }, []);
+
+    return (
+      <div className="flex max-w-2xl flex-col gap-3">
+        <LiveMap
+          pickup={PICKUP}
+          drivers={[{ id: "moving", position: at, label: "Marcus", selected: true }]}
+          className="h-80"
+          label="Map showing Marcus on the way to your pickup address"
+        />
+        <p className="text-sm text-muted-foreground">
+          A new fix every 2.5s. The pin should WALK, not blink.
+        </p>
+      </div>
+    );
+  },
+  args: { pickup: PICKUP, label: "" },
+};
+
+/**
  * Nobody has pinged yet. The door still draws — this is the state a customer
  * sees between a driver being chosen and their phone reporting a first fix.
  */
