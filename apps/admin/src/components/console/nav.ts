@@ -32,9 +32,7 @@ import {
 
 /** Which live count, if any, rides on a nav item. Keys of `ConsoleBadgeCounts`. */
 export type ConsoleBadgeKey =
-  | "unassignedToday"
-  | "awaitingDriverToday"
-  | "exceptionsOpen";
+  "unassignedToday" | "awaitingDriverToday" | "exceptionsOpen";
 
 export interface ConsoleNavItem {
   href: string;

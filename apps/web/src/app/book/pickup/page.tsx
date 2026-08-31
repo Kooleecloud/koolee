@@ -14,6 +14,8 @@ export const dynamic = "force-dynamic";
 
 export default async function PickupStepPage() {
   const draft = await readDraft();
+  /** What they typed at this step last time, if we refused it. */
+  const rejected = draft.pickupEntry;
   if (!stepIsUnlocked(draft, "/book/pickup")) {
     redirect(nextIncompleteStep(draft));
   }
@@ -53,15 +55,34 @@ export default async function PickupStepPage() {
           placeId: address.placeId,
         }))}
         defaults={{
-          line1: draft.line1 ?? "",
-          line2: draft.line2 ?? "",
-          city: draft.city ?? "",
-          state: draft.state ?? "",
-          zip: draft.zip ?? "",
-          lat: draft.lat ?? null,
-          lng: draft.lng ?? null,
-          placeId: draft.placeId ?? null,
-          bagCount: draft.bagCount ?? 1,
+          /*
+           * `pickupEntry` wins wherever it exists. It is only ever set when
+           * the LAST submit was refused — an uncovered ZIP, a missing street,
+           * a bag count out of range — and it holds the fresher keystrokes;
+           * `submitPickup` clears it the moment the step succeeds.
+           *
+           * Without it a refusal cost the whole address. The waitlist card
+           * replaces the form and its "Try another ZIP" is a real link back
+           * to this page, which re-read a draft that only ever held an
+           * address we had already ACCEPTED.
+           */
+          line1: rejected?.line1 ?? draft.line1 ?? "",
+          line2: rejected?.line2 ?? draft.line2 ?? "",
+          city: rejected?.city ?? draft.city ?? "",
+          state: rejected?.state ?? draft.state ?? "",
+          zip: rejected?.zip ?? draft.zip ?? "",
+          /*
+           * Precision is NOT restored from a rejection, and that is not an
+           * oversight. These belong to an address the customer is about to
+           * change; coordinates from the previous attempt would point a
+           * driver at the wrong door while looking exactly as confident. The
+           * ZIP centroid is the honest fallback until they pick a suggestion
+           * again.
+           */
+          lat: rejected ? null : (draft.lat ?? null),
+          lng: rejected ? null : (draft.lng ?? null),
+          placeId: rejected ? null : (draft.placeId ?? null),
+          bagCount: Number(rejected?.bagCount) || draft.bagCount || 1,
         }}
       />
     </div>

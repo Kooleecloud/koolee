@@ -75,7 +75,9 @@ describe("0030 — booking_signals", () => {
   it("does not add UPDATE or DELETE triggers to custody_events", () => {
     // custody_events is append-only (0001). A signal trigger that fired on
     // anything but INSERT would be dead code advertising a mutation path.
-    const signalTriggers = MIGRATION.match(/CREATE TRIGGER custody_events_touch_signal[\s\S]*?;/g);
+    const signalTriggers = MIGRATION.match(
+      /CREATE TRIGGER custody_events_touch_signal[\s\S]*?;/g,
+    );
     expect(signalTriggers).toHaveLength(1);
     expect(signalTriggers![0]).not.toMatch(/BEFORE|UPDATE|DELETE|TRUNCATE/);
   });
@@ -102,7 +104,9 @@ describe("0030 — booking_signals", () => {
     expect(MIGRATION).toMatch(
       /CREATE OR REPLACE FUNCTION public\.can_watch_booking\(uid uuid, booking uuid\)[\s\S]*?SECURITY DEFINER/,
     );
-    expect(MIGRATION).toMatch(/USING \(public\.can_watch_booking\(auth\.uid\(\), booking_id\)\)/);
+    expect(MIGRATION).toMatch(
+      /USING \(public\.can_watch_booking\(auth\.uid\(\), booking_id\)\)/,
+    );
   });
 
   it("admits the owning customer and an assigned staff member, nobody else", () => {
@@ -143,7 +147,9 @@ describe("0030 — booking_signals", () => {
   it("adds no domain table to the publication", () => {
     // The standing rule: realtime and RLS stay off the real tables. Only the
     // doorbell is published here.
-    const published = [...MIGRATION.matchAll(/ADD TABLE public\.(\w+)/g)].map((m) => m[1]);
+    const published = [...MIGRATION.matchAll(/ADD TABLE public\.(\w+)/g)].map(
+      (m) => m[1],
+    );
     expect(published).toEqual(["booking_signals"]);
   });
 

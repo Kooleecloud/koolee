@@ -79,9 +79,7 @@ export async function listBookingsForSession(
 ): Promise<Booking[]> {
   if (session.kind === "customer") {
     if (filter.userId !== undefined && filter.userId !== session.userId) {
-      throw new NotAuthorizedError(
-        "customer session may only list its own bookings",
-      );
+      throw new NotAuthorizedError("customer session may only list its own bookings");
     }
     return listBookings(db, { ...filter, userId: session.userId });
   }
@@ -254,46 +252,45 @@ export async function getBookingDetailForSession(
 ): Promise<BookingDetail> {
   const { booking, timeline } = await getBookingForSession(db, session, bookingId);
 
-  const [bagRows, paymentRows, agentRow, airportRow, cutoffRows] =
-    await Promise.all([
-      db
-        .select()
-        .from(bags)
-        .where(eq(bags.bookingId, bookingId))
-        // By ordinal, never createdAt: a booking's bags share a timestamp, so
-        // that ordering was a non-deterministic tie (see bags.ordinal).
-        .orderBy(asc(bags.ordinal)),
-      db
-        .select()
-        .from(payments)
-        .where(eq(payments.bookingId, bookingId))
-        .orderBy(asc(payments.createdAt)),
-      db
-        .select({
-          userId: users.id,
-          fullName: users.fullName,
-          avatarStoragePath: users.avatarStoragePath,
-          taskStatus: verificationTasks.status,
-        })
-        .from(verificationTasks)
-        .innerJoin(users, eq(users.id, verificationTasks.assigneeUserId))
-        .where(eq(verificationTasks.bookingId, bookingId))
-        .limit(1),
-      db.query.airports.findFirst({
-        where: eq(airports.code, booking.departureAirport),
-        columns: { tz: true },
-      }),
-      db
-        .select({ minutes: airlineCutoffs.cutoffMinutesBeforeDeparture })
-        .from(airlineCutoffs)
-        .where(
-          and(
-            eq(airlineCutoffs.airlineIata, booking.airlineIata.toUpperCase()),
-            eq(airlineCutoffs.airportCode, booking.departureAirport),
-            lte(airlineCutoffs.effectiveFrom, new Date()),
-          ),
+  const [bagRows, paymentRows, agentRow, airportRow, cutoffRows] = await Promise.all([
+    db
+      .select()
+      .from(bags)
+      .where(eq(bags.bookingId, bookingId))
+      // By ordinal, never createdAt: a booking's bags share a timestamp, so
+      // that ordering was a non-deterministic tie (see bags.ordinal).
+      .orderBy(asc(bags.ordinal)),
+    db
+      .select()
+      .from(payments)
+      .where(eq(payments.bookingId, bookingId))
+      .orderBy(asc(payments.createdAt)),
+    db
+      .select({
+        userId: users.id,
+        fullName: users.fullName,
+        avatarStoragePath: users.avatarStoragePath,
+        taskStatus: verificationTasks.status,
+      })
+      .from(verificationTasks)
+      .innerJoin(users, eq(users.id, verificationTasks.assigneeUserId))
+      .where(eq(verificationTasks.bookingId, bookingId))
+      .limit(1),
+    db.query.airports.findFirst({
+      where: eq(airports.code, booking.departureAirport),
+      columns: { tz: true },
+    }),
+    db
+      .select({ minutes: airlineCutoffs.cutoffMinutesBeforeDeparture })
+      .from(airlineCutoffs)
+      .where(
+        and(
+          eq(airlineCutoffs.airlineIata, booking.airlineIata.toUpperCase()),
+          eq(airlineCutoffs.airportCode, booking.departureAirport),
+          lte(airlineCutoffs.effectiveFrom, new Date()),
         ),
-    ]);
+      ),
+  ]);
 
   const assignee = agentRow[0];
 
@@ -302,7 +299,8 @@ export async function getBookingDetailForSession(
   // runs early costs the customer nothing, one that runs late puts bags on
   // the wrong side of the counter.
   const cutoffMinutes = cutoffRows.reduce<number | null>(
-    (strictest, row) => (strictest === null ? row.minutes : Math.max(strictest, row.minutes)),
+    (strictest, row) =>
+      strictest === null ? row.minutes : Math.max(strictest, row.minutes),
     null,
   );
 

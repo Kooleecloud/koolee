@@ -163,10 +163,7 @@ describe("after scheduled departure", () => {
   });
 
   it("wins over the cutoff phase even with no cutoff on record", () => {
-    const state = bookingActionability(
-      subject({ bagDropCutoffAt: null }),
-      AT.departed,
-    );
+    const state = bookingActionability(subject({ bagDropCutoffAt: null }), AT.departed);
     expect(state.phase).toBe("departed");
     expect(state.raisesException).toBe(true);
   });

@@ -50,7 +50,9 @@ describe("the sign-in failure message", () => {
     // Any wording that distinguishes "no such account" from "wrong password"
     // is an account-enumeration oracle.
     expect(SIGN_IN_FAILED_COPY).toBe("Email or password didn't match.");
-    expect(SIGN_IN_FAILED_COPY).not.toMatch(/no account|not found|unknown|incorrect password/i);
+    expect(SIGN_IN_FAILED_COPY).not.toMatch(
+      /no account|not found|unknown|incorrect password/i,
+    );
   });
 });
 

@@ -126,7 +126,11 @@ export async function getStaffWorkHistory(
           rangeFor(verificationTasks.completedAt, verificationTasks.scheduledStart),
         ),
       )
-      .orderBy(desc(sql`coalesce(${verificationTasks.completedAt}, ${verificationTasks.scheduledStart})`))
+      .orderBy(
+        desc(
+          sql`coalesce(${verificationTasks.completedAt}, ${verificationTasks.scheduledStart})`,
+        ),
+      )
       .limit(limit),
     db
       .select({
@@ -148,12 +152,17 @@ export async function getStaffWorkHistory(
           rangeFor(pickupTasks.completedAt, pickupTasks.scheduledStart),
         ),
       )
-      .orderBy(desc(sql`coalesce(${pickupTasks.completedAt}, ${pickupTasks.scheduledStart})`))
+      .orderBy(
+        desc(sql`coalesce(${pickupTasks.completedAt}, ${pickupTasks.scheduledStart})`),
+      )
       .limit(limit),
   ]);
 
-  const toRow = (kind: StaffTaskKind) =>
-    (row: (typeof verificationRows)[number] | (typeof pickupRows)[number]): StaffTaskRow => ({
+  const toRow =
+    (kind: StaffTaskKind) =>
+    (
+      row: (typeof verificationRows)[number] | (typeof pickupRows)[number],
+    ): StaffTaskRow => ({
       taskId: row.taskId,
       kind,
       status: row.status,
@@ -175,8 +184,9 @@ export async function getStaffWorkHistory(
   ].sort((a, b) => (b.at?.getTime() ?? 0) - (a.at?.getTime() ?? 0));
 
   const counts: StaffWorkCounts = {
-    verificationsDone: rows.filter((r) => r.kind === "verification" && r.status === "done")
-      .length,
+    verificationsDone: rows.filter(
+      (r) => r.kind === "verification" && r.status === "done",
+    ).length,
     pickupsDone: rows.filter((r) => r.kind === "pickup" && r.status === "done").length,
     open: rows.filter((r) => r.status !== "done" && r.status !== "failed").length,
     failed: rows.filter((r) => r.status === "failed").length,

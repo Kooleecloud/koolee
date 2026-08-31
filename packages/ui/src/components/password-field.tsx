@@ -32,8 +32,7 @@ import { Input } from "./input";
  * password manager filling the wrong one, and a default would silently pick
  * the wrong side for half the call sites.
  */
-export interface PasswordFieldProps
-  extends Omit<React.ComponentProps<"input">, "type"> {
+export interface PasswordFieldProps extends Omit<React.ComponentProps<"input">, "type"> {
   autoComplete: "current-password" | "new-password";
 }
 

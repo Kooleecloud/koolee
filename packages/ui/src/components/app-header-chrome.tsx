@@ -65,7 +65,9 @@ function AppHeaderChrome({
         {actions || hasMenu ? (
           <div className="flex shrink-0 items-center gap-3">
             {actions ? (
-              <div className={cn("items-center gap-3", hasMenu ? "hidden md:flex" : "flex")}>
+              <div
+                className={cn("items-center gap-3", hasMenu ? "hidden md:flex" : "flex")}
+              >
                 {actions}
               </div>
             ) : null}

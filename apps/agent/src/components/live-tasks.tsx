@@ -77,7 +77,9 @@ export function LiveTasks({
     if (next.startsWith("jobs:") && previous.startsWith("jobs:")) {
       const added = Number(next.slice(5)) - Number(previous.slice(5));
       if (added > 0) {
-        toast.success(added === 1 ? "New job assigned to you." : `${added} new jobs assigned to you.`);
+        toast.success(
+          added === 1 ? "New job assigned to you." : `${added} new jobs assigned to you.`,
+        );
       }
       return;
     }

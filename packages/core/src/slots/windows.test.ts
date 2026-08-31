@@ -206,9 +206,9 @@ describe("evaluateHourlyWindow — booking acceptance", () => {
   });
 
   it("rejects a window inside the booking notice", () => {
-    expect(
-      evaluateHourlyWindow(start, end, ctx({ now: ny("2025-06-09T13:00") })),
-    ).toBe("starts_before_notice");
+    expect(evaluateHourlyWindow(start, end, ctx({ now: ny("2025-06-09T13:00") }))).toBe(
+      "starts_before_notice",
+    );
   });
 
   it("rejects a blocked window", () => {
@@ -229,9 +229,7 @@ describe("evaluateHourlyWindow — booking acceptance", () => {
     const context = ctx({
       now: ny("2025-06-09T09:17"),
       cutoffMinutes: 300,
-      blocks: [
-        { blockStart: ny("2025-06-09T16:00"), blockEnd: ny("2025-06-09T18:00") },
-      ],
+      blocks: [{ blockStart: ny("2025-06-09T16:00"), blockEnd: ny("2025-06-09T18:00") }],
     });
     const offered = bookableWindows(context);
     expect(offered.length).toBeGreaterThan(0);
@@ -252,9 +250,9 @@ describe("pickupLeadMinutesFor", () => {
 describe("input validation", () => {
   it("rejects negative or non-finite rule numbers", () => {
     expect(() => enumerateHourlyWindows(ctx({ noticeMinutes: -1 }))).toThrow(RangeError);
-    expect(() =>
-      enumerateHourlyWindows(ctx({ bandMinutes: Number.NaN })),
-    ).toThrow(RangeError);
+    expect(() => enumerateHourlyWindows(ctx({ bandMinutes: Number.NaN }))).toThrow(
+      RangeError,
+    );
     expect(() =>
       enumerateHourlyWindows(ctx({ departureAt: new Date(Number.NaN) })),
     ).toThrow(RangeError);

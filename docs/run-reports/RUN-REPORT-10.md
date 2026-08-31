@@ -36,15 +36,15 @@ the slice ported the POC's DECISIONS, not its files.
 
 Two dispatch points existed for one email and they sent **different emails**.
 
-| | `booking/confirmed` Inngest function | `attachEmailPostBooking` (guest adds email on the confirmed screen) |
-|---|---|---|
-| Builder | `buildBookingConfirmationEmail` — branded HTML + text | hand-rolled plain-text body in `services/confirmation-email.ts` |
-| Subject | `Pickup confirmed — KOO-7H2QM · DL123 from JFK` | `Koolee pickup confirmed — DL123 from JFK` |
-| Booking ref | present (the one token support can act on) | **absent** |
-| Price breakdown | itemised + total | `$68.00 authorized` only |
-| Pickup address | present | absent |
-| Agreement nudge | present | absent |
-| Trip link | absolute `https://…/trips/<id>` | **`/trips/<id>` — a relative path, in an inbox** |
+|                 | `booking/confirmed` Inngest function                  | `attachEmailPostBooking` (guest adds email on the confirmed screen) |
+| --------------- | ----------------------------------------------------- | ------------------------------------------------------------------- |
+| Builder         | `buildBookingConfirmationEmail` — branded HTML + text | hand-rolled plain-text body in `services/confirmation-email.ts`     |
+| Subject         | `Pickup confirmed — KOO-7H2QM · DL123 from JFK`       | `Koolee pickup confirmed — DL123 from JFK`                          |
+| Booking ref     | present (the one token support can act on)            | **absent**                                                          |
+| Price breakdown | itemised + total                                      | `$68.00 authorized` only                                            |
+| Pickup address  | present                                               | absent                                                              |
+| Agreement nudge | present                                               | absent                                                              |
+| Trip link       | absolute `https://…/trips/<id>`                       | **`/trips/<id>` — a relative path, in an inbox**                    |
 
 So whoever paid as a guest — precisely the customer with the least context —
 got the materially worse email, with an unclickable link, and nothing in the
@@ -63,7 +63,7 @@ Instead the assembly is extracted once:
   — reads the address and the display zone, formats the window and departure
   in the BOOKING's tz, maps the persisted `priceBreakdown` to `PriceLine[]`,
   and returns the `EmailMessage`. No I/O beyond the two reads, no decisions
-  about *whether* to send.
+  about _whether_ to send.
 - **`sendBookingConfirmationEmail(config, { bookingId, email, appOrigin })`** —
   loads the booking (throws `NotFoundError` if absent), assembles, sends. The
   guest path's entry point; unchanged signature plus `appOrigin`.
@@ -146,12 +146,12 @@ points ever stop sharing an assembler, one of the two suites fails.
 
 ### 0.6 Gates
 
-| Gate | Result |
-|---|---|
-| `turbo typecheck` | 6/6 ✅ |
-| `turbo lint` | 6/6 ✅ |
-| `turbo test` (unit) | core 492 ✅ · web 119 ✅ · admin 27 ✅ · agent 19 ✅ · ui 102 ✅ |
-| `@koolee/core test:integration` (`koolee_test`) | 248 passed, 3 skipped ✅ |
+| Gate                                            | Result                                                           |
+| ----------------------------------------------- | ---------------------------------------------------------------- |
+| `turbo typecheck`                               | 6/6 ✅                                                           |
+| `turbo lint`                                    | 6/6 ✅                                                           |
+| `turbo test` (unit)                             | core 492 ✅ · web 119 ✅ · admin 27 ✅ · agent 19 ✅ · ui 102 ✅ |
+| `@koolee/core test:integration` (`koolee_test`) | 248 passed, 3 skipped ✅                                         |
 
 Files touched: `packages/core/src/services/confirmation-email.ts` (rewritten),
 `packages/core/src/notifications/links.ts` (new),
@@ -315,13 +315,13 @@ row at the same instant** reads `atRisk: false` under a 1-hour horizon and
 
 ### 1.9 Gates
 
-| Gate | Result |
-|---|---|
-| `turbo typecheck` | 6/6 ✅ |
-| `turbo lint` | 6/6 ✅ |
-| `turbo test` (unit) | core 499 ✅ · web 119 ✅ · admin 27 ✅ · agent 19 ✅ · ui 102 ✅ |
-| `@koolee/core test:integration` | 260 passed, 3 skipped ✅ (was 248) |
-| `turbo build` | 3/3 ✅ |
+| Gate                            | Result                                                           |
+| ------------------------------- | ---------------------------------------------------------------- |
+| `turbo typecheck`               | 6/6 ✅                                                           |
+| `turbo lint`                    | 6/6 ✅                                                           |
+| `turbo test` (unit)             | core 499 ✅ · web 119 ✅ · admin 27 ✅ · agent 19 ✅ · ui 102 ✅ |
+| `@koolee/core test:integration` | 260 passed, 3 skipped ✅ (was 248)                               |
+| `turbo build`                   | 3/3 ✅                                                           |
 
 No migration in this phase — deferral is behavioural, and adding a column to
 record "deferred" would be bookkeeping a query already answers.
@@ -350,7 +350,7 @@ row to the new user. Proven in the integration tier ("a device that changes
 hands MOVES to the new person").
 
 `verified_at` exists because of the POC's central finding: `showNotification`
-resolving tells you the notification was *created*, not displayed. macOS with
+resolving tells you the notification was _created_, not displayed. macOS with
 Chrome switched off in System Settings reports success at every layer and
 draws nothing. The only trustworthy signal is a human saying "yes, I saw it",
 so there is a column for it.
@@ -477,13 +477,13 @@ passes the supply-chain policy check.
 
 ### 2.7 Gates
 
-| Gate | Result |
-|---|---|
-| `turbo typecheck` | 6/6 ✅ |
-| `turbo lint` | 6/6 ✅ |
-| `turbo test` (unit) | core 499 ✅ · web 129 ✅ · admin 27 ✅ · agent 19 ✅ · ui 102 ✅ |
-| `@koolee/core test:integration` | 272 passed, 3 skipped ✅ (was 260) |
-| `turbo build` | 3/3 ✅ |
+| Gate                            | Result                                                           |
+| ------------------------------- | ---------------------------------------------------------------- |
+| `turbo typecheck`               | 6/6 ✅                                                           |
+| `turbo lint`                    | 6/6 ✅                                                           |
+| `turbo test` (unit)             | core 499 ✅ · web 129 ✅ · admin 27 ✅ · agent 19 ✅ · ui 102 ✅ |
+| `@koolee/core test:integration` | 272 passed, 3 skipped ✅ (was 260)                               |
+| `turbo build`                   | 3/3 ✅                                                           |
 
 ---
 
@@ -555,7 +555,7 @@ header and the push listeners below the fetch handler.
 environment.** It returned `null` — the exact §7 trap F2 paid for
 (`TripLive`/`LiveTasks`: a client component that returns `null` never mounts
 in a Next 16 / Turbopack production build; its module loads, its body runs,
-its effects never fire). And it *also* returned early unless
+its effects never fire). And it _also_ returned early unless
 `NODE_ENV === "production"`. So: nothing in dev by design, nothing in
 production by accident. The offline shell it exists to install has never
 installed.
@@ -638,17 +638,17 @@ untested"): where the platform cannot draw one, it does NOT list it. So
 `getNotifications()` is not a detection signal, and the ask-a-human design is
 the right one.
 
-| Check | Agent (3001) | Admin (3002) | Web (3000) |
-|---|---|---|---|
-| `/sw.js` `no-cache` + `Service-Worker-Allowed: /` | ✅ | ✅ | ✅ |
-| Worker registers at scope `/`, active | ✅ (`data-sw="registered"`) | ✅ | ✅ |
-| Enable card renders, gesture-only | ✅ | ✅ | n/a (trip-page card) |
-| Permission granted → **real FCM subscription** | ✅ | ✅ | — |
-| Server send accepted | ⚠️ **see §6.2 — this was `ConsolePushSender`, not a real send** | ⚠️ same | — |
-| did-you-see-it step appears | ✅ (screenshot) | n/a by design | n/a |
-| `push` handler → visible notification, right payload | ✅ | ✅ | ✅ |
-| Deep-link `data.url` carried | ✅ `/tasks/t-abc` | ✅ | ✅ `/trips/b-1` |
-| Branded icon resolves | ✅ | ✅ | ✅ `/icons/icon-192.png` |
+| Check                                                | Agent (3001)                                                    | Admin (3002)  | Web (3000)               |
+| ---------------------------------------------------- | --------------------------------------------------------------- | ------------- | ------------------------ |
+| `/sw.js` `no-cache` + `Service-Worker-Allowed: /`    | ✅                                                              | ✅            | ✅                       |
+| Worker registers at scope `/`, active                | ✅ (`data-sw="registered"`)                                     | ✅            | ✅                       |
+| Enable card renders, gesture-only                    | ✅                                                              | ✅            | n/a (trip-page card)     |
+| Permission granted → **real FCM subscription**       | ✅                                                              | ✅            | —                        |
+| Server send accepted                                 | ⚠️ **see §6.2 — this was `ConsolePushSender`, not a real send** | ⚠️ same       | —                        |
+| did-you-see-it step appears                          | ✅ (screenshot)                                                 | n/a by design | n/a                      |
+| `push` handler → visible notification, right payload | ✅                                                              | ✅            | ✅                       |
+| Deep-link `data.url` carried                         | ✅ `/tasks/t-abc`                                               | ✅            | ✅ `/trips/b-1`          |
+| Branded icon resolves                                | ✅                                                              | ✅            | ✅ `/icons/icon-192.png` |
 
 **Tag behaviour — the POC's most expensive trap — proven in the real worker:**
 
@@ -660,9 +660,9 @@ the right one.
 - an EMPTY push (`{}`) falls back to title "Koolee", tag "koolee", url "/"
   without throwing — the "a push with no body is legal" guard works.
 
-**What is NOT proven, and why.** *(Read with §6.2: the agent/admin half of
+**What is NOT proven, and why.** _(Read with §6.2: the agent/admin half of
 this paragraph turned out to be a wrong diagnosis — those sends were never
-real. The customer app and the synthetic-push evidence stand.)* FCM never
+real. The customer app and the synthetic-push evidence stand.)_ FCM never
 delivered to the automation profile: the subscription endpoint is FCM's **preprod** environment
 (`fcm.googleapis.com/preprod/wp/…`, which Chrome for Testing uses), the send
 returned success, and nothing arrived. That is the automation build's GCM
@@ -675,12 +675,12 @@ notification.
 
 ### 3.5 Gates
 
-| Gate | Result |
-|---|---|
-| `turbo typecheck` | 6/6 ✅ |
-| `turbo lint` | 6/6 ✅ |
+| Gate                | Result                                                           |
+| ------------------- | ---------------------------------------------------------------- |
+| `turbo typecheck`   | 6/6 ✅                                                           |
+| `turbo lint`        | 6/6 ✅                                                           |
 | `turbo test` (unit) | core 499 ✅ · web 137 ✅ · admin 27 ✅ · agent 19 ✅ · ui 104 ✅ |
-| `turbo build` | 3/3 ✅ |
+| `turbo build`       | 3/3 ✅                                                           |
 
 Two lint rules bit and both were real: `no-useless-assignment` on the test
 routes' `let userId = null`, and "setState synchronously within an effect can
@@ -710,16 +710,16 @@ that fails silently.
 
 ### 4.2 The table, as built
 
-| Moment | Function | Push to | Tag | Urgency |
-|---|---|---|---|---|
-| verification task assigned (incl. horizon sweep) | `agent-assigned-email` | the assigned agent | `verification-task:<taskId>` — stacks | high |
-| agent assigned | same function | customer | `booking:<id>` + renotify | normal |
-| pickup task assigned / driver selected | `driver-selected-email` | the shift's driver | `pickup-task:<taskId>` — stacks | high |
-| driver selected | same function | customer | `booking:<id>` + renotify | normal |
-| bags sealed / choose driver | `bags-sealed-email` | customer | `booking:<id>` + renotify | normal |
-| delivered to bag drop | `bagdrop-delivered-email` | customer | `booking:<id>` + renotify | normal |
-| exception raised | `exception-ops-alert-email` | every active admin with a subscription | `exception:<id>:<ts>` — stacks | high |
-| driver pool empty | `driver-pool-empty-ops-alert` | same audience | `driver-pool-empty:<id>` + renotify | high |
+| Moment                                           | Function                      | Push to                                | Tag                                   | Urgency |
+| ------------------------------------------------ | ----------------------------- | -------------------------------------- | ------------------------------------- | ------- |
+| verification task assigned (incl. horizon sweep) | `agent-assigned-email`        | the assigned agent                     | `verification-task:<taskId>` — stacks | high    |
+| agent assigned                                   | same function                 | customer                               | `booking:<id>` + renotify             | normal  |
+| pickup task assigned / driver selected           | `driver-selected-email`       | the shift's driver                     | `pickup-task:<taskId>` — stacks       | high    |
+| driver selected                                  | same function                 | customer                               | `booking:<id>` + renotify             | normal  |
+| bags sealed / choose driver                      | `bags-sealed-email`           | customer                               | `booking:<id>` + renotify             | normal  |
+| delivered to bag drop                            | `bagdrop-delivered-email`     | customer                               | `booking:<id>` + renotify             | normal  |
+| exception raised                                 | `exception-ops-alert-email`   | every active admin with a subscription | `exception:<id>:<ts>` — stacks        | high    |
+| driver pool empty                                | `driver-pool-empty-ops-alert` | same audience                          | `driver-pool-empty:<id>` + renotify   | high    |
 
 The horizon sweep needed no wiring of its own: it assigns through
 `assignAgentToBooking`, which emits `booking/agent_assigned` like every other
@@ -779,7 +779,7 @@ Payloads are a few hundred bytes, far under the 4KB limit.
 
 [`jobs/push-moments.integration.test.ts`](../../packages/core/src/jobs/push-moments.integration.test.ts)
 — 14 cases, and deliberately **not** in the `fakeDb` tier. The whole question
-is *who received it*, and `fakeDb` ignores `where` clauses: every audience
+is _who received it_, and `fakeDb` ignores `where` clauses: every audience
 query would return every row, so a passing test would prove nothing. Sending
 an agent's task notification to a customer is exactly the bug this file
 exists to catch.
@@ -805,14 +805,14 @@ those two are always left empty there.
 
 ### 4.6 Gates
 
-| Gate | Result |
-|---|---|
-| `turbo typecheck` | 6/6 ✅ |
-| `turbo lint` | 6/6 ✅ |
-| `turbo test` (unit) | core 499 ✅ · web 137 ✅ · admin 27 ✅ · agent 19 ✅ · ui 104 ✅ |
-| `@koolee/core test:integration` | 286 passed, 3 skipped ✅ (was 272) |
-| `turbo build` | 3/3 ✅ |
-| `pnpm db:status` | 33/33, in sync ✅ |
+| Gate                            | Result                                                           |
+| ------------------------------- | ---------------------------------------------------------------- |
+| `turbo typecheck`               | 6/6 ✅                                                           |
+| `turbo lint`                    | 6/6 ✅                                                           |
+| `turbo test` (unit)             | core 499 ✅ · web 137 ✅ · admin 27 ✅ · agent 19 ✅ · ui 104 ✅ |
+| `@koolee/core test:integration` | 286 passed, 3 skipped ✅ (was 272)                               |
+| `turbo build`                   | 3/3 ✅                                                           |
+| `pnpm db:status`                | 33/33, in sync ✅                                                |
 
 ---
 
@@ -877,19 +877,19 @@ integration suites re-run green.
 
 ### 5.3 Final gates
 
-| Gate | Result |
-|---|---|
-| `turbo typecheck` | **6/6** ✅ |
-| `turbo lint` | **6/6** ✅ |
-| `turbo test` (unit) | core 499 · web 137 · admin 27 · agent 19 · ui 104 — **786** ✅ |
-| `@koolee/core test:integration` | **286 passed**, 3 skipped ✅ (248 at slice start) |
-| `turbo build` | **3/3** ✅ |
-| `pnpm db:status` | **33/33**, in sync, target `127.0.0.1` ✅ |
+| Gate                            | Result                                                         |
+| ------------------------------- | -------------------------------------------------------------- |
+| `turbo typecheck`               | **6/6** ✅                                                     |
+| `turbo lint`                    | **6/6** ✅                                                     |
+| `turbo test` (unit)             | core 499 · web 137 · admin 27 · agent 19 · ui 104 — **786** ✅ |
+| `@koolee/core test:integration` | **286 passed**, 3 skipped ✅ (248 at slice start)              |
+| `turbo build`                   | **3/3** ✅                                                     |
+| `pnpm db:status`                | **33/33**, in sync, target `127.0.0.1` ✅                      |
 
 ### 5.4 Deferred, with reasons
 
 - **The tab-closed delivery matrix in a real browser.** FCM never delivered to
-  the automation profile (Chrome for Testing subscribes to FCM's *preprod*
+  the automation profile (Chrome for Testing subscribes to FCM's _preprod_
   endpoint), so §3.4's table is proven on both sides of that hop and not
   across it. Needs one manual pass in TD's own Chrome — the four-row smoke
   test in the hosted-setup doc.
@@ -941,7 +941,7 @@ targeted: 2, sent: 2, failed: 0}` — and attributed the missing notification to
 FCM's preprod environment not delivering to an automation profile.
 
 **The first half was wrong.** Those counts came from `ConsolePushSender`. The
-FCM *subscription* was real; the *send* was not. The preprod hypothesis was a
+FCM _subscription_ was real; the _send_ was not. The preprod hypothesis was a
 plausible story that happened to fit, and it was wrong. The §3.4 table's
 "Server send accepted" row for agent and admin should be read as **not
 verified** until Phase 6.
@@ -951,16 +951,16 @@ a success count cannot distinguish success from a no-op.
 
 ### 6.3 Fixes
 
-| Change | Why |
-|---|---|
-| `WebPushSender` moved to **`@koolee/core/web-push`** | One implementation, three consumers. Deliberately NOT in the package barrel: `web-push` is Node-only crypto and anything in `src/index.ts` can reach a client bundle. The `web-push` dependency moved to core with it. |
-| **`PushSender.delivers`** (required on the interface) | Makes "a log line is not a delivery" a type-level fact. `ConsolePushSender` = `false`; `WebPushSender` / `RecordingPushSender` = `true`. |
-| `/api/push/test` returns **503 `not_configured`** when `!delivers` | It reports to a HUMAN who is about to be asked whether they saw something. It must refuse rather than pretend. |
-| All three apps resolve a real sender | Every app that sends needs the private key — and each of the three sends its own self-test. |
-| `pnpm push:vapid` writes to **all three** apps | The script created the asymmetry. It is now idempotent: an existing pair found anywhere is reused and distributed, never regenerated. It reports PARTIAL apps by name. |
-| Agent/admin boot gate on half-configured VAPID | Half-configured is precisely the state that caused this. |
-| The card distinguishes `not_configured` / `no_subscription` from "did not see it" | "Nothing was sent" and "something was sent and you missed it" have completely different fixes. Conflating them sends people to System Settings over a missing environment variable. |
-| "Send a test notification" available from `confirmed` too | It used to vanish the moment you answered Yes — so anyone changing an OS switch afterwards had no way to re-check. |
+| Change                                                                            | Why                                                                                                                                                                                                                    |
+| --------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `WebPushSender` moved to **`@koolee/core/web-push`**                              | One implementation, three consumers. Deliberately NOT in the package barrel: `web-push` is Node-only crypto and anything in `src/index.ts` can reach a client bundle. The `web-push` dependency moved to core with it. |
+| **`PushSender.delivers`** (required on the interface)                             | Makes "a log line is not a delivery" a type-level fact. `ConsolePushSender` = `false`; `WebPushSender` / `RecordingPushSender` = `true`.                                                                               |
+| `/api/push/test` returns **503 `not_configured`** when `!delivers`                | It reports to a HUMAN who is about to be asked whether they saw something. It must refuse rather than pretend.                                                                                                         |
+| All three apps resolve a real sender                                              | Every app that sends needs the private key — and each of the three sends its own self-test.                                                                                                                            |
+| `pnpm push:vapid` writes to **all three** apps                                    | The script created the asymmetry. It is now idempotent: an existing pair found anywhere is reused and distributed, never regenerated. It reports PARTIAL apps by name.                                                 |
+| Agent/admin boot gate on half-configured VAPID                                    | Half-configured is precisely the state that caused this.                                                                                                                                                               |
+| The card distinguishes `not_configured` / `no_subscription` from "did not see it" | "Nothing was sent" and "something was sent and you missed it" have completely different fixes. Conflating them sends people to System Settings over a missing environment variable.                                    |
+| "Send a test notification" available from `confirmed` too                         | It used to vanish the moment you answered Yes — so anyone changing an OS switch afterwards had no way to re-check.                                                                                                     |
 
 ### 6.4 Evidence this time — not counts
 
@@ -977,7 +977,7 @@ A count could not distinguish the two states, so the proof does not use one.
    wired.
 3. **A regression test that pins the trap itself**
    (`notifications/push.test.ts`): `ConsolePushSender.delivers === false`
-   *and* it still returns `{ sent: 1, failed: 0 }`. The second assertion
+   _and_ it still returns `{ sent: 1, failed: 0 }`. The second assertion
    deliberately pins the misleading behaviour, so nobody "fixes" the counts
    and assumes the problem is gone — the counts are not where the truth is.
 
@@ -1081,15 +1081,14 @@ three new flag tests, `apps/web/src/env.test.ts`,
 
 ### 7.5 Gates
 
-| Gate | Result |
-|---|---|
-| `turbo typecheck` | **6/6** ✅ |
-| `turbo lint` | **6/6** ✅ |
-| `turbo test` (unit) | core 513 · web 134 · admin 32 · agent 24 · ui 104 — **807** ✅ |
-| `@koolee/core test:integration` | **286 passed**, 3 skipped ✅ |
-| `turbo build` | **3/3** ✅ |
-| `pnpm db:status` | **33/33**, in sync ✅ |
-
+| Gate                            | Result                                                         |
+| ------------------------------- | -------------------------------------------------------------- |
+| `turbo typecheck`               | **6/6** ✅                                                     |
+| `turbo lint`                    | **6/6** ✅                                                     |
+| `turbo test` (unit)             | core 513 · web 134 · admin 32 · agent 24 · ui 104 — **807** ✅ |
+| `@koolee/core test:integration` | **286 passed**, 3 skipped ✅                                   |
+| `turbo build`                   | **3/3** ✅                                                     |
+| `pnpm db:status`                | **33/33**, in sync ✅                                          |
 
 ---
 
@@ -1102,12 +1101,12 @@ TD, after the Phase 6 fix: still no notifications locally.
 Checked rather than guessed, against the live dev server, signed in as
 `agent@koolee.local`:
 
-| Question | Answer |
-|---|---|
-| Kill switch live in the server process? | **yes** — the enable card renders |
-| Real sender wired? | **yes** — `/api/push/test` returns 200, and it returns 503 unless `pushSender.delivers` |
-| VAPID keys distributed? | **yes** — all four values in all three `.env.local` files |
-| What the send reports | `{ targeted: 4, sent: 4, failed: 0, pruned: 0 }` |
+| Question                                | Answer                                                                                  |
+| --------------------------------------- | --------------------------------------------------------------------------------------- |
+| Kill switch live in the server process? | **yes** — the enable card renders                                                       |
+| Real sender wired?                      | **yes** — `/api/push/test` returns 200, and it returns 503 unless `pushSender.delivers` |
+| VAPID keys distributed?                 | **yes** — all four values in all three `.env.local` files                               |
+| What the send reports                   | `{ targeted: 4, sent: 4, failed: 0, pruned: 0 }`                                        |
 
 Four live subscriptions on that user, all accepted by FCM, none rejected.
 A key mismatch would have been `403` and a dead registration `410`, so the
@@ -1154,7 +1153,6 @@ on the page.
 typecheck 6/6 · lint 6/6 · unit 807 · core integration 286 (3 skipped) ·
 builds 3/3.
 
-
 ---
 
 ## Phase 9 — Local delivery: OPEN, and how to resume it
@@ -1165,15 +1163,15 @@ later costs minutes rather than an afternoon.
 
 ### 9.1 What is known
 
-| Fact | How it was established |
-|---|---|
-| macOS notifications work on TD's machine | A native `osascript` notification appeared |
-| The kill switch is live in the running server | The enable card renders |
-| A real `WebPushSender` is wired | `/api/push/test` returns 200; it returns 503 unless `pushSender.delivers` |
-| The keys match the subscriptions | FCM accepted all four — a mismatch is `403`, a dead registration `410` |
-| The send is a genuine network call | A bogus endpoint signed with the same keys returns a real `410` from FCM |
-| The service worker raises and reports a push correctly | Verified headed, via `ServiceWorker.deliverPushMessage` |
-| **No notification arrives on TD's browser**, before or after a restart | Observed |
+| Fact                                                                   | How it was established                                                    |
+| ---------------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| macOS notifications work on TD's machine                               | A native `osascript` notification appeared                                |
+| The kill switch is live in the running server                          | The enable card renders                                                   |
+| A real `WebPushSender` is wired                                        | `/api/push/test` returns 200; it returns 503 unless `pushSender.delivers` |
+| The keys match the subscriptions                                       | FCM accepted all four — a mismatch is `403`, a dead registration `410`    |
+| The send is a genuine network call                                     | A bogus endpoint signed with the same keys returns a real `410` from FCM  |
+| The service worker raises and reports a push correctly                 | Verified headed, via `ServiceWorker.deliverPushMessage`                   |
+| **No notification arrives on TD's browser**, before or after a restart | Observed                                                                  |
 
 So: everything on either side of the FCM → browser hop is proven, and that hop
 is the only unproven link. The OS is not globally suppressing.
@@ -1194,7 +1192,7 @@ diagnosis, and one click produces it.
 2. Account → **Send a test notification**, and read which branch the card
    shows. That splits the problem in half:
    - **"reached this browser"** ⇒ delivery works; it is System Settings →
-     Notifications → *browser* → Allow (quit the browser fully and reopen),
+     Notifications → _browser_ → Allow (quit the browser fully and reopen),
      Focus/DND, or an alert style of "None". Check Notification Centre first —
      if it is sitting there, only the banner was suppressed.
    - **"never reached this browser"** ⇒ a delivery problem. Go to step 3.

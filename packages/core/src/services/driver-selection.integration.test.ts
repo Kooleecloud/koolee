@@ -8,6 +8,7 @@ import postgres from "postgres";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import {
   agentZones,
+  airlineCutoffs,
   airports,
   bookings,
   createDb,
@@ -29,9 +30,11 @@ import { TEST_AIRPORTS } from "../test-utils/airport-fixtures";
 import { pickupSnapshotOf } from "../test-utils/booking-fixtures";
 import { ensureAddress } from "./customers";
 import {
+  adminUnassignPickup,
   getSelectedDriver,
   POSITION_FRESH_MS,
   listCandidateDrivers,
+  listReassignOptions,
   recordDriverPosition,
   selectDriver,
 } from "./driver-selection";
@@ -56,7 +59,9 @@ const TEST_DATABASE_URL = process.env.TEST_DATABASE_URL;
 const describeIntegration = TEST_DATABASE_URL ? describe : describe.skip;
 
 if (!TEST_DATABASE_URL) {
-  console.log("[integration] TEST_DATABASE_URL not set — skipping driver-selection tests.");
+  console.log(
+    "[integration] TEST_DATABASE_URL not set — skipping driver-selection tests.",
+  );
 }
 
 const migrationsFolder = path.join(
@@ -111,10 +116,36 @@ describeIntegration("driver selection (integration)", () => {
       DELETE FROM addresses;
       DELETE FROM users;
       DELETE FROM airports;
+      DELETE FROM airline_cutoffs;
       SET session_replication_role = DEFAULT;
     `);
 
     await db.insert(airports).values(TEST_AIRPORTS.JFK);
+
+    /*
+     * THE CUTOFF THIS FILE'S TWO "bag drop has closed" TESTS DEPEND ON.
+     *
+     * It was never inserted here. `airline_cutoffs` is not in the wipe list
+     * above either, so those tests passed only on a database where some OTHER
+     * suite had already inserted a DL/JFK row and left it behind —
+     * `agent-visit.integration.test.ts` seeds exactly this one in its
+     * `beforeAll`. Run this file first, or on a genuinely fresh database, and
+     * `resolveCutoffMinutes` finds nothing, `phaseOf` never reaches
+     * `missed_cutoff`, and `listCandidateDrivers` cheerfully offers a driver
+     * for a flight whose bag drop has closed.
+     *
+     * Found by pointing the tier at a brand-new container — which is exactly
+     * what CI does on every run, so this would have gone red on the first one
+     * for a reason that has nothing to do with any feature. The table is
+     * wiped and re-seeded here now, so the file is self-sufficient.
+     */
+    await db.insert(airlineCutoffs).values({
+      airlineIata: "DL",
+      airportCode: "JFK",
+      scope: "domestic",
+      cutoffMinutesBeforeDeparture: 45,
+      effectiveFrom: new Date("2024-01-01T00:00:00Z"),
+    });
 
     const [customer] = await db
       .insert(users)
@@ -159,8 +190,16 @@ describeIntegration("driver selection (integration)", () => {
     return userId;
   }
 
-  async function makeTruck(name: string, bagCapacity: number, active = true) {
-    const [row] = await db.insert(trucks).values({ name, bagCapacity, active }).returning();
+  async function makeTruck(
+    name: string,
+    bagCapacity: number,
+    active = true,
+    reservedSpaces = 0,
+  ) {
+    const [row] = await db
+      .insert(trucks)
+      .values({ name, bagCapacity, active, reservedSpaces })
+      .returning();
     return row!;
   }
 
@@ -459,7 +498,10 @@ describeIntegration("driver selection (integration)", () => {
     expect(again.releasedShiftId).toBe(shiftA.shift.id);
 
     const task = await taskFor(booking.id);
-    expect(task).toMatchObject({ driverShiftId: shiftB.shift.id, assigneeUserId: second });
+    expect(task).toMatchObject({
+      driverShiftId: shiftB.shift.id,
+      assigneeUserId: second,
+    });
 
     const events = await eventsFor(booking.id);
     expect(
@@ -531,8 +573,14 @@ describeIntegration("driver selection (integration)", () => {
   it("two concurrent selections for the last space: exactly one wins", async () => {
     const verifier = await makeDriver("Verifier", { canDrive: false });
     const driver = await makeDriver("Nina Petrov");
-    // Three spaces, two customers wanting two bags each. Only one can fit.
-    const truck = await makeTruck("Van A", 3);
+    // Five spaces with TWO HELD BACK, so three are bookable — and two
+    // customers wanting two bags each. Only one can fit, and the reserve is
+    // what makes that true: on raw capacity both would have fitted.
+    //
+    // The race is what this proves. `bookableSpaces` is applied inside the
+    // transaction, under the advisory lock, so the loser is refused by the
+    // recount rather than by a filter that ran before either click.
+    const truck = await makeTruck("Van A", 5, true, 2);
     const shift = await startShift(config, { staffUserId: driver, truckId: truck.id });
 
     const one = await sealedBooking(2, verifier);
@@ -564,6 +612,100 @@ describeIntegration("driver selection (integration)", () => {
       .from(pickupTasks)
       .where(eq(pickupTasks.driverShiftId, shift.shift.id));
     expect(onShift).toHaveLength(1);
+  });
+
+  /* --- the reserve -------------------------------------------------- */
+
+  /**
+   * `reserved_spaces` HELD BACK FROM BOOKING CAPACITY.
+   *
+   * The column existed since Tier 4, the admin form edited it, and it was
+   * labelled "not yet enforced" because every capacity check read
+   * `bag_capacity` raw. An operator holding two spaces back for a wheelchair
+   * or a fragile case had a van that kept accepting bookings into them.
+   *
+   * Four readers share one formula now, and all four are exercised here — the
+   * shortlist filter, the candidate it renders, the transactional recheck
+   * under the advisory lock, and the console's reassign picker. A reserve
+   * honoured in three of four is a race no unit test could see.
+   */
+  describe("reserved spaces", () => {
+    it("keeps a driver off the shortlist when the reserve leaves too little", async () => {
+      const verifier = await makeDriver("Verifier", { canDrive: false });
+      const driver = await makeDriver("Nina Petrov", { zip: pickupAddress.zip });
+      // Ten spaces, eight held back: two bookable, and this booking is three.
+      const truck = await makeTruck("Van A", 10, true, 8);
+      await startShift(config, { staffUserId: driver, truckId: truck.id });
+
+      const { booking } = await sealedBooking(3, verifier);
+      const candidates = await listCandidateDrivers(config, { bookingId: booking.id });
+      expect(candidates).toHaveLength(0);
+    });
+
+    it("reports availableCapacity net of the reserve, not the raw capacity", async () => {
+      const verifier = await makeDriver("Verifier", { canDrive: false });
+      const driver = await makeDriver("Nina Petrov", { zip: pickupAddress.zip });
+      const truck = await makeTruck("Van A", 10, true, 4);
+      await startShift(config, { staffUserId: driver, truckId: truck.id });
+
+      const { booking } = await sealedBooking(2, verifier);
+      const [candidate] = await listCandidateDrivers(config, { bookingId: booking.id });
+      expect(candidate!.bagCapacity).toBe(10);
+      expect(candidate!.reservedSpaces).toBe(4);
+      // Six bookable, none used yet.
+      expect(candidate!.availableCapacity).toBe(6);
+    });
+
+    it("refuses a selection the reserve does not leave room for", async () => {
+      const verifier = await makeDriver("Verifier", { canDrive: false });
+      const driver = await makeDriver("Nina Petrov", { zip: pickupAddress.zip });
+      const truck = await makeTruck("Van A", 10, true, 0);
+      const shift = await startShift(config, { staffUserId: driver, truckId: truck.id });
+
+      const { booking } = await sealedBooking(3, verifier);
+      // The shortlist said yes; ops raises the reserve before the click lands.
+      // This is the recheck under the lock, and it is the one that matters.
+      await db.update(trucks).set({ reservedSpaces: 8 }).where(eq(trucks.id, truck.id));
+
+      await expect(
+        selectDriver(config, {
+          bookingId: booking.id,
+          userId: customerId,
+          shiftId: shift.shift.id,
+        }),
+      ).rejects.toThrow(/filled up/);
+    });
+
+    it("marks a reserved-out truck as having no room in the reassign picker", async () => {
+      const verifier = await makeDriver("Verifier", { canDrive: false });
+      const driver = await makeDriver("Nina Petrov", { zip: pickupAddress.zip });
+      const truck = await makeTruck("Van A", 10, true, 9);
+      await startShift(config, { staffUserId: driver, truckId: truck.id });
+
+      const { booking } = await sealedBooking(3, verifier);
+      const [option] = await listReassignOptions(db, booking.id);
+      expect(option!.reservedSpaces).toBe(9);
+      expect(option!.hasRoom).toBe(false);
+    });
+
+    it("still offers a driver when the reserve leaves exactly enough", async () => {
+      const verifier = await makeDriver("Verifier", { canDrive: false });
+      const driver = await makeDriver("Nina Petrov", { zip: pickupAddress.zip });
+      // Boundary: 10 − 7 = 3 bookable, and the booking is exactly 3.
+      const truck = await makeTruck("Van A", 10, true, 7);
+      const shift = await startShift(config, { staffUserId: driver, truckId: truck.id });
+
+      const { booking } = await sealedBooking(3, verifier);
+      expect(await listCandidateDrivers(config, { bookingId: booking.id })).toHaveLength(
+        1,
+      );
+      const result = await selectDriver(config, {
+        bookingId: booking.id,
+        userId: customerId,
+        shiftId: shift.shift.id,
+      });
+      expect(result.candidate.availableCapacity).toBe(0);
+    });
   });
 
   /* --- reads -------------------------------------------------------- */
@@ -650,5 +792,154 @@ describeIntegration("driver selection (integration)", () => {
     await expect(
       recordDriverPosition(config, { staffUserId: driver, ...MIDTOWN }),
     ).rejects.toThrow(/Not on shift/);
+  });
+
+  /* --- removing a driver -------------------------------------------- */
+
+  /**
+   * TAKING THE DRIVER OFF, rather than moving the pickup to another one.
+   *
+   * The console could only ever MOVE a pickup between shifts, so an admin
+   * undoing an assignment — a driver called in sick, a van broke down, the
+   * customer picked somebody who then clocked off — had to park the booking
+   * on some OTHER driver who was not going to do it either. That is a lie
+   * told to the dispatch board, and the board is what decides who gets
+   * chased. An unassigned sealed booking is not a gap in the record; it is
+   * exactly what the at-risk flag exists to surface.
+   */
+  describe("adminUnassignPickup", () => {
+    async function assignedBooking() {
+      const verifier = await makeDriver("Verifier", { canDrive: false });
+      const driver = await makeDriver("Nina Petrov", { zip: pickupAddress.zip });
+      const truck = await makeTruck("Van A", 30);
+      const shift = await startShift(config, { staffUserId: driver, truckId: truck.id });
+      const { booking, task } = await sealedBooking(2, verifier);
+      await selectDriver(config, {
+        bookingId: booking.id,
+        userId: customerId,
+        shiftId: shift.shift.id,
+      });
+      return { booking, task, shift, driver };
+    }
+
+    it("clears the shift, the assignee and the start, and returns the task to pending", async () => {
+      const { booking, shift } = await assignedBooking();
+
+      const result = await adminUnassignPickup(config, {
+        bookingId: booking.id,
+        adminUserId: customerId,
+      });
+      expect(result.releasedShiftId).toBe(shift.shift.id);
+
+      const [task] = await db
+        .select()
+        .from(pickupTasks)
+        .where(eq(pickupTasks.bookingId, booking.id));
+      expect(task!.driverShiftId).toBeNull();
+      expect(task!.assigneeUserId).toBeNull();
+      expect(task!.status).toBe("pending");
+      // A cleared run has not started. A stale `started_at` would make the
+      // customer's page claim somebody is on the way who is not.
+      expect(task!.startedAt).toBeNull();
+    });
+
+    it("writes the removal to the custody trail, with the reason when given", async () => {
+      const { booking } = await assignedBooking();
+      await adminUnassignPickup(config, {
+        bookingId: booking.id,
+        adminUserId: customerId,
+        reason: "Called in sick",
+      });
+
+      const events = await db
+        .select()
+        .from(custodyEvents)
+        .where(eq(custodyEvents.bookingId, booking.id));
+      const removal = events.find((e) => e.eventType === PICKUP_EVENT_TYPES.unassigned);
+      expect(removal).toBeDefined();
+      expect(removal!.actorRole).toBe("admin");
+      expect((removal!.metadata as Record<string, unknown>)["reason"]).toBe(
+        "Called in sick",
+      );
+    });
+
+    it("puts the booking back on the customer's shortlist", async () => {
+      const { booking } = await assignedBooking();
+      await adminUnassignPickup(config, {
+        bookingId: booking.id,
+        adminUserId: customerId,
+      });
+      // The driver is free again and the customer can choose — which is the
+      // whole point of releasing rather than parking it on somebody else.
+      const candidates = await listCandidateDrivers(config, { bookingId: booking.id });
+      expect(candidates.length).toBeGreaterThan(0);
+    });
+
+    /**
+     * THE REFUSAL TD CHOSE. Once the bags are in the van, re-listing the
+     * booking for another driver to collect from a door they have left would
+     * be a lie of a different kind. `adminForceEndShift` handles that case by
+     * raising an EXCEPTION, which pages ops; this names that route rather
+     * than quietly doing something exceptional under a routine button.
+     */
+    it("refuses once the bags are in the van, and names force-end instead", async () => {
+      const { booking } = await assignedBooking();
+      await db
+        .update(bookings)
+        .set({ status: "in_transit" })
+        .where(eq(bookings.id, booking.id));
+
+      await expect(
+        adminUnassignPickup(config, {
+          bookingId: booking.id,
+          adminUserId: customerId,
+        }),
+      ).rejects.toThrow(/already in this driver's van/i);
+      await expect(
+        adminUnassignPickup(config, {
+          bookingId: booking.id,
+          adminUserId: customerId,
+        }),
+      ).rejects.toThrow(/force-end/i);
+    });
+
+    /**
+     * "Nothing to remove" means BOTH halves are already empty.
+     *
+     * A task can carry an `assignee_user_id` with no `driver_shift_id` —
+     * that is exactly the state `auto-assign` leaves it in before the
+     * customer has chosen a driver — and removing that assignee is a real
+     * act, so it must not be refused. Only a task that is empty on both
+     * counts has nothing to give up. (This test asserted the wrong thing
+     * first: it used a fresh sealed booking, whose fixture DOES set an
+     * assignee, and the service correctly unassigned it.)
+     */
+    it("removes a lone assignee even when no shift owns the task", async () => {
+      const verifier = await makeDriver("Verifier", { canDrive: false });
+      const { booking } = await sealedBooking(2, verifier);
+
+      const result = await adminUnassignPickup(config, {
+        bookingId: booking.id,
+        adminUserId: customerId,
+      });
+      expect(result.releasedShiftId).toBeNull();
+      expect((await taskFor(booking.id))!.assigneeUserId).toBeNull();
+    });
+
+    it("refuses when nobody is assigned at all — there is nothing to remove", async () => {
+      const verifier = await makeDriver("Verifier", { canDrive: false });
+      const { booking } = await sealedBooking(2, verifier);
+      await db
+        .update(pickupTasks)
+        .set({ assigneeUserId: null, driverShiftId: null, status: "pending" })
+        .where(eq(pickupTasks.bookingId, booking.id));
+
+      await expect(
+        adminUnassignPickup(config, {
+          bookingId: booking.id,
+          adminUserId: customerId,
+        }),
+      ).rejects.toThrow(/nothing to remove/i);
+    });
   });
 });

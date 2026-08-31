@@ -238,7 +238,10 @@ export async function deleteAnonymousCustomer(
         eq(users.id, authUserId),
         eq(users.isAnonymous, true),
         notExists(
-          db.select({ one: bookings.id }).from(bookings).where(eq(bookings.userId, users.id)),
+          db
+            .select({ one: bookings.id })
+            .from(bookings)
+            .where(eq(bookings.userId, users.id)),
         ),
       ),
     )
@@ -354,7 +357,12 @@ export async function resolveAddressPoint(
   input: { lat?: number | null; lng?: number | null },
 ): Promise<{ lat: number | null; lng: number | null }> {
   // Both halves or neither: half a coordinate is not a point.
-  if (input.lat !== null && input.lat !== undefined && input.lng !== null && input.lng !== undefined) {
+  if (
+    input.lat !== null &&
+    input.lat !== undefined &&
+    input.lng !== null &&
+    input.lng !== undefined
+  ) {
     return { lat: input.lat, lng: input.lng };
   }
 

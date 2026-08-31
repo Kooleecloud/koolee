@@ -6,13 +6,13 @@ Symptom-first. Every failure mode below was actually hit while building this POC
 
 The demo page's event log distinguishes the two things that look identical from the outside:
 
-| Log line | Means |
-|---|---|
-| `Push sent to N device(s)` | The **server** got a `201` from the push service. Accepted, **not** delivered. |
-| `SW received push → "..."` | The **service worker in your browser** received it and `showNotification()` resolved. |
-| *nothing, after "Local only"* | Expected. That button skips the `push` handler, so it never broadcasts. |
+| Log line                      | Means                                                                                 |
+| ----------------------------- | ------------------------------------------------------------------------------------- |
+| `Push sent to N device(s)`    | The **server** got a `201` from the push service. Accepted, **not** delivered.        |
+| `SW received push → "..."`    | The **service worker in your browser** received it and `showNotification()` resolved. |
+| _nothing, after "Local only"_ | Expected. That button skips the `push` handler, so it never broadcasts.               |
 
-That second line is the fork in almost every investigation. It appears *after* `showNotification()`
+That second line is the fork in almost every investigation. It appears _after_ `showNotification()`
 resolves, so if you see it and no notification, the browser did its job and the OS dropped it.
 
 ## Nothing appears at all
@@ -87,7 +87,7 @@ hard-reload (`Cmd+Shift+R`).
 ## "It works for me but not for the user"
 
 Check you are both in the **same browser instance**. This genuinely happened during development: an
-automated browser (Playwright) launches a *separate* Chrome with its own temp profile at
+automated browser (Playwright) launches a _separate_ Chrome with its own temp profile at
 `~/Library/Caches/ms-playwright-mcp/`. It subscribed, received every push correctly, and reported
 success — for a browser nobody was looking at.
 
@@ -147,13 +147,13 @@ way to rule network-path problems in or out.
 ## Safari and iOS
 
 - **Safari on macOS** is unreliable on `localhost`. Use a tunnel.
-- **iOS** requires a real HTTPS origin *and* the site installed to the Home Screen:
+- **iOS** requires a real HTTPS origin _and_ the site installed to the Home Screen:
 
 ```bash
 cloudflared tunnel --url http://localhost:3100
 ```
 
-Open the tunnel URL in Safari → Share → **Add to Home Screen** → open from the icon → *then* enable.
+Open the tunnel URL in Safari → Share → **Add to Home Screen** → open from the icon → _then_ enable.
 Push does not work in a normal iOS Safari tab. The diagnostics panel reports this.
 
 `next dev --experimental-https` is not a substitute — a self-signed cert needs a trust profile
@@ -177,14 +177,14 @@ yet, or the last subscription was pruned. It is the expected response on a fresh
 
 Per-device failures come back in `errors` with their status code:
 
-| Code | Meaning |
-|---|---|
-| `201` / `200` | Accepted by the push service — **not** proof of delivery |
-| `400` | Malformed request, usually a bad VAPID JWT |
+| Code          | Meaning                                                                        |
+| ------------- | ------------------------------------------------------------------------------ |
+| `201` / `200` | Accepted by the push service — **not** proof of delivery                       |
+| `400`         | Malformed request, usually a bad VAPID JWT                                     |
 | `401` / `403` | VAPID signature rejected — keys mismatched, or `VAPID_SUBJECT` missing/invalid |
-| `404` / `410` | Subscription gone. Pruned automatically. |
-| `413` | Payload too large (~4KB limit) |
-| `429` | Rate limited by the push service |
+| `404` / `410` | Subscription gone. Pruned automatically.                                       |
+| `413`         | Payload too large (~4KB limit)                                                 |
+| `429`         | Rate limited by the push service                                               |
 
 ## Two rules worth remembering
 

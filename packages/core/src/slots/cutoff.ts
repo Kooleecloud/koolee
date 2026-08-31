@@ -378,19 +378,13 @@ export function airportLocalDateTime(local: string, tz: string): Date {
  * edge of `airportLocalDay`, for ops input ("block Aug 12, 2 PM at JFK").
  * DST-correct because TZDate owns the offset lookup.
  */
-export function airportLocalInstant(
-  day: string,
-  hour: number,
-  tz: string,
-): Date {
+export function airportLocalInstant(day: string, hour: number, tz: string): Date {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(day);
   if (!match || !Number.isInteger(hour) || hour < 0 || hour > 23) {
     throw new RangeError(`Invalid airport-local day/hour: ${day} ${hour}`);
   }
   const [, year, month, dayOfMonth] = match.map(Number);
-  return new Date(
-    new TZDate(year!, month! - 1, dayOfMonth!, hour, 0, 0, tz).getTime(),
-  );
+  return new Date(new TZDate(year!, month! - 1, dayOfMonth!, hour, 0, 0, tz).getTime());
 }
 
 /**

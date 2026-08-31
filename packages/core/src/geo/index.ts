@@ -1,9 +1,4 @@
-export {
-  formatMiles,
-  haversineKm,
-  toCoordinates,
-  type Coordinates,
-} from "./coordinates";
+export { formatMiles, haversineKm, toCoordinates, type Coordinates } from "./coordinates";
 export {
   FALLBACK_DISTANCE_KM,
   PRICING_ROAD_FACTOR,

@@ -45,7 +45,6 @@ const supabaseApiUrl = z
   .optional()
   .catch(undefined);
 
-
 const schema = z.object({
   NODE_ENV: z
     .enum(["development", "test", "production"])
@@ -136,7 +135,6 @@ const schema = z.object({
    * domain's DKIM/SPF records are in place (see the manual-setup doc).
    */
   RESEND_FROM: z.string().default("Koolee <onboarding@resend.dev>"),
-
 
   /**
    * Absolute origins of the two STAFF apps.
@@ -438,13 +436,17 @@ export function assertProductionSecurityConfig(): void {
     missing.push("NEXT_PUBLIC_TURNSTILE_SITE_KEY (CAPTCHA silently off without it)");
   }
   if (!optionalEnv("SUPABASE_SERVICE_ROLE_KEY")) {
-    missing.push("SUPABASE_SERVICE_ROLE_KEY (orphaned auth users never deleted without it)");
+    missing.push(
+      "SUPABASE_SERVICE_ROLE_KEY (orphaned auth users never deleted without it)",
+    );
   }
   if (!optionalEnv("DATABASE_URL")) {
     missing.push("DATABASE_URL (OTP throttle and claim reconciliation off without it)");
   }
   if (env.AUTH_SCHEMA_AVAILABLE === "false") {
-    missing.push('AUTH_SCHEMA_AVAILABLE="false" (claim reconciliation explicitly disabled)');
+    missing.push(
+      'AUTH_SCHEMA_AVAILABLE="false" (claim reconciliation explicitly disabled)',
+    );
   }
   if (missing.length > 0) {
     throw new Error(
@@ -460,7 +462,12 @@ export function assertProductionSecurityConfig(): void {
  * disabled (`comingSoonClosed` in actions/auth.ts), so the funnel's auth is
  * inert and none of the guarded controls can fail open.
  */
-if (typeof window === "undefined" && isProd && env.NEXT_PUBLIC_SUPABASE_URL && !isComingSoon()) {
+if (
+  typeof window === "undefined" &&
+  isProd &&
+  env.NEXT_PUBLIC_SUPABASE_URL &&
+  !isComingSoon()
+) {
   assertProductionSecurityConfig();
 }
 

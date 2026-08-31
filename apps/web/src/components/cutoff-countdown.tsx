@@ -2,10 +2,7 @@
 
 import { useEffect, useState } from "react";
 
-import {
-  CUTOFF_HORIZON_MS,
-  formatCutoffDistance,
-} from "@/lib/cutoff-horizon";
+import { CUTOFF_HORIZON_MS, formatCutoffDistance } from "@/lib/cutoff-horizon";
 
 /**
  * Counts down to the airline's bag-drop cutoff.

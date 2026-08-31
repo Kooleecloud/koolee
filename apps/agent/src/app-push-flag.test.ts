@@ -45,7 +45,7 @@ describe("push kill switch — default OFF", () => {
     expect(await flagIs("false")).toBe(false);
   });
 
-  it("is OFF for anything that is not exactly \"true\"", async () => {
+  it('is OFF for anything that is not exactly "true"', async () => {
     // A typo must fail CLOSED. "yes"/"1"/"TRUE" enabling a silent channel by
     // accident is the outcome this default exists to prevent.
     expect(await flagIs("yes")).toBe(false);
@@ -53,7 +53,7 @@ describe("push kill switch — default OFF", () => {
     expect(await flagIs("TRUE")).toBe(false);
   });
 
-  it("is ON only for exactly \"true\"", async () => {
+  it('is ON only for exactly "true"', async () => {
     expect(await flagIs("true")).toBe(true);
   });
 

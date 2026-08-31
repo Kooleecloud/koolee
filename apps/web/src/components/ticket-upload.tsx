@@ -4,7 +4,15 @@ import * as React from "react";
 import { useRouter } from "next/navigation";
 import { track } from "@vercel/analytics";
 import { Camera, FileUp, Loader2 } from "lucide-react";
-import { Button, Card, CardContent, CardDescription, CardHeader, CardTitle, FormMessage } from "@koolee/ui";
+import {
+  Button,
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+  FormMessage,
+} from "@koolee/ui";
 import { MAX_TICKET_UPLOAD_BYTES, TICKET_UPLOAD_MIME_TYPES } from "@koolee/core/uploads";
 
 import {

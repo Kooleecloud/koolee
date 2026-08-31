@@ -17,13 +17,13 @@ not exist, it says **does not exist** rather than inferring.
 
 Five facts change how Tier 4 should be shaped. Details and evidence follow in the sections.
 
-| # | Fact | Where |
-|---|---|---|
-| 1 | `drivers` and `routes` are **complete dead scaffolding** — tables exist, zero rows, **zero read or write call sites** anywhere outside `schema/` and `relations.ts`. So is the `agents` table. | §1.1, §1.2, §1.5 |
-| 2 | `pickup_tasks` rows **are** created (by the on-paid auto-assign, same assignee as verification) but **nothing ever advances one**. All 14 local rows are `assigned`, 0 started, 0 completed. | §1.3 |
-| 3 | The booking lifecycle **stops dead at `verified_sealed`**. `mark_awaiting_pickup`, `start_transit`, `deliver_to_bagdrop` and `complete` have **no production caller** — tests only. The only way past `verified_sealed` today is an admin manual override. | §4.3 |
-| 4 | **No coordinates exist anywhere.** `addresses.lat/lng` are 0/8 populated, the funnel never writes them, and `airports` has **no lat/lng column at all**. A haversine ETA has neither endpoint. | §3 |
-| 5 | There is **no `FOR UPDATE` in the codebase**. The house concurrency style is (a) unique index + catch `23505`, (b) compare-and-swap `WHERE status = <from>`, (c) `pg_advisory_xact_lock`. | §6.3 |
+| #   | Fact                                                                                                                                                                                                                                                       | Where            |
+| --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------- |
+| 1   | `drivers` and `routes` are **complete dead scaffolding** — tables exist, zero rows, **zero read or write call sites** anywhere outside `schema/` and `relations.ts`. So is the `agents` table.                                                             | §1.1, §1.2, §1.5 |
+| 2   | `pickup_tasks` rows **are** created (by the on-paid auto-assign, same assignee as verification) but **nothing ever advances one**. All 14 local rows are `assigned`, 0 started, 0 completed.                                                               | §1.3             |
+| 3   | The booking lifecycle **stops dead at `verified_sealed`**. `mark_awaiting_pickup`, `start_transit`, `deliver_to_bagdrop` and `complete` have **no production caller** — tests only. The only way past `verified_sealed` today is an admin manual override. | §4.3             |
+| 4   | **No coordinates exist anywhere.** `addresses.lat/lng` are 0/8 populated, the funnel never writes them, and `airports` has **no lat/lng column at all**. A haversine ETA has neither endpoint.                                                             | §3               |
+| 5   | There is **no `FOR UPDATE` in the codebase**. The house concurrency style is (a) unique index + catch `23505`, (b) compare-and-swap `WHERE status = <from>`, (c) `pg_advisory_xact_lock`.                                                                  | §6.3             |
 
 ---
 
@@ -33,18 +33,18 @@ Five facts change how Tier 4 should be shaped. Details and evidence follow in th
 
 Schema: `packages/db/src/schema/identity.ts:97-118`.
 
-| Column | Type | Null | Notes |
-|---|---|---|---|
-| `id` | uuid | NO | PK (`primaryId()`) |
-| `user_id` | uuid | NO | FK → `users.id` **ON DELETE RESTRICT** |
-| `active` | boolean | NO | default `true` |
-| `phone` | varchar(20) | YES | |
-| `vehicle_make` | text | YES | |
-| `vehicle_model` | text | YES | |
-| `vehicle_color` | text | YES | |
-| `vehicle_plate` | varchar(16) | YES | |
-| `vehicle_capacity_bags` | double precision | YES | comment: "How many bags this vehicle can carry in one run" |
-| `created_at` | timestamptz | NO | |
+| Column                  | Type             | Null | Notes                                                      |
+| ----------------------- | ---------------- | ---- | ---------------------------------------------------------- |
+| `id`                    | uuid             | NO   | PK (`primaryId()`)                                         |
+| `user_id`               | uuid             | NO   | FK → `users.id` **ON DELETE RESTRICT**                     |
+| `active`                | boolean          | NO   | default `true`                                             |
+| `phone`                 | varchar(20)      | YES  |                                                            |
+| `vehicle_make`          | text             | YES  |                                                            |
+| `vehicle_model`         | text             | YES  |                                                            |
+| `vehicle_color`         | text             | YES  |                                                            |
+| `vehicle_plate`         | varchar(16)      | YES  |                                                            |
+| `vehicle_capacity_bags` | double precision | YES  | comment: "How many bags this vehicle can carry in one run" |
+| `created_at`            | timestamptz      | NO   |                                                            |
 
 Verified against the live local DB (`information_schema.columns`) — matches the Drizzle
 definition exactly.
@@ -55,9 +55,9 @@ Indexes (live): `drivers_pkey` (id), `drivers_user_id_key` UNIQUE (user_id),
 **FKs pointing at `drivers`** — exactly one, confirmed by
 `information_schema.referential_constraints`:
 
-| Referencing table | Column | Constraint | Delete rule |
-|---|---|---|---|
-| `routes` | `driver_id` | `routes_driver_id_drivers_id_fk` | RESTRICT |
+| Referencing table | Column      | Constraint                       | Delete rule |
+| ----------------- | ----------- | -------------------------------- | ----------- |
+| `routes`          | `driver_id` | `routes_driver_id_drivers_id_fk` | RESTRICT    |
 
 **Read/write call sites: none.** Repo-wide grep over `apps/` + `packages/` (excluding
 `node_modules`, `.next`, `drizzle/meta`) finds `drivers` only in:
@@ -91,7 +91,7 @@ cannot be associated with a booking at all.
 
 Schema: `packages/db/src/schema/tasks.ts:50-75`. Structurally identical to
 `verification_tasks` (`tasks.ts:19-47`): `id`, `booking_id` (FK → bookings, **CASCADE**),
-`assignee_user_id` (FK → **`users.id`**, SET NULL — *not* `staff_members`, not `drivers`),
+`assignee_user_id` (FK → **`users.id`**, SET NULL — _not_ `staff_members`, not `drivers`),
 `status` (`task_status`: `pending | assigned | in_progress | done | failed`,
 `enums.ts:32-39`), `scheduled_start`, `scheduled_end`, `started_at`, `completed_at`,
 `notes`, `created_at`, `updated_at`.
@@ -109,10 +109,10 @@ inside `assignAgentToBooking`'s transaction:
 ```ts
 await tx.insert(pickupTasks).values({
   bookingId: booking.id,
-  assigneeUserId: input.agentUserId,   // the SAME user as the verification task
+  assigneeUserId: input.agentUserId, // the SAME user as the verification task
   status: "assigned",
-  scheduledStart,                      // booking.pickupWindowStart ?? null
-  scheduledEnd,                        // booking.pickupWindowEnd   ?? null
+  scheduledStart, // booking.pickupWindowStart ?? null
+  scheduledEnd, // booking.pickupWindowEnd   ?? null
 });
 ```
 
@@ -141,14 +141,14 @@ closes the **verification** task (`agent-visit.ts:530-533`) and moves the bookin
 
 **Who READs it:**
 
-| Reader | Location | What for |
-|---|---|---|
-| `getAssignedTask` | `packages/core/src/services/tasks.ts:41-47` | agent app task detail, assignee-scoped |
-| `listAssignedTasks` | `tasks.ts:152-159` | agent app queue (joined to booking + airport + address) |
-| `agentHasTaskForBooking` | `packages/core/src/services/bookings.ts:117-124` | the agent authorization lookup |
-| `listAgentBookingIds` | `bookings.ts:153,157` | list scoping |
-| `loadFor` (auto-assign load) | `packages/core/src/services/auto-assign.ts:119,121` | counts pickup tasks as agent load |
-| `listAgentWorkload` | `dispatch.ts:600,616` | admin workload strip |
+| Reader                       | Location                                            | What for                                                |
+| ---------------------------- | --------------------------------------------------- | ------------------------------------------------------- |
+| `getAssignedTask`            | `packages/core/src/services/tasks.ts:41-47`         | agent app task detail, assignee-scoped                  |
+| `listAssignedTasks`          | `tasks.ts:152-159`                                  | agent app queue (joined to booking + airport + address) |
+| `agentHasTaskForBooking`     | `packages/core/src/services/bookings.ts:117-124`    | the agent authorization lookup                          |
+| `listAgentBookingIds`        | `bookings.ts:153,157`                               | list scoping                                            |
+| `loadFor` (auto-assign load) | `packages/core/src/services/auto-assign.ts:119,121` | counts pickup tasks as agent load                       |
+| `listAgentWorkload`          | `dispatch.ts:600,616`                               | admin workload strip                                    |
 
 **UI that renders pickup tasks:**
 
@@ -160,11 +160,11 @@ closes the **verification** task (`agent-visit.ts:530-533`) and moves the bookin
 - **Agent — detail:** **a deliberate placeholder.**
   `apps/agent/src/app/tasks/[taskId]/page.tsx:192-230` branches on `kind === "pickup"`,
   verifies assignment, and renders a dashed card headed **"Not in the app yet"** telling
-  the driver to do it manually and message ops. `kind` comes from a *query string*
+  the driver to do it manually and message ops. `kind` comes from a _query string_
   (`page.tsx:175-176`), defaulting to `verification` — there is no separate route.
 - **Admin:** **no**. The board query left-joins `verification_tasks` only
   (`dispatch.ts:542`), so `assigneeUserId` / `taskStatus` on every board row are the
-  *verification* task's. `getBookingAssignment` (`dispatch.ts:228-243`) likewise reads
+  _verification_ task's. `getBookingAssignment` (`dispatch.ts:228-243`) likewise reads
   `verification_tasks` only. The only admin mentions of pickup tasks are prose:
   `apps/admin/src/app/page.tsx:260` ("Open verification and pickup tasks per active
   agent" — the combined `listAgentWorkload` count) and
@@ -182,7 +182,7 @@ closes the **verification** task (`agent-visit.ts:530-533`) and moves the bookin
 `relations.ts:10,26,48-50` and the `Agent` type export at `packages/core/src/index.ts:26`.
 
 Every "agent" in running code is a `users` row + an active `staff_members` row; nothing
-resolves an *agent id*. `AgentSession.agentId` / `AgentSession.driverId`
+resolves an _agent id_. `AgentSession.agentId` / `AgentSession.driverId`
 (`packages/core/src/auth/types.ts:31,33`) are **never populated** — the only construction
 site is `apps/agent/src/lib/session.ts:69`, which builds
 `{ kind: "agent", role: "agent", userId }` and nothing else.
@@ -198,8 +198,8 @@ site is `apps/agent/src/lib/session.ts:69`, which builds
   `packages/core/src/jobs/functions.ts:377`.
 - **`shift`** — **no shift entity anywhere.** Every hit is prose or an unrelated
   identifier. The closest thing to an acknowledgement is `packages/db/src/schema/zones.ts:14`:
-  *"If territories ever get names and shifts of their own, that is the migration to write
-  then."*
+  _"If territories ever get names and shifts of their own, that is the migration to write
+  then."_
 - **Seeds:** `packages/db/src/seed.ts` writes `airports`, `airline_cutoffs`,
   `pricing_rules`, `agreement_versions`, `users`, `staff_members`, `agent_zones` — and
   **nothing else**. No drivers, no routes, no agents rows.
@@ -214,22 +214,22 @@ site is `apps/agent/src/lib/session.ts:69`, which builds
 
 `packages/db/src/schema/staff.ts:25-46`:
 
-| Column | Type | Notes |
-|---|---|---|
-| `id` | uuid PK | |
-| `user_id` | uuid NOT NULL | FK → `users.id` CASCADE; **UNIQUE** (`staff_members_user_id_key`) — one row per user |
-| `role` | `user_role` enum | **CHECK `role in ('agent','admin')`** — `staff_members_role_check`, added in `packages/db/drizzle/0004_common_post.sql:9` |
-| `active` | boolean NOT NULL | default true; deactivation, never deletion |
-| `invited_by_user_id` | uuid | FK → users, SET NULL |
-| `created_at`, `updated_at` | timestamptz | |
+| Column                     | Type             | Notes                                                                                                                     |
+| -------------------------- | ---------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `id`                       | uuid PK          |                                                                                                                           |
+| `user_id`                  | uuid NOT NULL    | FK → `users.id` CASCADE; **UNIQUE** (`staff_members_user_id_key`) — one row per user                                      |
+| `role`                     | `user_role` enum | **CHECK `role in ('agent','admin')`** — `staff_members_role_check`, added in `packages/db/drizzle/0004_common_post.sql:9` |
+| `active`                   | boolean NOT NULL | default true; deactivation, never deletion                                                                                |
+| `invited_by_user_id`       | uuid             | FK → users, SET NULL                                                                                                      |
+| `created_at`, `updated_at` | timestamptz      |                                                                                                                           |
 
 Index: `staff_members_role_active_idx` (role, active).
 
 The `user_role` enum **already contains `driver`** —
 `enums.ts:7`: `["customer","agent","driver","admin"]`. The CHECK constraint is what
 currently forbids a driver staff row, and the schema comment says so out loud
-(`staff.ts:23-24`): *"`driver` joins the enum's allowed set only when the dispatch model
-ships."*
+(`staff.ts:23-24`): _"`driver` joins the enum's allowed set only when the dispatch model
+ships."_
 
 **Live data:** 11 rows — 7 `agent`/active, 1 `agent`/inactive, 3 `admin`/active.
 `users` by role: 4 customer, 8 agent, 3 admin. **Zero users carry `role = 'driver'`.**
@@ -247,7 +247,7 @@ supabase auth user.id  ==  public.users.id  ==  staff_members.user_id
 
 Role/capability is expressed **only** as `staff_members.role` + `staff_members.active`.
 There are no capability columns, no skills table, and no per-airport assignment. Zones
-(§2.4) express *territory*, not capability.
+(§2.4) express _territory_, not capability.
 
 Two code-level gates encode the `agent | admin` universe and would both need editing for a
 `driver` role:
@@ -305,12 +305,12 @@ simply does not resolve (`tasks.ts:16-19`). The same pattern is repeated verbati
 
 `packages/db/src/schema/zones.ts:20-38`:
 
-| Column | Type | Notes |
-|---|---|---|
-| `id` | uuid PK | |
-| `agent_user_id` | uuid NOT NULL | **FK → `users.id` CASCADE** |
-| `zip` | varchar(10) NOT NULL | five-digit US ZIP |
-| `created_at` | timestamptz | |
+| Column          | Type                 | Notes                       |
+| --------------- | -------------------- | --------------------------- |
+| `id`            | uuid PK              |                             |
+| `agent_user_id` | uuid NOT NULL        | **FK → `users.id` CASCADE** |
+| `zip`           | varchar(10) NOT NULL | five-digit US ZIP           |
+| `created_at`    | timestamptz          |                             |
 
 Indexes: `agent_zones_agent_zip_key` UNIQUE (agent_user_id, zip),
 `agent_zones_zip_idx` (zip). Live rows: **198**.
@@ -320,7 +320,7 @@ zone entity. The schema comment (`zones.ts:8-19`) says the flat shape is deliber
 scale and names the migration to write if territories ever gain names and shifts.
 
 Consequence for Tier 4: driver zones can **share this exact table with no schema change** —
-the FK is to `users`, and the only thing making a row "an agent's" is the column *name* plus
+the FK is to `users`, and the only thing making a row "an agent's" is the column _name_ plus
 the `staffMembers.role = 'agent'` join in the consumer. That join is at
 `packages/core/src/services/auto-assign.ts:190-201`:
 
@@ -346,20 +346,20 @@ constraint.
 
 `packages/db/src/schema/identity.ts:52-76`:
 
-| Column | Type | Null |
-|---|---|---|
-| `id` | uuid PK | NO |
-| `user_id` | uuid | NO (FK → users, CASCADE) |
-| `label` | text | YES |
-| `line1` | text | NO |
-| `line2` | text | YES |
-| `city` | text | NO |
-| `state` | varchar(2) | NO |
-| `zip` | varchar(10) | NO |
-| **`lat`** | **double precision** | **YES** |
-| **`lng`** | **double precision** | **YES** |
-| `place_id` | text | YES (Google Places) |
-| `created_at` | timestamptz | NO |
+| Column       | Type                 | Null                     |
+| ------------ | -------------------- | ------------------------ |
+| `id`         | uuid PK              | NO                       |
+| `user_id`    | uuid                 | NO (FK → users, CASCADE) |
+| `label`      | text                 | YES                      |
+| `line1`      | text                 | NO                       |
+| `line2`      | text                 | YES                      |
+| `city`       | text                 | NO                       |
+| `state`      | varchar(2)           | NO                       |
+| `zip`        | varchar(10)          | NO                       |
+| **`lat`**    | **double precision** | **YES**                  |
+| **`lng`**    | **double precision** | **YES**                  |
+| `place_id`   | text                 | YES (Google Places)      |
+| `created_at` | timestamptz          | NO                       |
 
 Indexes: `addresses_user_id_idx`, `addresses_zip_idx`. Present since
 `packages/db/drizzle/0000_init.sql:16-18`.
@@ -382,12 +382,12 @@ from addresses;
 `lat`/`lng`/`placeId` (`customers.ts:254-256`) and defaults each to `null`
 (`customers.ts:297-299`). Its callers:
 
-| Caller | Passes coords? | Evidence |
-|---|---|---|
-| **Booking funnel** (`apps/web/src/lib/checkout.ts:100-106`) | **No** — `line1, line2?, city, state, zip` only | the object literal has five keys |
-| Dashboard "add address" (`apps/web/src/app/dashboard/addresses/actions.ts:80-87`) | **No** | same five + `label` |
-| Dashboard "edit address" (`actions.ts:119-126`) | **No** | same |
-| 11 integration tests | No | — |
+| Caller                                                                            | Passes coords?                                  | Evidence                         |
+| --------------------------------------------------------------------------------- | ----------------------------------------------- | -------------------------------- |
+| **Booking funnel** (`apps/web/src/lib/checkout.ts:100-106`)                       | **No** — `line1, line2?, city, state, zip` only | the object literal has five keys |
+| Dashboard "add address" (`apps/web/src/app/dashboard/addresses/actions.ts:80-87`) | **No**                                          | same five + `label`              |
+| Dashboard "edit address" (`actions.ts:119-126`)                                   | **No**                                          | same                             |
+| 11 integration tests                                                              | No                                              | —                                |
 
 The funnel's address step is `apps/web/src/components/pickup-step-form.tsx`, plain text
 inputs, with the gap written down at `pickup-step-form.tsx:147-148`:
@@ -406,7 +406,7 @@ and no lat/lng/placeId field. The draft row itself is an opaque `jsonb` payload
 **No lat/lng column exists on `airports`.** There is also no bag-drop location entity of
 any kind.
 
-### 3.4 What *does* exist to work with today
+### 3.4 What _does_ exist to work with today
 
 - Raw address strings: `line1`, `line2`, `city`, `state`, `zip`.
 - ZIP as the only structured geo key — it is what auto-assign matches on
@@ -421,8 +421,8 @@ any kind.
   `apps/web/src/lib/checkout.ts:123`, `apps/web/src/app/book/actions.ts:387`,
   `apps/web/src/app/book/pay/page.tsx:66`, `apps/web/src/app/book/slot/page.tsx:78`.
   (The marketing calculator uses a per-airport table, `pricing/actions.ts:66`.)
-  `packages/core/src/services/quote.ts:24` says it plainly: *"Door-to-bag-drop distance.
-  Maps is stubbed, so callers estimate."*
+  `packages/core/src/services/quote.ts:24` says it plainly: _"Door-to-bag-drop distance.
+  Maps is stubbed, so callers estimate."_
 - **Drive time is a hardcoded constant.** `DEFAULTS.driveTimeMinutes = 60`
   (`packages/core/src/config.ts:59`), used by the cutoff-risk monitor at
   `packages/core/src/jobs/functions.ts:432-436` behind
@@ -442,7 +442,7 @@ any kind.
 Stored **per bag**, one column: `bags.seal_id` (`text`, nullable) —
 `packages/db/src/schema/bookings.ts:204`. Deliberately opaque: the schema comment
 (`bookings.ts:175-181`) says the technology (RFID vs printed QR) is undecided and
-*"No code should parse or infer structure from this value."*
+_"No code should parse or infer structure from this value."_
 
 **Uniqueness — a PARTIAL unique index**, `bookings.ts:220`:
 
@@ -510,33 +510,33 @@ compensating events, never edits.
 
 **The full catalog currently emitted** (constants + literals, all verified in code):
 
-| Event type | Emitted by |
-|---|---|
-| `booking.created` | `create-booking.ts:283` |
-| `booking.payment_authorized` | `EVENT_TYPES.authorize_payment`, `state-machine.ts:166` |
-| `booking.payment_captured` | `payment-lifecycle.ts:76` |
-| `booking.payment_refunded` | `payment-lifecycle.ts:269` |
-| `booking.payment_auth_cancelled` | `payment-lifecycle.ts:294` |
-| `booking.payment_unwind_failed` | `payment-lifecycle.ts:309` |
-| `agreement.accepted` | `AGREEMENT_EVENT_TYPES.accepted`, `agreements.ts:62` |
-| `passport.customer_uploaded` | `PASSPORT_EVENT_TYPES`, `passport.ts:42` |
-| `passport.agent_captured` | `passport.ts:43` |
-| `passport.agent_confirmed` | `passport.ts:44` |
-| `booking.agent_assigned` | `state-machine.ts:167` (via `assign_agent`) |
-| `booking.agent_reassigned` | `dispatch.ts:213` (no status change) |
-| `visit.arrived` | `VISIT_EVENT_TYPES.arrived`, `agent-visit.ts:46` |
-| `visit.identity_verified` | `agent-visit.ts:55` — **superseded as a gate**, kept as a name |
-| `bag.sealed` | `agent-visit.ts:56` |
-| `booking.verified_sealed` | `state-machine.ts:168` |
-| **`booking.awaiting_pickup`** | `state-machine.ts:169` — **no production caller** |
-| **`booking.in_transit`** | `state-machine.ts:170` — **no production caller** |
-| **`booking.delivered_to_bagdrop`** | `state-machine.ts:171` — **no production caller** |
-| **`booking.completed`** | `state-machine.ts:172` — **no production caller** |
-| `booking.exception_raised` | `state-machine.ts:173` |
-| `booking.exception_resolved_resumed` | `state-machine.ts:174` |
-| `booking.exception_resolved_completed` | `state-machine.ts:175` |
-| `booking.cancelled` | `state-machine.ts:176`, also `create-booking.ts:402` |
-| `booking.correction` | admin copy map only (`custody-copy.ts:140`); no emitter |
+| Event type                             | Emitted by                                                     |
+| -------------------------------------- | -------------------------------------------------------------- |
+| `booking.created`                      | `create-booking.ts:283`                                        |
+| `booking.payment_authorized`           | `EVENT_TYPES.authorize_payment`, `state-machine.ts:166`        |
+| `booking.payment_captured`             | `payment-lifecycle.ts:76`                                      |
+| `booking.payment_refunded`             | `payment-lifecycle.ts:269`                                     |
+| `booking.payment_auth_cancelled`       | `payment-lifecycle.ts:294`                                     |
+| `booking.payment_unwind_failed`        | `payment-lifecycle.ts:309`                                     |
+| `agreement.accepted`                   | `AGREEMENT_EVENT_TYPES.accepted`, `agreements.ts:62`           |
+| `passport.customer_uploaded`           | `PASSPORT_EVENT_TYPES`, `passport.ts:42`                       |
+| `passport.agent_captured`              | `passport.ts:43`                                               |
+| `passport.agent_confirmed`             | `passport.ts:44`                                               |
+| `booking.agent_assigned`               | `state-machine.ts:167` (via `assign_agent`)                    |
+| `booking.agent_reassigned`             | `dispatch.ts:213` (no status change)                           |
+| `visit.arrived`                        | `VISIT_EVENT_TYPES.arrived`, `agent-visit.ts:46`               |
+| `visit.identity_verified`              | `agent-visit.ts:55` — **superseded as a gate**, kept as a name |
+| `bag.sealed`                           | `agent-visit.ts:56`                                            |
+| `booking.verified_sealed`              | `state-machine.ts:168`                                         |
+| **`booking.awaiting_pickup`**          | `state-machine.ts:169` — **no production caller**              |
+| **`booking.in_transit`**               | `state-machine.ts:170` — **no production caller**              |
+| **`booking.delivered_to_bagdrop`**     | `state-machine.ts:171` — **no production caller**              |
+| **`booking.completed`**                | `state-machine.ts:172` — **no production caller**              |
+| `booking.exception_raised`             | `state-machine.ts:173`                                         |
+| `booking.exception_resolved_resumed`   | `state-machine.ts:174`                                         |
+| `booking.exception_resolved_completed` | `state-machine.ts:175`                                         |
+| `booking.cancelled`                    | `state-machine.ts:176`, also `create-booking.ts:402`           |
+| `booking.correction`                   | admin copy map only (`custody-copy.ts:140`); no emitter        |
 
 Live confirmation — `select event_type, count(*) from custody_events group by 1` returned
 **19 distinct types**, and the four bolded rows above are **absent** from the data, matching
@@ -544,18 +544,18 @@ the code finding.
 
 **`applyTransition` — the full transition table.** `packages/core/src/booking/state-machine.ts:49-90`:
 
-| From | Event | To |
-|---|---|---|
-| `draft` | `authorize_payment` / `cancel` / `raise_exception` | `paid` / `cancelled` / `exception` |
-| `paid` | `assign_agent` / `cancel` / `raise_exception` | `agent_assigned` / `cancelled` / `exception` |
-| `agent_assigned` | `complete_verification` / `cancel` / `raise_exception` | `verified_sealed` / `cancelled` / `exception` |
-| **`verified_sealed`** | **`mark_awaiting_pickup`** / `cancel` / `raise_exception` | **`awaiting_pickup`** / `cancelled` / `exception` |
-| **`awaiting_pickup`** | **`start_transit`** / `cancel` / `raise_exception` | **`in_transit`** / `cancelled` / `exception` |
-| **`in_transit`** | **`deliver_to_bagdrop`** / `raise_exception` | **`delivered_to_bagdrop`** / `exception` — **no `cancel`** |
-| **`delivered_to_bagdrop`** | **`complete`** / `raise_exception` | **`completed`** / `exception` |
-| `completed` | — | terminal |
-| `exception` | `resume_transit` / `force_complete` / `cancel` | `in_transit` / `completed` / `cancelled` |
-| `cancelled` | — | terminal |
+| From                       | Event                                                     | To                                                         |
+| -------------------------- | --------------------------------------------------------- | ---------------------------------------------------------- |
+| `draft`                    | `authorize_payment` / `cancel` / `raise_exception`        | `paid` / `cancelled` / `exception`                         |
+| `paid`                     | `assign_agent` / `cancel` / `raise_exception`             | `agent_assigned` / `cancelled` / `exception`               |
+| `agent_assigned`           | `complete_verification` / `cancel` / `raise_exception`    | `verified_sealed` / `cancelled` / `exception`              |
+| **`verified_sealed`**      | **`mark_awaiting_pickup`** / `cancel` / `raise_exception` | **`awaiting_pickup`** / `cancelled` / `exception`          |
+| **`awaiting_pickup`**      | **`start_transit`** / `cancel` / `raise_exception`        | **`in_transit`** / `cancelled` / `exception`               |
+| **`in_transit`**           | **`deliver_to_bagdrop`** / `raise_exception`              | **`delivered_to_bagdrop`** / `exception` — **no `cancel`** |
+| **`delivered_to_bagdrop`** | **`complete`** / `raise_exception`                        | **`completed`** / `exception`                              |
+| `completed`                | —                                                         | terminal                                                   |
+| `exception`                | `resume_transit` / `force_complete` / `cancel`            | `in_transit` / `completed` / `cancelled`                   |
+| `cancelled`                | —                                                         | terminal                                                   |
 
 Two stated rules (`state-machine.ts:43-47`): `cancel` disappears from `in_transit` onward —
 once a driver has the bags, that situation is an exception needing a human; and
@@ -588,15 +588,15 @@ The session-guarded wrapper is `applyTransitionForSession` (`bookings.ts:469-488
 
 **Route structure** (`apps/agent/src/app/`):
 
-| Route | File | Purpose |
-|---|---|---|
-| `/` | `page.tsx` | "Today" — current job large, rest below (`page.tsx:15-26`) |
-| `/tasks` | `tasks/page.tsx` | Schedule, grouped by airport-local day |
-| `/tasks/[taskId]?kind=verification\|pickup` | `tasks/[taskId]/page.tsx` | one route, branched on a query param (`:175-176`) |
-| `/account` | `account/page.tsx` | identity + avatar |
-| `/login`, `/login/reset`, `/set-password`, `/auth/callback` | | Supabase email/password |
-| `/offline` | `offline/page.tsx` | service-worker fallback |
-| `/api/avatars` | `api/avatars/route.ts` | avatar upload |
+| Route                                                       | File                      | Purpose                                                    |
+| ----------------------------------------------------------- | ------------------------- | ---------------------------------------------------------- |
+| `/`                                                         | `page.tsx`                | "Today" — current job large, rest below (`page.tsx:15-26`) |
+| `/tasks`                                                    | `tasks/page.tsx`          | Schedule, grouped by airport-local day                     |
+| `/tasks/[taskId]?kind=verification\|pickup`                 | `tasks/[taskId]/page.tsx` | one route, branched on a query param (`:175-176`)          |
+| `/account`                                                  | `account/page.tsx`        | identity + avatar                                          |
+| `/login`, `/login/reset`, `/set-password`, `/auth/callback` |                           | Supabase email/password                                    |
+| `/offline`                                                  | `offline/page.tsx`        | service-worker fallback                                    |
+| `/api/avatars`                                              | `api/avatars/route.ts`    | avatar upload                                              |
 
 Nav is three bottom tabs, `apps/agent/src/components/shell/nav.ts:27-46` — and
 `nav.ts:16-17` states three is a deliberate ceiling ("what am I doing now, what is coming,
@@ -604,7 +604,7 @@ who am I signed in as"). Adding a fourth "Drive" tab argues against that comment
 
 **Task list rendering:** `listAssignedTasks` (`tasks.ts:120-163`) returns
 `{ verification[], pickup[] }`, each row carrying `{ task, tz, booking }` — the booking
-context travels *with* the task (`tasks.ts:54-76`) so the queue never renders identical
+context travels _with_ the task (`tasks.ts:54-76`) so the queue never renders identical
 rows. `groupJobs` (`apps/agent/src/lib/job.ts:59-117`) collapses the two arrays into one
 `Job` per booking with ordered `phases`, `startsAt`, `next`, and a
 `problem | active | upcoming | done` state. **A driver task view fits this model without
@@ -630,7 +630,7 @@ implementing `EventEmitter`. The header comment (`:8-20`) is emphatic: **this ap
 no functions and serves no `/api/inngest` route** — `apps/web` owns the registry and a
 second serve endpoint would double-register everything. No signing key (that is for
 receiving). So a driver-phase event raised from the agent app **sends** fine; anything that
-must *handle* it belongs in `apps/web`'s registry
+must _handle_ it belongs in `apps/web`'s registry
 (`apps/web/src/lib/inngest.ts:78-85`, served at `apps/web/src/app/api/inngest/route.ts:21-24`).
 
 Current registry — 8 functions: `bookingConfirmationEmail`, `pickupReminder`,
@@ -713,12 +713,12 @@ union — `ConsoleBadgeKey = "unassignedToday" | "exceptionsOpen"` (`nav.ts:30`)
     row.slotStart.getTime() - now.getTime() < AT_RISK_HORIZON_MS,
   ```
 
-- Documented as *"Simple derived flag, not a scheduling engine"* (`dispatch.ts:386-390`)
+- Documented as _"Simple derived flag, not a scheduling engine"_ (`dispatch.ts:386-390`)
 - The dashboard counterpart is the `unassignedToday` count,
   `dispatch.ts:340-351` — `status = 'paid'` AND window starts inside the airport-local day
   AND `verification_tasks.assignee_user_id IS NULL`
 
-**Both read `verification_tasks` only.** An unassigned *pickup* or an undispatched driver
+**Both read `verification_tasks` only.** An unassigned _pickup_ or an undispatched driver
 is invisible to every at-risk surface in the console today.
 
 ---
@@ -753,16 +753,16 @@ should still `ALTER TABLE … ENABLE ROW LEVEL SECURITY` explicitly, as
 
 Live `pg_indexes` on `verification_tasks` / `pickup_tasks`:
 
-| Table | Index | Definition |
-|---|---|---|
-| `verification_tasks` | `verification_tasks_pkey` | UNIQUE (id) |
-| `verification_tasks` | `verification_tasks_booking_id_key` | **UNIQUE (booking_id)** |
+| Table                | Index                                    | Definition                 |
+| -------------------- | ---------------------------------------- | -------------------------- |
+| `verification_tasks` | `verification_tasks_pkey`                | UNIQUE (id)                |
+| `verification_tasks` | `verification_tasks_booking_id_key`      | **UNIQUE (booking_id)**    |
 | `verification_tasks` | `verification_tasks_assignee_status_idx` | (assignee_user_id, status) |
-| `verification_tasks` | `verification_tasks_scheduled_start_idx` | (scheduled_start) |
-| `pickup_tasks` | `pickup_tasks_pkey` | UNIQUE (id) |
-| `pickup_tasks` | `pickup_tasks_booking_id_key` | **UNIQUE (booking_id)** |
-| `pickup_tasks` | `pickup_tasks_assignee_status_idx` | (assignee_user_id, status) |
-| `pickup_tasks` | `pickup_tasks_scheduled_start_idx` | (scheduled_start) |
+| `verification_tasks` | `verification_tasks_scheduled_start_idx` | (scheduled_start)          |
+| `pickup_tasks`       | `pickup_tasks_pkey`                      | UNIQUE (id)                |
+| `pickup_tasks`       | `pickup_tasks_booking_id_key`            | **UNIQUE (booking_id)**    |
+| `pickup_tasks`       | `pickup_tasks_assignee_status_idx`       | (assignee_user_id, status) |
+| `pickup_tasks`       | `pickup_tasks_scheduled_start_idx`       | (scheduled_start)          |
 
 **No partial index on either tasks table.** The two partial indexes in the whole schema are:
 
@@ -788,7 +788,9 @@ hits.** The three patterns actually in use:
 
    ```ts
    await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${userId}, 0))`);
-   await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${destinationHash}, 0))`);
+   await tx.execute(
+     sql`select pg_advisory_xact_lock(hashtextextended(${destinationHash}, 0))`,
+   );
    ```
 
    with a written rule about **fixed lock order to avoid deadlock** (`:49-61`); the
@@ -823,7 +825,7 @@ that drive the real GoTrue API and therefore preserve pre-existing rows via
 
 **The two-concurrent-paid test** —
 `auto-assign-on-paid.integration.test.ts:207-230`,
-*"two concurrent transitions to paid produce exactly one task pair and one assignment"*:
+_"two concurrent transitions to paid produce exactly one task pair and one assignment"_:
 
 ```ts
 // :216-219 — the production race, verbatim: webhook delivery and return-page re-check
@@ -838,7 +840,7 @@ expect(state.pTasks).toHaveLength(1);
 expect(state.assignEvents).toHaveLength(1);
 ```
 
-**Pattern:** `Promise.all` over the *real* entry points (not the internal function),
+**Pattern:** `Promise.all` over the _real_ entry points (not the internal function),
 against a real Postgres, then assert on cardinality via a single `assignmentState()` reader
 (`:192-205`) that pulls booking + both task tables + custody events at once. A stronger
 variant is at `:232-258` — a **4-way burst** of `autoAssignOnPaid` after first reaching
@@ -849,18 +851,18 @@ This is the template a Tier 4 "two dispatchers claim the same truck" test should
 
 ### 6.5 Live data snapshot (local `postgres`)
 
-| Table | Rows |
-|---|---|
-| `addresses` | 8 |
-| `agent_zones` | 198 |
-| `agents` | **0** |
-| `bags` | 42 (7 sealed) |
-| `bookings` | 20 |
-| `custody_events` | 108 (19 distinct event types) |
-| `drivers` | **0** |
-| `pickup_tasks` | 14 (all `assigned`) |
-| `routes` | **0** |
-| `staff_members` | 11 |
+| Table                | Rows                                     |
+| -------------------- | ---------------------------------------- |
+| `addresses`          | 8                                        |
+| `agent_zones`        | 198                                      |
+| `agents`             | **0**                                    |
+| `bags`               | 42 (7 sealed)                            |
+| `bookings`           | 20                                       |
+| `custody_events`     | 108 (19 distinct event types)            |
+| `drivers`            | **0**                                    |
+| `pickup_tasks`       | 14 (all `assigned`)                      |
+| `routes`             | **0**                                    |
+| `staff_members`      | 11                                       |
 | `verification_tasks` | 14 (7 assigned / 3 in_progress / 4 done) |
 
 Bookings by status: `agent_assigned` 9, `cancelled` 5, `draft` 2, `in_transit` 1,
@@ -870,7 +872,7 @@ Bookings by status: `agent_assigned` 9, `cancelled` 5, `draft` 2, `in_transit` 1
 
 1. `nc -z 127.0.0.1 54322` — reachability check, no SQL.
 2. `pnpm db:status` in `packages/db` — the repo's own read-only drift report
-   (`packages/db/src/status.ts:10-17`: *"Writes nothing, takes no locks, runs no DDL"*).
+   (`packages/db/src/status.ts:10-17`: _"Writes nothing, takes no locks, runs no DDL"_).
 3. One temporary script, `packages/db/probe-readonly.tmp.ts`, run with `npx tsx` and then
    deleted (`git status --porcelain` → clean). It issued **SELECT statements only**:
    `pg_class`/`pg_namespace` (tables + RLS), `count(*)` per table, address coordinate
@@ -892,7 +894,7 @@ Facts are §1–§6. Everything below is opinion, each line carrying its evidenc
    interface with nothing behind it unless geocoding lands first.
 2. **Geocoding is a prerequisite, not a follow-up.** The single insert path is
    `ensureAddress` (`customers.ts:288-301`), which already accepts coords — so the change is
-   a *funnel* change (`pickup-step-form.tsx:147-148` TODO, plus a `lat/lng/placeId` field on
+   a _funnel_ change (`pickup-step-form.tsx:147-148` TODO, plus a `lat/lng/placeId` field on
    the draft schema at `booking-draft-schema.ts:110-114`), plus a backfill decision for the
    8 existing rows. It touches a customer-facing conversion step; that is not a Tier 4-shaped
    change.
@@ -909,8 +911,8 @@ Facts are §1–§6. Everything below is opinion, each line carrying its evidenc
    in the same migration or state that `drivers` becomes person-only — leaving both is how
    the plate on the dispatch board and the plate on the driver record diverge.
 5. **`driver_shifts` is the first temporal-availability entity in the schema.** `zones.ts:14`
-   explicitly deferred it (*"If territories ever get names and shifts of their own, that is
-   the migration to write then"*), and nothing today — not auto-assign, not
+   explicitly deferred it (_"If territories ever get names and shifts of their own, that is
+   the migration to write then"_), and nothing today — not auto-assign, not
    `listAgentWorkload` — asks whether a person is working. Auto-assign's only inputs are ZIP
    coverage and open-task counts (`auto-assign.ts:22-39`), so shifts arrive as a **new
    concept for agents too**, and a shift-aware driver selector next to a shift-blind agent
@@ -919,8 +921,8 @@ Facts are §1–§6. Everything below is opinion, each line carrying its evidenc
    `role` is a single `user_role` value constrained to `('agent','admin')`
    (`staff.ts:44` / `0004_common_post.sql:9`), and one person doing both jobs is the stated
    v1 reality (`dispatch.ts:91`, `bookings/[bookingId]/page.tsx:508`). Flags mean deciding
-   whether `driver` is a *third role* (relax the CHECK + `STAFF_ROLES` at `staff.ts:34` +
-   `getActiveStaffRole` at `:42-51`) or a *capability alongside* `agent`. The second is
+   whether `driver` is a _third role_ (relax the CHECK + `STAFF_ROLES` at `staff.ts:34` +
+   `getActiveStaffRole` at `:42-51`) or a _capability alongside_ `agent`. The second is
    truer to how the operation works and is the bigger migration.
 7. **`agent_zones` is reusable but its name and its guards say "agent".** The FK is to
    `users.id` (`zones.ts:26`), so a driver row fits with no DDL — but the auto-assign read
@@ -937,7 +939,7 @@ Facts are §1–§6. Everything below is opinion, each line carrying its evidenc
    `custody_events.lat/lng` sit on a table with an UPDATE/DELETE trigger
    (`custody.ts:8-21`) and are written only on visit events
    (`visit-flow.tsx:88-110`). A `driver_positions` latest-row table is therefore a genuinely
-   new *kind* of table here — high-write, mutable, non-evidentiary — and should say in its
+   new _kind_ of table here — high-write, mutable, non-evidentiary — and should say in its
    comment that it is explicitly **not** part of the chain of custody, or the next reader
    will assume it is.
 
@@ -952,7 +954,7 @@ Facts are §1–§6. Everything below is opinion, each line carrying its evidenc
 11. **Every at-risk surface is blind to pickup and would stay blind.** `atRisk`
     (`dispatch.ts:557-561`) and `unassignedToday` (`dispatch.ts:340-351`) both key on
     `bookings.status = 'paid'` + a NULL `verification_tasks.assignee_user_id`. A sealed
-    booking with no driver is at risk of the *cutoff*, and no console surface would say so.
+    booking with no driver is at risk of the _cutoff_, and no console surface would say so.
 12. **`cutoffRiskMonitor` under-alerts today and Tier 4 does not automatically fix it.** It
     subtracts a flat `driveTimeMinutes: 60` (`config.ts:59`, used at `functions.ts:432-436`)
     and assumes `scope: "domestic"` for every booking (`functions.ts:414-417`). A real ETA
@@ -971,15 +973,15 @@ Facts are §1–§6. Everything below is opinion, each line carrying its evidenc
 15. **The trip page has no live-update mechanism at all** (§5.2) — `force-dynamic` plus a
     local-only 30-second countdown. "Customer sees the driver moving" is a new capability
     (poll route, SSE, or Supabase realtime), not a rendering change, and it is easy to
-    under-scope because the page already *looks* live.
+    under-scope because the page already _looks_ live.
 16. **Seal capture is manual text entry with `.trim()` as its only format rule**
     (`agent-visit.ts:414-415`, `visit-flow.tsx:562`). If the pickup handover is meant to
     re-verify seals at the bag drop, a second manual-entry step doubles the typo surface on
     the one identifier that is operation-wide unique (`bags_seal_id_key`) — worth deciding
-    whether the driver *re-scans* or merely *confirms a count*.
+    whether the driver _re-scans_ or merely _confirms a count_.
 17. **A driver-raised exception reaches ops only from apps that can send.** The agent app is
     send-only by design (`apps/agent/src/lib/event-emitter.ts:8-20`); any Tier 4 job that must
-    *handle* a driver event has to be registered in `apps/web`
+    _handle_ a driver event has to be registered in `apps/web`
     (`apps/web/src/lib/inngest.ts:78-85`). A function added to
     `createKooleeFunctions` will be served correctly, but one added to the agent app will
     silently never run.
@@ -993,27 +995,27 @@ Facts are §1–§6. Everything below is opinion, each line carrying its evidenc
 
 ## Appendix — quick file index for the slice
 
-| Concern | File |
-|---|---|
-| Task tables | `packages/db/src/schema/tasks.ts` |
-| Driver / vehicle / address / agent | `packages/db/src/schema/identity.ts` |
-| Routes | `packages/db/src/schema/ops.ts` |
-| Zones | `packages/db/src/schema/zones.ts` |
-| Staff roles | `packages/db/src/schema/staff.ts` |
-| Custody table + append helpers | `packages/db/src/schema/custody.ts`, `packages/db/src/custody.ts` |
-| State machine + event names | `packages/core/src/booking/state-machine.ts` |
-| Transition writer | `packages/core/src/services/bookings.ts` (`applyTransition`, `:394`) |
-| Assignment / board / workload / at-risk | `packages/core/src/services/dispatch.ts` |
-| Auto-assign + zone admin | `packages/core/src/services/auto-assign.ts` |
-| Agent task reads | `packages/core/src/services/tasks.ts` |
-| Visit flow (seals, gate, GPS) | `packages/core/src/services/agent-visit.ts` |
-| Address creation | `packages/core/src/services/customers.ts` (`ensureAddress`, `:266`) |
-| Jobs registry + ETA stub | `packages/core/src/jobs/functions.ts`, `apps/web/src/lib/inngest.ts` |
-| Agent session | `apps/agent/src/lib/session.ts` |
-| Agent job grouping / maps link | `apps/agent/src/lib/job.ts` |
-| Agent visit UI | `apps/agent/src/app/tasks/[taskId]/visit-flow.tsx` |
-| Pickup placeholder | `apps/agent/src/app/tasks/[taskId]/page.tsx:192-230` |
-| Customer trip page | `apps/web/src/app/trips/[bookingId]/page.tsx` |
-| Funnel address step | `apps/web/src/components/pickup-step-form.tsx` |
-| Console nav | `apps/admin/src/components/console/nav.ts` |
-| Concurrency test template | `packages/core/src/services/auto-assign-on-paid.integration.test.ts:207-258` |
+| Concern                                 | File                                                                         |
+| --------------------------------------- | ---------------------------------------------------------------------------- |
+| Task tables                             | `packages/db/src/schema/tasks.ts`                                            |
+| Driver / vehicle / address / agent      | `packages/db/src/schema/identity.ts`                                         |
+| Routes                                  | `packages/db/src/schema/ops.ts`                                              |
+| Zones                                   | `packages/db/src/schema/zones.ts`                                            |
+| Staff roles                             | `packages/db/src/schema/staff.ts`                                            |
+| Custody table + append helpers          | `packages/db/src/schema/custody.ts`, `packages/db/src/custody.ts`            |
+| State machine + event names             | `packages/core/src/booking/state-machine.ts`                                 |
+| Transition writer                       | `packages/core/src/services/bookings.ts` (`applyTransition`, `:394`)         |
+| Assignment / board / workload / at-risk | `packages/core/src/services/dispatch.ts`                                     |
+| Auto-assign + zone admin                | `packages/core/src/services/auto-assign.ts`                                  |
+| Agent task reads                        | `packages/core/src/services/tasks.ts`                                        |
+| Visit flow (seals, gate, GPS)           | `packages/core/src/services/agent-visit.ts`                                  |
+| Address creation                        | `packages/core/src/services/customers.ts` (`ensureAddress`, `:266`)          |
+| Jobs registry + ETA stub                | `packages/core/src/jobs/functions.ts`, `apps/web/src/lib/inngest.ts`         |
+| Agent session                           | `apps/agent/src/lib/session.ts`                                              |
+| Agent job grouping / maps link          | `apps/agent/src/lib/job.ts`                                                  |
+| Agent visit UI                          | `apps/agent/src/app/tasks/[taskId]/visit-flow.tsx`                           |
+| Pickup placeholder                      | `apps/agent/src/app/tasks/[taskId]/page.tsx:192-230`                         |
+| Customer trip page                      | `apps/web/src/app/trips/[bookingId]/page.tsx`                                |
+| Funnel address step                     | `apps/web/src/components/pickup-step-form.tsx`                               |
+| Console nav                             | `apps/admin/src/components/console/nav.ts`                                   |
+| Concurrency test template               | `packages/core/src/services/auto-assign-on-paid.integration.test.ts:207-258` |

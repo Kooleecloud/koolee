@@ -59,7 +59,6 @@ export async function emitExceptionRaised(
   }
 }
 
-
 /** Same contract as the exception emit: NEVER throws. */
 async function emitQuietly(
   emitter: EventEmitter,

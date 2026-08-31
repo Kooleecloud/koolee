@@ -96,6 +96,20 @@ export const pricingRules = pgTable(
       precision: 8,
       scale: 4,
     }).notNull(),
+    /**
+     * HISTORICAL. DO NOT BUILD ON THIS COLUMN.
+     *
+     * A price multiplier per slot TIER, from the fixed-grid model that
+     * `slots` belonged to. Windows are virtual now and priced by LEAD TIME —
+     * how far ahead of the flight the pickup is — which is
+     * `lead_time_multipliers` below. The pricing engine reads that and never
+     * this: `engine.test.ts` still passes `slotTierMultiplier: {}` because
+     * the field is on the type, not because anything consults it.
+     *
+     * Kept rather than dropped because dropping it is a migration with no
+     * feature behind it and the admin `/pricing` page publishes new rules
+     * rather than editing live ones, so the default `{}` costs nothing.
+     */
     slotTierMultiplier: jsonb("slot_tier_multiplier")
       .$type<SlotTierMultiplier>()
       .notNull()
@@ -120,7 +134,9 @@ export const pricingRules = pgTable(
     // the same index key (true), so a second `active = true` violates
     // uniqueness. The pricing engine reads "the" active rule; two of them is
     // the #41/#51 fixture-leakage class this closes for good.
-    uniqueIndex("pricing_rules_one_active_key").on(t.active).where(sql`${t.active}`),
+    uniqueIndex("pricing_rules_one_active_key")
+      .on(t.active)
+      .where(sql`${t.active}`),
     check("pricing_rules_base_fee_nonneg_check", sql`${t.baseFeeCents} >= 0`),
     check("pricing_rules_per_bag_nonneg_check", sql`${t.perBagCents} >= 0`),
   ],
@@ -145,7 +161,9 @@ export const paymentWebhookEvents = pgTable(
     eventType: text("event_type").notNull(),
     receivedAt: createdAt(),
   },
-  (t) => [uniqueIndex("payment_webhook_events_provider_event_key").on(t.provider, t.eventId)],
+  (t) => [
+    uniqueIndex("payment_webhook_events_provider_event_key").on(t.provider, t.eventId),
+  ],
 );
 
 export type Payment = typeof payments.$inferSelect;

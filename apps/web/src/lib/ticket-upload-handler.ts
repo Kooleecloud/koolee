@@ -167,7 +167,9 @@ export async function handleTicketUpload(
     ...(result.airlineIata ? { airlineIata: result.airlineIata } : {}),
     ...(result.departureAirport ? { departureAirport: result.departureAirport } : {}),
     ...(result.departureAtLocal ? { departureAtLocal: result.departureAtLocal } : {}),
-    ...(result.destinationAirport ? { destinationAirport: result.destinationAirport } : {}),
+    ...(result.destinationAirport
+      ? { destinationAirport: result.destinationAirport }
+      : {}),
     ...(result.paxName ? { paxName: result.paxName } : {}),
     ...(result.scope ? { scope: result.scope } : {}),
     ...(result.documentKind ? { documentKind: result.documentKind } : {}),
@@ -225,7 +227,9 @@ function readBackFor(
 function alternativesFor(segments: ExtractedSegment[] | undefined): PrefillAlternative[] {
   const serviced = AIRPORT_CODES as readonly string[];
   return (segments ?? [])
-    .filter((segment) => segment.originAirport && serviced.includes(segment.originAirport))
+    .filter(
+      (segment) => segment.originAirport && serviced.includes(segment.originAirport),
+    )
     .slice(0, 2)
     .map((segment) => {
       // Derived from THIS segment's destination country, by the same helper
@@ -238,7 +242,9 @@ function alternativesFor(segments: ExtractedSegment[] | undefined): PrefillAlter
           ? { destinationAirport: segment.destinationAirport }
           : {}),
         ...(segment.flightNumber ? { flightNumber: segment.flightNumber } : {}),
-        ...(segment.departureAtLocal ? { departureAtLocal: segment.departureAtLocal } : {}),
+        ...(segment.departureAtLocal
+          ? { departureAtLocal: segment.departureAtLocal }
+          : {}),
         ...(scope ? { scope } : {}),
       };
     });

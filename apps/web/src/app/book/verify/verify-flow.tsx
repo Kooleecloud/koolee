@@ -3,15 +3,23 @@
 import * as React from "react";
 import Link from "next/link";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
-import { CTAButton, FormMessage, formatUsPhone, Input, Label, OTPInput, PageHeader, PhoneInput, toE164 } from "@koolee/ui";
-
 import {
-  sendOtp,
-  verifyOtp,
-  type OtpMode,
-  type SendOtpSuccess,
-} from "@/actions/auth";
-import { TurnstileGate, type TurnstileGateHandle } from "@/components/auth/turnstile-gate";
+  CTAButton,
+  FormMessage,
+  formatUsPhone,
+  Input,
+  Label,
+  OTPInput,
+  PageHeader,
+  PhoneInput,
+  toE164,
+} from "@koolee/ui";
+
+import { sendOtp, verifyOtp, type OtpMode, type SendOtpSuccess } from "@/actions/auth";
+import {
+  TurnstileGate,
+  type TurnstileGateHandle,
+} from "@/components/auth/turnstile-gate";
 
 /**
  * Screens A + B of the payment-gate verification, per the auth-flow spec:
@@ -182,7 +190,10 @@ export function VerifyFlow({
               onSubmit={(e) => {
                 e.preventDefault();
                 void send({
-                  intent: conflict || (!hasSession && channel === "phone") ? "signin" : "upgrade",
+                  intent:
+                    conflict || (!hasSession && channel === "phone")
+                      ? "signin"
+                      : "upgrade",
                 });
               }}
               className="flex flex-col gap-5"
@@ -291,7 +302,10 @@ export function VerifyFlow({
               subtitle={
                 <>
                   Sent to{" "}
-                  {channel === "phone" ? formatUsPhone(digits) : email.trim().toLowerCase()}.
+                  {channel === "phone"
+                    ? formatUsPhone(digits)
+                    : email.trim().toLowerCase()}
+                  .
                 </>
               }
             />
@@ -335,7 +349,10 @@ export function VerifyFlow({
                 type="button"
                 onClick={() =>
                   void send({
-                    intent: conflict || (!hasSession && channel === "phone") ? "signin" : "upgrade",
+                    intent:
+                      conflict || (!hasSession && channel === "phone")
+                        ? "signin"
+                        : "upgrade",
                     isResend: true,
                   })
                 }

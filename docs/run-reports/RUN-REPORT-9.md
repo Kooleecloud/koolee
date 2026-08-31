@@ -21,13 +21,13 @@ entry points. The slice was cleared to start.
 
 ## The five embedded decisions, and what happened to each
 
-| # | Decision as given | Outcome |
-|---|---|---|
-| 1 | Realtime is a signal, never a source of truth | **Implemented as given.** Encoded in migration 0030's header, `docs/features/realtime-signals.md`, and a new §7 standing rule. |
-| 2 | Web push is OUT; in-app realtime + email is the coverage | **Held.** No push code. Backlogged as its own item. |
-| 3 | SMS stays parked (A2P) | **Held.** The matrix carries an SMS column marked *parked*; no code. |
-| 4 | Photos: own upload, admin may replace staff photos, no moderation queue, relationship-scoped visibility | **Adjusted — see Phase 4.** The bucket, the column, the upload pipeline and the initials fallback ALREADY SHIPPED in the storage/avatars slice (migration 0027). What was missing was the admin replace path and server-side enforcement of relationship scope. Phase 4 builds those instead of rebuilding what exists. |
-| 5 | Profile completeness = verified email + verified phone + display name + photo | **Implemented as given.** |
+| #   | Decision as given                                                                                       | Outcome                                                                                                                                                                                                                                                                                                                 |
+| --- | ------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | Realtime is a signal, never a source of truth                                                           | **Implemented as given.** Encoded in migration 0030's header, `docs/features/realtime-signals.md`, and a new §7 standing rule.                                                                                                                                                                                          |
+| 2   | Web push is OUT; in-app realtime + email is the coverage                                                | **Held.** No push code. Backlogged as its own item.                                                                                                                                                                                                                                                                     |
+| 3   | SMS stays parked (A2P)                                                                                  | **Held.** The matrix carries an SMS column marked _parked_; no code.                                                                                                                                                                                                                                                    |
+| 4   | Photos: own upload, admin may replace staff photos, no moderation queue, relationship-scoped visibility | **Adjusted — see Phase 4.** The bucket, the column, the upload pipeline and the initials fallback ALREADY SHIPPED in the storage/avatars slice (migration 0027). What was missing was the admin replace path and server-side enforcement of relationship scope. Phase 4 builds those instead of rebuilding what exists. |
+| 5   | Profile completeness = verified email + verified phone + display name + photo                           | **Implemented as given.**                                                                                                                                                                                                                                                                                               |
 
 ---
 
@@ -52,7 +52,7 @@ Adding a `touchBookingSignal` call to ten services would have re-created,
 exactly, the failure this codebase already paid for once: the exception alert
 lived at one call site, six of the seven paths into `exception` were silent for
 a whole slice, and the fix was to move emission to a choke point so a new path
-is covered *by construction*.
+is covered _by construction_.
 
 There is no choke point for custody inserts in core. So the construction is a
 **database trigger**: `public.touch_booking_signal()` AFTER INSERT on
@@ -68,7 +68,7 @@ a customer sits and watches.
 computed from the clock; nothing is written when they become true, so nothing
 can be published. The polling fallback surfaces them, which is the honest
 mechanism for a state change nobody performs. This is called out because it is
-the one row of the Phase 1 matrix that realtime does *not* deliver.
+the one row of the Phase 1 matrix that realtime does _not_ deliver.
 
 ### 0.2 The policy, and the trap it steps around
 
@@ -195,11 +195,11 @@ driver selected, bag-drop delivered, the ops exception alert, and the ops
 
 ### 1.2 What is new
 
-| Function | Trigger | Says |
-|---|---|---|
-| `agent-assigned-email` | `booking/agent_assigned` | "Nina is on your pickup", with the window in the booking's zone |
-| `bags-sealed-email` | `booking/bags_sealed` | the seal numbers, and "choose your driver" |
-| `exception-customer-email` | `booking/exception_raised` | "we've hit a snag, our team is on it" — and nothing else |
+| Function                   | Trigger                    | Says                                                            |
+| -------------------------- | -------------------------- | --------------------------------------------------------------- |
+| `agent-assigned-email`     | `booking/agent_assigned`   | "Nina is on your pickup", with the window in the booking's zone |
+| `bags-sealed-email`        | `booking/bags_sealed`      | the seal numbers, and "choose your driver"                      |
+| `exception-customer-email` | `booking/exception_raised` | "we've hit a snag, our team is on it" — and nothing else        |
 
 ### 1.3 The adjustment: two matrix rows, one email
 
@@ -211,7 +211,7 @@ them in which one could arrive without the other.
 
 Two emails seconds apart is a worse product than one that says both things, so
 `bags-sealed-email` carries the seal numbers AND the call to action, and its
-subject names both: *"Bags sealed — choose your driver — KOO-XXXXX"*. Flagged
+subject names both: _"Bags sealed — choose your driver — KOO-XXXXX"_. Flagged
 here per the prompt's instruction to implement the closest correct thing rather
 than stall.
 
@@ -228,7 +228,7 @@ payment provider, and it is frequently **wrong in the first minute** because an
 exception is raised before anybody has looked.
 
 A separate function on the same event, rather than a second send inside the ops
-one, because Inngest retries a *function*: a combined handler whose ops send
+one, because Inngest retries a _function_: a combined handler whose ops send
 failed would re-send the customer half on retry.
 
 `supportEmail` is passed in from `SITE.contactEmail` in `apps/web` — public site
@@ -272,7 +272,7 @@ Toasts are deliberately few:
 - **customer**: driver shortlist opened, in transit, delivered, exception. The
   `choose_driver` stage requires `canChooseDriver && candidates.length > 0` —
   a toast telling somebody to choose from an empty list is worse than silence.
-- **agent**: identity gate opened, this pickup became theirs, and *n* new jobs
+- **agent**: identity gate opened, this pickup became theirs, and _n_ new jobs
   landed in the queue (the count decides the wording, so it is computed rather
   than looked up).
 
@@ -344,14 +344,14 @@ button after the draft cookie expired — falls back to the **door**, not to a
 The old card showed every failure as one red line under an "Upload ticket"
 button. The door splits them, and the split is the product decision:
 
-| Outcome | HTTP | What happens |
-|---|---|---|
-| missing / too large / wrong type | 400 / 413 / 415 | **stay on the door**, show the specific message — picking a different file is one tap |
-| accepted but unreadable | 200, `ok: false` | **drop into the manual form** at `?entry=manual&read=failed` |
-| storage or transport failure | 502 / network | same drop, same apology |
+| Outcome                          | HTTP             | What happens                                                                          |
+| -------------------------------- | ---------------- | ------------------------------------------------------------------------------------- |
+| missing / too large / wrong type | 400 / 413 / 415  | **stay on the door**, show the specific message — picking a different file is one tap |
+| accepted but unreadable          | 200, `ok: false` | **drop into the manual form** at `?entry=manual&read=failed`                          |
+| storage or transport failure     | 502 / network    | same drop, same apology                                                               |
 
-The apology is deliberately non-blaming and names the real cause: *"some
-airline tickets are images we can't get text out of. Nothing's lost."* The
+The apology is deliberately non-blaming and names the real cause: _"some
+airline tickets are images we can't get text out of. Nothing's lost."_ The
 compact upload card stays under the form for a second attempt.
 
 That mapping is a decision taken in a client component about numbers produced
@@ -522,14 +522,14 @@ The prompt specified a new private bucket `profile-photos`, a new
 and three upload surfaces. **All of that shipped in the storage/avatars slice**
 (migration `0026`/`0027`, PR #24). What exists:
 
-| Specified | What is actually there |
-|---|---|
-| bucket `profile-photos` | bucket **`avatars`**, private, 3 MiB limit, 1 h signed URLs |
-| `users.profile_photo_path` | **`users.avatar_storage_path`** (0027) |
-| browser downscale | `downscalePhoto` via the shared `AvatarUploader` |
-| one current photo, replace = new object | exactly that, `upsert: false`, old object orphaned for the same retention sweep passports wait on |
-| initials fallback | `Avatar` — initials on a name-derived tint, and it falls back on LOAD FAILURE too, which matters because signed URLs expire in an hour |
-| customer + agent + admin own-profile upload | all three |
+| Specified                                   | What is actually there                                                                                                                 |
+| ------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| bucket `profile-photos`                     | bucket **`avatars`**, private, 3 MiB limit, 1 h signed URLs                                                                            |
+| `users.profile_photo_path`                  | **`users.avatar_storage_path`** (0027)                                                                                                 |
+| browser downscale                           | `downscalePhoto` via the shared `AvatarUploader`                                                                                       |
+| one current photo, replace = new object     | exactly that, `upsert: false`, old object orphaned for the same retention sweep passports wait on                                      |
+| initials fallback                           | `Avatar` — initials on a name-derived tint, and it falls back on LOAD FAILURE too, which matters because signed URLs expire in an hour |
+| customer + agent + admin own-profile upload | all three                                                                                                                              |
 
 Rebuilding any of it under new names would have been a migration and a
 rename for no behaviour change. **Two things were genuinely missing**, and this
@@ -565,12 +565,12 @@ was standing in for an authorization rule nothing enforced and no test covered.
 
 `services/avatar-visibility.ts` is the rule:
 
-| Viewer | May see |
-|---|---|
-| anyone | themselves |
-| customer | the agent and driver on **their own** booking |
-| staff | the customer of a booking **they have a task on** |
-| admin | anyone |
+| Viewer   | May see                                           |
+| -------- | ------------------------------------------------- |
+| anyone   | themselves                                        |
+| customer | the agent and driver on **their own** booking     |
+| staff    | the customer of a booking **they have a task on** |
+| admin    | anyone                                            |
 
 The web helper is now `signAvatarUrlsForBooking({ db, viewer, bookingId,
 subjectUserIds })` — **there is no signature it can be handed a path with**. It
@@ -663,7 +663,7 @@ nobody remembers to update.
 `TaskRecord` shows what the previous "done" state did not: the seals the driver
 put on with their weights, and the full chain of custody in the booking's zone,
 in agent voice ("You arrived", "You set off", "Airline took the bags"). Before
-this, a completed visit rendered the single line *"Visit complete."* — useless
+this, a completed visit rendered the single line _"Visit complete."_ — useless
 when somebody asks what happened with Tuesday's pickup.
 
 ### 5.4 The verification found a real gap — and it is fixed
@@ -707,8 +707,8 @@ already rendered stays rendered when the signal drops; `router.refresh()` just
 fails, silently.
 
 Silently is the problem. `OfflineNotice` (mounted once in `AgentMain`, so it is
-on every screen with a tab bar) watches `online`/`offline` and says *"You're
-offline. This is what we last loaded — it may have changed."* It starts
+on every screen with a tab bar) watches `online`/`offline` and says _"You're
+offline. This is what we last loaded — it may have changed."_ It starts
 optimistic and corrects on mount, because `navigator` does not exist during SSR
 and flashing "offline" on every page load is its own kind of lie.
 
@@ -791,8 +791,8 @@ question, not a work-history one. Two tests pin exactly that.
 
 ### 6.3 What cannot be derived, stated on the page
 
-The brief said: *if a count cannot be derived, say so rather than adding
-write-path bookkeeping*. Two things cannot:
+The brief said: _if a count cannot be derived, say so rather than adding
+write-path bookkeeping_. Two things cannot:
 
 - **Emails sent** — no table, no local Inngest record (booking detail says so).
 - **Distance driven / time on the road** — `driver_positions` holds ONE mutable
@@ -804,8 +804,8 @@ write-path bookkeeping*. Two things cannot:
 
 The range predicate is a hand-written `coalesce(...)` fragment, and binding a
 `Date` into a raw drizzle `sql` template reaches postgres-js as a positional
-parameter with no type mapping — rejected outright with *"The string argument
-must be of type string"*. Drizzle's own operators do that mapping; a
+parameter with no type mapping — rejected outright with _"The string argument
+must be of type string"_. Drizzle's own operators do that mapping; a
 hand-written fragment has to say what it means, so the bounds go in as ISO
 strings with an explicit `::timestamptz`.
 
@@ -941,15 +941,15 @@ interaction. A single-window measurement of the same chain gave **2.9 s**.
 
 Supporting measurements, all from the same session:
 
-| Check | Result |
-|---|---|
+| Check                                 | Result                                                                                      |
+| ------------------------------------- | ------------------------------------------------------------------------------------------- |
 | trigger fires on a real service write | `booking_signals.updated_at` = the custody event's instant, `touched_by` = the acting agent |
-| owning customer receives the change | ✅ (Node + browser) |
-| a DIFFERENT customer receives it | ❌ correctly — RLS isolates |
-| `can_watch_booking(agent, booking)` | `true` for the assigned agent |
-| agent's filtered subscription | `SUBSCRIBED` + event received |
-| all four live surfaces on load | `data-live-signal="live"` |
-| a finished task's live layer | `polling` — correct: `enabled={!view.done}` |
+| owning customer receives the change   | ✅ (Node + browser)                                                                         |
+| a DIFFERENT customer receives it      | ❌ correctly — RLS isolates                                                                 |
+| `can_watch_booking(agent, booking)`   | `true` for the assigned agent                                                               |
+| agent's filtered subscription         | `SUBSCRIBED` + event received                                                               |
+| all four live surfaces on load        | `data-live-signal="live"`                                                                   |
+| a finished task's live layer          | `polling` — correct: `enabled={!view.done}`                                                 |
 
 **One honest caveat.** Across repeated runs on the local Realtime container,
 one two-window run had the agent refetch while the customer did not, and one
@@ -992,15 +992,15 @@ history** card is present and its actor chips resolve to real names
 
 ### 7.1 New and updated documentation
 
-| Doc | What |
-|---|---|
-| `docs/features/realtime-signals.md` | **new** — the signal-only rule, the table, the one policy, the client hook, and both traps from §V |
-| `docs/features/notifications.md` | **new** — the living matrix, the decisions inside it, idempotency keys, where each event is raised, the copy rules |
-| `docs/features/f2-hosted-setup.md` | **new** — TD's steps: two migrations, one dashboard check, no env vars, and the smoke tests in order |
-| `docs/features/booking-funnel.md` | §9.0 — the door, the three modes, the two kinds of failure |
-| `docs/features/storage-and-avatars.md` | §3.1 — who may see whose face, and replacing a staff photo |
-| `PROJECT-STATUS.md` | F2 rows, snapshot entry, four new §7 standing rules |
-| `docs/CODEBASE-MAP.md` | `booking_signals`, the realtime chapter pointer, the new services |
+| Doc                                    | What                                                                                                               |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `docs/features/realtime-signals.md`    | **new** — the signal-only rule, the table, the one policy, the client hook, and both traps from §V                 |
+| `docs/features/notifications.md`       | **new** — the living matrix, the decisions inside it, idempotency keys, where each event is raised, the copy rules |
+| `docs/features/f2-hosted-setup.md`     | **new** — TD's steps: two migrations, one dashboard check, no env vars, and the smoke tests in order               |
+| `docs/features/booking-funnel.md`      | §9.0 — the door, the three modes, the two kinds of failure                                                         |
+| `docs/features/storage-and-avatars.md` | §3.1 — who may see whose face, and replacing a staff photo                                                         |
+| `PROJECT-STATUS.md`                    | F2 rows, snapshot entry, four new §7 standing rules                                                                |
+| `docs/CODEBASE-MAP.md`                 | `booking_signals`, the realtime chapter pointer, the new services                                                  |
 
 ### 7.2 The five embedded decisions, at close-out
 
@@ -1019,29 +1019,29 @@ history** card is present and its actor chips resolve to real names
 
 ### 7.3 Deferred, with reasons
 
-| Item | Why |
-|---|---|
-| Web push for the agent PWA | Decision #2. Its own item. |
-| SMS | A2P registration, not code. |
-| A notifications/`email_sends` table | Would be bookkeeping on the send path. The console says sends live in Inngest instead of implying a zero. |
-| Offline outbox for custody capture | Real correctness questions; a half-built one is worse than none. The app says "you're offline" and queues nothing. |
-| `custody_events` SELECT grant | Its subscription has never worked and nothing subscribes. Opening a table nobody reads is a privilege change with no feature behind it. |
-| Orphaned avatar objects | Same retention sweep bag and passport photos are waiting on. |
-| Old `.next` dev-cache growth | Unrelated; `turbo.json`'s exclusion from F1 holds. |
+| Item                                | Why                                                                                                                                     |
+| ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| Web push for the agent PWA          | Decision #2. Its own item.                                                                                                              |
+| SMS                                 | A2P registration, not code.                                                                                                             |
+| A notifications/`email_sends` table | Would be bookkeeping on the send path. The console says sends live in Inngest instead of implying a zero.                               |
+| Offline outbox for custody capture  | Real correctness questions; a half-built one is worse than none. The app says "you're offline" and queues nothing.                      |
+| `custody_events` SELECT grant       | Its subscription has never worked and nothing subscribes. Opening a table nobody reads is a privilege change with no feature behind it. |
+| Orphaned avatar objects             | Same retention sweep bag and passport photos are waiting on.                                                                            |
+| Old `.next` dev-cache growth        | Unrelated; `turbo.json`'s exclusion from F1 holds.                                                                                      |
 
 ---
 
 ## Final gate
 
-| Gate | Result |
-|---|---|
-| `turbo typecheck` | **6/6** |
-| `turbo lint` | **6/6** |
-| Unit (`pnpm test`) | **5/5 packages** — core 486 (+1 skipped), web 109, ui 99, admin 27, agent 19 |
-| Core integration (`koolee_test`) | **251 passed, 3 skipped, 27 files** |
-| `turbo build` | **3/3** |
-| `pnpm db:status` (local) | **32 of 32, matched by content hash — in sync** |
-| Browser pass | 11 surfaces at 200, zero console errors; two-window realtime at **3.0 s** |
+| Gate                             | Result                                                                       |
+| -------------------------------- | ---------------------------------------------------------------------------- |
+| `turbo typecheck`                | **6/6**                                                                      |
+| `turbo lint`                     | **6/6**                                                                      |
+| Unit (`pnpm test`)               | **5/5 packages** — core 486 (+1 skipped), web 109, ui 99, admin 27, agent 19 |
+| Core integration (`koolee_test`) | **251 passed, 3 skipped, 27 files**                                          |
+| `turbo build`                    | **3/3**                                                                      |
+| `pnpm db:status` (local)         | **32 of 32, matched by content hash — in sync**                              |
+| Browser pass                     | 11 surfaces at 200, zero console errors; two-window realtime at **3.0 s**    |
 
 **Databases touched: LOCAL ONLY.** `127.0.0.1:54322` for migrations and the
 seed, the disposable `koolee_test` for the integration tier. Hosted was never
@@ -1065,16 +1065,16 @@ probe rows are labelled so they are recognisable as probes.
 
 One per phase, in order:
 
-| Commit | Phase |
-|---|---|
-| `feat(realtime): a doorbell, not a data path` | 0 |
-| `feat(notifications): the four messages that were missing` | 1 |
-| `feat(funnel): the ticket is the door, the form is the alternative` | 2 |
-| `feat(web): a trips home worth landing on, and a checklist that disappears` | 3 |
-| `feat(photos): issuance you cannot get wrong, and a photo an admin can fix` | 4 |
-| `feat(agent): a schedule ordered by attention, and a history that is a record` | 5 |
-| `feat(admin): histories that name people, and counts nobody has to maintain` | 6 |
-| `fix(realtime): the layer was inert, and docs to close the slice` | 7 + §V |
+| Commit                                                                         | Phase  |
+| ------------------------------------------------------------------------------ | ------ |
+| `feat(realtime): a doorbell, not a data path`                                  | 0      |
+| `feat(notifications): the four messages that were missing`                     | 1      |
+| `feat(funnel): the ticket is the door, the form is the alternative`            | 2      |
+| `feat(web): a trips home worth landing on, and a checklist that disappears`    | 3      |
+| `feat(photos): issuance you cannot get wrong, and a photo an admin can fix`    | 4      |
+| `feat(agent): a schedule ordered by attention, and a history that is a record` | 5      |
+| `feat(admin): histories that name people, and counts nobody has to maintain`   | 6      |
+| `fix(realtime): the layer was inert, and docs to close the slice`              | 7 + §V |
 
 ---
 
@@ -1097,12 +1097,12 @@ teach somebody to skip the one that matters.
 2. **Below it, scale the unit.** Days when it is days, hours and minutes inside
    a day, minutes inside an hour.
 
-| span | reads as |
-|---|---|
+| span           | reads as             |
+| -------------- | -------------------- |
 | under a minute | `less than a minute` |
-| under an hour | `42 min` |
-| under a day | `7h 12m` |
-| a day or more | `3 days` |
+| under an hour  | `42 min`             |
+| under a day    | `7h 12m`             |
+| a day or more  | `3 days`             |
 
 Days drop the hours on purpose: between one day and two there is nothing a
 customer does differently at 25 hours versus 47, and "1 day 23h" is a sentence
@@ -1120,11 +1120,11 @@ yes by the time the client hydrates.
 
 **Verified in a browser**, production build, against the real bookings:
 
-| booking | before | after |
-|---|---|---|
-| `KOO-ECDQZ` — AI/EWR, Mar 2027 | `4499h 3m until …` | banner absent |
-| `KOO-Q1RQA` — cutoff passed | `…h …m ago` | `AS's bag drop at EWR has closed. It closed 1 day ago.` |
-| `KOO-S4M25` — ~35h out | `35h 12m until …` | `1 day until DL's bag-drop cutoff at JFK.` |
+| booking                        | before             | after                                                   |
+| ------------------------------ | ------------------ | ------------------------------------------------------- |
+| `KOO-ECDQZ` — AI/EWR, Mar 2027 | `4499h 3m until …` | banner absent                                           |
+| `KOO-Q1RQA` — cutoff passed    | `…h …m ago`        | `AS's bag drop at EWR has closed. It closed 1 day ago.` |
+| `KOO-S4M25` — ~35h out         | `35h 12m until …`  | `1 day until DL's bag-drop cutoff at JFK.`              |
 
 Tests: `cutoff-horizon.test.ts` — 10 cases, including the reported span
 (4499 h → hidden), the inclusive boundary, both directions of the ladder, and

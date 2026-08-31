@@ -24,15 +24,15 @@ booking funnel, the agent app, and two questions about infrastructure. Grouped
 into six batches so each landed as a reviewable commit rather than one
 unreadable diff.
 
-| Batch | Commit | What it answers |
-| --- | --- | --- |
-| A | `18e8bcb` | Address deletion, the profile card, autocomplete, avatar, toasts |
-| B | `058e499` | What a trip is called, when it becomes history, CTA duplication |
-| C | `2d32462` | Date picker, leg picker, upload copy, pickup step, window grid, payment scrim |
-| D | `b7d86d2` | Agreement/passport sequence, agreement PDF, miles, single-number ETA |
-| E | `cdfee5f` | The customer's phone, and how far the door is |
-| F | `8e631a2` | The live map |
-| G | this one | Sentry locally, the Google Maps split, the docs |
+| Batch | Commit    | What it answers                                                               |
+| ----- | --------- | ----------------------------------------------------------------------------- |
+| A     | `18e8bcb` | Address deletion, the profile card, autocomplete, avatar, toasts              |
+| B     | `058e499` | What a trip is called, when it becomes history, CTA duplication               |
+| C     | `2d32462` | Date picker, leg picker, upload copy, pickup step, window grid, payment scrim |
+| D     | `b7d86d2` | Agreement/passport sequence, agreement PDF, miles, single-number ETA          |
+| E     | `cdfee5f` | The customer's phone, and how far the door is                                 |
+| F     | `8e631a2` | The live map                                                                  |
+| G     | this one  | Sentry locally, the Google Maps split, the docs                               |
 
 ---
 

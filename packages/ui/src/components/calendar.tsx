@@ -17,7 +17,12 @@ export type CalendarProps = React.ComponentProps<typeof DayPicker>;
  * which is stable regardless of whether react-day-picker puts `aria-selected`
  * on the cell or the button.
  */
-function Calendar({ className, classNames, showOutsideDays = true, ...props }: CalendarProps) {
+function Calendar({
+  className,
+  classNames,
+  showOutsideDays = true,
+  ...props
+}: CalendarProps) {
   return (
     <DayPicker
       showOutsideDays={showOutsideDays}
@@ -37,7 +42,8 @@ function Calendar({ className, classNames, showOutsideDays = true, ...props }: C
         month_caption: "flex h-8 items-center justify-center",
         caption_label: "text-sm font-medium text-navy-800",
         month_grid: "w-full border-collapse",
-        weekday: "size-9 pb-1 text-center text-[0.75rem] font-normal text-muted-foreground",
+        weekday:
+          "size-9 pb-1 text-center text-[0.75rem] font-normal text-muted-foreground",
         day: "p-0 text-center align-middle",
         day_button:
           "inline-flex size-9 items-center justify-center rounded-md text-sm font-normal " +

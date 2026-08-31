@@ -201,18 +201,18 @@ function AddressFields({
  * The fields, their precision, and the two ways either changes. Shared by add
  * and edit so a hand edit clears the coordinates in exactly one place.
  */
-function useAddressFields(initial: AddressFieldValues, initialPrecision: AddressPrecision) {
+function useAddressFields(
+  initial: AddressFieldValues,
+  initialPrecision: AddressPrecision,
+) {
   const [values, setValues] = React.useState(initial);
   const [precision, setPrecision] = React.useState(initialPrecision);
 
-  const onChange = React.useCallback(
-    (key: keyof AddressFieldValues, value: string) => {
-      setValues((current) => ({ ...current, [key]: value }));
-      // The label is not part of the address, so editing it keeps the point.
-      if (key !== "label") setPrecision(NO_PRECISION);
-    },
-    [],
-  );
+  const onChange = React.useCallback((key: keyof AddressFieldValues, value: string) => {
+    setValues((current) => ({ ...current, [key]: value }));
+    // The label is not part of the address, so editing it keeps the point.
+    if (key !== "label") setPrecision(NO_PRECISION);
+  }, []);
 
   const onPlaceSelected = React.useCallback((place: SelectedPlace) => {
     setValues((current) => ({

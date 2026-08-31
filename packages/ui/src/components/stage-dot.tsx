@@ -21,7 +21,17 @@ import { cn } from "../lib/utils";
  * vertical timeline in the product drew its line with no dots on it.
  */
 
-export type StageState = "complete" | "current" | "upcoming";
+/**
+ * `cancelled` is the fourth state, and it exists so a stop that did not happen
+ * can stay ON the track instead of vanishing from it.
+ *
+ * A dropped stop rewrites history — the customer, the agent and ops each see a
+ * journey that never had the leg somebody cancelled, which makes "what
+ * happened to my bags?" unanswerable from the screen that is supposed to
+ * answer it. So the dot stays, hollow with a line struck through it, reading
+ * as "this was here and it is not happening" rather than as "not yet".
+ */
+export type StageState = "complete" | "current" | "upcoming" | "cancelled";
 
 export interface StageDotProps {
   state?: StageState;
@@ -39,6 +49,20 @@ function StageDot({ state = "complete", className }: StageDotProps) {
             halo animates, the core stays a solid, readable dot. */}
         <span className="absolute inset-0 animate-ping rounded-full bg-tag opacity-75 motion-reduce:animate-none" />
         <span className="relative block size-3 rounded-full bg-tag ring-4 ring-tag-100" />
+      </span>
+    );
+  }
+  if (state === "cancelled") {
+    return (
+      <span
+        aria-hidden="true"
+        className={cn("relative block size-3 shrink-0", className)}
+      >
+        <span className="block size-3 rounded-full border-2 border-muted-foreground/50 bg-white" />
+        {/* The strike is what separates "cancelled" from "not yet". A muted
+            hollow dot on its own is indistinguishable from an upcoming one at
+            a glance, which is the whole failure this state exists to avoid. */}
+        <span className="absolute top-1/2 left-1/2 h-px w-4 -translate-x-1/2 -translate-y-1/2 rotate-45 bg-muted-foreground/70" />
       </span>
     );
   }

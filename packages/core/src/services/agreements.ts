@@ -536,6 +536,27 @@ export async function listAgreementVersions(db: Database): Promise<AgreementVers
   return db.select().from(agreementVersions).orderBy(desc(agreementVersions.version));
 }
 
+/**
+ * How many versions exist at all — published, scheduled, or superseded.
+ *
+ * ZERO IS AN OUTAGE, and this is the cheapest way to ask. Without a version
+ * no booking can hold an acceptance, so `bookingHasAcceptedAgreement` fails
+ * closed for every booking and every agent visit stops at the identity step.
+ * The console's Overview page asks this on every load to raise that alarm, so
+ * it is a `count(*)` rather than `listAgreementVersions().length` — the bodies
+ * are markdown documents and none of them is needed to answer "any?".
+ *
+ * Deliberately NOT "is one in effect right now". A version scheduled for next
+ * week is not current, but somebody has done the work and the alarm would be
+ * noise. `getCurrentAgreementVersion` answers the other question.
+ */
+export async function countAgreementVersions(db: Database): Promise<number> {
+  const [row] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(agreementVersions);
+  return row?.count ?? 0;
+}
+
 export async function getAgreementVersionById(
   db: Database,
   id: string,

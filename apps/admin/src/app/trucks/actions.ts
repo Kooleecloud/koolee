@@ -124,7 +124,9 @@ export async function setTruckActiveAction(
   try {
     const truck = await updateTruck(getCore().db, { id, active });
     revalidatePath("/trucks");
-    return { ok: `${truck.name} ${active ? "back in service" : "taken out of service"}.` };
+    return {
+      ok: `${truck.name} ${active ? "back in service" : "taken out of service"}.`,
+    };
   } catch (error) {
     // The interesting failure: the van is on the road with somebody in it.
     // Core names the driver; that sentence is shown as-is.

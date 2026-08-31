@@ -46,9 +46,28 @@ export function pickupStepIndexFor(
     case "delivered_to_bagdrop":
     case "completed":
       return 4;
+    case "cancelled":
+      /*
+       * NOTHING IS CURRENT, and nothing is going to be.
+       *
+       * This used to fall into the default below and return 0, which put the
+       * pulsing seal-orange "you are here" marker on "Driver booked" — a
+       * cancelled booking claiming a stage was in progress. `ProgressTrack`
+       * has documented `-1` as the cancelled rendering since it was written;
+       * it was simply never passed one.
+       *
+       * The track is still RENDERED. Hiding it would make a cancelled trip
+       * read as though it had never been booked, and the stages are what let
+       * a customer see how far it had got before it stopped.
+       */
+      return -1;
     default:
-      // exception, cancelled, and everything before sealing: the track is not
-      // the story, so it sits at the start rather than claiming progress.
+      // exception, and everything before sealing: the track is not the story,
+      // so it sits at the start rather than claiming progress.
+      //
+      // (An exception arguably wants -1 too, by the same argument. It is a
+      // different state with a different meaning — paused, not abandoned —
+      // and changing it is not this slice's call.)
       return 0;
   }
 }

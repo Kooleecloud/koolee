@@ -49,6 +49,7 @@ import { CustodyTrail, type CustodyActor } from "./custody-trail";
 import {
   AssignAgentForm,
   ReassignPickupForm,
+  UnassignPickupForm,
   AutoAssignButton,
   ResolveExceptionForm,
 } from "./dispatch-forms";
@@ -179,7 +180,9 @@ export default async function BookingDetailPage({
    */
   const actorIds = [
     ...new Set(
-      timeline.map((event) => event.actorUserId).filter((id): id is string => Boolean(id)),
+      timeline
+        .map((event) => event.actorUserId)
+        .filter((id): id is string => Boolean(id)),
     ),
   ];
   const actors = await resolveActors(core.db, session, actorIds);
@@ -245,7 +248,9 @@ export default async function BookingDetailPage({
           }
         >
           <strong>
-            {actionability.blockedReason ? "Customer and crew are blocked" : "Running late"}
+            {actionability.blockedReason
+              ? "Customer and crew are blocked"
+              : "Running late"}
             :
           </strong>{" "}
           {actionability.blockedReason ?? actionability.lateNotice}
@@ -621,20 +626,37 @@ export default async function BookingDetailPage({
                   : "No driver on this booking. The customer picks one once the bags are sealed; reassign here if they cannot, or if the one they picked fell through."}
               </CardDescription>
             </CardHeader>
-            <CardContent>
+            <CardContent className="flex flex-col gap-4">
               <ReassignPickupForm
                 bookingId={booking.id}
                 bagCount={booking.bagCount}
                 currentShiftId={selectedDriver?.shiftId ?? null}
                 options={reassignOptions.map((option) => ({
                   shiftId: option.shiftId,
-                  label: `${option.driverName ?? "Unnamed driver"} — ${option.truckName} (${
-                    option.bagCapacity - option.bagsOnBoard
-                  } free)`,
+                  // The free count is net of the reserve now — the same
+                  // `bookableSpaces` figure the customer's shortlist filters
+                  // on, so the console and the funnel cannot disagree about
+                  // whether a van has room.
+                  label: `${option.driverName ?? "Unnamed driver"} — ${option.truckName} (${Math.max(
+                    0,
+                    option.bagCapacity - option.reservedSpaces - option.bagsOnBoard,
+                  )} free${option.reservedSpaces > 0 ? `, ${option.reservedSpaces} held back` : ""})`,
                   inZone: option.inZone,
                   hasRoom: option.hasRoom,
                 }))}
               />
+
+              {/* Only when there IS somebody to remove. Core refuses an
+                  unassign on an empty task, and an affordance that only ever
+                  produces a refusal is noise. */}
+              {selectedDriver && selectedDriver.taskStatus !== "done" && (
+                <div className="border-t border-border pt-3">
+                  <UnassignPickupForm
+                    bookingId={booking.id}
+                    driverLabel={`${selectedDriver.givenName ?? "this driver"} (${selectedDriver.truckName})`}
+                  />
+                </div>
+              )}
             </CardContent>
           </Card>
           <Card>

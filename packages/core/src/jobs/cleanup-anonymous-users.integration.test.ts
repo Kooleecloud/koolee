@@ -105,9 +105,13 @@ describeIntegration("cleanupAnonymousUsers (integration)", () => {
     expect(result.deletedDrafts).toBe(1);
     expect(result.skippedWithBookings).toBe(0);
     expect(deleteAuthUser).toHaveBeenCalledWith(staleId);
-    expect(await db.query.users.findFirst({ where: eq(users.id, staleId) })).toBeUndefined();
     expect(
-      await db.query.bookingDrafts.findFirst({ where: eq(bookingDrafts.userId, staleId) }),
+      await db.query.users.findFirst({ where: eq(users.id, staleId) }),
+    ).toBeUndefined();
+    expect(
+      await db.query.bookingDrafts.findFirst({
+        where: eq(bookingDrafts.userId, staleId),
+      }),
     ).toBeUndefined();
   });
 
@@ -125,8 +129,12 @@ describeIntegration("cleanupAnonymousUsers (integration)", () => {
     const result = await cleanupAnonymousUsers(db, { now, log: () => {} });
 
     expect(result.deletedUsers).toBe(0);
-    expect(await db.query.users.findFirst({ where: eq(users.id, freshAnon) })).toBeDefined();
-    expect(await db.query.users.findFirst({ where: eq(users.id, verifiedId) })).toBeDefined();
+    expect(
+      await db.query.users.findFirst({ where: eq(users.id, freshAnon) }),
+    ).toBeDefined();
+    expect(
+      await db.query.users.findFirst({ where: eq(users.id, verifiedId) }),
+    ).toBeDefined();
   });
 
   it("refuses to touch a stale anonymous user who somehow owns a booking", async () => {

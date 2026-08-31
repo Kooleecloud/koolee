@@ -10,7 +10,9 @@ import {
   CardTitle,
   FormMessage,
   Input,
-  Label, usePreservedFormValues } from "@koolee/ui";
+  Label,
+  usePreservedFormValues,
+} from "@koolee/ui";
 
 import { captureOutOfAreaEmail, type ActionState } from "@/app/book/actions";
 
@@ -43,12 +45,17 @@ export function OutOfAreaCapture({ zip, retryHref }: { zip: string; retryHref: s
       <CardHeader>
         <CardTitle className="text-base">We don&apos;t serve {zip} yet</CardTitle>
         <CardDescription>
-          Koolee currently covers all five NYC boroughs and Hudson County, NJ. Leave
-          your email and we&apos;ll tell you when that changes.
+          Koolee currently covers all five NYC boroughs and Hudson County, NJ. Leave your
+          email and we&apos;ll tell you when that changes.
         </CardDescription>
       </CardHeader>
       <CardContent>
-        <form ref={formRef} onSubmit={captureValues} action={formAction} className="flex flex-col gap-4">
+        <form
+          ref={formRef}
+          onSubmit={captureValues}
+          action={formAction}
+          className="flex flex-col gap-4"
+        >
           <input type="hidden" name="zip" value={zip} />
           <div className="grid gap-2">
             <Label htmlFor="email">Email</Label>

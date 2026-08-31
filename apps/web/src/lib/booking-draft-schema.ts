@@ -114,6 +114,46 @@ export const ticketPrefillSchema = z.object({
 
 export type TicketPrefill = z.infer<typeof ticketPrefillSchema>;
 
+/**
+ * WHAT THE CUSTOMER TYPED AT A STEP THAT REFUSED THEM.
+ *
+ * Quarantined under its own key, exactly like `ticketPrefill`, and for the
+ * same reason: these values have NOT passed validation, so no booking-write
+ * path may read them and `stepCompletion` must not count them as progress. A
+ * rejected ZIP written into `draft.zip` would make step one read "complete"
+ * and send the customer forward through a funnel they never cleared.
+ *
+ * THE BUG THIS EXISTS FOR. `submitFlight` returned its rejection BEFORE
+ * `writeDraft`, so nothing the customer had typed was ever persisted. An
+ * out-of-area ZIP then swapped the whole form for the waitlist card, and its
+ * "Try another ZIP" link reloaded `/book/flight` — where `flightEntryMode`
+ * found an empty draft and rendered the UPLOAD DOOR. A customer who had typed
+ * a flight number, an airport, a date, a time and their name got a file-drop
+ * area and no explanation, having done nothing wrong but live one street too
+ * far out.
+ *
+ * Every field is optional and loosely typed on purpose. This holds what was
+ * typed, including what was typed WRONG — a strict schema here would drop
+ * exactly the value the customer needs to see in order to correct it.
+ */
+export const rejectedEntrySchema = z.object({
+  zip: z.string().max(10).optional(),
+  flightNumber: z.string().max(20).optional(),
+  departureAirport: z.string().max(10).optional(),
+  destinationAirport: z.string().max(10).optional(),
+  /** Wall clock, as the `datetime-local` field posted it. */
+  departureAt: z.string().max(32).optional(),
+  scope: z.string().max(20).optional(),
+  paxName: z.string().max(200).optional(),
+  line1: z.string().max(200).optional(),
+  line2: z.string().max(200).optional(),
+  city: z.string().max(100).optional(),
+  state: z.string().max(10).optional(),
+  bagCount: z.string().max(4).optional(),
+});
+
+export type RejectedEntry = z.infer<typeof rejectedEntrySchema>;
+
 export const bookingDraftSchema = z.object({
   /**
    * Funnel-session id, minted on first cookie write. Keys guest artifacts
@@ -122,6 +162,13 @@ export const bookingDraftSchema = z.object({
   draftId: z.uuid().optional(),
   /** Quarantined extraction output — review-form defaults ONLY (see above). */
   ticketPrefill: ticketPrefillSchema.optional(),
+  /**
+   * Quarantined REJECTED input, so a refusal costs a correction rather than
+   * the whole form. Written by the step that refused, read only as form
+   * defaults by that same step, and cleared the moment the step succeeds.
+   */
+  flightEntry: rejectedEntrySchema.optional(),
+  pickupEntry: rejectedEntrySchema.optional(),
 
   flightNumber: z.string().min(2).max(10).optional(),
   airlineIata: z.string().length(2).or(z.string().length(3)).optional(),
@@ -188,7 +235,10 @@ export const bookingDraftSchema = z.object({
 
 export type BookingDraft = z.infer<typeof bookingDraftSchema>;
 
-export interface TypedBookingDraft extends Omit<BookingDraft, "departureAirport" | "scope"> {
+export interface TypedBookingDraft extends Omit<
+  BookingDraft,
+  "departureAirport" | "scope"
+> {
   departureAirport?: AirportCode;
   scope?: CutoffScope;
 }

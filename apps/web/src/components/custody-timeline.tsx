@@ -59,6 +59,10 @@ const LABELS: Record<string, string> = {
   "pickup.seal_mismatch": "A seal didn't match — ops is on it",
   "pickup.shift_force_ended": "Reassigning your driver",
   "pickup.reassigned": "Your driver changed",
+  // The customer's wording, not ops'. "Unassigned" describes our queue; what
+  // happened to THEM is that the driver they had is no longer coming and they
+  // get to pick again — which is also what the page will now offer.
+  "pickup.unassigned": "Choosing a new driver for you",
   "pickup.handover_confirmed": "Your airline took your bags",
   "booking.awaiting_pickup": "Ready for pickup",
   "booking.in_transit": "Driver collected your bags",

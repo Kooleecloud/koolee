@@ -50,7 +50,8 @@ export function formatUsPhone(digits: string): string {
  */
 export function formatE164ForDisplay(value: string): string {
   const digits = value.replace(/\D/g, "");
-  if (value.startsWith("+1") && digits.length === 11) return formatUsPhone(digits.slice(1));
+  if (value.startsWith("+1") && digits.length === 11)
+    return formatUsPhone(digits.slice(1));
   if (!value.startsWith("+") && digits.length === 10) return formatUsPhone(digits);
   return value;
 }

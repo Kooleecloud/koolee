@@ -323,7 +323,8 @@ export function useWebPush(options: UseWebPushOptions = {}): UseWebPushResult {
     setBusy(true);
 
     try {
-      const registration = registrationRef.current ?? (await navigator.serviceWorker.ready);
+      const registration =
+        registrationRef.current ?? (await navigator.serviceWorker.ready);
       const subscription = await registration.pushManager.getSubscription();
 
       if (subscription) {

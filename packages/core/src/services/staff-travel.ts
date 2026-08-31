@@ -2,7 +2,12 @@ import { eq } from "drizzle-orm";
 import { driverPositions } from "@koolee/db";
 
 import type { CoreConfig } from "../config";
-import { formatMiles, haversineKm, toCoordinates, type Coordinates } from "../geo/coordinates";
+import {
+  formatMiles,
+  haversineKm,
+  toCoordinates,
+  type Coordinates,
+} from "../geo/coordinates";
 import { formatEtaMinutes } from "../geo/eta";
 
 /**

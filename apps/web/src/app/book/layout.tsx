@@ -40,7 +40,11 @@ export default async function BookLayout({ children }: { children: React.ReactNo
   // The chosen window lives in the draft itself — no lookup needed.
   const windowLabel =
     draft.windowStart && draft.windowEnd
-      ? formatWindowInAirportTz(new Date(draft.windowStart), new Date(draft.windowEnd), tz)
+      ? formatWindowInAirportTz(
+          new Date(draft.windowStart),
+          new Date(draft.windowEnd),
+          tz,
+        )
       : null;
 
   const summary: BookingSummaryData = {

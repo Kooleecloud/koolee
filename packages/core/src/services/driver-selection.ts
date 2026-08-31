@@ -15,7 +15,12 @@ import {
 
 import type { CoreConfig } from "../config";
 import { emitDriverPoolEmpty, emitDriverSelected } from "../events/booking-events";
-import { ConflictError, InvalidInputError, NotAuthorizedError, NotFoundError } from "../errors";
+import {
+  ConflictError,
+  InvalidInputError,
+  NotAuthorizedError,
+  NotFoundError,
+} from "../errors";
 import { assertActionable } from "./actionability";
 import { touchBookingSignals } from "./booking-signals";
 import { toCoordinates, type Coordinates } from "../geo/coordinates";
@@ -54,6 +59,36 @@ import { OPEN_TASK_STATUSES } from "./tasks";
  * alert rather than leaving the customer looking at nothing.
  */
 
+/**
+ * HOW MANY BAGS A VAN CAN STILL TAKE FROM A BOOKING.
+ *
+ *     bag_capacity − reserved_spaces − bags already on board
+ *
+ * `reserved_spaces` is the middle term, and until slice F4 it was not there.
+ * The column existed, the admin form edited it, and it was labelled "not yet
+ * enforced" — every capacity check in this file read `bag_capacity` raw. An
+ * operator holding two spaces back for a wheelchair, a fragile case or a
+ * return leg had a van that kept accepting bookings into them.
+ *
+ * ONE FUNCTION, FOUR READERS, and that is the point of extracting it. The
+ * shortlist filter, the candidate it renders, the transactional recheck under
+ * the advisory lock and the console's reassign picker each computed
+ * `bagCapacity - bagsOnBoard` independently, so a reserve honoured in three
+ * of them and forgotten in the fourth would have been a race the tests could
+ * not see.
+ *
+ * CLAMPED AT ZERO. `reserved_spaces < bag_capacity` is enforced on write
+ * (`createTruck` / `updateTruck`), so a negative is unreachable for a truck
+ * entered today — but a row predating that guard must render "0 spaces left",
+ * not "-2".
+ */
+export function bookableSpaces(
+  truck: { bagCapacity: number; reservedSpaces: number },
+  bagsOnBoard: number,
+): number {
+  return Math.max(0, truck.bagCapacity - truck.reservedSpaces - bagsOnBoard);
+}
+
 /** Statuses from which a customer may choose (or re-choose) a driver. */
 export const DRIVER_SELECTABLE_STATUSES = [
   "verified_sealed",
@@ -73,9 +108,11 @@ export interface DriverCandidate {
   avatarStoragePath: string | null;
   truckName: string;
   bagCapacity: number;
+  /** Held back from booking capacity by ops. Usually 0. */
+  reservedSpaces: number;
   /** Bags already committed to this shift. */
   bagsOnBoard: number;
-  /** `bagCapacity − bagsOnBoard`. Always ≥ the booking's bag count. */
+  /** `bookableSpaces(truck, bagsOnBoard)`. Always ≥ the booking's bag count. */
   availableCapacity: number;
   /**
    * True when this driver does not cover the pickup ZIP and only appears
@@ -113,6 +150,7 @@ interface EligibleRow {
   avatarStoragePath: string | null;
   truckName: string;
   bagCapacity: number;
+  reservedSpaces: number;
   bagsOnBoard: number;
   inZone: boolean;
   driverLat: number | null;
@@ -130,10 +168,7 @@ const givenNameOf = (fullName: string | null): string | null =>
  * ZIP twice cannot appear twice, and so the widening fallback is a filter in
  * memory rather than a second round trip.
  */
-async function eligibleShifts(
-  db: Database,
-  zip: string,
-): Promise<EligibleRow[]> {
+async function eligibleShifts(db: Database, zip: string): Promise<EligibleRow[]> {
   const bagsOnBoard = sql<number>`(
     select coalesce(sum(b.bag_count), 0)::int
       from ${pickupTasks} pt
@@ -150,6 +185,7 @@ async function eligibleShifts(
       avatarStoragePath: users.avatarStoragePath,
       truckName: trucks.name,
       bagCapacity: trucks.bagCapacity,
+      reservedSpaces: trucks.reservedSpaces,
       bagsOnBoard,
       // `agent_zones` is shared with agents and NOT renamed: 198 live rows, an
       // admin CRUD, and an FK to `users` that already fits a driver. What
@@ -216,9 +252,7 @@ async function loadSelectionContext(
 }
 
 function assertSelectable(booking: Booking): void {
-  if (
-    !(DRIVER_SELECTABLE_STATUSES as readonly string[]).includes(booking.status)
-  ) {
+  if (!(DRIVER_SELECTABLE_STATUSES as readonly string[]).includes(booking.status)) {
     throw new ConflictError(
       "driver",
       `Booking ${booking.ref} is ${booking.status} — a driver is chosen once the bags are sealed.`,
@@ -244,7 +278,7 @@ export async function listCandidateDrivers(
   const rows = await eligibleShifts(db, pickup.zip);
 
   const withRoom = rows.filter(
-    (r) => r.bagCapacity - r.bagsOnBoard >= booking.bagCount,
+    (r) => bookableSpaces(r, r.bagsOnBoard) >= booking.bagCount,
   );
 
   const inZone = withRoom.filter((r) => r.inZone);
@@ -308,8 +342,9 @@ function toCandidate(
     avatarStoragePath: row.avatarStoragePath,
     truckName: row.truckName,
     bagCapacity: row.bagCapacity,
+    reservedSpaces: row.reservedSpaces,
     bagsOnBoard: row.bagsOnBoard,
-    availableCapacity: row.bagCapacity - row.bagsOnBoard,
+    availableCapacity: bookableSpaces(row, row.bagsOnBoard),
     outOfZone,
     eta,
     position: toCoordinates(row.driverLat, row.driverLng),
@@ -406,7 +441,10 @@ export async function selectDriver(
     if (!task) {
       throw new NotFoundError("Pickup task for booking", booking.id);
     }
-    if (task.startedAt !== null || !(OPEN_TASK_STATUSES as readonly string[]).includes(task.status)) {
+    if (
+      task.startedAt !== null ||
+      !(OPEN_TASK_STATUSES as readonly string[]).includes(task.status)
+    ) {
       throw new ConflictError(
         "driver",
         "Your driver is already on the way — the choice is closed.",
@@ -422,6 +460,9 @@ export async function selectDriver(
         shift: driverShifts,
         truckName: trucks.name,
         bagCapacity: trucks.bagCapacity,
+        // Re-read under the lock with everything else: ops can raise a
+        // reserve between the shortlist rendering and the customer clicking.
+        reservedSpaces: trucks.reservedSpaces,
         fullName: users.fullName,
         avatarStoragePath: users.avatarStoragePath,
         canDrive: staffMembers.canDrive,
@@ -462,7 +503,7 @@ export async function selectDriver(
       );
 
     const bagsOnBoard = load?.bags ?? 0;
-    const availableCapacity = row.bagCapacity - bagsOnBoard;
+    const availableCapacity = bookableSpaces(row, bagsOnBoard);
     if (availableCapacity < booking.bagCount) {
       throw new ConflictError(
         "driver",
@@ -522,6 +563,7 @@ export async function selectDriver(
       avatarStoragePath: row.avatarStoragePath,
       truckName: row.truckName,
       bagCapacity: row.bagCapacity,
+      reservedSpaces: row.reservedSpaces,
       bagsOnBoard: bagsOnBoard + booking.bagCount,
       availableCapacity: availableCapacity - booking.bagCount,
       outOfZone: false,
@@ -593,7 +635,10 @@ export async function reportEmptyDriverPool(
       now: config.clock.now(),
     });
   } catch (error) {
-    console.error(`[driver-selection] pool-empty report failed for ${input.bookingId}`, error);
+    console.error(
+      `[driver-selection] pool-empty report failed for ${input.bookingId}`,
+      error,
+    );
   }
 }
 
@@ -661,10 +706,7 @@ export async function getSelectedDriver(
     .innerJoin(driverShifts, eq(driverShifts.id, pickupTasks.driverShiftId))
     .innerJoin(trucks, eq(trucks.id, driverShifts.truckId))
     .innerJoin(users, eq(users.id, driverShifts.staffUserId))
-    .leftJoin(
-      driverPositions,
-      eq(driverPositions.staffUserId, driverShifts.staffUserId),
-    )
+    .leftJoin(driverPositions, eq(driverPositions.staffUserId, driverShifts.staffUserId))
     .where(eq(pickupTasks.bookingId, bookingId))
     .limit(1);
 
@@ -721,7 +763,12 @@ export async function recordDriverPosition(
   const recordedAt = input.recordedAt ?? config.clock.now();
   await db
     .insert(driverPositions)
-    .values({ staffUserId: input.staffUserId, lat: input.lat, lng: input.lng, recordedAt })
+    .values({
+      staffUserId: input.staffUserId,
+      lat: input.lat,
+      lng: input.lng,
+      recordedAt,
+    })
     .onConflictDoUpdate({
       target: driverPositions.staffUserId,
       set: { lat: input.lat, lng: input.lng, recordedAt },
@@ -758,7 +805,6 @@ export async function recordDriverPosition(
     input.staffUserId,
   );
 }
-
 
 /* ------------------------------------------------------------------ */
 /* Admin reassignment                                                  */
@@ -835,6 +881,7 @@ export async function adminReassignPickup(
         shift: driverShifts,
         truckName: trucks.name,
         bagCapacity: trucks.bagCapacity,
+        reservedSpaces: trucks.reservedSpaces,
         canDrive: staffMembers.canDrive,
         staffActive: staffMembers.active,
       })
@@ -845,7 +892,10 @@ export async function adminReassignPickup(
       .limit(1);
 
     if (!row || !row.staffActive || !row.canDrive) {
-      throw new ConflictError("driver", "That shift is not open, or that driver cannot drive.");
+      throw new ConflictError(
+        "driver",
+        "That shift is not open, or that driver cannot drive.",
+      );
     }
 
     const [zoneRow] = await tx
@@ -871,7 +921,7 @@ export async function adminReassignPickup(
           sql`${pickupTasks.bookingId} <> ${booking.id}`,
         ),
       );
-    const availableCapacity = row.bagCapacity - (load?.bags ?? 0);
+    const availableCapacity = bookableSpaces(row, load?.bags ?? 0);
     const hasRoom = availableCapacity >= booking.bagCount;
 
     const overrode: ("zone" | "capacity")[] = [];
@@ -888,7 +938,9 @@ export async function adminReassignPickup(
     }
 
     const releasedShiftId =
-      task.driverShiftId && task.driverShiftId !== input.shiftId ? task.driverShiftId : null;
+      task.driverShiftId && task.driverShiftId !== input.shiftId
+        ? task.driverShiftId
+        : null;
 
     await tx
       .update(pickupTasks)
@@ -922,6 +974,115 @@ export async function adminReassignPickup(
   });
 }
 
+export interface AdminUnassignPickupInput {
+  bookingId: string;
+  adminUserId: string;
+  /** Free text, written into the custody trail. Optional. */
+  reason?: string;
+}
+
+export interface AdminUnassignPickupResult {
+  /** The shift the pickup was taken off, or null if it had none. */
+  releasedShiftId: string | null;
+}
+
+/**
+ * Takes the driver off a pickup and leaves it UNASSIGNED.
+ *
+ * WHY THIS EXISTS SEPARATELY FROM REASSIGN. The console could move a pickup
+ * from one shift to another and nothing else. So an admin who needed to undo
+ * an assignment — the driver called in sick, the van broke down, the customer
+ * picked somebody who then went off shift, or the assignment was simply wrong
+ * — had to park the booking on some OTHER driver who was not going to do it
+ * either. Every one of those is a lie told to the dispatch board, and the
+ * board is what decides who gets chased.
+ *
+ * An unassigned sealed booking is not a gap in the record; it is exactly what
+ * the board's at-risk flag exists to surface (`dispatch.ts`,
+ * `awaitingDriverToday`). This puts the booking back in front of a human
+ * instead of hiding it behind a name.
+ *
+ * THE TASK GOES BACK TO `pending`, not to a half state — the same release
+ * `adminForceEndShift` performs when a shift ends under its load: shift
+ * cleared, assignee cleared, `started_at` cleared. The customer's shortlist
+ * reopens, so they can choose again.
+ *
+ * REFUSED ONCE THE BAGS ARE IN THE VAN. `in_transit` and beyond means the
+ * driver physically has the luggage, and re-listing the booking for another
+ * driver to collect from a door the bags have already left would be a lie of
+ * a different kind. `adminForceEndShift` handles that case by raising an
+ * EXCEPTION, which pages ops — that is the honest route, and this one names
+ * it rather than duplicating it. TD chose the refusal over silently doing
+ * something exceptional under a routine button.
+ */
+export async function adminUnassignPickup(
+  config: CoreConfig,
+  input: AdminUnassignPickupInput,
+): Promise<AdminUnassignPickupResult> {
+  const { db } = config;
+  const [booking] = await db
+    .select()
+    .from(bookings)
+    .where(eq(bookings.id, input.bookingId))
+    .limit(1);
+  if (!booking) throw new NotFoundError("Booking", input.bookingId);
+
+  if (
+    booking.status === "in_transit" ||
+    booking.status === "delivered_to_bagdrop" ||
+    booking.status === "completed"
+  ) {
+    throw new ConflictError(
+      "driver",
+      booking.status === "in_transit"
+        ? `The bags for ${booking.ref} are already in this driver's van. Unassigning would re-list them for collection from a door they have left. Force-end the shift instead — that releases the run AND raises an exception, which pages ops.`
+        : `Booking ${booking.ref} is ${booking.status} — the bags are already with the airline.`,
+    );
+  }
+
+  return db.transaction(async (tx) => {
+    const task = await tx.query.pickupTasks.findFirst({
+      where: eq(pickupTasks.bookingId, booking.id),
+    });
+    if (!task) throw new NotFoundError("Pickup task for booking", booking.id);
+
+    const releasedShiftId = task.driverShiftId;
+    if (releasedShiftId === null && task.assigneeUserId === null) {
+      throw new ConflictError(
+        "driver",
+        `Nobody is assigned to ${booking.ref} — there is nothing to remove.`,
+      );
+    }
+
+    await tx
+      .update(pickupTasks)
+      .set({
+        driverShiftId: null,
+        assigneeUserId: null,
+        status: "pending",
+        // Same reset a reassignment performs: a cleared run has not started,
+        // and a stale `started_at` would make the customer's page claim
+        // somebody is on the way who is not.
+        startedAt: null,
+        updatedAt: new Date(),
+      })
+      .where(eq(pickupTasks.id, task.id));
+
+    await tx.insert(custodyEvents).values({
+      bookingId: booking.id,
+      actorUserId: input.adminUserId,
+      actorRole: "admin",
+      eventType: PICKUP_EVENT_TYPES.unassigned,
+      metadata: {
+        ...(releasedShiftId ? { releasedShiftId } : {}),
+        ...(input.reason?.trim() ? { reason: input.reason.trim() } : {}),
+      },
+    });
+
+    return { releasedShiftId };
+  });
+}
+
 /**
  * Open shifts a pickup can be moved to, with whether each would need an
  * override. The console's reassign picker.
@@ -932,6 +1093,8 @@ export interface ReassignOption {
   driverName: string | null;
   truckName: string;
   bagCapacity: number;
+  /** Held back by ops. The console shows it so a "full" van is explicable. */
+  reservedSpaces: number;
   bagsOnBoard: number;
   inZone: boolean;
   hasRoom: boolean;
@@ -955,8 +1118,9 @@ export async function listReassignOptions(
     driverName: r.fullName,
     truckName: r.truckName,
     bagCapacity: r.bagCapacity,
+    reservedSpaces: r.reservedSpaces,
     bagsOnBoard: r.bagsOnBoard,
+    hasRoom: bookableSpaces(r, r.bagsOnBoard) >= row.bagCount,
     inZone: r.inZone,
-    hasRoom: r.bagCapacity - r.bagsOnBoard >= row.bagCount,
   }));
 }

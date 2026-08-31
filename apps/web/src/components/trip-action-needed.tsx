@@ -80,6 +80,19 @@ export function TripActionNeeded({
   const agreementDone = agreement.accepted || !actionable;
   const passportDone = passport.status !== "pending";
 
+  /**
+   * NOTHING HAS EVER BEEN PUBLISHED. Not the customer's problem, and not a
+   * state they can act their way out of — so this card must neither ask them
+   * to do something impossible nor pretend there is nothing to say.
+   *
+   * It used to do the second thing. `AgreementStep` returned `null`, which
+   * left an "Action needed / 1 thing to do" heading above an empty row, and a
+   * passport step reading "Available once you've accepted the agreement
+   * above" — pointing at a step that was not there. A dead end presented as
+   * a queue.
+   */
+  const noAgreementPublished = agreement.version === null && !agreement.accepted;
+
   // Nothing left to do and nothing left to say.
   if (agreementDone && passportDone && !actionable) return null;
 
@@ -88,20 +101,31 @@ export function TripActionNeeded({
    * until it is accepted — the passport step stays collapsed and unnumbered
    * behind it rather than offering a second thing to do first. Once the
    * agreement is in, the passport opens.
+   *
+   * EXCEPT when there is no agreement to accept. The passport has no
+   * dependency on one — it is a photo the customer uploads and an agent
+   * confirms — so holding it behind a gate nobody can open would waste the
+   * one thing they CAN get ahead on before the visit.
    */
-  const openStep = agreement.accepted ? ("passport" as const) : ("agreement" as const);
-  const remaining = (agreement.accepted ? 0 : 1) + (passportDone ? 0 : 1);
+  const openStep =
+    agreement.accepted || noAgreementPublished
+      ? ("passport" as const)
+      : ("agreement" as const);
+  const remaining =
+    (agreement.accepted || noAgreementPublished ? 0 : 1) + (passportDone ? 0 : 1);
 
   return (
     <section className="flex flex-col gap-4">
       <div className="flex items-center gap-3">
         <h2 className="font-display text-lg">
-          {agreement.accepted ? "Before your pickup" : "Action needed"}
+          {agreement.accepted || noAgreementPublished
+            ? "Before your pickup"
+            : "Action needed"}
         </h2>
-        {!agreement.accepted && actionable && (
+        {!agreement.accepted && !noAgreementPublished && actionable && (
           <Badge variant="warning">1 thing to do</Badge>
         )}
-        {agreement.accepted && remaining > 0 && actionable && (
+        {(agreement.accepted || noAgreementPublished) && remaining > 0 && actionable && (
           <Badge variant="secondary">1 optional step left</Badge>
         )}
       </div>
@@ -197,11 +221,28 @@ function AgreementStep({
   );
   const [reading, setReading] = React.useState(false);
 
-  if (agreement.version === null) {
-    // Nothing published. Say nothing about acceptance rather than showing a
-    // button that cannot work — the gate fails closed in core and ops will
-    // see the visit blocked, which is the right place for that alarm.
-    return null;
+  if (agreement.version === null && !agreement.accepted) {
+    /*
+     * Nothing published. This used to `return null`, on the reasoning that
+     * the gate fails closed in core and ops sees the visit blocked — true,
+     * and it left the customer with a heading promising an action and no
+     * action under it.
+     *
+     * A calm, honest holding state instead. It promises only what the product
+     * actually does (the confirmation and reminder emails already exist), it
+     * does not apologise for a thing the customer cannot perceive as broken,
+     * and it does not name a date we cannot commit to. Ops still gets the
+     * alarm — from the console banner, which is where an alarm belongs.
+     */
+    return (
+      <Step index={1} done={false} title="Check-in opens shortly">
+        <p className="text-sm text-muted-foreground">
+          There&apos;s nothing for you to do here just yet. We&apos;ll email you as soon
+          as it&apos;s ready, and it&apos;ll be waiting on this page. Your pickup is
+          unaffected.
+        </p>
+      </Step>
+    );
   }
 
   /* --- done: one line, plus the two things worth keeping ------------- */
@@ -217,9 +258,9 @@ function AgreementStep({
           {/* Version pinning: this is the document the booking is bound by,
               and it stays this one however many versions publish later. */}
           You accepted version {agreement.version}
-          {agreement.acceptedAtLabel ? ` on ${agreement.acceptedAtLabel}` : ""}. These
-          are the terms for this trip — a later update won&apos;t change them or ask
-          you again.
+          {agreement.acceptedAtLabel ? ` on ${agreement.acceptedAtLabel}` : ""}. These are
+          the terms for this trip — a later update won&apos;t change them or ask you
+          again.
         </p>
         <AgreementLinks
           bookingId={bookingId}

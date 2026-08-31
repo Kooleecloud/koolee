@@ -48,12 +48,21 @@ export const trucks = pgTable(
      * Spaces held back from customer selection — for a same-day walk-up, a
      * return leg, an oversize item.
      *
-     * UNWIRED. The column exists so the number has a home the day ops needs
-     * it, and NOTHING reads it: `listCandidateDrivers` computes available
-     * capacity as `bag_capacity − assigned bags`, with no reserve subtracted.
-     * The admin UI labels it "not yet enforced" for the same reason. Wiring
-     * it is one subtraction in one function plus a test; do that rather than
-     * assuming it already happens.
+     * ENFORCED (slice F4). Every capacity answer in the product comes from
+     * `bookableSpaces()` in `services/driver-selection.ts`:
+     *
+     *     bag_capacity − reserved_spaces − bags already on board
+     *
+     * Four readers share it — the shortlist filter, the candidate it renders,
+     * the transactional recheck under the advisory lock, and the console's
+     * reassign picker — because each of them used to compute the subtraction
+     * itself, and a reserve honoured in three of four would be a race no test
+     * could see.
+     *
+     * `reserved_spaces < bag_capacity` is enforced in `createTruck` /
+     * `updateTruck` rather than as a CHECK: the two columns are edited by one
+     * form and the message has to name both numbers. A van with nothing
+     * bookable belongs out of service, where the console says so.
      */
     reservedSpaces: integer("reserved_spaces").notNull().default(0),
     active: boolean("active").notNull().default(true),
@@ -99,6 +108,25 @@ export const driverShifts = pgTable(
       .notNull()
       .references(() => trucks.id, { onDelete: "restrict" }),
     startedAt: timestamptz("started_at").notNull().defaultNow(),
+    /**
+     * The ADMIN who opened this shift on the driver's behalf, or null when
+     * the driver started it themselves. Null is the ordinary case.
+     *
+     * WHY A COLUMN AND NOT A CUSTODY EVENT. `custody_events.booking_id` is
+     * NOT NULL and a shift belongs to no booking — there is nothing to hang
+     * the record on. `adminForceEndShift` gets away with writing custody
+     * events because it always touches bookings (it releases their pickups);
+     * a start touches none. `admin_audit_log` is the general answer and is
+     * still deferred (LAUNCH-CHECKLIST P19), so rather than build half of it
+     * for one action, the fact lives on the row it is a fact about.
+     *
+     * `ON DELETE set null`, not `restrict`: an admin leaving the company must
+     * not be undeletable because they once started somebody's shift, and the
+     * shift is still a true record of itself without their id.
+     */
+    startedByUserId: uuid("started_by_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
     /** Null while the shift is open. Set once, never cleared. */
     endedAt: timestamptz("ended_at"),
     createdAt: createdAt(),

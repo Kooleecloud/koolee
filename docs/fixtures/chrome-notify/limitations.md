@@ -21,18 +21,18 @@ has to be built on not depending on the notification alone.**
 
 ### Undetectable in-browser — the dangerous ones
 
-| Limitation | Notes |
-|---|---|
-| OS-level per-app switch off | macOS System Settings → Notifications → Chrome. Invisible to JS. |
-| Focus / Do Not Disturb / Focus Assist | Also a **legitimate user choice** you should not try to defeat. |
-| Alert style set to "None" | Delivered to Notification Center, never drawn on screen. |
-| Enterprise policy | A managed browser can block notifications outright. |
-| Tag collapsing | Same-tag notifications replace silently. See traps below. |
+| Limitation                            | Notes                                                            |
+| ------------------------------------- | ---------------------------------------------------------------- |
+| OS-level per-app switch off           | macOS System Settings → Notifications → Chrome. Invisible to JS. |
+| Focus / Do Not Disturb / Focus Assist | Also a **legitimate user choice** you should not try to defeat.  |
+| Alert style set to "None"             | Delivered to Notification Center, never drawn on screen.         |
+| Enterprise policy                     | A managed browser can block notifications outright.              |
+| Tag collapsing                        | Same-tag notifications replace silently. See traps below.        |
 
 ### Detectable — but only when you try to push
 
 Subscriptions expire, rotate, or die when a user clears site data, reinstalls the browser, or
-switches profiles. You find out on the *next* push, as a `410`. For an incoming call, that is one
+switches profiles. You find out on the _next_ push, as a `410`. For an incoming call, that is one
 call already missed.
 
 `pushsubscriptionchange` in the service worker mitigates rotation but does not cover every case, and
@@ -40,20 +40,20 @@ it cannot run if the browser never starts.
 
 ### Hard platform limits
 
-| | Chrome / Edge | Firefox | Safari macOS | Safari iOS |
-|---|---|---|---|---|
-| Tab unfocused / other tab / browser backgrounded | yes | yes | yes | yes |
-| Tab closed, browser running | yes | yes | yes | yes |
-| **Browser fully quit** | **no** on macOS | no | yes (via APNs) | yes |
-| Works on `localhost` | yes | yes | unreliable | **no** — needs real HTTPS |
-| `actions` (inline buttons) | yes | yes | ignored | ignored |
-| `requireInteraction` | yes | no | no | no |
-| `renotify` | yes | no | no | no |
+|                                                  | Chrome / Edge   | Firefox | Safari macOS   | Safari iOS                |
+| ------------------------------------------------ | --------------- | ------- | -------------- | ------------------------- |
+| Tab unfocused / other tab / browser backgrounded | yes             | yes     | yes            | yes                       |
+| Tab closed, browser running                      | yes             | yes     | yes            | yes                       |
+| **Browser fully quit**                           | **no** on macOS | no      | yes (via APNs) | yes                       |
+| Works on `localhost`                             | yes             | yes     | unreliable     | **no** — needs real HTTPS |
+| `actions` (inline buttons)                       | yes             | yes     | ignored        | ignored                   |
+| `requireInteraction`                             | yes             | no      | no             | no                        |
+| `renotify`                                       | yes             | no      | no             | no                        |
 
 Additional constraints:
 
 - **Permission is effectively one-shot.** A denied prompt never reappears on its own; the user must
-  dig into site settings. *When* you ask matters more than anything else in the onboarding flow —
+  dig into site settings. _When_ you ask matters more than anything else in the onboarding flow —
   never on page load.
 - **iOS requires Home Screen installation** (16.4+). Real friction, and easy for a user to get stuck
   in a denied state that needs the PWA deleted and re-added.
@@ -96,7 +96,7 @@ pipeline works and only the on-screen banner was suppressed.
 ### 2. Reusing a `tag` suppresses the alert
 
 A notification whose `tag` matches one already showing **replaces** it, and without `renotify: true`
-the replacement does *not* re-alert — no banner, no sound. A second push looks like total silence
+the replacement does _not_ re-alert — no banner, no sound. A second push looks like total silence
 even though delivery succeeded and the logs confirm it.
 
 - Notifications that should **stack** → unique tag each time
@@ -131,7 +131,7 @@ than "the notification system," and should get a proportionate share of the effo
 
 The direct answer to an undetectable failure: **ask a human.**
 
-During onboarding, send a test notification and ask *"Did you see that?"* with a Yes / No. On **No**,
+During onboarding, send a test notification and ask _"Did you see that?"_ with a Yes / No. On **No**,
 show platform-specific remediation — detect macOS + Chrome and give the exact System Settings path,
 detect iOS and explain Add to Home Screen.
 
@@ -172,7 +172,7 @@ push at all**. In priority order:
 
 - **How bad is a missed alert?** If the answer is "annoying," rungs 0–2 are plenty. If it is
   "someone doesn't get care," web push should not be load-bearing at all, and the real conclusion is
-  *which* second channel you need.
+  _which_ second channel you need.
 - **Is acknowledgement/escalation in scope?** It changes whether the system needs a concept of an
   alert being acknowledged, which reaches into the data model.
 - **How many devices per user, and should all of them alert?** Affects whether subscriptions are

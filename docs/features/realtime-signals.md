@@ -39,11 +39,11 @@ field out of a realtime payload, the design has been inverted.
 
 Migration `0030`. One row per booking, overwritten in place.
 
-| column       | what it is                                              |
-| ------------ | ------------------------------------------------------- |
+| column       | what it is                                                     |
+| ------------ | -------------------------------------------------------------- |
 | `booking_id` | PK, `ON DELETE CASCADE` — a deleted booking takes its doorbell |
-| `updated_at` | the only thing anybody cares about: that it MOVED       |
-| `touched_by` | who caused it. Diagnostics; never branch on it          |
+| `updated_at` | the only thing anybody cares about: that it MOVED              |
+| `touched_by` | who caused it. Diagnostics; never branch on it                 |
 
 **Why a separate table rather than realtime on `bookings`.** RLS on the real
 domain tables would put a second authorization model beside the one in
@@ -53,9 +53,13 @@ blind spot that let the pre-`0009` storage-policy bug ship twice. One narrow
 table means one policy to get right, and a bounded blast radius when it is
 wrong.
 
-`custody_events` still carries the `0001` policies and its publication
-membership. Nothing subscribes to it; it is left alone rather than removed,
-because removing a published table is a migration with no upside.
+`custody_events` keeps its `0001` policy and **has left the publication**
+(migration `0034`). The reasoning above — "left alone rather than removed,
+because removing a published table is a migration with no upside" — had the
+cost the wrong way round: a published table with no grant is a trap, not a
+neutral. It delivers nothing, says nothing, and reads to the next person as a
+subscription that ought to work. The upside of removing it is that the trap is
+gone; the policy stays, because it is correct and costs nothing.
 
 ### The policy
 
@@ -93,7 +97,7 @@ exists — including services written after this one.
 That choice is deliberate and it has a precedent in this codebase. The
 exception-alert emit used to live at one route handler, which meant six of the
 seven paths into `exception` were silent; moving it to the transition choke
-points made a new path covered *by construction* instead of by somebody
+points made a new path covered _by construction_ instead of by somebody
 remembering. There is no equivalent choke point for custody inserts, so the
 trigger is the construction.
 
@@ -105,7 +109,7 @@ polling fallback, which is the one number a customer actually watches.
 
 **Nothing time-based rings.** "Running late" and "missed cutoff" are computed
 from the clock in `services/actionability.ts`, and nothing is written when they
-become true — so nothing *can* be signalled. The polling fallback is what
+become true — so nothing _can_ be signalled. The polling fallback is what
 surfaces them, and it is the honest mechanism for a state change nobody
 performs.
 
@@ -158,11 +162,11 @@ Filtering is scoping, not a security boundary: the boundary is still
 
 ### Where it is wired
 
-| App     | Component     | Watches                          | Effect                                     |
-| ------- | ------------- | -------------------------------- | ------------------------------------------ |
-| `web`   | `TripLive`    | one booking (trip page)          | whole trip page re-renders                 |
-| `web`   | `TripLive`    | none on `/trips` → poll-only     | the list refreshes on the fallback         |
-| `agent` | `LiveTasks`   | every booking the view is showing | today, the schedule, and both task details |
+| App     | Component   | Watches                           | Effect                                     |
+| ------- | ----------- | --------------------------------- | ------------------------------------------ |
+| `web`   | `TripLive`  | one booking (trip page)           | whole trip page re-renders                 |
+| `web`   | `TripLive`  | none on `/trips` → poll-only      | the list refreshes on the fallback         |
+| `agent` | `LiveTasks` | every booking the view is showing | today, the schedule, and both task details |
 
 ### Two traps, both found by driving a browser
 
@@ -180,9 +184,12 @@ and no browser received a single event, because `authenticated` had no `SELECT`
 privilege on the table — RLS narrows what a role may already read and cannot
 widen it. `0031` grants it explicitly rather than relying on an environment's
 default privileges, which local and hosted disagree about. See that migration's
-header, and note that `custody_events` has carried the same shape since `0001`
-(RLS on, policies, published, no grant) — nothing subscribes to it, so it was
-deliberately left alone.
+header. `custody_events` carried the same shape since `0001` (RLS on, a
+policy, published, no grant) and was deliberately left alone at the time;
+`0034` removed it from the publication instead, because an armed-looking
+subscription that can never deliver is worse than no subscription at all. If
+it is ever re-added, **the grant must go with it** — that is this lesson,
+stated once.
 
 `TripLive` sits at **page** level, not inside the driver card. The interval it
 replaces lived in `DriverTracking`, which meant the page went live only after a
@@ -199,7 +206,7 @@ things it cannot do for you, both in the Supabase dashboard:
 1. **Realtime must be enabled for the table.** The migration adds
    `booking_signals` to the `supabase_realtime` publication and sets
    `REPLICA IDENTITY FULL`, which is everything SQL can do. Confirm under
-   *Database → Replication* that the `supabase_realtime` publication is on and
+   _Database → Replication_ that the `supabase_realtime` publication is on and
    lists `booking_signals`.
 2. **Nothing else.** No new environment variables, in any app or in core: the
    browser clients use `NEXT_PUBLIC_SUPABASE_URL` and

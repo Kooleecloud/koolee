@@ -1,4 +1,15 @@
-import { and, asc, count, eq, gt, inArray, isNotNull, isNull, lt, lte } from "drizzle-orm";
+import {
+  and,
+  asc,
+  count,
+  eq,
+  gt,
+  inArray,
+  isNotNull,
+  isNull,
+  lt,
+  lte,
+} from "drizzle-orm";
 import {
   agentZones,
   airports,
@@ -14,10 +25,7 @@ import type { TransitionActor } from "../booking/state-machine";
 import type { AdminSession } from "../auth/types";
 import type { CoreConfig } from "../config";
 import { isInCoverage, normalizeZip } from "../coverage/nyc-zips";
-import {
-  assignmentHorizonEnd,
-  withinAssignmentHorizon,
-} from "./assignment-horizon";
+import { assignmentHorizonEnd, withinAssignmentHorizon } from "./assignment-horizon";
 import { airportLocalDayBounds } from "../slots/cutoff";
 import { assignAgentToBooking } from "./dispatch";
 import { getActiveStaffRole } from "./staff";
@@ -477,8 +485,7 @@ export async function listAgentZones(db: Database): Promise<AgentZoneCoverage[]>
 }
 
 export type ZoneMutationResult =
-  | { ok: true; zips: string[] }
-  | { ok: false; error: string };
+  { ok: true; zips: string[] } | { ok: false; error: string };
 
 /**
  * Gives an agent one or more ZIPs.
@@ -528,9 +535,7 @@ export async function removeAgentZone(
 
   const deleted = await config.db
     .delete(agentZones)
-    .where(
-      and(eq(agentZones.agentUserId, input.agentUserId), eq(agentZones.zip, zip)),
-    )
+    .where(and(eq(agentZones.agentUserId, input.agentUserId), eq(agentZones.zip, zip)))
     .returning({ id: agentZones.id });
 
   return deleted.length > 0;

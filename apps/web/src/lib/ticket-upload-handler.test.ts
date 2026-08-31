@@ -327,9 +327,7 @@ describe("the prefill the review form receives", () => {
     const outcome = await handleTicketUpload(deps, pdfFile());
     expect(outcome.ok).toBe(true);
     if (!outcome.ok) return;
-    expect(outcome.prefill.departureAtLocal).toMatch(
-      /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/,
-    );
+    expect(outcome.prefill.departureAtLocal).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/);
   });
 
   it("never carries a field a booking could be written from directly", async () => {

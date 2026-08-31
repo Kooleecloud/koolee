@@ -47,7 +47,11 @@ class RecordingAlerter {
   readonly alerts: { severity: string; title: string }[] = [];
   /** Same events with their `detail` payload — what the cutoff monitor puts its working in. */
   readonly full: { severity: string; title: string; detail?: unknown }[] = [];
-  async alert(event: { severity: string; title: string; detail?: unknown }): Promise<void> {
+  async alert(event: {
+    severity: string;
+    title: string;
+    detail?: unknown;
+  }): Promise<void> {
     this.alerts.push({ severity: event.severity, title: event.title });
     this.full.push(event);
   }
@@ -95,7 +99,14 @@ const seed = (overrides: FakeTables = {}): FakeTables => ({
   bookings: [booking()],
   users: [{ id: "u-1", email: "casey@example.com" }],
   addresses: [
-    { id: "a-1", line1: "1 Test St", line2: null, city: "New York", state: "NY", zip: "10001" },
+    {
+      id: "a-1",
+      line1: "1 Test St",
+      line2: null,
+      city: "New York",
+      state: "NY",
+      zip: "10001",
+    },
   ],
   airports: [{ code: "JFK", tz: "America/New_York" }],
   airlineCutoffs: [],
@@ -141,7 +152,8 @@ function harness(
 
 const fn = (h: Harness, id: string): RecordedFunction => {
   const found = h.functions.find((f) => f.id === id);
-  if (!found) throw new Error(`no function ${id}; got ${h.functions.map((f) => f.id).join(", ")}`);
+  if (!found)
+    throw new Error(`no function ${id}; got ${h.functions.map((f) => f.id).join(", ")}`);
   return found;
 };
 
@@ -312,7 +324,10 @@ describe("booking-pickup-reminder", () => {
 
   it("skips when the booking no longer exists", async () => {
     const h = harness(seed({ bookings: [] }));
-    const { result, logger } = await invoke(fn(h, "booking-pickup-reminder"), confirmedEvent);
+    const { result, logger } = await invoke(
+      fn(h, "booking-pickup-reminder"),
+      confirmedEvent,
+    );
 
     expect(result).toMatchObject({ sms: { sent: false, reason: "booking_missing" } });
     expect(logger.lines.join("\n")).toContain("no longer exists");
@@ -403,7 +418,10 @@ describe("cutoff-risk-monitor (*/5 cron)", () => {
     effectiveFrom: new Date("2026-01-01T00:00:00Z"),
   });
 
-  const inTransitDepartingIn = (minutes: number, overrides: Record<string, unknown> = {}) =>
+  const inTransitDepartingIn = (
+    minutes: number,
+    overrides: Record<string, unknown> = {},
+  ) =>
     booking({
       status: "in_transit",
       departureAt: new Date(NOW.getTime() + minutes * 60_000),
@@ -530,7 +548,11 @@ describe("agent-no-show-check", () => {
     const h = harness(
       seed({
         verificationTasks: [
-          { id: "t-1", startedAt: new Date("2026-09-03T13:05:00Z"), status: "in_progress" },
+          {
+            id: "t-1",
+            startedAt: new Date("2026-09-03T13:05:00Z"),
+            status: "in_progress",
+          },
         ],
       }),
     );
@@ -645,9 +667,7 @@ describe("driver-selected-email", () => {
   });
 
   it("skips a cancelled booking", async () => {
-    const h = harness(
-      withDriver({ bookings: [booking({ status: "cancelled" })] }),
-    );
+    const h = harness(withDriver({ bookings: [booking({ status: "cancelled" })] }));
     const { result } = await invoke(fn(h, "driver-selected-email"), event);
     expect(result).toEqual({ sent: false, reason: "cancelled" });
     expect(h.notifier.emails).toHaveLength(0);
@@ -717,7 +737,6 @@ describe("driver-pool-empty-ops-alert", () => {
     expect(logger.lines.join("\n")).toContain("OPS_ALERT_EMAIL not configured");
   });
 });
-
 
 /* ------------------------------------------------------------------ */
 /* The F2 additions                                                     */
@@ -826,7 +845,9 @@ describe("bags-sealed-email", () => {
   });
 
   it("skips a cancelled booking", async () => {
-    const h = harness(seed({ bags: sealedBags, bookings: [booking({ status: "cancelled" })] }));
+    const h = harness(
+      seed({ bags: sealedBags, bookings: [booking({ status: "cancelled" })] }),
+    );
     const { result } = await invoke(fn(h, "bags-sealed-email"), event);
     expect(result).toEqual({ sent: false, reason: "cancelled" });
   });

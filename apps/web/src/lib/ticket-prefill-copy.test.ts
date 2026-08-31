@@ -126,7 +126,11 @@ describe("describeEligibleLegs", () => {
     expect(legs).toHaveLength(2);
     expect(legs[0]).toMatchObject({ route: "EWR → DEL", chosen: true });
     expect(legs[0]!.alternativeIndex).toBeUndefined();
-    expect(legs[1]).toMatchObject({ route: "JFK → LHR", chosen: false, alternativeIndex: 0 });
+    expect(legs[1]).toMatchObject({
+      route: "JFK → LHR",
+      chosen: false,
+      alternativeIndex: 0,
+    });
   });
 
   it("counts the legs it cannot serve rather than listing them", () => {

@@ -12,7 +12,9 @@ import {
 } from "@koolee/ui";
 import {
   formatInstantInAirportTz,
+  listOnBehalfDriverOptions,
   listShifts,
+  listTruckOptions,
   listStaffMembers,
   type ShiftRow,
   type StaffMemberWithIdentity,
@@ -23,7 +25,7 @@ import { OPS_CONSOLE_TZ } from "@/lib/airport-tz";
 import { tryGetCore } from "@/lib/core";
 import { getAdminSession } from "@/lib/session";
 
-import { CanDriveToggle, ForceEndShiftForm } from "./shift-forms";
+import { CanDriveToggle, ForceEndShiftForm, StartShiftOnBehalfForm } from "./shift-forms";
 
 export const metadata = { title: "Shifts" };
 export const dynamic = "force-dynamic";
@@ -47,13 +49,17 @@ export default async function ShiftsPage() {
   const core = tryGetCore();
   let shifts: ShiftRow[] = [];
   let staff: StaffMemberWithIdentity[] = [];
+  let onBehalfDrivers: Awaited<ReturnType<typeof listOnBehalfDriverOptions>> = [];
+  let onBehalfTrucks: Awaited<ReturnType<typeof listTruckOptions>> = [];
   let unavailable = core === null;
 
   if (core) {
     try {
-      [shifts, staff] = await Promise.all([
+      [shifts, staff, onBehalfDrivers, onBehalfTrucks] = await Promise.all([
         listShifts(core.db, { limit: 40 }),
         listStaffMembers(core.db),
+        listOnBehalfDriverOptions(core.db),
+        listTruckOptions(core.db),
       ]);
     } catch {
       unavailable = true;
@@ -79,6 +85,38 @@ export default async function ShiftsPage() {
         }
       />
 
+      {/*
+        Above the list, because it is what an operator came here to DO when
+        the list is empty — and "nobody is out" is exactly when the console
+        needed to be able to put somebody out.
+      */}
+      {!unavailable && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Start a shift for someone</CardTitle>
+            <CardDescription>
+              For a driver whose phone is dead, whose account is locked out, or whose app
+              will not load. The same rules apply as when they start it themselves, and
+              you are recorded as having opened it.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <StartShiftOnBehalfForm
+              drivers={onBehalfDrivers.map((driver) => ({
+                staffUserId: driver.staffUserId,
+                label: driver.name?.trim() || driver.email || "Unnamed driver",
+                busyWith: driver.activeShiftTruckName,
+              }))}
+              trucks={onBehalfTrucks.map((truck) => ({
+                id: truck.id,
+                name: truck.name,
+                held: truck.heldByUserId !== null,
+              }))}
+            />
+          </CardContent>
+        </Card>
+      )}
+
       <div className="grid items-start gap-6 lg:grid-cols-[2fr_1fr]">
         <section className="flex flex-col gap-3">
           {unavailable ? (
@@ -86,7 +124,7 @@ export default async function ShiftsPage() {
           ) : open.length === 0 ? (
             <EmptyState
               title="Nobody is out"
-              description="A driver starts their own shift from the field app. Until somebody does, no customer can be offered a driver — sealed bookings will show as awaiting a driver on the board."
+              description="A driver starts their own shift from the field app, or you start one for them above. Until somebody is out, no customer can be offered a driver — sealed bookings will show as awaiting a driver on the board."
             />
           ) : (
             open.map((shift) => {
@@ -102,7 +140,8 @@ export default async function ShiftsPage() {
                       <CardDescription>
                         {shift.truckName} · {shift.bagsOnBoard} of {shift.bagCapacity} bag
                         {shift.bagCapacity === 1 ? "" : "s"} used ({remaining} free) ·
-                        started {formatInstantInAirportTz(shift.startedAt, OPS_CONSOLE_TZ)}
+                        started{" "}
+                        {formatInstantInAirportTz(shift.startedAt, OPS_CONSOLE_TZ)}
                       </CardDescription>
                     </div>
                   </CardHeader>
@@ -129,7 +168,10 @@ export default async function ShiftsPage() {
               <CardContent>
                 <ul className="flex flex-col gap-2 text-sm">
                   {recent.map((shift) => (
-                    <li key={shift.shiftId} className="flex flex-wrap gap-x-2 text-muted-foreground">
+                    <li
+                      key={shift.shiftId}
+                      className="flex flex-wrap gap-x-2 text-muted-foreground"
+                    >
                       <span className="font-medium text-navy-800">{nameOf(shift)}</span>
                       <span>{shift.truckName}</span>
                       <span>
@@ -150,9 +192,9 @@ export default async function ShiftsPage() {
           <CardHeader>
             <CardTitle className="text-base">Who may drive</CardTitle>
             <CardDescription>
-              Driving is a capability, not a role — the same person can verify at the
-              door and drive the van. A revoked grant takes effect on their next
-              request; it does not end a shift already under way.
+              Driving is a capability, not a role — the same person can verify at the door
+              and drive the van. A revoked grant takes effect on their next request; it
+              does not end a shift already under way.
             </CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col gap-3">

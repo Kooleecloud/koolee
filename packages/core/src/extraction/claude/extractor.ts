@@ -1,10 +1,6 @@
 import type Anthropic from "@anthropic-ai/sdk";
 
-import {
-  assembleOutcome,
-  cleanPaxName,
-  type ReadItinerary,
-} from "../read-result";
+import { assembleOutcome, cleanPaxName, type ReadItinerary } from "../read-result";
 import {
   normalizeSegment,
   selectSegment,

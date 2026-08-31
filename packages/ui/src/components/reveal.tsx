@@ -31,7 +31,14 @@ export interface RevealProps extends React.HTMLAttributes<HTMLDivElement> {
  * content invisible if the resize lands mid-animation. An unlinked tween
  * always runs to its visible end state.
  */
-function Reveal({ children, stagger, y = 28, delay = 0, className, ...props }: RevealProps) {
+function Reveal({
+  children,
+  stagger,
+  y = 28,
+  delay = 0,
+  className,
+  ...props
+}: RevealProps) {
   const ref = React.useRef<HTMLDivElement>(null);
 
   useGSAP(

@@ -343,7 +343,15 @@ export default async function TripPage({
   const driverSection = driverView ? (
     <DriverTracking
       driver={driverView}
-      live={booking.status !== "delivered_to_bagdrop" && booking.status !== "completed"}
+      live={
+        booking.status !== "delivered_to_bagdrop" &&
+        booking.status !== "completed" &&
+        booking.status !== "cancelled"
+      }
+      // The card stays on a cancelled booking, struck through rather than
+      // removed: the leg existed, and a page that forgets it is a page that
+      // cannot answer "who was coming?".
+      cancelled={booking.status === "cancelled"}
       pickup={pickupPoint}
     />
   ) : canChooseDriver ? (
@@ -381,10 +389,9 @@ export default async function TripPage({
         title={flightRouteLabel(booking)}
         subtitle={
           <>
-            {booking.flightNumber} ·{" "}
-            {formatInstantInAirportTz(booking.departureAt, tz)} · {booking.bagCount}{" "}
-            {booking.bagCount === 1 ? "bag" : "bags"} · {booking.paxName} ·{" "}
-            <span className="font-mono">{booking.ref}</span>
+            {booking.flightNumber} · {formatInstantInAirportTz(booking.departureAt, tz)} ·{" "}
+            {booking.bagCount} {booking.bagCount === 1 ? "bag" : "bags"} ·{" "}
+            {booking.paxName} · <span className="font-mono">{booking.ref}</span>
           </>
         }
         actions={<BookingStatusBadge status={booking.status} />}

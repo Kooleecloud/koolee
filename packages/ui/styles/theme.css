@@ -365,6 +365,14 @@
   .prose-agreement > * + * {
     margin-top: 0.75rem;
   }
+  /* Mirrors `<Markdown>`'s heading sizes exactly. The editor and the
+     customer's page have to agree on what an h1 looks like, or the operator
+     is formatting against a preview that lies. */
+  .prose-agreement h1 {
+    font-family: var(--font-display, inherit);
+    font-size: 1.125rem;
+    font-weight: 600;
+  }
   .prose-agreement h2 {
     font-family: var(--font-display, inherit);
     font-size: 1rem;
@@ -395,6 +403,46 @@
   }
   .prose-agreement hr {
     border-color: hsl(var(--border));
+  }
+  /* Links and tables, matching `<Markdown>`. Both arrived in slice F4; before
+     it, the renderer had no branch for either and the editor could not author
+     one, so neither needed a rule here. */
+  .prose-agreement a {
+    color: var(--color-navy-800, inherit);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+  .prose-agreement table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.875rem;
+    /* An agreement is read at a measure; a wide rate card scrolls inside its
+       own box rather than making the whole document scroll sideways. */
+    display: block;
+    overflow-x: auto;
+  }
+  .prose-agreement th,
+  .prose-agreement td {
+    border: 1px solid hsl(var(--border));
+    padding: 0.5rem 0.75rem;
+    text-align: left;
+    vertical-align: top;
+  }
+  .prose-agreement th {
+    background-color: hsl(var(--muted) / 0.4);
+    font-weight: 500;
+  }
+  /* ProseMirror's own marker for the cells inside the current selection. */
+  .prose-agreement .selectedCell::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: hsl(var(--muted) / 0.5);
+    pointer-events: none;
+  }
+  .prose-agreement td,
+  .prose-agreement th {
+    position: relative;
   }
   /* Tiptap's Placeholder extension marks the first empty node. */
   .prose-agreement p.is-editor-empty:first-child::before {

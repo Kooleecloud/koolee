@@ -147,7 +147,9 @@ describeIntegration("on-paid auto-assign (integration)", () => {
       .values({ email: "onpaid.agent@koolee-test.example", role: "agent" })
       .returning();
     agentId = agent!.id;
-    await db.insert(staffMembers).values({ userId: agentId, role: "agent", active: true });
+    await db
+      .insert(staffMembers)
+      .values({ userId: agentId, role: "agent", active: true });
     await db.insert(agentZones).values({ agentUserId: agentId, zip: "10001" });
 
     const address = await ensureAddress(db, userId, {
@@ -183,14 +185,18 @@ describeIntegration("on-paid auto-assign (integration)", () => {
   /** Draft booking + pending intent, funds not yet confirmed. */
   async function draftIntent() {
     const intent = await ensureBookingPaymentIntent(config, baseInput());
-    if (intent.kind !== "ready") throw new Error(`expected ready intent, got ${intent.kind}`);
+    if (intent.kind !== "ready")
+      throw new Error(`expected ready intent, got ${intent.kind}`);
     return intent;
   }
 
   async function assignmentState(bookingId: string) {
     const [booking, vTasks, pTasks, events] = await Promise.all([
       db.query.bookings.findFirst({ where: eq(bookings.id, bookingId) }),
-      db.select().from(verificationTasks).where(eq(verificationTasks.bookingId, bookingId)),
+      db
+        .select()
+        .from(verificationTasks)
+        .where(eq(verificationTasks.bookingId, bookingId)),
       db.select().from(pickupTasks).where(eq(pickupTasks.bookingId, bookingId)),
       db.select().from(custodyEvents).where(eq(custodyEvents.bookingId, bookingId)),
     ]);
@@ -222,8 +228,14 @@ describeIntegration("on-paid auto-assign (integration)", () => {
     expect(state.booking?.status).toBe("agent_assigned");
     expect(state.vTasks).toHaveLength(1);
     expect(state.pTasks).toHaveLength(1);
-    expect(state.vTasks[0]).toMatchObject({ assigneeUserId: agentId, status: "assigned" });
-    expect(state.pTasks[0]).toMatchObject({ assigneeUserId: agentId, status: "assigned" });
+    expect(state.vTasks[0]).toMatchObject({
+      assigneeUserId: agentId,
+      status: "assigned",
+    });
+    expect(state.pTasks[0]).toMatchObject({
+      assigneeUserId: agentId,
+      status: "assigned",
+    });
     expect(state.assignEvents).toHaveLength(1);
   });
 

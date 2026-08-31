@@ -30,69 +30,62 @@ export function BookingStepper({ completed }: { completed: boolean[] }) {
   if (currentIndex === -1) return null;
 
   return (
-    <nav
-      aria-label="Booking progress"
-      className="border-b bg-card"
-    >
+    <nav aria-label="Booking progress" className="border-b bg-card">
       <div className="container flex max-w-3xl items-center justify-between gap-3">
         <ol className="flex items-center gap-1 overflow-x-auto py-3">
-        {BOOKING_STEPS.map((step, i) => {
-          const unlocked = completed.slice(0, i).every(Boolean);
-          const state =
-            i === currentIndex
-              ? "current"
-              : completed[i]
-                ? "complete"
-                : unlocked
-                  ? "open"
-                  : "locked";
+          {BOOKING_STEPS.map((step, i) => {
+            const unlocked = completed.slice(0, i).every(Boolean);
+            const state =
+              i === currentIndex
+                ? "current"
+                : completed[i]
+                  ? "complete"
+                  : unlocked
+                    ? "open"
+                    : "locked";
 
-          const chip = (
-            <span
-              aria-current={state === "current" ? "step" : undefined}
-              className={cn(
-                "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium",
-                state === "complete" && "text-sky-700 hover:bg-sky-50",
-                state === "current" && "bg-navy-800 text-white",
-                state === "open" && "text-muted-foreground hover:bg-accent/10",
-                state === "locked" && "text-muted-foreground/50",
-              )}
-            >
-              {state === "complete" ? (
-                <Check aria-hidden="true" className="size-3.5" />
-              ) : (
-                <span aria-hidden="true">{i + 1}.</span>
-              )}
-              {state === "locked" ? (
-                <span aria-hidden="true">···</span>
-              ) : (
-                step.label
-              )}
-              {state === "locked" && (
-                <span className="sr-only">Step locked — finish the previous steps</span>
-              )}
-            </span>
-          );
+            const chip = (
+              <span
+                aria-current={state === "current" ? "step" : undefined}
+                className={cn(
+                  "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium",
+                  state === "complete" && "text-sky-700 hover:bg-sky-50",
+                  state === "current" && "bg-navy-800 text-white",
+                  state === "open" && "text-muted-foreground hover:bg-accent/10",
+                  state === "locked" && "text-muted-foreground/50",
+                )}
+              >
+                {state === "complete" ? (
+                  <Check aria-hidden="true" className="size-3.5" />
+                ) : (
+                  <span aria-hidden="true">{i + 1}.</span>
+                )}
+                {state === "locked" ? <span aria-hidden="true">···</span> : step.label}
+                {state === "locked" && (
+                  <span className="sr-only">Step locked — finish the previous steps</span>
+                )}
+              </span>
+            );
 
-          return (
-            <li key={step.href} className="flex items-center gap-1 whitespace-nowrap">
-              {i > 0 && (
-                <span
-                  aria-hidden="true"
-                  className={cn(
-                    "mx-1 h-px w-4 sm:w-6",
-                    unlocked ? "bg-sky-400" : "bg-border",
-                  )}
-                />
-              )}
-              {state === "complete" || state === "open" ? (
-                <Link href={step.href}>{chip}</Link>
-              ) : (
-                chip
-              )}
-            </li>
-          );
-        })}
+            return (
+              <li key={step.href} className="flex items-center gap-1 whitespace-nowrap">
+                {i > 0 && (
+                  <span
+                    aria-hidden="true"
+                    className={cn(
+                      "mx-1 h-px w-4 sm:w-6",
+                      unlocked ? "bg-sky-400" : "bg-border",
+                    )}
+                  />
+                )}
+                {state === "complete" || state === "open" ? (
+                  <Link href={step.href}>{chip}</Link>
+                ) : (
+                  chip
+                )}
+              </li>
+            );
+          })}
         </ol>
 
         {completed.some(Boolean) && (

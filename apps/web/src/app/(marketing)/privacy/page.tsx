@@ -62,8 +62,7 @@ export default function PrivacyPage() {
           ))}
         </div>
         <p className="mt-10 text-sm text-muted-foreground">
-          Privacy questions:{" "}
-          <ContactEmailLink />
+          Privacy questions: <ContactEmailLink />
         </p>
       </Reveal>
     </Section>

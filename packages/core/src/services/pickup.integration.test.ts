@@ -55,7 +55,9 @@ const TEST_DATABASE_URL = process.env.TEST_DATABASE_URL;
 const describeIntegration = TEST_DATABASE_URL ? describe : describe.skip;
 
 if (!TEST_DATABASE_URL) {
-  console.log("[integration] TEST_DATABASE_URL not set — skipping pickup lifecycle tests.");
+  console.log(
+    "[integration] TEST_DATABASE_URL not set — skipping pickup lifecycle tests.",
+  );
 }
 
 const migrationsFolder = path.join(
@@ -271,7 +273,11 @@ describeIntegration("pickup lifecycle (integration)", () => {
       taskId: task.id,
       sealValue: bagRows[0]!.sealId!,
     });
-    expect(first).toMatchObject({ scannedCount: 1, totalBags: 2, custodyTransferred: false });
+    expect(first).toMatchObject({
+      scannedCount: 1,
+      totalBags: 2,
+      custodyTransferred: false,
+    });
     // One bag in the van is NOT custody — the booking has not moved.
     expect(await statusOf(booking.id)).toBe("awaiting_pickup");
 
@@ -279,12 +285,16 @@ describeIntegration("pickup lifecycle (integration)", () => {
       taskId: task.id,
       sealValue: bagRows[1]!.sealId!,
     });
-    expect(second).toMatchObject({ scannedCount: 2, totalBags: 2, custodyTransferred: true });
+    expect(second).toMatchObject({
+      scannedCount: 2,
+      totalBags: 2,
+      custodyTransferred: true,
+    });
     expect(await statusOf(booking.id)).toBe("in_transit");
 
-    await expect(
-      deliverToBagdrop(config, session, { taskId: task.id }),
-    ).resolves.toEqual({ ok: true });
+    await expect(deliverToBagdrop(config, session, { taskId: task.id })).resolves.toEqual(
+      { ok: true },
+    );
     expect(await statusOf(booking.id)).toBe("delivered_to_bagdrop");
     // Still open: the airline has not taken the bags yet.
     expect(await taskFor(booking.id)).toMatchObject({ status: "in_progress" });
@@ -351,9 +361,9 @@ describeIntegration("pickup lifecycle (integration)", () => {
 
     // Re-tapping "start" is idempotent and must NOT now refuse the driver or
     // raise an exception on a booking whose bags are already moving.
-    await expect(
-      startPickupTravel(late, session, { taskId: task.id }),
-    ).resolves.toEqual({ ok: true });
+    await expect(startPickupTravel(late, session, { taskId: task.id })).resolves.toEqual({
+      ok: true,
+    });
 
     await scanSealAtPickup(late, session, {
       taskId: task.id,
@@ -474,10 +484,12 @@ describeIntegration("pickup lifecycle (integration)", () => {
       sealValue: bagRows[0]!.sealId!,
     });
 
-    await expect(deliverToBagdrop(config, session, { taskId: task.id })).resolves.toEqual({
-      ok: false,
-      error: "1 bag(s) never scanned — scan every seal before delivering.",
-    });
+    await expect(deliverToBagdrop(config, session, { taskId: task.id })).resolves.toEqual(
+      {
+        ok: false,
+        error: "1 bag(s) never scanned — scan every seal before delivering.",
+      },
+    );
   });
 
   it("routes a driver-side problem into the exception flow", async () => {
@@ -566,7 +578,10 @@ describeIntegration("pickup lifecycle (integration)", () => {
       pickupWindowEnd: new Date("2025-06-10T13:00:00Z"),
     };
     const withoutDriver = await sealedBooking(2);
-    await db.update(bookings).set(window).where(eq(bookings.id, withoutDriver.booking.id));
+    await db
+      .update(bookings)
+      .set(window)
+      .where(eq(bookings.id, withoutDriver.booking.id));
     const withDriver = await assignedPickup(2);
     await db.update(bookings).set(window).where(eq(bookings.id, withDriver.booking.id));
 

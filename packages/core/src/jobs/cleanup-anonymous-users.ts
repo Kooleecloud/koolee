@@ -106,7 +106,9 @@ export async function cleanupAnonymousUsers(
           await options.deleteAuthUser(id);
         } catch (error) {
           authDeleteFailures += 1;
-          log(`auth delete failed for ${id}: ${error instanceof Error ? error.message : String(error)}`);
+          log(
+            `auth delete failed for ${id}: ${error instanceof Error ? error.message : String(error)}`,
+          );
         }
       }
     } catch (error) {

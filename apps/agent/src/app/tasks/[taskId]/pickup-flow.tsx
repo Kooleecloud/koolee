@@ -385,9 +385,8 @@ function ExceptionCard({ view, coords }: { view: PickupView; coords: Coords }) {
       <CardHeader>
         <CardTitle className="text-base">Report a problem</CardTitle>
         <CardDescription>
-          This parks the booking with ops and stops the run. Use it rather than
-          guessing — a wrong seal or a missing bag is never yours to sort out at a
-          doorstep.
+          This parks the booking with ops and stops the run. Use it rather than guessing —
+          a wrong seal or a missing bag is never yours to sort out at a doorstep.
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
@@ -411,11 +410,18 @@ function ExceptionCard({ view, coords }: { view: PickupView; coords: Coords }) {
             </Select>
           </div>
           <div className="flex flex-col gap-1.5">
-            <Label htmlFor="note">Anything else (required for &ldquo;something else&rdquo;)</Label>
+            <Label htmlFor="note">
+              Anything else (required for &ldquo;something else&rdquo;)
+            </Label>
             <Input id="note" name="note" autoComplete="off" />
           </div>
           <div className="flex gap-2">
-            <Button type="submit" variant="destructive" className="flex-1" loading={pending}>
+            <Button
+              type="submit"
+              variant="destructive"
+              className="flex-1"
+              loading={pending}
+            >
               File it
             </Button>
             <Button type="button" variant="outline" onClick={() => setOpen(false)}>

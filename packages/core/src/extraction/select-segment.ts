@@ -183,7 +183,15 @@ export function normalizeSegment(
     const day = Number(match?.[3]);
     const hour = Number(match?.[4]);
     const minute = Number(match?.[5]);
-    if (match && month >= 1 && month <= 12 && day >= 1 && day <= 31 && hour <= 23 && minute <= 59) {
+    if (
+      match &&
+      month >= 1 &&
+      month <= 12 &&
+      day >= 1 &&
+      day <= 31 &&
+      hour <= 23 &&
+      minute <= 59
+    ) {
       segment.departureAtLocal = `${match[1]}-${match[2]}-${match[3]}T${match[4]}:${match[5]}`;
     } else {
       dropped.push({

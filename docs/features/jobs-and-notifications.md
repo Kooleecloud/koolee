@@ -10,10 +10,10 @@
 **Eight functions, all served from `apps/web` at `/api/inngest`** — but defined
 in two places, and the split is deliberate:
 
-| Defined in                                                                       | Which                                                                                                                  | Why there                                                                     |
-| -------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| Defined in                                                                       | Which                                                                                                                                  | Why there                                                                     |
+| -------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
 | [packages/core/src/jobs/functions.ts](../../packages/core/src/jobs/functions.ts) | Booking confirmation email, pickup reminder, exception ops-alert email, waitlist zone-opened sweep, cutoff-risk monitor, agent no-show | Pure domain jobs — no app credentials needed (email config is injected)       |
-| [apps/web/src/lib/inngest.ts](../../apps/web/src/lib/inngest.ts)                 | Capture-due sweep, anonymous/draft GC                                                                                    | Need **Stripe** and **service-role** credentials, which only `apps/web` holds |
+| [apps/web/src/lib/inngest.ts](../../apps/web/src/lib/inngest.ts)                 | Capture-due sweep, anonymous/draft GC                                                                                                  | Need **Stripe** and **service-role** credentials, which only `apps/web` holds |
 
 🧭 That split _is_ the credential boundary showing up in the job layer: a job
 that needs a secret is defined in the app that owns the secret, not in core.
@@ -216,9 +216,9 @@ claim, Tag Orange on the CTA only.
 
 **Two complementary confirmation paths** — they never double-send:
 
-| Path                                                                                          | When it fires                                                                                          |
-| ---------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
-| `booking-confirmation-email` Inngest fn (§2.1)                                                | Account **has** an email at payment time                                                                |
+| Path                                                                                                                      | When it fires                                                                                             |
+| ------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| `booking-confirmation-email` Inngest fn (§2.1)                                                                            | Account **has** an email at payment time                                                                  |
 | `sendBookingConfirmationEmail` ([services/confirmation-email.ts](../../packages/core/src/services/confirmation-email.ts)) | Customer had **no** email (the Inngest fn skipped) and adds one post-booking via `attachEmailPostBooking` |
 
 Locally, **Resend emails print to the dev-server console** (no key = console

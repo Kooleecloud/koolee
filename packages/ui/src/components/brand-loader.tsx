@@ -81,13 +81,23 @@ export function BrandLoader({ size = "md", className, label }: BrandLoaderProps)
         aria-hidden="true"
         className="size-[62%] origin-[27%_26%] animate-tag-swing text-primary motion-reduce:animate-none"
       >
-        <path d="M16 27.5 38.5 8.5" stroke={SKY} strokeWidth="8.5" strokeLinecap="round" />
+        <path
+          d="M16 27.5 38.5 8.5"
+          stroke={SKY}
+          strokeWidth="8.5"
+          strokeLinecap="round"
+        />
         <path
           fill="currentColor"
           fillRule="evenodd"
           d="M11.5 5h3a6.5 6.5 0 0 1 6.5 6.5v29a4.5 4.5 0 0 1-4.5 4.5h-7A4.5 4.5 0 0 1 5 40.5v-29A6.5 6.5 0 0 1 11.5 5Zm1.5 4.8a2.7 2.7 0 1 0 0 5.4 2.7 2.7 0 0 0 0-5.4Z"
         />
-        <path d="M16 27.5 37.5 41.5" stroke="currentColor" strokeWidth="8.5" strokeLinecap="round" />
+        <path
+          d="M16 27.5 37.5 41.5"
+          stroke="currentColor"
+          strokeWidth="8.5"
+          strokeLinecap="round"
+        />
         {/* The grommet, breathing. Tag orange, which the brand system reserves
             for CTAs and the seal — this is the seal. */}
         <circle

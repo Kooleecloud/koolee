@@ -31,19 +31,19 @@ resolution, without touching the booking funnel.
 
 ### What landed
 
-| # | Thing | Where |
-|---|---|---|
-| 1 | `zip_centroids` table + 837-row NYC-metro dataset | `packages/db/src/schema/geo.ts`, `packages/db/src/zip-centroids.ts` |
-| 2 | `airports.lat/lng`, NOT NULL, three terminals seeded | `packages/db/src/schema/airports.ts`, `seed.ts` |
-| 3 | `ensureAddress` derives coordinates from the ZIP centroid | `packages/core/src/services/customers.ts` |
-| 4 | `EtaEstimator` seam + `HaversineEtaEstimator` + factory | `packages/core/src/geo/` |
-| 5 | `cutoffRiskMonitor`: real scope + real ETA | `packages/core/src/jobs/functions.ts`, `packages/core/src/slots/cutoff.ts` |
-| — | Migration **0028**, LOCAL ONLY | `packages/db/drizzle/0028_geo_zip_centroids.sql` |
+| #   | Thing                                                     | Where                                                                      |
+| --- | --------------------------------------------------------- | -------------------------------------------------------------------------- |
+| 1   | `zip_centroids` table + 837-row NYC-metro dataset         | `packages/db/src/schema/geo.ts`, `packages/db/src/zip-centroids.ts`        |
+| 2   | `airports.lat/lng`, NOT NULL, three terminals seeded      | `packages/db/src/schema/airports.ts`, `seed.ts`                            |
+| 3   | `ensureAddress` derives coordinates from the ZIP centroid | `packages/core/src/services/customers.ts`                                  |
+| 4   | `EtaEstimator` seam + `HaversineEtaEstimator` + factory   | `packages/core/src/geo/`                                                   |
+| 5   | `cutoffRiskMonitor`: real scope + real ETA                | `packages/core/src/jobs/functions.ts`, `packages/core/src/slots/cutoff.ts` |
+| —   | Migration **0028**, LOCAL ONLY                            | `packages/db/drizzle/0028_geo_zip_centroids.sql`                           |
 
 ### The ZIP-centroid dataset
 
 **Source: US Census Bureau, 2023 National ZCTA Gazetteer** (public domain),
-`2023_Gaz_zcta_national.zip`. `INTPTLAT`/`INTPTLONG` are *internal points* —
+`2023_Gaz_zcta_national.zip`. `INTPTLAT`/`INTPTLONG` are _internal points_ —
 a centroid pulled inside the polygon, so a C-shaped ZCTA never reports a
 coordinate in the sea. Filtered to prefixes **100–119** (NY: five boroughs,
 Long Island, lower Westchester) and **070–079** (NJ: Hudson, Bergen, Essex,
@@ -136,7 +136,7 @@ The codebase had already answered this question once, in
 across the scopes that match. That rule is now a named function,
 `resolveStrictestCutoffMinutes`, and the monitor uses it. Strictest = the
 largest minutes-before-departure. This is a real fix, not a rename: `domestic`
-is the *looser* of the two seeded values (45 vs 60), so the old assumption
+is the _looser_ of the two seeded values (45 vs 60), so the old assumption
 measured international flights against a deadline 15 minutes later than the
 real one and stayed quiet on exactly the bags hardest to re-cut.
 
@@ -160,15 +160,15 @@ will not break thirteen files.
 
 ### Phase 0 gate
 
-| Gate | Result |
-|---|---|
-| `turbo typecheck` | **6/6 pass** |
-| `turbo lint` | **6/6 pass** |
-| `turbo test` (unit) | **394 passed, 1 skipped** |
-| `pnpm test:integration` (core, `koolee_test`) | **135 passed, 3 skipped, 17 files** |
-| `turbo build` (prod) | **3/3 pass** |
-| `pnpm db:status` (local) | in sync, 29/29 by content hash |
-| Seed idempotency | re-ran clean; 837 centroids reconciled |
+| Gate                                          | Result                                 |
+| --------------------------------------------- | -------------------------------------- |
+| `turbo typecheck`                             | **6/6 pass**                           |
+| `turbo lint`                                  | **6/6 pass**                           |
+| `turbo test` (unit)                           | **394 passed, 1 skipped**              |
+| `pnpm test:integration` (core, `koolee_test`) | **135 passed, 3 skipped, 17 files**    |
+| `turbo build` (prod)                          | **3/3 pass**                           |
+| `pnpm db:status` (local)                      | in sync, 29/29 by content hash         |
+| Seed idempotency                              | re-ran clean; 837 centroids reconciled |
 
 New tests: `geo/eta.test.ts` (26), `geo/zip-centroids.test.ts` (7),
 `slots/cutoff.test.ts` +7 for `resolveStrictestCutoffMinutes`,
@@ -210,11 +210,11 @@ once populated in any code path, and the `Agent` / `Driver` / `Route` /
 
 ### The new tables
 
-| Table | Shape | The decision inside it |
-|---|---|---|
-| `trucks` | id, **name UNIQUE** (free text), bag_capacity > 0, reserved_spaces ≥ 0 default 0, active, timestamps | No size-class enum — a size class would encode a capacity `bag_capacity` already states exactly. `name` is what a dispatcher and a driver say to each other, so it is the identifier. Deactivated, never deleted. |
-| `driver_shifts` | id, staff_user_id → users, truck_id → trucks, started_at, ended_at nullable, timestamps | Two PARTIAL unique indexes — one active shift per person, one per truck, both `WHERE ended_at IS NULL`. `CHECK (ended_at IS NULL OR ended_at >= started_at)`. |
-| `driver_positions` | staff_user_id PK/FK, lat, lng, recorded_at | One mutable row per driver, upserted. Header comment states in full that it is **NOT** part of the chain of custody. |
+| Table              | Shape                                                                                                | The decision inside it                                                                                                                                                                                            |
+| ------------------ | ---------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `trucks`           | id, **name UNIQUE** (free text), bag_capacity > 0, reserved_spaces ≥ 0 default 0, active, timestamps | No size-class enum — a size class would encode a capacity `bag_capacity` already states exactly. `name` is what a dispatcher and a driver say to each other, so it is the identifier. Deactivated, never deleted. |
+| `driver_shifts`    | id, staff_user_id → users, truck_id → trucks, started_at, ended_at nullable, timestamps              | Two PARTIAL unique indexes — one active shift per person, one per truck, both `WHERE ended_at IS NULL`. `CHECK (ended_at IS NULL OR ended_at >= started_at)`.                                                     |
+| `driver_positions` | staff_user_id PK/FK, lat, lng, recorded_at                                                           | One mutable row per driver, upserted. Header comment states in full that it is **NOT** part of the chain of custody.                                                                                              |
 
 Plus `staff_members.can_drive` (bool, default false) and
 `pickup_tasks.driver_shift_id` (nullable FK, SET NULL, indexed with status).
@@ -292,15 +292,15 @@ phantom drivers in front of customers on a machine nobody is driving from.
 
 ### Phase 1 gate
 
-| Gate | Result |
-|---|---|
-| `turbo typecheck` | **6/6 pass** |
-| `turbo lint` | **6/6 pass** |
-| `turbo test` (unit) | **24 + 3 + 2 + 9 + 1 files pass** |
-| `pnpm test:integration` (core, `koolee_test`) | **135 passed, 3 skipped** |
-| `pnpm db:migrate` → `db:status` (local) | **30 of 30 by content hash, in sync** |
-| `scripts/test-env.sh verify` | **8/8 pass** — 27 tables both databases, columns match |
-| Seed idempotency | re-ran clean; trucks + `can_drive` converged |
+| Gate                                          | Result                                                 |
+| --------------------------------------------- | ------------------------------------------------------ |
+| `turbo typecheck`                             | **6/6 pass**                                           |
+| `turbo lint`                                  | **6/6 pass**                                           |
+| `turbo test` (unit)                           | **24 + 3 + 2 + 9 + 1 files pass**                      |
+| `pnpm test:integration` (core, `koolee_test`) | **135 passed, 3 skipped**                              |
+| `pnpm db:migrate` → `db:status` (local)       | **30 of 30 by content hash, in sync**                  |
+| `scripts/test-env.sh verify`                  | **8/8 pass** — 27 tables both databases, columns match |
+| Seed idempotency                              | re-ran clean; trucks + `can_drive` converged           |
 
 ---
 
@@ -382,7 +382,7 @@ off is the one thing this must not do.
 advisory locks and therefore documents a fixed order (user, then destination)
 to stay deadlock-free. This takes exactly one, ever, so no ordering rule is
 needed and no deadlock is possible. The tempting second lock is the shift being
-*released* when a customer re-chooses — it is not taken, because releasing only
+_released_ when a customer re-chooses — it is not taken, because releasing only
 ever ADDS capacity to the old shift, and no invariant is defended by an upper
 bound going down. The comment says what to do if a second lock is ever needed
 (ascending shift id, and write it down there).
@@ -394,8 +394,8 @@ not the place to introduce it — the row being defended (`driver_shifts`) is no
 the row being written (`pickup_tasks`).
 
 **Concurrency test evidence** —
-`driver-selection.integration.test.ts`, *"two concurrent selections for the last
-space: exactly one wins"*: a three-bag van, two customers with two bags each,
+`driver-selection.integration.test.ts`, _"two concurrent selections for the last
+space: exactly one wins"_: a three-bag van, two customers with two bags each,
 `Promise.allSettled` over the real `selectDriver`:
 
 ```
@@ -435,11 +435,11 @@ readers. `ConflictField` gained `"shift"` and `"driver"`.
 
 ### Phase 2 gate
 
-| Gate | Result |
-|---|---|
-| `turbo typecheck` | **6/6 pass** |
-| `turbo lint` | **6/6 pass** |
-| `turbo test` (unit) | **581 tests pass** across 5 packages |
+| Gate                    | Result                                           |
+| ----------------------- | ------------------------------------------------ |
+| `turbo typecheck`       | **6/6 pass**                                     |
+| `turbo lint`            | **6/6 pass**                                     |
+| `turbo test` (unit)     | **581 tests pass** across 5 packages             |
 | `pnpm test:integration` | **167 passed, 3 skipped, 19 files** (was 135/17) |
 
 New suites: `driver-selection.integration.test.ts` (15),
@@ -462,13 +462,13 @@ only `pickup_tasks`, and it never touches money.
 
 ### The five steps
 
-| Function | What moves |
-|---|---|
-| `startPickupTravel` | `verified_sealed → awaiting_pickup` (if not already), task `in_progress` + `started_at`, `pickup.travel_started`. Driver choice closes here. |
-| `scanSealAtPickup` | One `pickup.seal_scanned` per bag; on the scan that completes the set, `start_transit`. |
-| `deliverToBagdrop` | `deliver_to_bagdrop`. |
-| `confirmAirlineHandover` | `complete` + `pickup.handover_confirmed`, task `done`. |
-| `reportPickupException` | `raise_exception` + task `failed` + ops alert. |
+| Function                 | What moves                                                                                                                                   |
+| ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `startPickupTravel`      | `verified_sealed → awaiting_pickup` (if not already), task `in_progress` + `started_at`, `pickup.travel_started`. Driver choice closes here. |
+| `scanSealAtPickup`       | One `pickup.seal_scanned` per bag; on the scan that completes the set, `start_transit`.                                                      |
+| `deliverToBagdrop`       | `deliver_to_bagdrop`.                                                                                                                        |
+| `confirmAirlineHandover` | `complete` + `pickup.handover_confirmed`, task `done`.                                                                                       |
+| `reportPickupException`  | `raise_exception` + task `failed` + ops alert.                                                                                               |
 
 ### Four decisions inside it
 
@@ -529,11 +529,11 @@ left, so a booking with no pickup task still appears.
 
 ### Phase 3 gate
 
-| Gate | Result |
-|---|---|
-| `turbo typecheck` | **6/6 pass** |
-| `turbo lint` | **6/6 pass** |
-| `turbo test` (unit) | **581 pass** |
+| Gate                    | Result                                           |
+| ----------------------- | ------------------------------------------------ |
+| `turbo typecheck`       | **6/6 pass**                                     |
+| `turbo lint`            | **6/6 pass**                                     |
+| `turbo test` (unit)     | **581 pass**                                     |
 | `pnpm test:integration` | **180 passed, 3 skipped, 20 files** (was 167/19) |
 
 New suite: `pickup.integration.test.ts` (13), including the full nine-event
@@ -607,11 +607,11 @@ a second app needs it.
 Three new builders in `notifications/emails.ts`, three new Inngest functions in
 core's shared factory (registry now **9**, was 6):
 
-| Event | Function | Notes |
-|---|---|---|
-| `booking/driver_selected` | `driver-selected-email` | Emitted by `selectDriver` after commit, deduped on the custody event id — so a customer who changes their mind gets the second email too. |
-| `booking/delivered_to_bagdrop` | `bagdrop-delivered-email` | Emitted by `deliverToBagdrop` after the transition committed; `applyTransition`'s compare-and-swap means a loser never reaches the emit. |
-| `booking/driver_pool_empty` | `driver-pool-empty-ops-alert` | Emails `OPS_ALERT_EMAIL`; console alert either way. |
+| Event                          | Function                      | Notes                                                                                                                                     |
+| ------------------------------ | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `booking/driver_selected`      | `driver-selected-email`       | Emitted by `selectDriver` after commit, deduped on the custody event id — so a customer who changes their mind gets the second email too. |
+| `booking/delivered_to_bagdrop` | `bagdrop-delivered-email`     | Emitted by `deliverToBagdrop` after the transition committed; `applyTransition`'s compare-and-swap means a loser never reaches the emit.  |
+| `booking/driver_pool_empty`    | `driver-pool-empty-ops-alert` | Emails `OPS_ALERT_EMAIL`; console alert either way.                                                                                       |
 
 **Registered in CORE's factory, not in the app that raises them** — the agent
 app's Inngest client is send-only by design (it serves no `/api/inngest` route),
@@ -651,13 +651,13 @@ console):
 
 ### Phase 4 gate
 
-| Gate | Result |
-|---|---|
-| `turbo typecheck` | **6/6 pass** |
-| `turbo lint` | **6/6 pass** |
-| `turbo test` (unit) | **600 pass** (core 404, web 86, ui 85, admin 19, agent 6) |
-| `pnpm test:integration` | **180 passed, 3 skipped** |
-| `turbo build` (prod) | **3/3 pass** |
+| Gate                    | Result                                                    |
+| ----------------------- | --------------------------------------------------------- |
+| `turbo typecheck`       | **6/6 pass**                                              |
+| `turbo lint`            | **6/6 pass**                                              |
+| `turbo test` (unit)     | **600 pass** (core 404, web 86, ui 85, admin 19, agent 6) |
+| `pnpm test:integration` | **180 passed, 3 skipped**                                 |
+| `turbo build` (prod)    | **3/3 pass**                                              |
 
 New tests: `pickup-progress.test.ts` (9), and 10 in `jobs/functions.test.ts`
 covering the three new functions (registration, copy rules, the no-ETA rule,
@@ -767,12 +767,12 @@ disappearing once a shift owns the pickup, and the four job states.
 
 ### Phase 5 gate
 
-| Gate | Result |
-|---|---|
-| `turbo typecheck` | **6/6 pass** |
-| `turbo lint` | **6/6 pass** (two real findings fixed: a dead `let` and a synchronous `setState` inside an effect in the pinger) |
-| `turbo test` (unit) | **606 pass** |
-| `turbo build` (prod) | **3/3 pass** |
+| Gate                 | Result                                                                                                           |
+| -------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `turbo typecheck`    | **6/6 pass**                                                                                                     |
+| `turbo lint`         | **6/6 pass** (two real findings fixed: a dead `let` and a synchronous `setState` inside an effect in the pinger) |
+| `turbo test` (unit)  | **606 pass**                                                                                                     |
+| `turbo build` (prod) | **3/3 pass**                                                                                                     |
 
 ---
 
@@ -866,13 +866,13 @@ three times to confirm.
 
 ### Phase 6 gate
 
-| Gate | Result |
-|---|---|
-| `turbo typecheck` | **6/6 pass** |
-| `turbo lint` | **6/6 pass** |
-| `turbo test` (unit) | **614 pass** (admin 19 → 27) |
-| `pnpm test:integration` | **180 passed, 3 skipped** |
-| `turbo build` (prod) | **3/3 pass** |
+| Gate                    | Result                       |
+| ----------------------- | ---------------------------- |
+| `turbo typecheck`       | **6/6 pass**                 |
+| `turbo lint`            | **6/6 pass**                 |
+| `turbo test` (unit)     | **614 pass** (admin 19 → 27) |
+| `pnpm test:integration` | **180 passed, 3 skipped**    |
+| `turbo build` (prod)    | **3/3 pass**                 |
 
 ---
 
@@ -880,13 +880,13 @@ three times to confirm.
 
 ### Docs written
 
-| Doc | What changed |
-|---|---|
-| [docs/features/driver-and-pickup-hosted-setup.md](../features/driver-and-pickup-hosted-setup.md) | **New.** TD's manual steps: what CI applies, the 0029 drop and its fail-closed guard, seeding, adding the real fleet, granting `can_drive`, zone rows, the three new Inngest functions, and the HTTPS requirement for geolocation. Ends with an explicit "what is deliberately NOT in this slice" list. |
-| `docs/features/README.md` | Indexed the new doc. |
-| `PROJECT-STATUS.md` | Snapshot entry; tracker rows **74–79**; **eight new §7 standing constraints** (below). |
-| `docs/CODEBASE-MAP.md` | Schema table (three tables gone, four arrived), the dropped-tables note, `zip-centroids.ts`, four new data-model invariants, the `EtaEstimator` seam row + paragraph, the three new services, the pickup run and shifts in the agent chapter, GPS, the trip page's driver section, the admin console's two new routes, `atRiskReason`, and the jobs table (8 → 11). |
-| `docs/MIGRATIONS.md` | History table brought up to date (0018–0029), plus two callouts: 0029 can fail by design and that is the safe outcome; 0028's backfill NOTICE and why a gap is not a failure. |
+| Doc                                                                                              | What changed                                                                                                                                                                                                                                                                                                                                                        |
+| ------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [docs/features/driver-and-pickup-hosted-setup.md](../features/driver-and-pickup-hosted-setup.md) | **New.** TD's manual steps: what CI applies, the 0029 drop and its fail-closed guard, seeding, adding the real fleet, granting `can_drive`, zone rows, the three new Inngest functions, and the HTTPS requirement for geolocation. Ends with an explicit "what is deliberately NOT in this slice" list.                                                             |
+| `docs/features/README.md`                                                                        | Indexed the new doc.                                                                                                                                                                                                                                                                                                                                                |
+| `PROJECT-STATUS.md`                                                                              | Snapshot entry; tracker rows **74–79**; **eight new §7 standing constraints** (below).                                                                                                                                                                                                                                                                              |
+| `docs/CODEBASE-MAP.md`                                                                           | Schema table (three tables gone, four arrived), the dropped-tables note, `zip-centroids.ts`, four new data-model invariants, the `EtaEstimator` seam row + paragraph, the three new services, the pickup run and shifts in the agent chapter, GPS, the trip page's driver section, the admin console's two new routes, `atRiskReason`, and the jobs table (8 → 11). |
+| `docs/MIGRATIONS.md`                                                                             | History table brought up to date (0018–0029), plus two callouts: 0029 can fail by design and that is the safe outcome; 0028's backfill NOTICE and why a gap is not a failure.                                                                                                                                                                                       |
 
 ### New §7 standing constraints
 
@@ -933,18 +933,18 @@ than pixels.
 
 ### What was exercised, not just loaded
 
-| Surface | Result |
-|---|---|
-| Agent Today, off shift | Shift bar with the truck picker; job card reads "Collect & deliver — waiting on the customer to choose a driver" |
-| **Start shift** (real submit) | Shift opened; bar switched to "DEV Truck A — 30 bags · On shift · 0 of 30 spaces used · started 5:39 PM EDT" |
-| GPS banner | Headless Chromium denies geolocation → the permission-denied banner rendered, nothing blocked |
-| Admin `/` | Fourth stat card, "sealed today, no driver on it" |
-| Admin `/trucks` | "2 in service · 1 out right now · 42 bags of capacity"; the out-with-a-driver badge; "Not yet enforced" on reserved spaces |
-| Admin `/shifts` | Open shift with bag load and force-end; the can-drive panel with per-person grant/revoke |
-| Admin `/bookings` | Driver column, "needs a driver" badge, "none yet". `scrollWidth === clientWidth` — the 10th column did not overflow the 1512px frame (the memory's earlier 9-column overflow lesson) |
-| Admin booking detail | Pickup-run card; custody trail rendering every new event in ops voice, including "ETA 20–45 min at the time of choosing" |
-| Customer `/trips/<sealed>` | **"Choose your driver"** with the widening copy, avatar, truck, ETA badge, out-of-zone badge, capacity line, CTA |
-| Customer `/trips/<completed>` | Driver card + the five-step progress track with the last step current |
+| Surface                       | Result                                                                                                                                                                               |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Agent Today, off shift        | Shift bar with the truck picker; job card reads "Collect & deliver — waiting on the customer to choose a driver"                                                                     |
+| **Start shift** (real submit) | Shift opened; bar switched to "DEV Truck A — 30 bags · On shift · 0 of 30 spaces used · started 5:39 PM EDT"                                                                         |
+| GPS banner                    | Headless Chromium denies geolocation → the permission-denied banner rendered, nothing blocked                                                                                        |
+| Admin `/`                     | Fourth stat card, "sealed today, no driver on it"                                                                                                                                    |
+| Admin `/trucks`               | "2 in service · 1 out right now · 42 bags of capacity"; the out-with-a-driver badge; "Not yet enforced" on reserved spaces                                                           |
+| Admin `/shifts`               | Open shift with bag load and force-end; the can-drive panel with per-person grant/revoke                                                                                             |
+| Admin `/bookings`             | Driver column, "needs a driver" badge, "none yet". `scrollWidth === clientWidth` — the 10th column did not overflow the 1512px frame (the memory's earlier 9-column overflow lesson) |
+| Admin booking detail          | Pickup-run card; custody trail rendering every new event in ops voice, including "ETA 20–45 min at the time of choosing"                                                             |
+| Customer `/trips/<sealed>`    | **"Choose your driver"** with the widening copy, avatar, truck, ETA badge, out-of-zone badge, capacity line, CTA                                                                     |
+| Customer `/trips/<completed>` | Driver card + the five-step progress track with the last step current                                                                                                                |
 
 Console: **zero errors or exceptions** across every page. The only warning is
 Next.js's pre-existing `scroll-behavior: smooth` notice.
@@ -998,35 +998,35 @@ to disturb the other session mid-run.
 
 ### Final gate
 
-| Gate | Result |
-|---|---|
-| `turbo typecheck` | **6/6 pass** |
-| `turbo lint` | **6/6 pass** |
-| `turbo test` (unit) | **614 passed, 1 skipped** — core 404, web 86, ui 85, admin 27, agent 12 |
-| `pnpm test:integration` (core, `koolee_test`) | **180 passed, 3 skipped, 20 files** |
-| `turbo build` (prod) | **3/3 pass** |
-| `pnpm db:status` (local) | **30 of 30, matched by content hash — in sync** |
-| `scripts/test-env.sh verify` | **8/8 pass** — 27 tables and 228 columns, both databases |
-| Browser pass | 10 surfaces, **0 console errors** |
+| Gate                                          | Result                                                                  |
+| --------------------------------------------- | ----------------------------------------------------------------------- |
+| `turbo typecheck`                             | **6/6 pass**                                                            |
+| `turbo lint`                                  | **6/6 pass**                                                            |
+| `turbo test` (unit)                           | **614 passed, 1 skipped** — core 404, web 86, ui 85, admin 27, agent 12 |
+| `pnpm test:integration` (core, `koolee_test`) | **180 passed, 3 skipped, 20 files**                                     |
+| `turbo build` (prod)                          | **3/3 pass**                                                            |
+| `pnpm db:status` (local)                      | **30 of 30, matched by content hash — in sync**                         |
+| `scripts/test-env.sh verify`                  | **8/8 pass** — 27 tables and 228 columns, both databases                |
+| Browser pass                                  | 10 surfaces, **0 console errors**                                       |
 
 Test counts at the start of the slice: 394 unit + 135 integration.
 **+220 unit, +45 integration.**
 
 ### Deferred, with the reason
 
-| Deferred | Why |
-|---|---|
-| Real geocoding / a routing provider | Out of scope by the prompt. `EtaEstimator` is the seam; `ensureAddress` already accepts precise coordinates, so the day it lands the centroid becomes the fallback with no call-site change. |
-| The ETA's long-run pessimism | Named, tested and kept — it points the safe way for both consumers. A routing provider is the fix, not a constant tweak. TD's call. |
-| A map on the trip page | Deliberate: a tile host inside a page rendering a private address, plus a library, for a question distance + ETA already answers. One component swap when wanted. |
-| `reserved_spaces` enforcement | Column created, nothing reads it, and both `ops.ts` and the admin form say so. Wiring it is one subtraction in `listCandidateDrivers` plus a test. |
-| Agent shift tracking | Decided against, with the reasoning at the auto-assign call site. Not a gap. |
-| Position history | `driver_positions` is one mutable row per driver by design. History would be a different table with a different retention story. |
-| Route optimisation, customer-facing driver profiles, SMS | Out of scope by the prompt; nothing was half-built toward them. |
-| Background GPS | Foreground pings only. Background tracking is a battery, permission and privacy conversation of its own. |
-| A Playwright harness | None exists; standing one up is its own slice. The CDP driver used here is throwaway scaffolding in the scratchpad, not committed. |
+| Deferred                                                 | Why                                                                                                                                                                                                           |
+| -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Real geocoding / a routing provider                      | Out of scope by the prompt. `EtaEstimator` is the seam; `ensureAddress` already accepts precise coordinates, so the day it lands the centroid becomes the fallback with no call-site change.                  |
+| The ETA's long-run pessimism                             | Named, tested and kept — it points the safe way for both consumers. A routing provider is the fix, not a constant tweak. TD's call.                                                                           |
+| A map on the trip page                                   | Deliberate: a tile host inside a page rendering a private address, plus a library, for a question distance + ETA already answers. One component swap when wanted.                                             |
+| `reserved_spaces` enforcement                            | Column created, nothing reads it, and both `ops.ts` and the admin form say so. Wiring it is one subtraction in `listCandidateDrivers` plus a test.                                                            |
+| Agent shift tracking                                     | Decided against, with the reasoning at the auto-assign call site. Not a gap.                                                                                                                                  |
+| Position history                                         | `driver_positions` is one mutable row per driver by design. History would be a different table with a different retention story.                                                                              |
+| Route optimisation, customer-facing driver profiles, SMS | Out of scope by the prompt; nothing was half-built toward them.                                                                                                                                               |
+| Background GPS                                           | Foreground pings only. Background tracking is a battery, permission and privacy conversation of its own.                                                                                                      |
+| A Playwright harness                                     | None exists; standing one up is its own slice. The CDP driver used here is throwaway scaffolding in the scratchpad, not committed.                                                                            |
 | `cutoffRiskMonitor` measuring from the DRIVER's position | It measures from the pickup address. `driver_positions` is right there and it is the obvious next step; left out so the function keeps working for a booking whose driver has GPS off. Noted in the function. |
-| `agentNoShowCheck`'s pickup twin | Untouched. A driver no-show is the same problem with a tighter deadline (the airline cutoff) and wants the same unwritten reassignment machinery (preflight §7.18). |
+| `agentNoShowCheck`'s pickup twin                         | Untouched. A driver no-show is the same problem with a tighter deadline (the airline cutoff) and wants the same unwritten reassignment machinery (preflight §7.18).                                           |
 
 ### What TD does next
 

@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import {
   adminForceEndShift,
+  adminStartShiftOnBehalf,
   ConflictError,
   InvalidInputError,
   NotFoundError,
@@ -79,7 +80,9 @@ export async function forceEndShiftAction(
         released === 0
           ? "Shift ended."
           : `Shift ended. ${released} pickup${released === 1 ? "" : "s"} back in the pool${
-              raised > 0 ? `, ${raised} raised as an exception (bags already in transit)` : ""
+              raised > 0
+                ? `, ${raised} raised as an exception (bags already in transit)`
+                : ""
             }.`,
     };
   } catch (error) {
@@ -87,7 +90,65 @@ export async function forceEndShiftAction(
   }
 }
 
-const canDriveSchema = z.object({ userId: z.uuid(), canDrive: z.enum(["true", "false"]) });
+const startOnBehalfSchema = z.object({
+  staffUserId: z.uuid(),
+  truckId: z.uuid(),
+});
+
+/**
+ * Starts somebody else's shift.
+ *
+ * The pair to force-end, and deliberately the QUIETER of the two. Ending a
+ * shift strands bags, releases pickups and can raise exceptions, so it demands
+ * a reason that goes into a custody trail. Starting one is routine dispatch —
+ * a driver whose phone is dead, an account locked out, an app that will not
+ * load — so it asks for nothing beyond who and which van.
+ *
+ * Every eligibility rule is core's and is the SAME code self-start runs
+ * (`adminStartShiftOnBehalf` calls `startShift`), including the two partial
+ * unique indexes that make a double-start a clean 23505 rather than two open
+ * shifts. The admin is stamped on the row.
+ *
+ * `/bookings` is revalidated as well: a new shift changes who is on the
+ * driver shortlist, and the board's at-risk counts move with it.
+ */
+export async function startShiftOnBehalfAction(
+  _prev: ShiftAdminState,
+  form: FormData,
+): Promise<ShiftAdminState> {
+  let session;
+  try {
+    session = await requireAdminSession();
+  } catch {
+    return { error: "Not signed in as an admin." };
+  }
+
+  const parsed = startOnBehalfSchema.safeParse({
+    staffUserId: String(form.get("staffUserId") ?? ""),
+    truckId: String(form.get("truckId") ?? ""),
+  });
+  if (!parsed.success) {
+    return { error: "Choose a driver and a truck." };
+  }
+
+  try {
+    const shift = await adminStartShiftOnBehalf(getCore(), {
+      staffUserId: parsed.data.staffUserId,
+      truckId: parsed.data.truckId,
+      adminUserId: session.userId,
+    });
+    revalidatePath("/shifts");
+    revalidatePath("/bookings");
+    return { ok: `Shift started on ${shift.truck.name}.` };
+  } catch (error) {
+    return fail(error, "Couldn't start that shift.");
+  }
+}
+
+const canDriveSchema = z.object({
+  userId: z.uuid(),
+  canDrive: z.enum(["true", "false"]),
+});
 
 /** Grants or revokes the driving capability. Takes effect on their next request. */
 export async function setCanDriveAction(

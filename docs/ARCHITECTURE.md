@@ -33,11 +33,11 @@ packages/config   Shared eslint / tsconfig / tailwind bases.
 The three apps are **three phases of one booking lifecycle**, not three
 audiences that happen to share a database:
 
-| App     | Owns lifecycle phase                                                            |
-| ------- | ------------------------------------------------------------------------------- |
-| `web`   | `draft` → `paid`, then watching: trips, live tracking, the agreement            |
-| `agent` | `agent_assigned` → `verified_sealed` → `in_transit` → `delivered_to_bagdrop`   |
-| `admin` | assignment, shifts, exceptions, force-complete — and everything configurable    |
+| App     | Owns lifecycle phase                                                         |
+| ------- | ---------------------------------------------------------------------------- |
+| `web`   | `draft` → `paid`, then watching: trips, live tracking, the agreement         |
+| `agent` | `agent_assigned` → `verified_sealed` → `in_transit` → `delivered_to_bagdrop` |
+| `admin` | assignment, shifts, exceptions, force-complete — and everything configurable |
 
 ⚠️ **`apps/agent` is one app doing two jobs**, and the split is in the data, not
 the UI. The database has two task tables — `verification_tasks` and
@@ -228,7 +228,7 @@ refactor cannot quietly break them.
 | -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------- |
 | **Supabase Postgres**      | All persistence, via Drizzle                                                                                                                       | Pages render empty states        |
 | **Supabase Auth (GoTrue)** | Customer phone/email OTP; staff email/password                                                                                                     | Sign-in unavailable              |
-| **Supabase Realtime**      | The `booking_signals` doorbell — one table, signal only, payload never rendered                                                                     | Falls back to interval polling   |
+| **Supabase Realtime**      | The `booking_signals` doorbell — one table, signal only, payload never rendered                                                                    | Falls back to interval polling   |
 | **Supabase Storage**       | Four PRIVATE buckets — `ticket-uploads`, `bag-photos`, `passport-photos`, `avatars` — created and limited by migration 0026/0027, never at runtime | Photo capture stays local        |
 | **Stripe**                 | Payment intents, capture, refunds, webhooks                                                                                                        | `FakePaymentProvider`            |
 | **Inngest**                | Background jobs / crons                                                                                                                            | Works against `pnpm dev:inngest` |
@@ -236,7 +236,7 @@ refactor cannot quietly break them.
 | **Cloudflare Turnstile**   | Bot protection — token forwarded to Supabase, **app never calls siteverify**                                                                       | CAPTCHA silently off             |
 | **Resend**                 | Transactional email                                                                                                                                | Notifier logs to console         |
 | **FlightAware AeroAPI**    | Flight lookup                                                                                                                                      | **Stubbed**                      |
-| **Google Places (New)**    | Address autocomplete + details, **server-side only** via `/api/places`, session-token billed                                                        | Plain text input, route 204s     |
+| **Google Places (New)**    | Address autocomplete + details, **server-side only** via `/api/places`, session-token billed                                                       | Plain text input, route 204s     |
 | **Google Routes**          | Traffic-aware drive time (`computeRouteMatrix`, field-masked, 2.5s timeout)                                                                        | Haversine arithmetic             |
 | **MapLibre + OpenFreeMap** | Map rendering, customer trip page. **No key, no account, no per-load billing**                                                                     | List + ETA, map says so          |
 | **Anthropic**              | Ticket-PDF extraction                                                                                                                              | Heuristic/fake extractor         |
@@ -398,7 +398,7 @@ manual order below is for first-time project setup and recovery.
 ⚠️ **The workflow runs in PARALLEL with the Vercel deploy of the same push** —
 neither waits for the other. That is only safe while migrations stay backward
 compatible (expand → deploy → contract), which is this repo's discipline. A
-migration the *old* code cannot run against needs a manual, sequenced deploy.
+migration the _old_ code cannot run against needs a manual, sequenced deploy.
 See [MIGRATIONS.md §9.5](MIGRATIONS.md).
 
 **Deploy order:**

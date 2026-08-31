@@ -117,8 +117,7 @@ export function ProfileForm({
                       autoComplete="email"
                     />
                     <p className="text-xs text-muted-foreground">
-                      We&apos;ll send a confirmation before it&apos;s used for
-                      anything.
+                      We&apos;ll send a confirmation before it&apos;s used for anything.
                     </p>
                   </div>
                 ) : null}

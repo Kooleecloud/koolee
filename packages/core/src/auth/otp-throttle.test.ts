@@ -130,7 +130,11 @@ describe("recordOtpSend", () => {
     const first = fakeDb([0, 0]);
     const second = fakeDb([0, 0]);
     await recordOtpSend(first.db, { userId: USER_ID, destination: PHONE, kind: "phone" });
-    await recordOtpSend(second.db, { userId: USER_ID, destination: PHONE, kind: "email" });
+    await recordOtpSend(second.db, {
+      userId: USER_ID,
+      destination: PHONE,
+      kind: "email",
+    });
     expect(first.state.inserted[0]!.destinationHash).not.toBe(
       second.state.inserted[0]!.destinationHash,
     );

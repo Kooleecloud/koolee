@@ -357,7 +357,6 @@ describe("resolveCutoffMinutes", () => {
 /* sellability                                                         */
 /* ================================================================== */
 
-
 describe("computeBagDropCutoffAt / minutesUntilCutoff", () => {
   it("returns the instant the airline stops accepting bags", () => {
     expect(
@@ -477,7 +476,9 @@ describe("dstTransitionNote", () => {
     expect(dstTransitionNote(new Date("2025-10-26T01:00:00Z"), "Europe/London")).toBe(
       "second of two — clocks have already gone back",
     );
-    expect(dstTransitionNote(new Date("2025-11-02T05:00:00Z"), "Europe/London")).toBeNull();
+    expect(
+      dstTransitionNote(new Date("2025-11-02T05:00:00Z"), "Europe/London"),
+    ).toBeNull();
   });
 });
 
@@ -497,7 +498,9 @@ describe("airportLocalDateTime", () => {
 
   it("round-trips formatDateTimeLocalInAirportTz", () => {
     const local = "2025-12-24T06:05";
-    expect(formatDateTimeLocalInAirportTz(airportLocalDateTime(local, NY), NY)).toBe(local);
+    expect(formatDateTimeLocalInAirportTz(airportLocalDateTime(local, NY), NY)).toBe(
+      local,
+    );
   });
 
   it("is DST-correct on both sides of the change", () => {
@@ -572,8 +575,12 @@ describe("airportLocalDayBounds", () => {
 
     // 9 Mar 2025 loses an hour; 2 Nov 2025 gains one. Adding 24h would put
     // both boundaries in the wrong place.
-    expect(hours(airportLocalDayBounds(new Date("2025-03-09T17:00:00.000Z"), NY))).toBe(23);
-    expect(hours(airportLocalDayBounds(new Date("2025-11-02T17:00:00.000Z"), NY))).toBe(25);
+    expect(hours(airportLocalDayBounds(new Date("2025-03-09T17:00:00.000Z"), NY))).toBe(
+      23,
+    );
+    expect(hours(airportLocalDayBounds(new Date("2025-11-02T17:00:00.000Z"), NY))).toBe(
+      25,
+    );
   });
 
   it("rolls over month and year ends", () => {
@@ -622,7 +629,9 @@ describe("resolveStrictestCutoffMinutes", () => {
   });
 
   it("matches the airline code case-insensitively", () => {
-    expect(resolveStrictestCutoffMinutes([cutoff({ airlineIata: "dl" })], lookup, now)).toBe(45);
+    expect(
+      resolveStrictestCutoffMinutes([cutoff({ airlineIata: "dl" })], lookup, now),
+    ).toBe(45);
   });
 
   it("ignores rows that have not taken effect yet", () => {
@@ -641,12 +650,18 @@ describe("resolveStrictestCutoffMinutes", () => {
   it("ignores another airport's rows", () => {
     const rows = [
       cutoff({ cutoffMinutesBeforeDeparture: 45 }),
-      cutoff({ id: "lga", airportCode: "LGA" as AirportCode, cutoffMinutesBeforeDeparture: 200 }),
+      cutoff({
+        id: "lga",
+        airportCode: "LGA" as AirportCode,
+        cutoffMinutesBeforeDeparture: 200,
+      }),
     ];
     expect(resolveStrictestCutoffMinutes(rows, lookup, now)).toBe(45);
   });
 
   it("throws rather than guessing when nothing is on record", () => {
-    expect(() => resolveStrictestCutoffMinutes([], lookup, now)).toThrow(/No bag-drop cutoff/);
+    expect(() => resolveStrictestCutoffMinutes([], lookup, now)).toThrow(
+      /No bag-drop cutoff/,
+    );
   });
 });

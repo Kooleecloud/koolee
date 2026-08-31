@@ -59,7 +59,10 @@ export function BookingSummaryShell({
 
   return (
     <div className="lg:container lg:grid lg:max-w-5xl lg:grid-cols-[280px_minmax(0,1fr)] lg:items-start lg:gap-4">
-      <aside className="sticky top-6 hidden pt-10 lg:block" aria-label="Your booking so far">
+      <aside
+        className="sticky top-6 hidden pt-10 lg:block"
+        aria-label="Your booking so far"
+      >
         <Card>
           <CardHeader>
             <CardTitle className="text-base">Your booking so far</CardTitle>
@@ -76,13 +79,11 @@ export function BookingSummaryShell({
                     Edit
                   </Link>
                 </div>
-                {section.lines
-                  .filter(Boolean)
-                  .map((line, i) => (
-                    <span key={i} className="text-muted-foreground">
-                      {line}
-                    </span>
-                  ))}
+                {section.lines.filter(Boolean).map((line, i) => (
+                  <span key={i} className="text-muted-foreground">
+                    {line}
+                  </span>
+                ))}
               </div>
             ))}
           </CardContent>

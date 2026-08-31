@@ -216,6 +216,10 @@ describe("hostile and lossy editor output", () => {
     // If someone widens the editor's extension list without widening this
     // module, the content is dropped loudly in review — not silently
     // half-rendered to a customer.
+    //
+    // `table` used to be one of these examples; slice F4 gave it a branch, so
+    // the case it stands for here now is a table with NO CELLS, which carries
+    // nothing and is dropped like an empty paragraph.
     const doc: PmNode = {
       type: "doc",
       content: [
@@ -231,7 +235,9 @@ describe("hostile and lossy editor output", () => {
   });
 
   it("ignores marks it does not model, keeping the text", () => {
-    // A colour or a link mark loses its styling but never its words.
+    // A colour mark, or a `link` mark with no href to speak of, loses its
+    // styling but never its words. (Links WITH an href are modelled now —
+    // see the F4 block below.)
     const doc: PmNode = {
       type: "doc",
       content: [
@@ -281,5 +287,261 @@ describe("serialization shape", () => {
   it("numbers ordered lists from 1 regardless of the source numbering", () => {
     const [block] = parseAgreementMarkdown("7. seven\n9. nine");
     expect(serializeAgreementMarkdown([block!])).toBe("1. seven\n2. nine\n");
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* Slice F4 — h1, links and tables                                     */
+/* ------------------------------------------------------------------ */
+
+/**
+ * These three constructs used to have no branch anywhere in the pipeline, and
+ * the parser's "unrecognised syntax degrades to paragraph text" rule turned
+ * each of them into literal characters on the customer's agreement page:
+ *
+ *   `# Koolee booking agreement`  → the paragraph "# Koolee booking agreement"
+ *   `[terms](https://…)`          → the paragraph "[terms](https://…)"
+ *   a three-row table             → one paragraph of pipes and dashes
+ *
+ * That is the whole of the "renders raw markdown" report. Reproduced before
+ * anything was changed; these are the tests that keep it fixed.
+ */
+
+const F4_SINK = `# Koolee booking agreement
+
+## Which terms apply
+
+Read the [privacy policy](https://koolee.cloud/privacy) or write to
+[us](mailto:help@koolee.cloud).
+
+| Charge | Amount |
+| --- | --- |
+| Base | $68 |
+| Per bag | $12 |
+`;
+
+describe("headings — h1", () => {
+  it("parses a single # as level 1 rather than as literal text", () => {
+    expect(parseAgreementMarkdown("# Title")[0]).toEqual({
+      kind: "heading",
+      level: 1,
+      content: [{ text: "Title" }],
+    });
+  });
+
+  it("still parses ## and ### as 2 and 3", () => {
+    expect(parseAgreementMarkdown("## Two")[0]).toMatchObject({ level: 2 });
+    expect(parseAgreementMarkdown("### Three")[0]).toMatchObject({ level: 3 });
+  });
+
+  it("round-trips every level through ProseMirror", () => {
+    expect(roundTripMarkdown("# One\n\n## Two\n\n### Three\n")).toBe(
+      "# One\n\n## Two\n\n### Three\n",
+    );
+  });
+
+  it("clamps a pasted h4 to h3 rather than dropping the text", () => {
+    const doc: PmNode = {
+      type: "doc",
+      content: [
+        {
+          type: "heading",
+          attrs: { level: 4 },
+          content: [{ type: "text", text: "Deep" }],
+        },
+      ],
+    };
+    expect(proseMirrorDocToBlocks(doc)[0]).toEqual({
+      kind: "heading",
+      level: 3,
+      content: [{ text: "Deep" }],
+    });
+  });
+});
+
+describe("links", () => {
+  it("parses [label](url) into a run carrying the href", () => {
+    expect(parseInline("See the [terms](https://koolee.cloud/terms) now")).toEqual([
+      { text: "See the " },
+      { text: "terms", link: "https://koolee.cloud/terms" },
+      { text: " now" },
+    ]);
+  });
+
+  it("accepts mailto", () => {
+    expect(parseInline("[us](mailto:help@koolee.cloud)")).toEqual([
+      { text: "us", link: "mailto:help@koolee.cloud" },
+    ]);
+  });
+
+  /**
+   * `safeLinkHref` returns the URL a browser would have resolved, not the
+   * characters that were typed. The first save of a pasted document may
+   * therefore adjust an href very slightly; every save after that is a no-op,
+   * which is what keeps the round-trip contract true.
+   */
+  it("normalises the href, and is idempotent from the second pass", () => {
+    expect(parseInline("[x](https://k.example)")).toEqual([
+      { text: "x", link: "https://k.example/" },
+    ]);
+    const once = serializeAgreementMarkdown(
+      parseAgreementMarkdown("[x](https://k.example)"),
+    );
+    expect(serializeAgreementMarkdown(parseAgreementMarkdown(once))).toBe(once);
+  });
+
+  it("keeps emphasis inside a link label", () => {
+    expect(parseInline("[**Terms**](https://k.example/t)")).toEqual([
+      { text: "Terms", bold: true, link: "https://k.example/t" },
+    ]);
+  });
+
+  it("does not break a URL containing balanced parentheses", () => {
+    expect(parseInline("[wiki](https://e.example/a_(b))")).toEqual([
+      { text: "wiki", link: "https://e.example/a_(b)" },
+    ]);
+  });
+
+  it("leaves an unclosed or empty construct as literal text", () => {
+    expect(parseInline("see [1] (above)")).toEqual([{ text: "see [1] (above)" }]);
+    expect(parseInline("[](https://k.example)")).toEqual([
+      { text: "[](https://k.example)" },
+    ]);
+  });
+
+  it("round-trips through markdown and through ProseMirror", () => {
+    const source = "Read the [terms](https://koolee.cloud/terms).\n";
+    expect(serializeAgreementMarkdown(parseAgreementMarkdown(source))).toBe(source);
+    expect(roundTripMarkdown(source)).toBe(source);
+  });
+
+  it("does not merge adjacent links to different targets", () => {
+    const runs = parseInline("[a](https://k.example/a)[b](https://k.example/b)");
+    expect(runs).toHaveLength(2);
+    expect(runs[0]!.link).toBe("https://k.example/a");
+    expect(runs[1]!.link).toBe("https://k.example/b");
+  });
+
+  /**
+   * The one place a string becomes behaviour. An allow-list of http/https/
+   * mailto, applied in the AST rather than in the renderer — every consumer
+   * gets the same answer, and the words survive even when the link does not.
+   */
+  describe("refuses every scheme but http, https and mailto", () => {
+    for (const hostile of [
+      "javascript:alert(1)",
+      "JaVaScRiPt:alert(1)",
+      "data:text/html;base64,PHNjcmlwdD4=",
+      "vbscript:msgbox(1)",
+      "file:///etc/passwd",
+      "/relative/path",
+      "//evil.example/x",
+    ]) {
+      it(hostile, () => {
+        const runs = parseInline(`[click](${hostile})`);
+        // Literal text, brackets intact — never a run with a link.
+        expect(runs.every((r) => r.link === undefined)).toBe(true);
+        expect(runs.map((r) => r.text).join("")).toContain("click");
+      });
+    }
+
+    it("also refuses one arriving from the editor, not just from markdown", () => {
+      const doc: PmNode = {
+        type: "doc",
+        content: [
+          {
+            type: "paragraph",
+            content: [
+              {
+                type: "text",
+                text: "click",
+                marks: [{ type: "link", attrs: { href: "javascript:alert(1)" } }],
+              },
+            ],
+          },
+        ],
+      };
+      expect(proseMirrorDocToBlocks(doc)[0]).toEqual({
+        kind: "paragraph",
+        content: [{ text: "click" }],
+      });
+    });
+  });
+});
+
+describe("tables", () => {
+  const TABLE = "| Charge | Amount |\n| --- | --- |\n| Base | $68 |";
+
+  it("parses a header, a delimiter and body rows", () => {
+    expect(parseAgreementMarkdown(TABLE)[0]).toEqual({
+      kind: "table",
+      header: [[{ text: "Charge" }], [{ text: "Amount" }]],
+      rows: [[[{ text: "Base" }], [{ text: "$68" }]]],
+    });
+  });
+
+  it("needs the delimiter row — prose containing a pipe stays a paragraph", () => {
+    expect(parseAgreementMarkdown("either | or")[0]).toEqual({
+      kind: "paragraph",
+      content: [{ text: "either | or" }],
+    });
+  });
+
+  it("keeps marks and links inside a cell", () => {
+    const [block] = parseAgreementMarkdown(
+      "| a | b |\n| --- | --- |\n| **bold** | [x](https://k.example) |",
+    );
+    expect(block).toMatchObject({
+      rows: [
+        [[{ text: "bold", bold: true }], [{ text: "x", link: "https://k.example/" }]],
+      ],
+    });
+  });
+
+  it("treats an escaped pipe as a literal, not a column break", () => {
+    const [block] = parseAgreementMarkdown("| a |\n| --- |\n| one \\| two |");
+    expect(block).toMatchObject({ rows: [[[{ text: "one | two" }]]] });
+    // …and writes it back escaped, so a second read agrees with the first.
+    expect(serializeAgreementMarkdown([block!])).toContain("one \\| two");
+  });
+
+  it("pads a ragged table to a rectangle on the way out", () => {
+    const [block] = parseAgreementMarkdown("| a | b |\n| --- | --- |\n| one |");
+    expect(serializeAgreementMarkdown([block!])).toBe(
+      "| a | b |\n| --- | --- |\n| one |  |\n",
+    );
+  });
+
+  it("round-trips through markdown and through ProseMirror", () => {
+    const source = `${TABLE}\n`;
+    expect(serializeAgreementMarkdown(parseAgreementMarkdown(source))).toBe(source);
+    expect(roundTripMarkdown(source)).toBe(source);
+  });
+});
+
+describe("the F4 document, end to end", () => {
+  it("produces no paragraph that is raw markdown", () => {
+    const blocks = parseAgreementMarkdown(F4_SINK);
+    const paragraphs = blocks
+      .filter((b): b is Extract<Block, { kind: "paragraph" }> => b.kind === "paragraph")
+      .flatMap((b) => b.content.map((r) => r.text));
+    for (const text of paragraphs) {
+      expect(text).not.toMatch(/^#/);
+      expect(text).not.toContain("](http");
+      expect(text).not.toContain("| ---");
+    }
+    expect(blocks.map((b) => b.kind)).toEqual([
+      "heading",
+      "heading",
+      "paragraph",
+      "table",
+    ]);
+    expect(blocks[0]).toMatchObject({ level: 1 });
+  });
+
+  it("is stable across a full round trip", () => {
+    const once = serializeAgreementMarkdown(parseAgreementMarkdown(F4_SINK));
+    expect(serializeAgreementMarkdown(parseAgreementMarkdown(once))).toBe(once);
+    expect(roundTripMarkdown(F4_SINK)).toBe(once);
   });
 });

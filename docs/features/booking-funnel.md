@@ -321,7 +321,7 @@ It was an interval inside the driver card first, which meant the page only went
 live once a driver had been chosen — an agent sealing bags on the doorstep
 changed nothing on the screen the customer was watching. **Live-ness belongs to
 the page, not to one card.** Interval polling remains the fallback, and it is
-what the trips *list* runs on, having no single booking to watch.
+what the trips _list_ runs on, having no single booking to watch.
 
 A short set of stages also raises a toast — sealed/choose a driver, in transit,
 delivered, exception. A silent refresh is right for most changes; a toast is for
@@ -355,11 +355,11 @@ about a minute" — because some people genuinely have no file to hand.
 `flightEntryMode` ([lib/flight-entry.ts](../../apps/web/src/lib/flight-entry.ts))
 decides which of three faces the step shows, as a pure function:
 
-| Mode     | When                                                       |
-| -------- | ---------------------------------------------------------- |
-| `door`   | first visit, nothing answered yet                          |
-| `review` | `?from=ticket` **and** a prefill actually exists            |
-| `manual` | `?entry=manual`, or the draft already carries a flight      |
+| Mode     | When                                                   |
+| -------- | ------------------------------------------------------ |
+| `door`   | first visit, nothing answered yet                      |
+| `review` | `?from=ticket` **and** a prefill actually exists       |
+| `manual` | `?entry=manual`, or the draft already carries a flight |
 
 The third row is the one worth remembering: somebody stepping BACK to change
 an answer must never be sent to an upload screen, which reads as having lost
@@ -374,7 +374,7 @@ read" above six empty fields.
   picking a different file is one tap;
 - a file we accepted and could not **read** (HTTP 200 with `ok: false`) sends
   them to `?entry=manual&read=failed`, which renders a non-blaming line —
-  *"some airline tickets are images we can't get text out of"* — above the
+  _"some airline tickets are images we can't get text out of"_ — above the
   same form they would have got anyway. Nothing is lost, and the compact
   upload card is still under the form for a second attempt.
 

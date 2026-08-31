@@ -61,7 +61,9 @@ const apps =
 
 for (const app of apps) {
   if (!MANIFEST.apps[app]) {
-    console.error(`Unknown app "${app}". Known: ${Object.keys(MANIFEST.apps).join(", ")}`);
+    console.error(
+      `Unknown app "${app}". Known: ${Object.keys(MANIFEST.apps).join(", ")}`,
+    );
     process.exit(2);
   }
 }
@@ -117,7 +119,10 @@ if (file) {
 } else {
   source = "the current process environment";
   present = new Map(
-    Object.entries(process.env).map(([k, v]) => [k, typeof v === "string" && v.length > 0]),
+    Object.entries(process.env).map(([k, v]) => [
+      k,
+      typeof v === "string" && v.length > 0,
+    ]),
   );
 }
 

@@ -63,10 +63,10 @@ agent app is out of the payment path entirely.
 Triggered two ways, both from apps/web because that is the app holding
 Stripe credentials:
 
-| trigger                     | when                                       |
-| --------------------------- | ------------------------------------------ |
-| `POST /api/jobs/capture-due` | manual / any external scheduler; `CRON_SECRET` required |
-| Inngest `capture-due-bookings` | `cron("*/5 * * * *")`                   |
+| trigger                        | when                                                    |
+| ------------------------------ | ------------------------------------------------------- |
+| `POST /api/jobs/capture-due`   | manual / any external scheduler; `CRON_SECRET` required |
+| Inngest `capture-due-bookings` | `cron("*/5 * * * *")`                                   |
 
 The actor on the resulting `booking.payment_captured` event is **NULL** — a
 sweep is the system's act, and attributing the charge to whichever agent

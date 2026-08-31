@@ -19,9 +19,13 @@ describe("pickupStepIndexFor", () => {
     expect(pickupStepIndexFor("completed", true)).toBe(4);
   });
 
-  // A cancelled or exception booking has no progress to claim; the track sits
-  // at the start rather than implying the run is under way.
-  it.each(["draft", "paid", "agent_assigned", "exception", "cancelled"] as const)(
+  // A booking that has not reached sealing has no progress to claim; the
+  // track sits at the start rather than implying the run is under way.
+  //
+  // `cancelled` used to be in this list and is not any more — it returns -1,
+  // which is `ProgressTrack`'s "nothing is current" and, with the `cancelled`
+  // prop, "nothing is going to be". See the block at the bottom of this file.
+  it.each(["draft", "paid", "agent_assigned", "exception"] as const)(
     "claims no progress for %s",
     (status) => {
       expect(pickupStepIndexFor(status, true)).toBe(0);
@@ -29,6 +33,9 @@ describe("pickupStepIndexFor", () => {
   );
 
   it("never returns an index past the end of the track", () => {
+    // `cancelled` is excluded: it deliberately returns -1, which is
+    // `ProgressTrack`'s "no stage is current" sentinel rather than a position
+    // on the track. Its bound is asserted in its own block below.
     const statuses = [
       "draft",
       "paid",
@@ -39,7 +46,6 @@ describe("pickupStepIndexFor", () => {
       "delivered_to_bagdrop",
       "completed",
       "exception",
-      "cancelled",
     ] as const;
     for (const status of statuses) {
       for (const started of [true, false]) {
@@ -48,5 +54,37 @@ describe("pickupStepIndexFor", () => {
         expect(index).toBeLessThan(PICKUP_STEPS.length);
       }
     }
+  });
+});
+
+/**
+ * A CANCELLED BOOKING MUST NOT CLAIM A STAGE IS IN PROGRESS.
+ *
+ * `pickupStepIndexFor` used to fall through to the default and return 0,
+ * which put `ProgressTrack`'s pulsing seal-orange "you are here" marker on
+ * "Driver booked" — a booking that had been cancelled, animating as though
+ * something were happening on it right now.
+ *
+ * `-1` is the value `ProgressTrack` has documented for this since it was
+ * written; it was simply never passed one. The track still RENDERS: hiding it
+ * would make a cancelled trip read as though it had never been booked, and
+ * the stages are what show how far it got before it stopped.
+ */
+describe("a cancelled booking", () => {
+  it("has no current stage", () => {
+    expect(pickupStepIndexFor("cancelled", false)).toBe(-1);
+    expect(pickupStepIndexFor("cancelled", true)).toBe(-1);
+  });
+
+  it("is below every stage index, so nothing reads as complete either", () => {
+    // `stateFor` in ProgressTrack: index < currentIndex is "complete". With
+    // -1 no index qualifies, so the whole track is untouched rather than
+    // half-banked.
+    expect(pickupStepIndexFor("cancelled", false)).toBeLessThan(0);
+  });
+
+  it("leaves an exception at the start, which is a different state", () => {
+    // Paused, not abandoned. Changing this is deliberately not in scope.
+    expect(pickupStepIndexFor("exception", false)).toBe(0);
   });
 });

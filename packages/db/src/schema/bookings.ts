@@ -286,7 +286,9 @@ export const bags = pgTable(
     // Partial because unsealed bags all hold NULL and must not collide.
     // Enforced here rather than only in `recordBagSealed` because the app
     // check races and this one cannot.
-    uniqueIndex("bags_seal_id_key").on(t.sealId).where(sql`${t.sealId} is not null`),
+    uniqueIndex("bags_seal_id_key")
+      .on(t.sealId)
+      .where(sql`${t.sealId} is not null`),
     // Makes "two bags both called Bag 2" impossible rather than merely
     // unlikely, and gives the ordered reads an index to walk.
     uniqueIndex("bags_booking_ordinal_key").on(t.bookingId, t.ordinal),

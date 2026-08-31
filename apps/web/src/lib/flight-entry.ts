@@ -32,7 +32,12 @@ export interface FlightEntryInput {
   /** The draft, for the "stepping back to edit" case. */
   draft: Pick<
     TypedBookingDraft,
-    "ticketPrefill" | "flightNumber" | "departureAirport" | "departureAt" | "paxName"
+    | "ticketPrefill"
+    | "flightEntry"
+    | "flightNumber"
+    | "departureAirport"
+    | "departureAt"
+    | "paxName"
   >;
 }
 
@@ -48,7 +53,11 @@ export function draftHasFlight(input: FlightEntryInput["draft"]): boolean {
   );
 }
 
-export function flightEntryMode({ from, entry, draft }: FlightEntryInput): FlightEntryMode {
+export function flightEntryMode({
+  from,
+  entry,
+  draft,
+}: FlightEntryInput): FlightEntryMode {
   // A reading only counts when the prefill is actually there. `?from=ticket`
   // on its own — a shared link, a back button after the cookie expired — must
   // not render a "here's what we read" page with nothing in it.
@@ -57,5 +66,17 @@ export function flightEntryMode({ from, entry, draft }: FlightEntryInput): Fligh
   // Stepping BACK to edit. Re-asking for a ticket here would read as having
   // lost their answers, which is the worst thing a funnel can imply.
   if (draftHasFlight(draft)) return "manual";
+  /*
+   * WE REFUSED THEM AND THEY CAME BACK. `draftHasFlight` is false — nothing
+   * was committed, because the step never succeeded — and the door is exactly
+   * the wrong answer: they have already told us their flight, and what we
+   * said no to was their ZIP.
+   *
+   * This is the case the door check was missing. An out-of-area ZIP swaps the
+   * form for the waitlist card, whose "Try another ZIP" is a real link back
+   * to this page, and the page met them with a file-drop area and no
+   * explanation.
+   */
+  if (draft.flightEntry) return "manual";
   return "door";
 }

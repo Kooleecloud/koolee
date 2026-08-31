@@ -1,4 +1,8 @@
-import { AIRPORT_CODES, type PrefillLeg, type TicketPrefill } from "@/lib/booking-draft-schema";
+import {
+  AIRPORT_CODES,
+  type PrefillLeg,
+  type TicketPrefill,
+} from "@/lib/booking-draft-schema";
 
 /**
  * The sentence the review form shows above a ticket-filled form.
@@ -15,8 +19,18 @@ import { AIRPORT_CODES, type PrefillLeg, type TicketPrefill } from "@/lib/bookin
  */
 
 const MONTHS = [
-  "Jan", "Feb", "Mar", "Apr", "May", "Jun",
-  "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec",
 ];
 
 export interface PrefillNotice {
@@ -48,7 +62,9 @@ function describeLeg(leg: {
   return stamp ? `${route} on ${stamp}` : route;
 }
 
-export function describePrefill(prefill: TicketPrefill | undefined): PrefillNotice | null {
+export function describePrefill(
+  prefill: TicketPrefill | undefined,
+): PrefillNotice | null {
   if (!prefill) return null;
   const leg = describeLeg(prefill);
 
@@ -144,14 +160,22 @@ export interface EligibleLegs {
   skipped: number;
 }
 
-function routeOf(leg: { departureAirport?: string; destinationAirport?: string }): string {
+function routeOf(leg: {
+  departureAirport?: string;
+  destinationAirport?: string;
+}): string {
   return leg.destinationAirport
     ? `${leg.departureAirport} → ${leg.destinationAirport}`
     : `${leg.departureAirport}`;
 }
 
 function toEligible(
-  leg: { departureAirport?: string; destinationAirport?: string; flightNumber?: string; departureAtLocal?: string },
+  leg: {
+    departureAirport?: string;
+    destinationAirport?: string;
+    flightNumber?: string;
+    departureAtLocal?: string;
+  },
   extra: { chosen: boolean; alternativeIndex?: number },
 ): EligibleLeg {
   const stamp = formatLocalStamp(leg.departureAtLocal);
@@ -163,9 +187,7 @@ function toEligible(
   };
 }
 
-export function describeEligibleLegs(
-  prefill: TicketPrefill | undefined,
-): EligibleLegs {
+export function describeEligibleLegs(prefill: TicketPrefill | undefined): EligibleLegs {
   if (!prefill) return { legs: [], skipped: 0 };
 
   const alternatives = prefill.alternatives ?? [];

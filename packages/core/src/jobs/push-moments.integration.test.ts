@@ -28,7 +28,12 @@ import {
 } from "../notifications";
 import { FakePaymentProvider } from "../payments/fake";
 import { createKooleeFunctions } from "./functions";
-import { FakeStep, RecordingInngest, fakeLogger, type RecordedFunction } from "./test-doubles";
+import {
+  FakeStep,
+  RecordingInngest,
+  fakeLogger,
+  type RecordedFunction,
+} from "./test-doubles";
 import { pickupSnapshotOf } from "../test-utils/booking-fixtures";
 
 /**
@@ -146,19 +151,23 @@ describeIntegration("push moments (integration)", () => {
       .insert(users)
       .values([
         { phone: "+15551170001", role: "customer", fullName: "Casey Rivera" },
-        { email: "moments.agent@koolee-test.example", role: "agent", fullName: "Nina Alvarez" },
-        { email: "moments.driver@koolee-test.example", role: "agent", fullName: "Marco Diaz" },
+        {
+          email: "moments.agent@koolee-test.example",
+          role: "agent",
+          fullName: "Nina Alvarez",
+        },
+        {
+          email: "moments.driver@koolee-test.example",
+          role: "agent",
+          fullName: "Marco Diaz",
+        },
         { email: "moments.admin1@koolee-test.example", role: "admin" },
         { email: "moments.admin2@koolee-test.example", role: "admin" },
       ])
       .returning({ id: users.id });
-    [customerId, agentId, driverId, adminId, otherAdminId] = inserted.map((r) => r.id) as [
-      string,
-      string,
-      string,
-      string,
-      string,
-    ];
+    [customerId, agentId, driverId, adminId, otherAdminId] = inserted.map(
+      (r) => r.id,
+    ) as [string, string, string, string, string];
 
     await db.insert(staffMembers).values([
       { userId: agentId, role: "agent", active: true },
@@ -252,7 +261,9 @@ describeIntegration("push moments (integration)", () => {
     expect(await recipientsOf(toCustomer!.targets.map((t) => t.id))).toEqual(
       new Set([customerId]),
     );
-    expect(await recipientsOf(toAgent!.targets.map((t) => t.id))).toEqual(new Set([agentId]));
+    expect(await recipientsOf(toAgent!.targets.map((t) => t.id))).toEqual(
+      new Set([agentId]),
+    );
 
     // The customer's collapses onto the booking; the agent's stacks per task.
     expect(toCustomer!.payload).toMatchObject({
@@ -278,7 +289,9 @@ describeIntegration("push moments (integration)", () => {
     await invoke(fn(h, "agent-assigned-email"), { bookingId, agentUserId: agentId });
 
     // A push is decrypted onto a lock screen that may be face-up on a table.
-    const bodies = h.push.sends.map((s) => `${s.payload.title} ${s.payload.body}`).join(" ");
+    const bodies = h.push.sends
+      .map((s) => `${s.payload.title} ${s.payload.body}`)
+      .join(" ");
     expect(bodies).toContain(bookingRef);
     expect(bodies).not.toContain("1 Test St");
     expect(bodies).not.toContain("10001");
@@ -288,7 +301,10 @@ describeIntegration("push moments (integration)", () => {
   it("says nothing about a cancelled booking", async () => {
     const h = harness();
     await subscribe(customerId, "casey-phone", "web");
-    await db.update(bookings).set({ status: "cancelled" }).where(eq(bookings.id, bookingId));
+    await db
+      .update(bookings)
+      .set({ status: "cancelled" })
+      .where(eq(bookings.id, bookingId));
 
     await invoke(fn(h, "agent-assigned-email"), { bookingId, agentUserId: agentId });
     expect(h.push.sends).toHaveLength(0);
@@ -317,7 +333,9 @@ describeIntegration("push moments (integration)", () => {
     expect(await recipientsOf(toCustomer!.targets.map((t) => t.id))).toEqual(
       new Set([customerId]),
     );
-    expect(await recipientsOf(toDriver!.targets.map((t) => t.id))).toEqual(new Set([driverId]));
+    expect(await recipientsOf(toDriver!.targets.map((t) => t.id))).toEqual(
+      new Set([driverId]),
+    );
 
     expect(toCustomer!.payload).toMatchObject({
       title: "Marco is collecting your bags",
@@ -341,7 +359,10 @@ describeIntegration("push moments (integration)", () => {
     await subscribe(customerId, "casey-phone", "web");
 
     await invoke(fn(h, "agent-assigned-email"), { bookingId, agentUserId: agentId });
-    await db.update(bookings).set({ status: "verified_sealed" }).where(eq(bookings.id, bookingId));
+    await db
+      .update(bookings)
+      .set({ status: "verified_sealed" })
+      .where(eq(bookings.id, bookingId));
     await invoke(fn(h, "bags-sealed-email"), { bookingId });
     await invoke(fn(h, "bagdrop-delivered-email"), {
       bookingId,
@@ -479,7 +500,10 @@ describeIntegration("push moments (integration)", () => {
   it("a THROWING sender leaves the email and the function intact", async () => {
     const h = harness(new ThrowingPushSender());
     await subscribe(customerId, "casey-phone", "web");
-    await db.update(users).set({ email: "casey@example.com" }).where(eq(users.id, customerId));
+    await db
+      .update(users)
+      .set({ email: "casey@example.com" })
+      .where(eq(users.id, customerId));
 
     const { step } = await invoke(fn(h, "agent-assigned-email"), {
       bookingId,

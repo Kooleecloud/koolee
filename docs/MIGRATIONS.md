@@ -193,7 +193,7 @@ roles that browser-side `supabase-js` uses for **Realtime and Storage**.
 - `0030`/`0031` — `booking_signals`, the realtime doorbell, and the third
   instance of this same bug class. `0030` shipped a correct policy, a correct
   SECURITY DEFINER predicate (`public.can_watch_booking`), `REPLICA IDENTITY
-  FULL` and publication membership — and **no browser received a single
+FULL` and publication membership — and **no browser received a single
   event**, because `authenticated` had never been granted `SELECT` on the
   table. **A policy narrows access; it cannot widen it.** `0031` is the one
   missing `GRANT`. Found by driving two browsers side by side, not by a test:
@@ -221,11 +221,36 @@ Practical consequences:
 - **Never grant `anon`.** A signed-out session has no `auth.uid()` and every
   predicate here refuses it anyway, but a grant nobody needs is a grant
   somebody eventually leans on.
-- ℹ️ `custody_events` has carried the incomplete shape since `0001`: RLS on,
-  two policies, in the publication, **no `SELECT` grant** — so its subscription
-  has never been able to deliver either. Nothing subscribes to it (the customer
-  timeline is server-rendered), so `0031` deliberately did **not** widen it.
-  Recorded so the next person does not rediscover it.
+- ✅ `custody_events` — **the trap `0031` recorded here is closed, and it was
+  closed the other way round.** `0034` removes the table from the
+  `supabase_realtime` publication.
+
+  The note this replaces read: the table has carried the incomplete shape
+  since `0001` — RLS on, in the publication, **no `SELECT` grant** — so its
+  subscription has never been able to deliver anything, and `0031`
+  deliberately did not widen it because nothing subscribes.
+
+  That left a **pre-staged silent failure**: the next person to point a
+  `.channel()` at it gets zero events and no error, and "add the grant" looks
+  like the fix long before "nobody meant to open this" does. Slice F4 came to
+  arm the subscription and found two things that argued the other way:
+
+  1. **Nothing subscribes, and nothing should.** The realtime layer is
+     `booking_signals` — a doorbell that says THAT a booking changed, after
+     which the client refetches through the ordinary server path. A second
+     table streaming custody rows to browsers would be the first exception to
+     `PROJECT-STATUS §7`'s "realtime is a signal, never a source of truth".
+  2. **The policy coverage is not what the note above said.** It claimed
+     _two_ policies. There is **one** — `custody_events_select_own`, from
+     `0001`. No staff policy exists, so granting `SELECT` would have opened
+     the table with only the customer half written.
+
+  So the membership went instead of the grant arriving. The policy is left in
+  place (correct, free, and a record of intent), and so is `REPLICA IDENTITY
+FULL` — pointless now and costless, because the table is append-only and no
+  UPDATE or DELETE can reach it. **If this is ever reversed, the `GRANT` must
+  go with it or the subscription is dead again**, which is the whole lesson of
+  `0031`.
 
 ---
 
@@ -272,32 +297,33 @@ Practical consequences:
 
 ## 8. Migration history
 
-| #         | Tag                      | Date       | What it did                                                            |
-| --------- | ------------------------ | ---------- | ---------------------------------------------------------------------- |
-| 0000      | `init`                   | 2026-07-31 | Initial schema                                                         |
-| 0001      | `custody_guard_and_rls`  | 2026-07-31 | Append-only trigger + the two RLS policies                             |
-| 0002      | `auth_profile_fields`    | 2026-08-02 | Auth profile columns                                                   |
-| 0003      | `glamorous_krista_starr` | 2026-08-03 | Regenerated after being applied — source of the surviving orphan row   |
-| 0004–0007 |                          | 2026-08-09 | Auth funnel / drafts work                                              |
-| 0008      | `bag_photos_bucket`      | 2026-08-09 | Private storage bucket + policies                                      |
-| 0009      | `staff_check_function`   | 2026-08-09 | `public.is_active_staff()` SECURITY DEFINER                            |
-| 0010–0011 |                          | 2026-08-09 | Staff / ops tables                                                     |
-| 0012      | `yummy_micromacro`       | 2026-08-10 | **Virtual windows** — slot inventory retired                           |
-| 0013      | `curved_adam_destine`    | 2026-08-10 |                                                                        |
-| 0014      | `milky_bug`              | 2026-08-10 | `bags.ordinal` + backfill (arbitrary-but-stable for pre-existing rows) |
-| 0015      | `colossal_sue_storm`     | 2026-08-10 |                                                                        |
-| 0016      | `uniform_rls_baseline`   | 2026-08-11 | RLS on for every `public` table + `ensure_rls` event trigger           |
-| 0017      | `unique_seal_id`         | 2026-08-15 | `bags.seal_id` plain index → **partial `UNIQUE`** (sealed bags only)   |
-| 0018–0020 |                          | 2026-08-22 | Dispatch close-out: one task pair per booking (0019), one active pricing rule (0020) |
-| 0021      | `big_hobgoblin`          | 2026-08-25 | `bookings.ref` (`KOO-XXXXX`) + backfill — the nullable→backfill→constrain pattern |
-| 0022–0025 |                          | 2026-08-28 | Agreements + passport: the tables, the storage-policy fix, version freeze, per-booking pin |
-| 0026–0027 |                          | 2026-08-29 | Buckets declared by migration; the private `avatars` bucket           |
-| 0028      | `geo_zip_centroids`      | 2026-08-29 | **Koolee's first coordinates**: `zip_centroids` (837 US-Census rows), `airports.lat/lng` NOT NULL, and a backfill of `addresses.lat/lng` |
-| 0029      | `driver_fleet_and_shifts`| 2026-08-29 | `trucks`, `driver_shifts`, `driver_positions`, `staff_members.can_drive`, `pickup_tasks.driver_shift_id` — **and DROPs `drivers`, `routes`, `agents`** |
-| 0030      | `booking_signals`        | 2026-08-29 | The realtime **doorbell** table + `custody_events` AFTER INSERT trigger, `public.can_watch_booking`, `REPLICA IDENTITY FULL`, publication membership |
-| 0031      | `booking_signals_grant`  | 2026-08-30 | The one `GRANT SELECT … TO authenticated` without which `0030`'s policy delivered nothing (§6) |
-| 0032      | `push_subscriptions`     | 2026-08-30 | Web Push routing rows — unique on `endpoint` alone; no policy and no grant, by design |
-| 0033      | `military_liz_osborn`    | 2026-08-30 | **The booking carries its own doorstep**: eight `pickup_*` columns backfilled from `addresses`, then constrained; `pickup_address_id` demoted to nullable provenance (`ON DELETE set null`). ⚠️ **The CONTRACT rode the same migration as the expand** — the four `SET NOT NULL`s. Not backward-compatible in either direction; see §9.5 |
+| #         | Tag                        | Date       | What it did                                                                                                                                                                                                                                                                                                                              |
+| --------- | -------------------------- | ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0000      | `init`                     | 2026-07-31 | Initial schema                                                                                                                                                                                                                                                                                                                           |
+| 0001      | `custody_guard_and_rls`    | 2026-07-31 | Append-only trigger + the two RLS policies                                                                                                                                                                                                                                                                                               |
+| 0002      | `auth_profile_fields`      | 2026-08-02 | Auth profile columns                                                                                                                                                                                                                                                                                                                     |
+| 0003      | `glamorous_krista_starr`   | 2026-08-03 | Regenerated after being applied — source of the surviving orphan row                                                                                                                                                                                                                                                                     |
+| 0004–0007 |                            | 2026-08-09 | Auth funnel / drafts work                                                                                                                                                                                                                                                                                                                |
+| 0008      | `bag_photos_bucket`        | 2026-08-09 | Private storage bucket + policies                                                                                                                                                                                                                                                                                                        |
+| 0009      | `staff_check_function`     | 2026-08-09 | `public.is_active_staff()` SECURITY DEFINER                                                                                                                                                                                                                                                                                              |
+| 0010–0011 |                            | 2026-08-09 | Staff / ops tables                                                                                                                                                                                                                                                                                                                       |
+| 0012      | `yummy_micromacro`         | 2026-08-10 | **Virtual windows** — slot inventory retired                                                                                                                                                                                                                                                                                             |
+| 0013      | `curved_adam_destine`      | 2026-08-10 |                                                                                                                                                                                                                                                                                                                                          |
+| 0014      | `milky_bug`                | 2026-08-10 | `bags.ordinal` + backfill (arbitrary-but-stable for pre-existing rows)                                                                                                                                                                                                                                                                   |
+| 0015      | `colossal_sue_storm`       | 2026-08-10 |                                                                                                                                                                                                                                                                                                                                          |
+| 0016      | `uniform_rls_baseline`     | 2026-08-11 | RLS on for every `public` table + `ensure_rls` event trigger                                                                                                                                                                                                                                                                             |
+| 0017      | `unique_seal_id`           | 2026-08-15 | `bags.seal_id` plain index → **partial `UNIQUE`** (sealed bags only)                                                                                                                                                                                                                                                                     |
+| 0018–0020 |                            | 2026-08-22 | Dispatch close-out: one task pair per booking (0019), one active pricing rule (0020)                                                                                                                                                                                                                                                     |
+| 0021      | `big_hobgoblin`            | 2026-08-25 | `bookings.ref` (`KOO-XXXXX`) + backfill — the nullable→backfill→constrain pattern                                                                                                                                                                                                                                                        |
+| 0022–0025 |                            | 2026-08-28 | Agreements + passport: the tables, the storage-policy fix, version freeze, per-booking pin                                                                                                                                                                                                                                               |
+| 0026–0027 |                            | 2026-08-29 | Buckets declared by migration; the private `avatars` bucket                                                                                                                                                                                                                                                                              |
+| 0028      | `geo_zip_centroids`        | 2026-08-29 | **Koolee's first coordinates**: `zip_centroids` (837 US-Census rows), `airports.lat/lng` NOT NULL, and a backfill of `addresses.lat/lng`                                                                                                                                                                                                 |
+| 0029      | `driver_fleet_and_shifts`  | 2026-08-29 | `trucks`, `driver_shifts`, `driver_positions`, `staff_members.can_drive`, `pickup_tasks.driver_shift_id` — **and DROPs `drivers`, `routes`, `agents`**                                                                                                                                                                                   |
+| 0030      | `booking_signals`          | 2026-08-29 | The realtime **doorbell** table + `custody_events` AFTER INSERT trigger, `public.can_watch_booking`, `REPLICA IDENTITY FULL`, publication membership                                                                                                                                                                                     |
+| 0031      | `booking_signals_grant`    | 2026-08-30 | The one `GRANT SELECT … TO authenticated` without which `0030`'s policy delivered nothing (§6)                                                                                                                                                                                                                                           |
+| 0032      | `push_subscriptions`       | 2026-08-30 | Web Push routing rows — unique on `endpoint` alone; no policy and no grant, by design                                                                                                                                                                                                                                                    |
+| 0033      | `military_liz_osborn`      | 2026-08-30 | **The booking carries its own doorstep**: eight `pickup_*` columns backfilled from `addresses`, then constrained; `pickup_address_id` demoted to nullable provenance (`ON DELETE set null`). ⚠️ **The CONTRACT rode the same migration as the expand** — the four `SET NOT NULL`s. Not backward-compatible in either direction; see §9.5 |
+| 0034      | `custody_events_unpublish` | 2026-08-31 | `custody_events` **leaves** the `supabase_realtime` publication — the reverse of the expected fix, and why (§6). Catalog-only: no rows, no scan, reversible in one statement                                                                                                                                                             |
 
 ⚠️ **`0029` can fail on apply, by design — and that is the safe outcome.** It
 drops three tables that shipped in `0000_init` and were never used, and it does
@@ -479,10 +505,10 @@ same step as the expand.
 **Neither order is clean**, which is what makes it different from an ordinary
 expand:
 
-| Order                                     | What breaks                                                                                                                  |
-| ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| **Migration first**, old code still serving | Old `createBooking` omits `pickup_line1` and the rest → **`NOT NULL` violation → every new booking fails**                   |
-| **Code first**, migration not yet applied   | New code reads and writes columns that do not exist → **booking reads and writes fail**                                      |
+| Order                                       | What breaks                                                                                                |
+| ------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| **Migration first**, old code still serving | Old `createBooking` omits `pickup_line1` and the rest → **`NOT NULL` violation → every new booking fails** |
+| **Code first**, migration not yet applied   | New code reads and writes columns that do not exist → **booking reads and writes fail**                    |
 
 So there is a window either way, and it lasts **as long as the Vercel build**.
 On `dev` that was harmless — no traffic. On `main` the identical merge is a

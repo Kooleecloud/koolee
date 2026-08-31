@@ -56,7 +56,11 @@ describe("WebPushSender", () => {
   it("sends the library's subscription shape, with a TTL and the urgency", async () => {
     await sender().send([target("s1")], payload, { urgency: "high" });
 
-    expect(setVapidDetails).toHaveBeenCalledWith("mailto:ops@koolee.cloud", "pub", "priv");
+    expect(setVapidDetails).toHaveBeenCalledWith(
+      "mailto:ops@koolee.cloud",
+      "pub",
+      "priv",
+    );
     expect(sendNotification).toHaveBeenCalledTimes(1);
 
     const [subscription, body, options] = sendNotification.mock.calls[0]!;
@@ -138,7 +142,9 @@ describe("createWebPushSender — the kill switch comes first", () => {
     // Signing needs the pair, and Apple refuses a push whose `sub` is not a
     // valid mailto:/https: URL. Half-configured must fall back to the console
     // sender, not fail at runtime on every notification.
-    expect(createWebPushSender({ enabled: true, publicKey: "a", privateKey: "b" })).toBeNull();
+    expect(
+      createWebPushSender({ enabled: true, publicKey: "a", privateKey: "b" }),
+    ).toBeNull();
     expect(
       createWebPushSender({ enabled: true, publicKey: "a", subject: "mailto:x@y.z" }),
     ).toBeNull();

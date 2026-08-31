@@ -7,12 +7,7 @@ import * as React from "react";
  * bundler that papers over it you get `undefined.Map is not a function` at
  * runtime instead.
  */
-import {
-  LngLatBounds,
-  Map as MapLibreMap,
-  Marker,
-  NavigationControl,
-} from "maplibre-gl";
+import { LngLatBounds, Map as MapLibreMap, Marker, NavigationControl } from "maplibre-gl";
 
 import { cn } from "../lib/utils";
 
@@ -186,6 +181,15 @@ export function LiveMap({
   const moves = React.useRef(new globalThis.Map<string, number>());
   const [failed, setFailed] = React.useState(false);
   const [ready, setReady] = React.useState(false);
+  /**
+   * `ready`, readable from inside the create-once effect.
+   *
+   * That effect closes over the FIRST render's `ready` forever (its deps are
+   * `[styleUrl]`), so the `error` listener below cannot ask the state whether
+   * the map has loaded. A ref can. Same stale-closure shape as `clickRef`
+   * above, and the same fix.
+   */
+  const loaded = React.useRef(false);
 
   /*
    * The click handler, held in a ref.
@@ -244,13 +248,42 @@ export function LiveMap({
     const deadline = setTimeout(() => setFailed(true), LOAD_TIMEOUT_MS);
     instance.on("load", () => {
       clearTimeout(deadline);
+      loaded.current = true;
       setReady(true);
     });
-    // A tile host that is down must not leave a grey rectangle with no
-    // explanation — `error` fires for style and tile failures alike. It does
-    // NOT fire for a worker that will not load, which is what the deadline is
-    // for.
-    instance.on("error", () => setFailed(true));
+
+    /*
+     * ONE `error` USED TO KILL THE MAP FOREVER, and this is the bug TD
+     * reported as "the map can't load, everything else on the page is fine".
+     *
+     * `instance.on("error", () => setFailed(true))` treated every MapLibre
+     * error as fatal and permanent. MapLibre emits `error` for things that
+     * are neither: a single tile that 404s at one zoom level, a glyph or
+     * sprite range that misses, a request aborted because the pin moved and
+     * the viewport changed under it. A map that had loaded, drawn and been
+     * panned around would emit one of those on a slow connection, and the
+     * component swapped a working map for "the map can't load right now" —
+     * with no way back, because `failed` is never cleared and the early
+     * return unmounts the container, which tears the instance down.
+     *
+     * So an error is fatal ONLY BEFORE `load`. Before it, the likely cause is
+     * the style itself failing and there is nothing on screen to lose. After
+     * it, the map is drawing: MapLibre retries tiles on its own, and the
+     * worst case is a blank square in one corner rather than a page that
+     * claims to be broken. The ten-second deadline still catches the failure
+     * that raises no error at all — a tile-parsing worker that never
+     * arrives — which is the case it was written for.
+     */
+    instance.on("error", (event: unknown) => {
+      if (loaded.current) {
+        // Kept, not swallowed silently: this is the only place a tile problem
+        // is observable at all, and the next person diagnosing a patchy map
+        // needs it to exist.
+        console.warn("[live-map] non-fatal error after load", event);
+        return;
+      }
+      setFailed(true);
+    });
 
     map.current = instance;
 
@@ -262,6 +295,7 @@ export function LiveMap({
 
     return () => {
       clearTimeout(deadline);
+      loaded.current = false;
       for (const marker of created.values()) marker.remove();
       created.clear();
       pickupMarker.current?.remove();
@@ -308,12 +342,17 @@ export function LiveMap({
          * swap keeps the selected state in step without touching position.
          */
         const from = existing.getLngLat();
-        walkMarker(existing, { lat: from.lat, lng: from.lng }, driver.position, (frame) => {
-          const previous = moves.current.get(driver.id);
-          if (previous !== undefined) cancelAnimationFrame(previous);
-          if (frame === null) moves.current.delete(driver.id);
-          else moves.current.set(driver.id, frame);
-        });
+        walkMarker(
+          existing,
+          { lat: from.lat, lng: from.lng },
+          driver.position,
+          (frame) => {
+            const previous = moves.current.get(driver.id);
+            if (previous !== undefined) cancelAnimationFrame(previous);
+            if (frame === null) moves.current.delete(driver.id);
+            else moves.current.set(driver.id, frame);
+          },
+        );
         const element = existing.getElement();
         element.dataset.selected = driver.selected ? "true" : "false";
         element.setAttribute("aria-pressed", driver.selected ? "true" : "false");
@@ -376,7 +415,10 @@ export function LiveMap({
      * politely stopped showing the thing it is for is worse than a map that
      * moves. So we re-frame then, and only then.
      */
-    const signature = drivers.map((driver) => driver.id).sort().join("|");
+    const signature = drivers
+      .map((driver) => driver.id)
+      .sort()
+      .join("|");
     if (framedFor.current === signature) {
       if (drivers.length === 0) return;
       const visible = instance.getBounds();
@@ -392,11 +434,9 @@ export function LiveMap({
       return;
     }
 
-    const bounds = new LngLatBounds(
-      [pickup.lng, pickup.lat],
-      [pickup.lng, pickup.lat],
-    );
-    for (const driver of drivers) bounds.extend([driver.position.lng, driver.position.lat]);
+    const bounds = new LngLatBounds([pickup.lng, pickup.lat], [pickup.lng, pickup.lat]);
+    for (const driver of drivers)
+      bounds.extend([driver.position.lng, driver.position.lat]);
     // `maxZoom` matters: a driver already outside the building would otherwise
     // frame two pins a few metres apart at street level, which is a map of
     // nothing.
@@ -408,6 +448,11 @@ export function LiveMap({
     // driver list and the ETA are right below this.
     return (
       <div
+        // Same idea as `data-live-signal` on the realtime probe: "is this map
+        // broken, or is it just slow?" should be answerable by looking at the
+        // DOM rather than by asking somebody to open a console. This is what
+        // TD's report had to be diagnosed WITHOUT.
+        data-map-state="failed"
         className={cn(
           "flex items-center justify-center rounded-lg border border-dashed border-border bg-muted/30 p-6 text-center text-sm text-muted-foreground",
           className,
@@ -423,7 +468,11 @@ export function LiveMap({
       ref={container}
       role="img"
       aria-label={label}
-      className={cn("overflow-hidden rounded-lg border border-border bg-muted/30", className)}
+      data-map-state={ready ? "ready" : "loading"}
+      className={cn(
+        "overflow-hidden rounded-lg border border-border bg-muted/30",
+        className,
+      )}
     />
   );
 }
@@ -490,8 +539,7 @@ function pickupPin(): HTMLElement {
   const element = document.createElement("div");
   element.className =
     "flex size-6 items-center justify-center rounded-full border-2 border-white bg-navy-800 shadow-lg";
-  element.innerHTML =
-    '<span class="block size-2 rounded-full bg-white"></span>';
+  element.innerHTML = '<span class="block size-2 rounded-full bg-white"></span>';
   element.setAttribute("aria-hidden", "true");
   return element;
 }

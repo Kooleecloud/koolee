@@ -74,7 +74,9 @@ export async function avatarPathsForViewer(
   db: Database,
   query: AvatarVisibilityQuery,
 ): Promise<Map<string, string>> {
-  const subjects = [...new Set(query.subjectUserIds.filter((id): id is string => Boolean(id)))];
+  const subjects = [
+    ...new Set(query.subjectUserIds.filter((id): id is string => Boolean(id))),
+  ];
   if (subjects.length === 0) return new Map();
 
   const viewerId = query.viewer.userId;

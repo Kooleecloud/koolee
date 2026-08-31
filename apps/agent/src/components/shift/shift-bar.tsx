@@ -75,7 +75,13 @@ function OnShift({ active }: { active: ActiveShiftView }) {
       {state.error ? <FormMessage variant="error">{state.error}</FormMessage> : null}
 
       <form action={formAction}>
-        <Button type="submit" variant="outline" size="lg" className="w-full" loading={pending}>
+        <Button
+          type="submit"
+          variant="outline"
+          size="lg"
+          className="w-full"
+          loading={pending}
+        >
           End shift
         </Button>
       </form>

@@ -31,7 +31,13 @@ import { toE164UsCa } from "@/lib/phone";
 
 export type PreparePaymentResult =
   /** Mount the Payment Element against this client secret. */
-  | { ok: true; kind: "ready"; bookingId: string; clientSecret: string; amountCents: number }
+  | {
+      ok: true;
+      kind: "ready";
+      bookingId: string;
+      clientSecret: string;
+      amountCents: number;
+    }
   /** Payment already confirmed (or settling) — navigate to the return path. */
   | { ok: true; kind: "redirect"; redirectTo: string }
   | { ok: false; error: string; redirectTo?: string };
@@ -170,7 +176,10 @@ export async function saveCheckoutContactPhone(
     return { ok: true };
   } catch (error: unknown) {
     if (error instanceof NotFoundError) {
-      return { ok: false, error: "This booking can no longer be updated. Refresh the page." };
+      return {
+        ok: false,
+        error: "This booking can no longer be updated. Refresh the page.",
+      };
     }
     console.error("[pay] saveCheckoutContactPhone failed", error);
     return { ok: false, error: "We couldn't save that number. Try again." };

@@ -20,8 +20,7 @@ import { GoogleRoutesEtaEstimator } from "./routes";
  * at module scope.
  */
 export type EtaEstimatorConfig =
-  | { kind: "haversine" }
-  | { kind: "google-routes"; apiKey: string; timeoutMs?: number };
+  { kind: "haversine" } | { kind: "google-routes"; apiKey: string; timeoutMs?: number };
 
 export function createEtaEstimator(config: EtaEstimatorConfig): EtaEstimator {
   if (config.kind === "google-routes") {

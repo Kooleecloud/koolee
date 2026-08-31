@@ -13,6 +13,7 @@ import {
   PageHeader,
 } from "@koolee/ui";
 import {
+  countAgreementVersions,
   formatHourRangeInAirportTz,
   formatTimeInAirportTz,
   listAgentWorkload,
@@ -22,6 +23,7 @@ import {
 } from "@koolee/core";
 
 import { ConsoleMain } from "@/components/console";
+import { NoAgreementBanner } from "@/components/no-agreement-banner";
 import { OPS_CONSOLE_TZ } from "@/lib/airport-tz";
 import { getConsoleDashboard } from "@/lib/console-dashboard";
 import { tryGetCore } from "@/lib/core";
@@ -96,11 +98,19 @@ export default async function AdminHomePage() {
   const now = new Date();
   let upcoming: BoardRow[] = [];
   let workload: AgentWorkload[] = [];
+  /**
+   * -1 means "we could not ask", which is NOT the same as zero.
+   *
+   * A failed count must not raise the alarm — a database blip would otherwise
+   * put "customers cannot complete check-in" on the Overview page every time
+   * it hiccupped, and an alarm that cries wolf is worse than none.
+   */
+  let agreementCount = -1;
 
   if (core) {
     // Both degrade to their own empty states; neither is worth failing the
     // landing page over.
-    [upcoming, workload] = await Promise.all([
+    [upcoming, workload, agreementCount] = await Promise.all([
       listBookingsBoard(
         core.db,
         {
@@ -112,6 +122,7 @@ export default async function AdminHomePage() {
         { now, assignmentHorizonHours: core.defaults.assignmentHorizonHours },
       ).catch(() => []),
       listAgentWorkload(core.db, { on: now, tz: OPS_CONSOLE_TZ }).catch(() => []),
+      countAgreementVersions(core.db).catch(() => -1),
     ]);
   }
 
@@ -143,6 +154,9 @@ export default async function AdminHomePage() {
         <DatabaseNotConfigured />
       ) : (
         <>
+          {/* Ahead of the numbers. Nothing else on this page matters while
+              every visit in the fleet is blocked at the identity step. */}
+          {agreementCount === 0 && <NoAgreementBanner count={0} />}
           <div className="grid gap-4 sm:grid-cols-3">
             <StatCard value={todayTotal} caption="bookings with a pickup window today">
               {dashboard.todayByStatus.length > 0 && (

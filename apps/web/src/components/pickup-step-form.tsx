@@ -139,8 +139,7 @@ export function PickupStepForm({
    * a rule nobody can remember, and the ZIP centroid is a fine answer.
    */
   const set =
-    (key: keyof AddressFields) =>
-    (event: React.ChangeEvent<HTMLInputElement>) => {
+    (key: keyof AddressFields) => (event: React.ChangeEvent<HTMLInputElement>) => {
       setAddress((current) => ({ ...current, [key]: event.target.value }));
       setPrecision(NO_PRECISION);
     };
@@ -395,8 +394,7 @@ export function PickupStepForm({
           </div>
           <p className="text-xs text-slate-600">
             Updating the quote re-checks coverage and pricing for{" "}
-            {state.zipMismatch.addressZip}, and you will pick your pickup window
-            again.
+            {state.zipMismatch.addressZip}, and you will pick your pickup window again.
           </p>
         </div>
       )}

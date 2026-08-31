@@ -132,11 +132,11 @@ decision, purging bytes is a retention decision.
 
 ### Where it appears
 
-| App     | Uploads                                                          | Displays                                                        |
-| ------- | ---------------------------------------------------------------- | --------------------------------------------------------------- |
-| `web`   | `/dashboard/profile` → "Profile picture"                          | own profile; the assigned agent AND the selected driver on the trip page |
-| `agent` | `/account` → "Your photo"                                         | own account header; the customer on the visit screen            |
-| `admin` | console settings sheet → Account; **`/staff` → any staff photo**  | own chrome (top bar + sheet); the staff table                   |
+| App     | Uploads                                                          | Displays                                                                 |
+| ------- | ---------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| `web`   | `/dashboard/profile` → "Profile picture"                         | own profile; the assigned agent AND the selected driver on the trip page |
+| `agent` | `/account` → "Your photo"                                        | own account header; the customer on the visit screen                     |
+| `admin` | console settings sheet → Account; **`/staff` → any staff photo** | own chrome (top bar + sheet); the staff table                            |
 
 The console has no account route, so the settings sheet _is_ the account
 surface and the picker lives there rather than behind one more click to a page
@@ -153,7 +153,7 @@ asking each of them to fix it themselves is how it stays broken.
 Two things differ from every other upload, and both follow from `0027`:
 
 1. **RLS cannot be the gate.** The insert policy is `your own folder, whoever
-   you are`, so a cross-folder write is refused — correctly, because that
+you are`, so a cross-folder write is refused — correctly, because that
    policy is what stops a path-building bug writing into a stranger's folder.
    The check therefore happens in code first: `canReplaceAvatarOf`
    (packages/core) admits an **admin acting on a member of active staff**, and
@@ -180,12 +180,12 @@ A comment is not a control.
 [`services/avatar-visibility.ts`](../../packages/core/src/services/avatar-visibility.ts)
 is: callers name subject **user ids** and a booking, never a path.
 
-| Viewer   | May see                                                            |
-| -------- | ------------------------------------------------------------------ |
-| anyone   | themselves                                                         |
-| customer | the agent and the driver assigned to **their own** booking         |
-| staff    | the customer of a booking **they have a task on**                  |
-| admin    | anyone                                                             |
+| Viewer   | May see                                                    |
+| -------- | ---------------------------------------------------------- |
+| anyone   | themselves                                                 |
+| customer | the agent and the driver assigned to **their own** booking |
+| staff    | the customer of a booking **they have a task on**          |
+| admin    | anyone                                                     |
 
 An unassigned agent cannot fetch a customer's face; a customer cannot fetch an
 agent who is not theirs; naming somebody else's booking id changes nothing.

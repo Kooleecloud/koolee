@@ -31,11 +31,7 @@ import type { User } from "@koolee/db";
  */
 
 /** One thing still missing, in the order a person should be asked for it. */
-export type ProfileGap =
-  | "verify_phone"
-  | "verify_email"
-  | "add_name"
-  | "add_photo";
+export type ProfileGap = "verify_phone" | "verify_email" | "add_name" | "add_photo";
 
 export interface ProfileCompleteness {
   complete: boolean;
@@ -46,7 +42,12 @@ export interface ProfileCompleteness {
 /** Everything the answer depends on, and nothing else. */
 export type ProfileSubject = Pick<
   User,
-  "phone" | "phoneVerifiedAt" | "email" | "emailVerifiedAt" | "fullName" | "avatarStoragePath"
+  | "phone"
+  | "phoneVerifiedAt"
+  | "email"
+  | "emailVerifiedAt"
+  | "fullName"
+  | "avatarStoragePath"
 >;
 
 export function profileCompleteness(user: ProfileSubject | null): ProfileCompleteness {

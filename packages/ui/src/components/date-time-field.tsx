@@ -103,7 +103,13 @@ function toValue(parts: Parts): string {
   // 12 AM is 00, 12 PM is 12 — the two cases every hand-rolled converter gets
   // wrong, and the reason this is one function rather than inline arithmetic.
   const hour24 =
-    parts.meridiem === "AM" ? (hour12 === 12 ? 0 : hour12) : hour12 === 12 ? 12 : hour12 + 12;
+    parts.meridiem === "AM"
+      ? hour12 === 12
+        ? 0
+        : hour12
+      : hour12 === 12
+        ? 12
+        : hour12 + 12;
 
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${year}-${pad(month)}-${pad(day)}T${pad(hour24)}:${pad(minute)}`;
@@ -237,14 +243,54 @@ function Segment({
 /* ------------------------------------------------------------------ */
 
 const DATE_SEGMENTS: SegmentSpec[] = [
-  { key: "month", label: "Month", placeholder: "MM", length: 2, min: 1, max: 12, advanceAt: 2 },
-  { key: "day", label: "Day", placeholder: "DD", length: 2, min: 1, max: 31, advanceAt: 2 },
-  { key: "year", label: "Year", placeholder: "YYYY", length: 4, min: 1970, max: 2100, advanceAt: null },
+  {
+    key: "month",
+    label: "Month",
+    placeholder: "MM",
+    length: 2,
+    min: 1,
+    max: 12,
+    advanceAt: 2,
+  },
+  {
+    key: "day",
+    label: "Day",
+    placeholder: "DD",
+    length: 2,
+    min: 1,
+    max: 31,
+    advanceAt: 2,
+  },
+  {
+    key: "year",
+    label: "Year",
+    placeholder: "YYYY",
+    length: 4,
+    min: 1970,
+    max: 2100,
+    advanceAt: null,
+  },
 ];
 
 const TIME_SEGMENTS: SegmentSpec[] = [
-  { key: "hour", label: "Hour", placeholder: "hh", length: 2, min: 1, max: 12, advanceAt: 2 },
-  { key: "minute", label: "Minute", placeholder: "mm", length: 2, min: 0, max: 59, advanceAt: 2 },
+  {
+    key: "hour",
+    label: "Hour",
+    placeholder: "hh",
+    length: 2,
+    min: 1,
+    max: 12,
+    advanceAt: 2,
+  },
+  {
+    key: "minute",
+    label: "Minute",
+    placeholder: "mm",
+    length: 2,
+    min: 0,
+    max: 59,
+    advanceAt: 2,
+  },
 ];
 
 export interface DateTimeFieldProps {

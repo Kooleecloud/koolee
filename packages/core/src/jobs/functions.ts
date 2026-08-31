@@ -564,7 +564,9 @@ export function createKooleeFunctions(
           else byAirport.set(item.booking.departureAirport, [{ index, from: item.from }]);
         }
 
-        const estimatedMaxMinutes = new Array<number | null>(measurable.length).fill(null);
+        const estimatedMaxMinutes = new Array<number | null>(measurable.length).fill(
+          null,
+        );
         await Promise.all(
           [...byAirport.values()].map(async (group) => {
             const to = measurable[group[0]!.index]!.to;
@@ -1170,7 +1172,9 @@ export function createKooleeFunctions(
           config,
           [booking.userId],
           {
-            title: agentGivenName ? `${agentGivenName} is your agent` : "Your agent is assigned",
+            title: agentGivenName
+              ? `${agentGivenName} is your agent`
+              : "Your agent is assigned",
             body: `${booking.ref} · they'll collect your bags at your door.`,
             tag: customerTag(booking.id),
             renotify: true,
@@ -1348,7 +1352,9 @@ export function createKooleeFunctions(
         if (!supportEmail) {
           // Better to say nothing than to hand somebody an address nobody
           // reads at the moment they most need a reply.
-          logger.info("No support address configured; skipping customer exception email.");
+          logger.info(
+            "No support address configured; skipping customer exception email.",
+          );
           return { sent: false, reason: "no_support_email" };
         }
 

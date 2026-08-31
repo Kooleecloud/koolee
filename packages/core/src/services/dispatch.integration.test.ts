@@ -538,7 +538,11 @@ describeIntegration("admin dispatch + overrides (integration)", () => {
     expect(rowFor(exception.id).atRisk).toBe(false);
 
     // Filters narrow by status.
-    const exceptionsOnly = await listBookingsBoard(db, { statuses: ["exception"] }, { now });
+    const exceptionsOnly = await listBookingsBoard(
+      db,
+      { statuses: ["exception"] },
+      { now },
+    );
     expect(exceptionsOnly.map((r) => r.booking.id)).toEqual([exception.id]);
 
     // Multi-select is an OR within the dimension.

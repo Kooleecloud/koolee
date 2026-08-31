@@ -66,7 +66,9 @@ export function AddTruckForm() {
             max={500}
             defaultValue={0}
           />
-          <p className="text-xs text-muted-foreground">Not yet enforced.</p>
+          <p className="text-xs text-muted-foreground">
+            Held back from booking capacity. Must be fewer than the capacity.
+          </p>
         </div>
       </div>
 
@@ -85,10 +87,10 @@ export function TruckRowForms({ truck }: { truck: TruckRowView }) {
     updateTruckAction,
     {},
   );
-  const [toggleState, toggleAction, toggling] = useActionState<TruckActionState, FormData>(
-    setTruckActiveAction,
-    {},
-  );
+  const [toggleState, toggleAction, toggling] = useActionState<
+    TruckActionState,
+    FormData
+  >(setTruckActiveAction, {});
 
   return (
     <div className="flex flex-col gap-3">
@@ -129,19 +131,28 @@ export function TruckRowForms({ truck }: { truck: TruckRowView }) {
       <form action={toggleAction}>
         <input type="hidden" name="id" value={truck.id} />
         <input type="hidden" name="active" value={truck.active ? "false" : "true"} />
-        <Button type="submit" variant={truck.active ? "ghost" : "outline"} size="sm" loading={toggling}>
+        <Button
+          type="submit"
+          variant={truck.active ? "ghost" : "outline"}
+          size="sm"
+          loading={toggling}
+        >
           {truck.active ? "Take out of service" : "Put back in service"}
         </Button>
       </form>
 
-      {saveState.error ? <FormMessage variant="error">{saveState.error}</FormMessage> : null}
+      {saveState.error ? (
+        <FormMessage variant="error">{saveState.error}</FormMessage>
+      ) : null}
       {saveState.ok ? <FormMessage variant="success">{saveState.ok}</FormMessage> : null}
       {/* The one refusal worth reading carefully: a truck that is out with a
           driver names them rather than saying "cannot deactivate". */}
       {toggleState.error ? (
         <FormMessage variant="error">{toggleState.error}</FormMessage>
       ) : null}
-      {toggleState.ok ? <FormMessage variant="success">{toggleState.ok}</FormMessage> : null}
+      {toggleState.ok ? (
+        <FormMessage variant="success">{toggleState.ok}</FormMessage>
+      ) : null}
     </div>
   );
 }

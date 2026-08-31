@@ -61,10 +61,7 @@ export function TripLive({
 }) {
   const router = useRouter();
   const client = getSupabaseBrowserClient();
-  const bookingIds = React.useMemo(
-    () => (bookingId ? [bookingId] : []),
-    [bookingId],
-  );
+  const bookingIds = React.useMemo(() => (bookingId ? [bookingId] : []), [bookingId]);
 
   const status = useBookingSignal({
     client,

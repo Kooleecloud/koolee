@@ -156,9 +156,7 @@ export interface CreateWebPushSenderInput extends Partial<VapidKeys> {
  * keys whenever the switch is on, and why anything reporting to a human
  * checks `PushSender.delivers`.
  */
-export function createWebPushSender(
-  input: CreateWebPushSenderInput,
-): PushSender | null {
+export function createWebPushSender(input: CreateWebPushSenderInput): PushSender | null {
   if (!input.enabled) return null;
   if (!input.publicKey || !input.privateKey || !input.subject) return null;
   return new WebPushSender({

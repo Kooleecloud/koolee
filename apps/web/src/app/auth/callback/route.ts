@@ -42,7 +42,8 @@ export async function GET(request: Request) {
       console.error("[auth/callback] token verification failed", error.message);
       return redirectTo("/login?error=link");
     }
-    emailJustVerified = type === "email_change" || type === "email" || type === "magiclink";
+    emailJustVerified =
+      type === "email_change" || type === "email" || type === "magiclink";
   } else {
     return redirectTo("/login");
   }

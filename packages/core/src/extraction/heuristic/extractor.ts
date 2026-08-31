@@ -66,8 +66,18 @@ const AIRLINE_NAMES: Record<string, string> = {
 };
 
 const MONTHS: Record<string, number> = {
-  JAN: 1, FEB: 2, MAR: 3, APR: 4, MAY: 5, JUN: 6,
-  JUL: 7, AUG: 8, SEP: 9, OCT: 10, NOV: 11, DEC: 12,
+  JAN: 1,
+  FEB: 2,
+  MAR: 3,
+  APR: 4,
+  MAY: 5,
+  JUN: 6,
+  JUL: 7,
+  AUG: 8,
+  SEP: 9,
+  OCT: 10,
+  NOV: 11,
+  DEC: 12,
 };
 
 /**
@@ -77,8 +87,7 @@ const MONTHS: Record<string, number> = {
  * spacing makes "CUSTOMER" a route from CUS to MER, which is where a third
  * leg on the Yatra fixture came from.
  */
-const ROUTE_RE =
-  /\b([A-Z]{3})(?:\s*(?:→|->|–|—|-)\s*|\s+TO\s+)([A-Z]{3})\b/g;
+const ROUTE_RE = /\b([A-Z]{3})(?:\s*(?:→|->|–|—|-)\s*|\s+TO\s+)([A-Z]{3})\b/g;
 /** "From: New York John F Kennedy Intl (JFK) Terminal 4" */
 const FROM_RE = /\bFROM\s*:?[^\n(]*\(([A-Z]{3})\)/;
 const TO_RE = /\bTO\s*:?[^\n(]*\(([A-Z]{3})\)/;
@@ -93,7 +102,8 @@ const FLIGHT_LOOSE_RE = /\b([A-Z]{2}|[A-Z]\d|\d[A-Z])\s*-?\s*(\d{1,4})\b/g;
  * baggage line reading "NA 2 piece (Free)" is shaped exactly like "AI 144",
  * and it is how the Yatra fixture came back as flight NA2.
  */
-const UNIT_SUFFIX_RE = /^\s*(PIECES?|PCS?|KG|KGS|LBS?|HRS?|HOURS?|MINS?|ADT|CHD|INF|BAGS?|SEATS?|RS\.?|USD|EUR|GBP)\b/;
+const UNIT_SUFFIX_RE =
+  /^\s*(PIECES?|PCS?|KG|KGS|LBS?|HRS?|HOURS?|MINS?|ADT|CHD|INF|BAGS?|SEATS?|RS\.?|USD|EUR|GBP)\b/;
 
 const PAX_LABEL_RE =
   /\b(?:NAME OF PASSENGER|PASSENGER NAME|PASSENGER|TRAVELLER|TRAVELER)S?\s*[:#]?\s*(.+)/i;
@@ -110,7 +120,8 @@ const TIME_RE = /\b(\d{1,2}):(\d{2})\s*(AM|PM)?/g;
  * `15:30 Hrs` is a real departure on one document and a flight duration on
  * the next, so the discriminator has to be the LABEL, not the suffix.
  */
-const DURATION_NEAR_RE = /\b(DURATION|TOTAL\s+JOURNEY|JOURNEY\s+TIME|ELAPSED|LAYOVER|NON\s*STOP)\b/;
+const DURATION_NEAR_RE =
+  /\b(DURATION|TOTAL\s+JOURNEY|JOURNEY\s+TIME|ELAPSED|LAYOVER|NON\s*STOP)\b/;
 /** A date is refused when its row says it is not a departure date. */
 const NON_DEPARTURE_DATE_RE =
   /\b(ISSUE[D]?|ISSUING|BOOKING|BOOKED|PURCHASE[D]?|VALID|EXPIR|PRINTED)\b/;
@@ -259,7 +270,11 @@ function findRoutes(upperLines: string[]): RouteAnchor[] {
   upperLines.forEach((line, index) => {
     const from = FROM_RE.exec(line);
     if (from?.[1]) {
-      for (let ahead = index; ahead <= index + 3 && ahead < upperLines.length; ahead += 1) {
+      for (
+        let ahead = index;
+        ahead <= index + 3 && ahead < upperLines.length;
+        ahead += 1
+      ) {
         const to = TO_RE.exec(upperLines[ahead]!);
         if (to?.[1] && !(ahead === index && to.index < from.index)) {
           add(from[1], to[1], index);
@@ -277,9 +292,10 @@ function findRoutes(upperLines: string[]): RouteAnchor[] {
 }
 
 /** The flight number printed beside THIS leg, or nothing. */
-function flightFor(
-  window: Array<{ text: string; line: number }>,
-): { flightNumber?: string; airlineIata?: string } {
+function flightFor(window: Array<{ text: string; line: number }>): {
+  flightNumber?: string;
+  airlineIata?: string;
+} {
   const airlineFromName = Object.entries(AIRLINE_NAMES).find(([name]) =>
     window.some((row) => row.text.includes(name)),
   )?.[1];
@@ -318,9 +334,9 @@ function flightFor(
  * the top of the document, and 07:45 was the first clock time anywhere below
  * it. A row carrying both is the only evidence that they describe one event.
  */
-function departureFor(
-  window: Array<{ text: string; line: number }>,
-): { departureAtLocal?: string } {
+function departureFor(window: Array<{ text: string; line: number }>): {
+  departureAtLocal?: string;
+} {
   for (const [index, row] of window.entries()) {
     if (NON_DEPARTURE_DATE_RE.test(row.text)) continue;
     const date = dateOn(row.text);
@@ -459,5 +475,7 @@ function notesFor(segments: ExtractedSegment[], routeCount: number): string | un
       `${undated} of ${segments.length} legs had no departure date and time printed on the same row, so none was recorded for them`,
     );
   }
-  return notes.length > 0 ? `Read from the PDF text layer. ${notes.join("; ")}.` : undefined;
+  return notes.length > 0
+    ? `Read from the PDF text layer. ${notes.join("; ")}.`
+    : undefined;
 }

@@ -44,9 +44,7 @@ export type BookingWithPickupAddress = Pick<
   | "pickupPlaceId"
 >;
 
-export function bookingPickupAddress(
-  booking: BookingWithPickupAddress,
-): PickupAddress {
+export function bookingPickupAddress(booking: BookingWithPickupAddress): PickupAddress {
   return {
     line1: booking.pickupLine1,
     line2: booking.pickupLine2,

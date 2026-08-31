@@ -95,7 +95,9 @@ export default async function AgentHomePage() {
   const pickupUnderWay =
     activeShift !== null &&
     jobs.some((job) =>
-      job.phases.some((phase) => phase.kind === "pickup" && phase.status === "in_progress"),
+      job.phases.some(
+        (phase) => phase.kind === "pickup" && phase.status === "in_progress",
+      ),
     );
 
   const now = new Date();
@@ -151,7 +153,10 @@ export default async function AgentHomePage() {
   return (
     <AgentMain>
       {/* A task assigned mid-shift appears here without a pull-to-refresh. */}
-      <LiveTasks bookingIds={jobs.map((job) => job.bookingId)} stage={`jobs:${jobs.length}`} />
+      <LiveTasks
+        bookingIds={jobs.map((job) => job.bookingId)}
+        stage={`jobs:${jobs.length}`}
+      />
       <header className="flex flex-col gap-1">
         <h1 className="font-display text-3xl font-semibold text-navy-800">Today</h1>
         <p className="text-sm text-muted-foreground">{summary}</p>

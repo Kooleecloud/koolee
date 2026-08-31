@@ -152,6 +152,8 @@ const HEADLINES: Record<string, string> = {
   "pickup.shift_force_ended":
     "Shift force-ended from the console — this pickup went back in the pool.",
   "pickup.reassigned": "Pickup moved to a different driver from the console.",
+  "pickup.unassigned":
+    "Driver removed from the console — this pickup is back in the pool and shows as awaiting a driver.",
   "booking.in_transit": "Bags collected — in transit to the airport.",
   "booking.delivered_to_bagdrop": "Bags handed to the airline bag drop.",
   "booking.completed": "Booking completed.",

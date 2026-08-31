@@ -7,6 +7,7 @@ import {
 } from "@koolee/core";
 
 import { ConsoleMain } from "@/components/console";
+import { NoAgreementBanner } from "@/components/no-agreement-banner";
 import { tryGetCore } from "@/lib/core";
 import { getAdminSession } from "@/lib/session";
 
@@ -74,7 +75,12 @@ export default async function AgreementsPage() {
       {unavailable ? (
         <DatabaseNotConfigured />
       ) : (
-        <AgreementsWorkbench versions={versions} />
+        <>
+          {/* Above the workbench, not inside it: the workbench's own empty
+              state explains the editor, and this explains the outage. */}
+          <NoAgreementBanner count={versions.length} />
+          <AgreementsWorkbench versions={versions} />
+        </>
       )}
     </ConsoleMain>
   );

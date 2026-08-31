@@ -59,7 +59,9 @@ export function CustodyTrail({
                   system
                 </Badge>
               )}
-              {event.actorUserId ? <ActorChip actor={actors.get(event.actorUserId)} id={event.actorUserId} /> : null}
+              {event.actorUserId ? (
+                <ActorChip actor={actors.get(event.actorUserId)} id={event.actorUserId} />
+              ) : null}
             </>
           ),
           meta: formatInstantInAirportTz(event.createdAt, tz),
@@ -90,7 +92,12 @@ export function CustodyTrail({
 function ActorChip({ actor, id }: { actor: CustodyActor | undefined; id: string }) {
   return (
     <span className="inline-flex items-center gap-1.5" title={id}>
-      <Avatar size="xs" name={actor?.name ?? null} src={actor?.avatarUrl ?? null} alt="" />
+      <Avatar
+        size="xs"
+        name={actor?.name ?? null}
+        src={actor?.avatarUrl ?? null}
+        alt=""
+      />
       <span className="text-[10px] text-muted-foreground">
         {actor?.name ?? <span className="font-mono">{id.slice(0, 8)}</span>}
       </span>

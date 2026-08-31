@@ -40,15 +40,15 @@ follow the enable-and-verify walkthrough (§4).
 
 ## 0b. The short version, once you are enabling it
 
-| # | Step | Who | Blocking? |
-|---|---|---|---|
-| 0 | Set `NEXT_PUBLIC_PUSH_NOTIFICATIONS_ENABLED=true` in all three apps | human, dashboard | **yes** — nothing sends without it |
-| 1 | Apply migration `0032_push_subscriptions` | **CI on merge** | **yes** — nothing can subscribe without it |
-| 2 | Generate ONE VAPID pair per environment | human, once | **yes** once the flag is on |
-| 3 | Set the 4 VAPID vars in **all three** apps | human, dashboard | **yes** — see §3 |
-| 4 | Set `NEXT_PUBLIC_AGENT_APP_URL` / `NEXT_PUBLIC_ADMIN_APP_URL` in `apps/web` | human, dashboard | no — push goes without the deep link |
-| 5 | Set `ASSIGNMENT_HORIZON_HOURS` (optional) | human, dashboard | no — defaults to 48, and is NOT gated by the push flag |
-| 6 | Enable and verify on each app (§4) | human, per device | no |
+| #   | Step                                                                        | Who               | Blocking?                                              |
+| --- | --------------------------------------------------------------------------- | ----------------- | ------------------------------------------------------ |
+| 0   | Set `NEXT_PUBLIC_PUSH_NOTIFICATIONS_ENABLED=true` in all three apps         | human, dashboard  | **yes** — nothing sends without it                     |
+| 1   | Apply migration `0032_push_subscriptions`                                   | **CI on merge**   | **yes** — nothing can subscribe without it             |
+| 2   | Generate ONE VAPID pair per environment                                     | human, once       | **yes** once the flag is on                            |
+| 3   | Set the 4 VAPID vars in **all three** apps                                  | human, dashboard  | **yes** — see §3                                       |
+| 4   | Set `NEXT_PUBLIC_AGENT_APP_URL` / `NEXT_PUBLIC_ADMIN_APP_URL` in `apps/web` | human, dashboard  | no — push goes without the deep link                   |
+| 5   | Set `ASSIGNMENT_HORIZON_HOURS` (optional)                                   | human, dashboard  | no — defaults to 48, and is NOT gated by the push flag |
+| 6   | Enable and verify on each app (§4)                                          | human, per device | no                                                     |
 
 **No manual SQL and no dashboard database step.** `0032` is an ordinary
 `CREATE TABLE`; CI applies it like every other migration.
@@ -134,16 +134,16 @@ Every app that sends needs the private key, and each of the three sends at
 least its own self-test. `pnpm push:vapid` writes all four into all three
 `.env.local` files for exactly this reason.
 
-| Variable | Where | Notes |
-|---|---|---|
-| `NEXT_PUBLIC_PUSH_NOTIFICATIONS_ENABLED` | **all three** | `"true"` to enable. Anything else is off |
-| `VAPID_PUBLIC_KEY` | **all three** | From `pnpm push:vapid` |
-| `VAPID_PRIVATE_KEY` | **all three** | Secret. Never in the repo |
-| `VAPID_SUBJECT` | **all three** | `mailto:` or `https:`. **Apple REFUSES a push whose subject is neither** |
-| `NEXT_PUBLIC_VAPID_PUBLIC_KEY` | **all three** | Same value as `VAPID_PUBLIC_KEY`. The browser needs it to subscribe |
-| `NEXT_PUBLIC_AGENT_APP_URL` | apps/web | Deep links on staff pushes. Absent → push goes without a link |
-| `NEXT_PUBLIC_ADMIN_APP_URL` | apps/web | Same |
-| `ASSIGNMENT_HORIZON_HOURS` | web + admin | **Default 48.** See §5. NOT gated by the push flag |
+| Variable                                 | Where         | Notes                                                                    |
+| ---------------------------------------- | ------------- | ------------------------------------------------------------------------ |
+| `NEXT_PUBLIC_PUSH_NOTIFICATIONS_ENABLED` | **all three** | `"true"` to enable. Anything else is off                                 |
+| `VAPID_PUBLIC_KEY`                       | **all three** | From `pnpm push:vapid`                                                   |
+| `VAPID_PRIVATE_KEY`                      | **all three** | Secret. Never in the repo                                                |
+| `VAPID_SUBJECT`                          | **all three** | `mailto:` or `https:`. **Apple REFUSES a push whose subject is neither** |
+| `NEXT_PUBLIC_VAPID_PUBLIC_KEY`           | **all three** | Same value as `VAPID_PUBLIC_KEY`. The browser needs it to subscribe      |
+| `NEXT_PUBLIC_AGENT_APP_URL`              | apps/web      | Deep links on staff pushes. Absent → push goes without a link            |
+| `NEXT_PUBLIC_ADMIN_APP_URL`              | apps/web      | Same                                                                     |
+| `ASSIGNMENT_HORIZON_HOURS`               | web + admin   | **Default 48.** See §5. NOT gated by the push flag                       |
 
 All four VAPID values are a production boot gate **whenever the push flag is
 on**, and waived entirely when it is off.
@@ -189,7 +189,7 @@ should this walkthrough.
 3. **Yes** → `verified_at` is stamped. Done.
 4. **No** → follow the on-screen remediation, in that order (it is ordered by
    how often each is the actual cause):
-   - macOS: System Settings → Notifications → *your browser* → Allow. You may
+   - macOS: System Settings → Notifications → _your browser_ → Allow. You may
      need to quit the browser completely and reopen it.
    - Focus / Do Not Disturb is on.
    - Alert style is "None" — check Notification Centre. If the test is sitting
@@ -221,12 +221,12 @@ Nothing to enable. A dismissible card appears on the trip page **only** within
 
 Do this once per environment, per browser, on the agent app:
 
-| # | Setup | Expect |
-|---|---|---|
-| 1 | Tab open and focused, hit `POST /api/push/test` | A notification appears |
-| 2 | Switch to a DIFFERENT tab, send again | A notification appears |
-| 3 | Switch to a different **app**, send again | A notification appears |
-| 4 | **Close the tab entirely**, send from another device or curl, wait | A notification appears |
+| #   | Setup                                                              | Expect                 |
+| --- | ------------------------------------------------------------------ | ---------------------- |
+| 1   | Tab open and focused, hit `POST /api/push/test`                    | A notification appears |
+| 2   | Switch to a DIFFERENT tab, send again                              | A notification appears |
+| 3   | Switch to a different **app**, send again                          | A notification appears |
+| 4   | **Close the tab entirely**, send from another device or curl, wait | A notification appears |
 
 Step 4 is the one that justifies web push existing at all — everything above
 it is also covered by the in-app realtime signal. If 1–3 pass and 4 does not,

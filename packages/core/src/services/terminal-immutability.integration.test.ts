@@ -259,7 +259,9 @@ describeIntegration("terminal tasks are immutable (integration)", () => {
   it("refuses every verification mutation on a completed booking", async () => {
     const before = await eventCount();
 
-    await expect(arriveAtVisit(config, session, { taskId: visitTaskId })).rejects.toThrow();
+    await expect(
+      arriveAtVisit(config, session, { taskId: visitTaskId }),
+    ).rejects.toThrow();
     // This one had NO GATE AT ALL until F2 Phase 5 — an agent whose task was
     // still assigned could append `passport.agent_confirmed` to a booking
     // delivered days earlier. See the note at `confirmVisitIdentity`.

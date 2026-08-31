@@ -47,7 +47,12 @@ export function StaffPhotoDialog({
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button type="button" variant="ghost" size="sm" aria-label={`Change photo for ${name ?? "this operator"}`}>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          aria-label={`Change photo for ${name ?? "this operator"}`}
+        >
           <ImagePlus aria-hidden="true" className="size-4" />
           Photo
         </Button>

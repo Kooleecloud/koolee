@@ -73,9 +73,15 @@
         }
       ],
       "whenPush": [
-        { "name": "VAPID_PUBLIC_KEY", "why": "All four or none — the console sender REPORTS SUCCESS." },
+        {
+          "name": "VAPID_PUBLIC_KEY",
+          "why": "All four or none — the console sender REPORTS SUCCESS."
+        },
         { "name": "VAPID_PRIVATE_KEY", "why": "All four or none." },
-        { "name": "VAPID_SUBJECT", "why": "mailto: or https:. Apple refuses a push without one." },
+        {
+          "name": "VAPID_SUBJECT",
+          "why": "mailto: or https:. Apple refuses a push without one."
+        },
         {
           "name": "NEXT_PUBLIC_VAPID_PUBLIC_KEY",
           "why": "Same value as VAPID_PUBLIC_KEY. Without it the browser can never subscribe."
@@ -85,15 +91,39 @@
         { "name": "NEXT_PUBLIC_APP_URL", "why": "Absolute links in emails and pushes." },
         { "name": "NEXT_PUBLIC_AGENT_APP_URL", "why": "Staff push deep links." },
         { "name": "NEXT_PUBLIC_ADMIN_APP_URL", "why": "Staff push deep links." },
-        { "name": "RESEND_FROM", "why": "Defaults to Resend's sandbox sender until the domain is verified." },
-        { "name": "INNGEST_EVENT_KEY", "why": "Without it nothing is queued: every event-triggered job is dead." },
-        { "name": "INNGEST_SIGNING_KEY", "why": "apps/web only — it is the app that SERVES /api/inngest." },
-        { "name": "GOOGLE_MAPS_SERVER_KEY", "why": "Absent, ETAs are haversine and the address step has no autocomplete." },
-        { "name": "NEXT_PUBLIC_SENTRY_DSN", "why": "Absent, errors and ops alerts go to console only." },
-        { "name": "SENTRY_ORG", "why": "Build time. Absent, stack traces stay minified." },
+        {
+          "name": "RESEND_FROM",
+          "why": "Defaults to Resend's sandbox sender until the domain is verified."
+        },
+        {
+          "name": "INNGEST_EVENT_KEY",
+          "why": "Without it nothing is queued: every event-triggered job is dead."
+        },
+        {
+          "name": "INNGEST_SIGNING_KEY",
+          "why": "apps/web only — it is the app that SERVES /api/inngest."
+        },
+        {
+          "name": "GOOGLE_MAPS_SERVER_KEY",
+          "why": "Absent, ETAs are haversine and the address step has no autocomplete."
+        },
+        {
+          "name": "NEXT_PUBLIC_SENTRY_DSN",
+          "why": "Absent, errors and ops alerts go to console only."
+        },
+        {
+          "name": "SENTRY_ORG",
+          "why": "Build time. Absent, stack traces stay minified."
+        },
         { "name": "SENTRY_PROJECT", "why": "Build time. One project per app." },
-        { "name": "SENTRY_AUTH_TOKEN", "why": "Build time, secret. Absent, source maps are not uploaded." },
-        { "name": "ASSIGNMENT_HORIZON_HOURS", "why": "Must MATCH apps/admin, or the console's badges disagree with the sweep." }
+        {
+          "name": "SENTRY_AUTH_TOKEN",
+          "why": "Build time, secret. Absent, source maps are not uploaded."
+        },
+        {
+          "name": "ASSIGNMENT_HORIZON_HOURS",
+          "why": "Must MATCH apps/admin, or the console's badges disagree with the sweep."
+        }
       ],
       "forbidden": []
     },
@@ -119,7 +149,10 @@
         { "name": "VAPID_PUBLIC_KEY", "why": "All four or none." },
         { "name": "VAPID_PRIVATE_KEY", "why": "All four or none." },
         { "name": "VAPID_SUBJECT", "why": "mailto: or https:." },
-        { "name": "NEXT_PUBLIC_VAPID_PUBLIC_KEY", "why": "Same value as VAPID_PUBLIC_KEY." }
+        {
+          "name": "NEXT_PUBLIC_VAPID_PUBLIC_KEY",
+          "why": "Same value as VAPID_PUBLIC_KEY."
+        }
       ],
       "recommended": [
         {
@@ -127,7 +160,10 @@
           "why": "NOT gated here, and its absence looks exactly like a wrong password on every sign-in."
         },
         { "name": "STRIPE_SECRET_KEY", "why": "Refunds are issued from the console." },
-        { "name": "INNGEST_EVENT_KEY", "why": "Admin-raised exceptions emit through it." },
+        {
+          "name": "INNGEST_EVENT_KEY",
+          "why": "Admin-raised exceptions emit through it."
+        },
         { "name": "CRON_SECRET", "why": "Guards /api/observability/test-error." },
         { "name": "NEXT_PUBLIC_SENTRY_DSN", "why": "Its OWN project, not web's." },
         { "name": "SENTRY_ORG", "why": "Build time." },
@@ -139,8 +175,14 @@
     },
     "agent": {
       "always": [
-        { "name": "DATABASE_URL", "why": "The task list and the pickup run read through core." },
-        { "name": "NEXT_PUBLIC_SUPABASE_URL", "why": "Gated at boot with no coming_soon exemption." },
+        {
+          "name": "DATABASE_URL",
+          "why": "The task list and the pickup run read through core."
+        },
+        {
+          "name": "NEXT_PUBLIC_SUPABASE_URL",
+          "why": "Gated at boot with no coming_soon exemption."
+        },
         { "name": "NEXT_PUBLIC_SUPABASE_ANON_KEY", "why": "Gated at boot." }
       ],
       "whenLive": [],
@@ -148,7 +190,10 @@
         { "name": "VAPID_PUBLIC_KEY", "why": "All four or none." },
         { "name": "VAPID_PRIVATE_KEY", "why": "All four or none." },
         { "name": "VAPID_SUBJECT", "why": "mailto: or https:." },
-        { "name": "NEXT_PUBLIC_VAPID_PUBLIC_KEY", "why": "Same value as VAPID_PUBLIC_KEY." }
+        {
+          "name": "NEXT_PUBLIC_VAPID_PUBLIC_KEY",
+          "why": "Same value as VAPID_PUBLIC_KEY."
+        }
       ],
       "recommended": [
         {
