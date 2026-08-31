@@ -59,6 +59,36 @@ package-specific in `packages/<pkg>/docs/`. Nothing new accumulates at the root.
 
 ## 3. Snapshot — where we are right now
 
+- **Slice F5 in flight: cancellation, the map, the funnel door, admin UX
+  (2026-08-31, `feat/f5-cancellation-map-ux`, cut from `origin/dev` @
+  `0715d53`).** Rows 121–126. **No migrations. No new environment variables in
+  any app or in core** — including for the map, which needs a build step rather
+  than a secret.
+
+  **(a) The map was never loading its worker, and nothing said so.** Not the
+  style URL the brief suspected: maplibre-gl 6 works the worker's URL out of
+  `import.meta.url`, returns the empty string under any bundler, and then
+  constructs `new Worker("")`. Everything on the main thread succeeds and no
+  tile is ever parsed. Serving the worker ourselves fixes it; the ten-second
+  deadline was the only thing that had ever caught it.
+
+  **(b) The customer can call off their own booking**, and every surface now
+  says who cancelled — a fact `custody_events` has recorded since the state
+  machine was written and nothing had ever rendered. The agent's task detail
+  hard-stops on a terminal booking, and its error handler stopped telling a
+  driver their phone was broken when the answer was "this job no longer
+  exists".
+
+  **(c) Three fixes each found a hole the brief had not asked about:** the
+  agent's day counted cancelled stops as work in four places, three assignment
+  call sites all omitted `cancelled`, and the console's sidebar announced a
+  count of bookings-needing-a-driver as "needing an agent".
+
+  **(d) TD drove the map's design in five rounds** — the pin flicker (a
+  `transition` on the element MapLibre owns), the controls, map-or-list instead
+  of stacked, the Koolee bag as the pickup pin, and dropping the geolocate
+  control because the pickup address is the anchor, not the viewer.
+
 - **Slice F4 in flight: fixes, latent traps, CI, on-behalf shifts
   (2026-08-31, `fix/f4-fixes-and-ci`, cut from `origin/dev` @ `78d2d5d`).**
   Rows 113–120. Migrations **0034 + 0035, LOCAL ONLY** — hosted gets both from
@@ -611,6 +641,12 @@ the linked row is the current behaviour)
 | 118 | reserved_spaces enforced; custody_events unpublished (2026-08-31) | ✅ | Slice F4, migration **0034**. The checklist called `reserved_spaces` "one subtraction in `listCandidateDrivers`"; it is FOUR readers, each computing capacity independently, so a reserve honoured in three would have been a race no test could see. One `bookableSpaces()` now, plus `reserved < capacity` on write, checked against whichever column is changing AND whichever is not. `custody_events` went the OPPOSITE way to the slice's default: it LEAVES the realtime publication, because nothing subscribes (the doorbell is `booking_signals`) and the coverage was not what the note claimed — ONE policy, not two, with no staff half. A published table with no grant is a trap, not a neutral. |
 | 119 | The console can start a shift, not only end one (2026-08-31) | ✅ | Slice F4, migration **0035**. `adminForceEndShift` shipped in Tier 4 with no pair, so a driver with a dead phone could be taken OFF the road and not put back on. `adminStartShiftOnBehalf` CALLS `startShift` — the same guards, the same 23505 path — because a second implementation is how the two drift. The actor could not go in `custody_events` (`booking_id` is NOT NULL and a shift belongs to no booking), so `driver_shifts.started_by_user_id` holds it; `admin_audit_log` stays deferred. The driver's app needed nothing new: `useBookingSignal`'s fallback already polls with an empty id list. |
 | 120 | One tile error killed the map; the console can now unassign (2026-08-31) | ✅ | Slice F4, TD's own two items. `instance.on("error", () => setFailed(true))` treated every MapLibre error as fatal AND permanent — a single 404 tile or an aborted request replaced a working map with "the map can't load right now", with no way back. Fatal only before `load` now; `data-map-state` on the DOM so the next report is diagnosable. And the console could only MOVE a pickup, so undoing an assignment meant parking the booking on another driver who was not going to do it either — a lie told to the board. `adminUnassignPickup` releases it properly, refused once the bags are in the van. Also fixed: two integration tests depended on another suite's `airline_cutoffs` row and **would have gone red on CI's first fresh container**. |
+| 121 | The map's worker was never loading (2026-08-31) | ✅ | Slice F5, Phase 0. Not the style URL the brief suspected — maplibre-gl 6 derives its worker URL from `import.meta.url`, returns the EMPTY STRING when that is not `http(s):` (which under any bundler it is not), and then calls `new Worker("")`. Style, TileJSON and sprites all 200; no tile ever requested; `load` never fires; **no error anywhere**. The ten-second deadline was the only thing catching it. `scripts/copy-maplibre-worker.mjs` serves the worker — and the shared module it imports, or it 404s just as silently — from `public/maplibre/`, gitignored and regenerated on every dev and build. **No key, no account, no environment variable.** Storybook's `optimizeDeps` workaround was a DIFFERENT, older bug with an identical symptom. |
+| 122 | The customer can cancel, and every screen says who did (2026-08-31) | ✅ | Slice F5, Phase 1. `cancelBookingByCustomer` is policy around the existing `cancelBookingWithRefund`, not a second one — three gates (status, window, nothing captured), then the same transition, slot release, custody event and authorization void the console runs. `custody_events` had recorded the actor since the state machine was written and nothing rendered it; four surfaces do now. The agent's task DETAIL hard-stops on terminal standing (F4 fixed the card, not the page behind it), and the error handler stopped answering a domain refusal with "check your connection" — it matched two subclasses, so `BookingNotActionableError`'s real sentence fell through. Also, from TD: the day was counting cancelled stops as work in four places. |
+| 123 | The map becomes the way you choose a driver (2026-08-31) | ✅ | Slice F5, Phase 2. The pin flicker was `transition-transform` on the element MapLibre rewrites every frame — Tailwind v4's `transition-transform` covers `transform`, so every position write animated. Root is now a positioning shell; everything visual is on a child. Map/list toggle (TD reversed the stacked layout mid-build), pin → anchored card → select, and `bestCandidate` for "pick the best" — nearest by `minMinutes`, tie-broken on bag load, running the SAME selection so there is one set of races. Recenter-when-panned ends automatic re-framing; **no geolocate control**, because the pickup is the anchor and somebody booking for a friend would be shown an irrelevant dot. Shortlist polls at 12s: realtime does nothing there by design. |
+| 124 | The funnel's front door starts a new booking (2026-08-31) | ✅ | Slice F5, Phase 3 (D2). `/book` resumed unconditionally, so "Book a pickup" dropped you into a half-finished booking from days ago with its flight prefilled. Clean now — and nothing is destroyed to achieve it: the old draft is MOVED to `koolee_draft_prev` (one hour) and the first step offers it back in one tap. Only a draft with PROGRESS is offered; the account-holder mirror is offered rather than entered. In-funnel navigation, a rejected ZIP and a mid-funnel reload never come through this door, which is why it can be this decisive. |
+| 125 | One assignment gate, closing the cancelled hole (2026-08-31) | ✅ | Slice F5, Phase 4. Three call sites each carried their own status list and **not one mentioned `cancelled`** — and in `assignAgentToBooking` the check ran only for a FIRST assignment, so a cancelled booking that already had an agent could be reassigned freely. `assignmentGate` sits beside the five customer/agent gates and deliberately outside them: those are about TIME (a late booking is still savable), this is about STANDING. Verification closes when the VISIT is done — the seals and the passport check are recorded against the agent who did them; pickup closes when the BOOKING is, which is later. The in-transit refusal stays where its sentence can name force-end-shift. |
+| 126 | The console stops keeping a form open all day (2026-08-31) | ✅ | Slice F5, Phase 5, most of it TD's own list. Six pages had a form pinned down the right in a `2fr 1fr` grid; `Sheet`/`FormSheet` in `packages/ui` put them behind labelled buttons. Pricing was rebuilt around the live rule (the publish form held the wide column while "what are we charging" sat below it). Staff grouped by role with URL filters and a workload counted BY BOOKING — one person holds both tasks for one trip, so counting tasks reports six jobs for three addresses. `updateTruck` REVERSED its own comment: capacity may no longer fall below the shift's committed load, because the silent version turns a typo into a driver vanishing from every shortlist. `SegmentedControl` lifted on its second use. And the sidebar's badge announced "2 needing an agent" for a count of bookings needing a DRIVER. |
 
 ---
 

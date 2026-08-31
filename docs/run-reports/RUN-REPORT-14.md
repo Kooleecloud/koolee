@@ -993,3 +993,89 @@ added invites an undo nobody asked for.
 | `pnpm --filter @koolee/core test:integration` | 379 passed, 3 skipped (+13: 7 truck-capacity, 6 workload)                                                                                                                                                                               |
 | `pnpm turbo build`                            | 3/3                                                                                                                                                                                                                                     |
 | Browser (admin, headed)                       | Roster groups as "Agents · 8 / Admins · 4", the tabs move the URL to `?show=all` and the count to 16 of 16; the booking detail renders "Details & payments", "Verify & seal" naming the agent, and Assignment with Pickup run inside it |
+
+---
+
+## Phase 6 — Close-out
+
+### Docs updated
+
+- **`docs/CODEBASE-MAP.md`** — three new sections in Chapter 6: cancelling and
+  who did it (the three gates, and why `by` reads the actor's role), the map
+  (the worker, and the rule that an app mounting `LiveMap` must run the copy
+  script), and choosing a driver (pick-the-best, and why the shortlist polls
+  rather than listens).
+- **`docs/LAUNCH-CHECKLIST.md`** — the map's "no key, no account" line now also
+  says **nothing to set in Vercel** and names the build step instead, plus a new
+  **D10** on the cancellation wording (below).
+- **`PROJECT-STATUS.md`** — rows 121–126 and a new snapshot entry.
+- **`.env.example`** — the Google Maps block says outright that there is no map
+  variable to set, and points at the copy script for a blank map.
+
+### D10: the agreement does not contradict the cancel policy
+
+Worth stating precisely, because the brief asked for a mismatch check. The
+agreement's only cancellation sentence is:
+
+> Your card is authorized when you book and charged once your bags have been
+> collected and sealed. **Cancellation terms are shown when you cancel.**
+
+It makes no promise about _when_ cancelling is free. It promises the terms
+appear **at the moment of cancelling** — so the confirmation dialog is now the
+thing keeping that promise, and its copy is load-bearing rather than
+decorative. Two questions for counsel, recorded as D10: whether that sentence
+is the whole of the terms we intend to be bound by, and whether the agreement
+should state the rule outright rather than deferring to a dialog. Changing the
+dialog is a code change; changing the agreement is a new published version, and
+versions pin per booking.
+
+### Deviations from the brief, all deliberate
+
+| Brief                                                       | What shipped                                                                 | Why                                                                                                                                                                                     |
+| ----------------------------------------------------------- | ---------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| "Wire the map style as a documented `NEXT_PUBLIC_` env"     | No env at all                                                                | The cause was not configuration. A variable would have been ceremony around a bug.                                                                                                      |
+| "Make the failure message state the ACTUAL problem"         | Copy unchanged; `data-map-failure` + a console line added                    | Written assuming a configuration cause. "Worker script missing" is true, is our problem, and is not admissible under the copy rules to somebody waiting on their bags.                  |
+| Customer's live location dot on the driver map              | Not built; the geolocate control was built and then removed                  | TD's reasoning, better than the requirement: the pickup address is the anchor. Booking for a friend shows an irrelevant dot that looks meaningful, and it spends a one-shot permission. |
+| The driver list "below/behind a toggle"                     | Behind a toggle, after first shipping it below                               | TD reversed it mid-build. Stacked gave the map a third of a phone screen and put the cards below the fold.                                                                              |
+| Booking detail: merge Assignment into "Verify & seal"       | Assignment stays in the act column; the visit card names the agent as a fact | The page is read-left / act-right. The visit's record is reading; reassigning is acting.                                                                                                |
+| Trucks: capacity may fall below the load (existing comment) | It may not, while a shift is open                                            | Reversed with reasoning in place — the silent version turns a typo into a driver vanishing from every shortlist for a day.                                                              |
+
+### Deferred, and named
+
+- **The shortlist on the real trip page has never been seen in a browser.** No
+  local booking has two candidates with reported positions, so the map inside
+  that card and the pick-the-best row were exercised only through Storybook and
+  the unit tier. TD's post-merge pass covers it.
+- **`DriverChoice` cannot be storied** in this Storybook: `@storybook/react-vite`
+  with no Next adapter, and the component uses `useRouter` and imports a server
+  action. Making it renderable is framework work. `SegmentedControl` was lifted
+  into `packages/ui` with a story instead, which covers the control that
+  carries the new branching and removes a real duplication.
+- **Widening `recordDriverPosition`'s signal scope** — declined, with the fan-out
+  cost written where the constant is.
+
+### TD's manual items
+
+- **Ratify** D1 (cancel policy), D2 (draft reset), D3 (pick-the-best).
+- **Nothing to set in Vercel.** No map variable exists.
+- **Legal pass on D10** — the cancellation wording against the agreement.
+- **Browser pass after merge on dev:** cancel a booking as a customer; open its
+  agent task; the driver shortlist with two positioned drivers (map, toggle,
+  pick-the-best); the tracking map.
+
+### Final gate
+
+| Check                                         | Result                          |
+| --------------------------------------------- | ------------------------------- |
+| `pnpm format:check`                           | clean                           |
+| `pnpm turbo typecheck`                        | 6/6                             |
+| `pnpm turbo lint`                             | 6/6                             |
+| `pnpm turbo test`                             | 1,042 passed, 1 skipped         |
+| `pnpm --filter @koolee/core test:integration` | 379 passed, 3 skipped, 32 files |
+| `pnpm turbo build`                            | 3/3                             |
+| `pnpm db:status`                              | see below                       |
+
+Nothing is pushed and no PR is open. CI has not run on the branch — the
+workflow needs a GitHub runner, so its first green will be on the PR.
+
+**Databases touched: LOCAL ONLY**, throughout, and no migration was written.

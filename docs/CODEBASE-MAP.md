@@ -906,6 +906,74 @@ has no pin and keeps their card.
 
 ---
 
+### Cancelling, and who did it
+
+`packages/core/src/services/cancellation.ts`. `cancelBookingByCustomer` is
+**policy around the existing cancellation, not a second one**: ownership, three
+gates, then the same `cancelBookingWithRefund` the console runs — state
+machine, slot release, custody event, authorization voided through the payment
+seam.
+
+Three gates, and `customerCancelEligibility` is what BOTH the trip page and the
+server action call, so a rendered button and a server refusal cannot disagree:
+
+| Gate    | Rule                                             | Why                                                                                                                                                                                                                                                        |
+| ------- | ------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Status  | `paid` or `agent_assigned`                       | Narrower than the state machine, which also accepts `cancel` from `verified_sealed` and `awaiting_pickup`. Those mean the visit HAPPENED — a passport checked, bags weighed, photographed and sealed with numbered stock. Ops can still cancel from there. |
+| Window  | `now < pickup_window_start`; **no window fails** | Guessing wrong either cancels something in flight or charges somebody who asked in time.                                                                                                                                                                   |
+| Capture | Nothing captured, across ALL providers           | An authorization is released; a capture is money that left an account.                                                                                                                                                                                     |
+
+**Who cancelled it** is `cancellationFromTimeline`, read off a trail the caller
+already has. `by` comes from the actor's ROLE, not from comparing the actor to
+the booking's owner: an admin cancelling their own personal booking is still
+Koolee cancelling it. Four surfaces render it — the customer's trip page, the
+agent's task detail, the console's booking detail banner, and the console's
+custody trail, which always carried it.
+
+### The map
+
+`packages/ui/src/components/live-map.tsx`. MapLibre GL over OpenFreeMap vector
+tiles: **no key, no account, no per-load billing, and no environment variable
+in any environment.** Google stays server-side (Places behind `/api/places`,
+Routes behind the ETA seam) — see Chapter 5.
+
+**Its worker is served by us, and that is not optional.** maplibre-gl 6 derives
+the worker URL from `import.meta.url` and returns the EMPTY STRING when that is
+not an `http(s):` URL — which under any bundler it is not — then constructs
+`new Worker("")`. The style, TileJSON and sprites all fetch 200, no tile is
+ever requested, `load` never fires, and nothing raises an error.
+`scripts/copy-maplibre-worker.mjs` copies the worker **and the shared module it
+imports** into `public/maplibre/` before every dev and build; `setWorkerUrl`
+points at it. **An app that mounts `LiveMap` must run that script** — the
+failure otherwise is completely silent.
+
+The marker ROOT belongs to MapLibre, which rewrites its `transform` every
+frame; every visual effect lives on a child. A `transition` touching `transform`
+on that root is the pin flicker, and Tailwind's `transition-transform` covers
+it.
+
+Controls: recenter-when-panned (which also ends automatic re-framing —
+somebody's pan is theirs to keep), cooperative gestures, fullscreen. **No
+geolocate control**: the pickup address is the anchor, and somebody booking for
+a friend across the city would be shown a dot that is irrelevant and looks
+meaningful.
+
+### Choosing a driver
+
+Map-first, with the list as a full tab rather than a fallback
+(`SegmentedControl`). `bestCandidate` in `driver-selection.ts` is "pick the
+best": nearest by `eta.minMinutes` — the number the card leads with — tie-broken
+on the lowest bag load, then shift id so two identical requests reach the same
+driver. A driver with no ETA never wins and stays choosable by hand. It runs the
+SAME `selectDriverAction`, so there is exactly one way to be assigned a driver
+and one set of races.
+
+**The shortlist refreshes on a 12-second poll, not on realtime.**
+`recordDriverPosition` signals only bookings already bound to that driver's
+shift, and a booking still choosing has none. Widening that would make one
+ping wake every customer currently choosing, each wake a full trip-page
+re-render with an ETA round-trip per candidate.
+
 ## Chapter 7 — Auth
 
 **Three session kinds**, one Supabase project per environment

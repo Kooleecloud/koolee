@@ -50,7 +50,13 @@ sequence.
       field and watch suggestions appear. Absent ⇒ ETAs are haversine and the
       field is a plain input. Neither is a failure; both are worth knowing.
 - **Not on this key, and not a task:** the trip page's MAP. Rendering is
-  MapLibre over OpenFreeMap — no key, no account, no quota to watch.
+  MapLibre over OpenFreeMap — no key, no account, no quota to watch, and
+  **nothing to set in Vercel for the map in any environment.** What it does
+  need is a build step, and it is already inside the app's own `build`:
+  `scripts/copy-maplibre-worker.mjs` serves MapLibre's worker from
+  `public/maplibre/`. Without it the map fetches its style and its tiles'
+  index, requests no tile at all, raises no error, and shows an apology. If a
+  fourth app ever mounts `LiveMap`, add that step to its scripts.
   Google's Maps JS is a separate SKU that would need a second,
   referrer-restricted key in the browser bundle. See
   [ARCHITECTURE.md §6](ARCHITECTURE.md).
@@ -210,6 +216,35 @@ Koolee cannot take a real booking until every one of these is done.
 | D7  | **The agreement v2 body**, from legal                                                                            | TD        | draft prepared                                       |
 | D8  | **The marketing `/terms` sections** — still "Draft … not yet in force"                                           | TD        | open; section 7 rewritten, the rest awaits counsel   |
 | D9  | **Coverage ZIPs** — code, so a PR and a deploy                                                                   | TD + code | open                                                 |
+| D10 | **The cancellation wording, against the agreement** — see below                                                  | TD        | open; needs the same legal pass as D7                |
+
+### D10 — customer self-cancel, and what the agreement promises
+
+Customers can now cancel their own booking: free while the status is `paid` or
+`agent_assigned` **and** now is before `pickup_window_start`; after that the
+button is replaced by a line pointing at support. A captured payment is never
+self-refundable.
+
+**The agreement does not contradict this, and that is worth reading carefully.**
+Its only cancellation sentence is:
+
+> Your card is authorized when you book and charged once your bags have been
+> collected and sealed. Cancellation terms are shown when you cancel.
+
+So the agreement makes no promise about _when_ cancelling is free — it promises
+that the terms **appear at the moment of cancelling**. The confirmation dialog
+is now the thing that keeps that promise, which makes its copy load-bearing
+rather than decorative:
+
+> Cancelling now is free — the hold on your card is released and nothing is
+> charged. Once your pickup window opens, cancelling goes through support
+> instead.
+
+Two things for counsel: whether that sentence is the whole of the terms we
+intend to be bound by, and whether the agreement should say the rule outright
+rather than deferring to a dialog. Changing the dialog's copy is a code change;
+changing the agreement is a new published version, and versions **pin per
+booking**, so a change reaches only new bookings.
 
 ---
 
