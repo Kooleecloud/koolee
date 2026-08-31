@@ -96,6 +96,11 @@ export default async function FlightStepPage({
     ? (prefill?.scope ?? draft.scope ?? "domestic")
     : (draft.scope ?? "domestic");
   const paxNameDefault = fromTicket ? (prefill?.paxName ?? "") : (draft.paxName ?? "");
+  // Read off the ticket when we could, otherwise whatever they typed last.
+  // Display only — see the column note on `bookings.destination_airport`.
+  const destinationDefault = fromTicket
+    ? (prefill?.destinationAirport ?? "")
+    : (draft.destinationAirport ?? "");
 
   /**
    * Remount key for the form below.
@@ -122,6 +127,7 @@ export default async function FlightStepPage({
     departureAtDefault,
     scopeDefault,
     paxNameDefault,
+    destinationDefault,
   ].join("|");
 
   if (showDoor) {
@@ -313,7 +319,11 @@ export default async function FlightStepPage({
 
         <div className="grid items-start gap-4 sm:grid-cols-2">
           <div className="grid gap-2">
-            <Label htmlFor="scope">Destination</Label>
+            {/* "Trip type", not "Destination" — this picks a bag-drop cutoff
+                (45 vs 60 minutes), and sitting next to a field that asks
+                where you are flying to, the old label read as the same
+                question asked twice. */}
+            <Label htmlFor="scope">Trip type</Label>
             <Select
               id="scope"
               name="scope"
@@ -325,6 +335,29 @@ export default async function FlightStepPage({
             </Select>
           </div>
 
+          <div className="grid gap-2">
+            <Label htmlFor="destinationAirport">Flying to (optional)</Label>
+            <Input
+              id="destinationAirport"
+              name="destinationAirport"
+              placeholder="LAX"
+              maxLength={3}
+              defaultValue={destinationDefault}
+              className={flagged(prefill?.destinationAirport)}
+              autoComplete="off"
+            />
+            {/*
+              Says what it is FOR. Nobody volunteers an airport code to a form
+              that does not explain itself, and this one earns its place only
+              on the trips list months later.
+            */}
+            <p className="text-xs text-muted-foreground">
+              Airport code — it&apos;s how you&apos;ll recognise this trip later.
+            </p>
+          </div>
+        </div>
+
+        <div className="grid items-start gap-4 sm:grid-cols-2">
           <div className="grid gap-2">
             <Label htmlFor="paxName">Name on the ticket</Label>
             <Input

@@ -190,15 +190,36 @@ export async function listCustomerTrips(
   });
 
   /*
-   * PAST is "there is nothing left to watch", not "the status is final".
+   * PAST is "there is nothing left to watch", and DEPARTURE ALONE DOES NOT
+   * DECIDE IT.
    *
-   * A cancelled or completed booking is obviously done. So is one whose flight
-   * has departed, whatever its status says — a `paid` booking for yesterday's
-   * plane is not upcoming, and leaving it at the top of the list under
-   * "Upcoming" is how a history list becomes untrustworthy.
+   * The rule used to be `terminal || departed`, which read wrong in the one
+   * case that matters most: a customer whose driver is holding their bags
+   * RIGHT NOW watched the trip drop out of Upcoming the moment the plane
+   * left, because `in_transit` is not terminal but `departed` is a phase. The
+   * live thing on the screen moved to the history list while it was still
+   * happening. Same for a booking in `exception`, where somebody is actively
+   * sorting it out and the customer is the person waiting to hear.
+   *
+   * So:
+   *
+   *  - `completed` and `cancelled` are past, whenever they happened. Done is
+   *    done, and a cancelled trip does not become upcoming because its flight
+   *    has not left yet.
+   *  - `in_transit` and `exception` are ACTIVE regardless of departure —
+   *    somebody is still doing something, and the customer still needs to see
+   *    it. They fall into Past the moment they reach a terminal status.
+   *  - everything else (`draft` through `delivered_to_bagdrop`) is past once
+   *    the flight has gone: those bookings are finished with or were never
+   *    going to happen, and a `paid` booking for yesterday's plane at the top
+   *    of Upcoming is how a list becomes untrustworthy.
    */
-  const isPast = (trip: TripSummary) =>
-    trip.actionability.standing === "terminal" || trip.actionability.phase === "departed";
+  const isPast = (trip: TripSummary) => {
+    const { standing, phase } = trip.actionability;
+    if (standing === "terminal") return true;
+    if (standing === "in_transit" || standing === "exception") return false;
+    return phase === "departed";
+  };
 
   const upcoming = summaries.filter((trip) => !isPast(trip));
   const past = summaries.filter(isPast);

@@ -126,6 +126,16 @@ export const bookingDraftSchema = z.object({
   flightNumber: z.string().min(2).max(10).optional(),
   airlineIata: z.string().length(2).or(z.string().length(3)).optional(),
   departureAirport: z.enum(AIRPORT_CODES).optional(),
+  /**
+   * Where the flight lands. Read off the ticket when we could, or typed on
+   * the flight form, and DISPLAY ONLY — nothing operational reads it.
+   *
+   * It exists so a trip is recognisable months later: a customer scanning
+   * their history does not remember "AI144", they remember flying to Delhi.
+   * Loosely typed on purpose — a destination is anywhere on earth, not one of
+   * the three airports we collect from.
+   */
+  destinationAirport: z.string().length(3).optional(),
   /** ISO-8601 — cookies hold strings, not Dates. */
   departureAt: z.iso.datetime().optional(),
   scope: z.enum(["domestic", "international"]).optional(),

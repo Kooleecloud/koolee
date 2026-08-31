@@ -50,6 +50,7 @@ import {
   type SelectedDriverView,
 } from "@/components/trip-driver";
 import { signAvatarUrlsForBooking, signShortlistAvatarUrl } from "@/lib/avatars";
+import { flightRouteLabel, flightRouteText } from "@/lib/flight-label";
 import { pickupStepIndexFor } from "@/lib/pickup-progress";
 import { signBagPhotoUrls } from "@/lib/bag-photos";
 import { tryGetCore } from "@/lib/core";
@@ -83,7 +84,7 @@ export async function generateMetadata({
   const detail = await loadTripDetail(bookingId);
   if (!detail) return { title: "Trip" };
   return {
-    title: `${detail.booking.flightNumber} · ${detail.booking.departureAirport} pickup`,
+    title: `${flightRouteText(detail.booking)} · ${detail.booking.flightNumber}`,
   };
 }
 
@@ -337,12 +338,15 @@ export default async function TripPage({
       </BackLink>
 
       <PageHeader
-        title={`${booking.flightNumber} · ${booking.departureAirport}`}
+        // Same rule as the trip cards: the route is what identifies a trip to
+        // the person who took it, and the flight number is a detail.
+        title={flightRouteLabel(booking)}
         subtitle={
           <>
-            <span className="font-mono">{booking.ref}</span> ·{" "}
+            {booking.flightNumber} ·{" "}
             {formatInstantInAirportTz(booking.departureAt, tz)} · {booking.bagCount}{" "}
-            {booking.bagCount === 1 ? "bag" : "bags"} · {booking.paxName}
+            {booking.bagCount === 1 ? "bag" : "bags"} · {booking.paxName} ·{" "}
+            <span className="font-mono">{booking.ref}</span>
           </>
         }
         actions={<BookingStatusBadge status={booking.status} />}

@@ -1,6 +1,7 @@
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
+import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
 import postgres from "postgres";
@@ -9,6 +10,7 @@ import {
   agreementVersions,
   airlineCutoffs,
   airports,
+  bookings,
   createDb,
   pickupTasks,
   pricingRules,
@@ -191,6 +193,61 @@ describeIntegration("listCustomerTrips (integration)", () => {
     expect(trips.upcoming).toHaveLength(0);
     expect(trips.past.map((t) => t.booking.id)).toEqual([booking.id]);
     expect(trips.past[0]!.actionability.phase).toBe("departed");
+  });
+
+  it("keeps a booking whose bags are IN TRANSIT in Upcoming past departure", async () => {
+    /*
+     * The case the old `terminal || departed` rule got wrong, and the one that
+     * matters most: a customer whose driver is holding their bags right now
+     * watched the trip drop out of Upcoming the moment the plane left. The
+     * live thing on their screen moved to the history list while it was still
+     * happening.
+     */
+    const booking = await paidBooking();
+    await db
+      .update(bookings)
+      .set({ status: "in_transit" })
+      .where(eq(bookings.id, booking.id));
+
+    const trips = await listCustomerTrips(
+      db,
+      session,
+      new Date(departureAt.getTime() + HOUR),
+    );
+
+    expect(trips.upcoming.map((t) => t.booking.id)).toEqual([booking.id]);
+    expect(trips.past).toHaveLength(0);
+  });
+
+  it("keeps a booking in EXCEPTION in Upcoming past departure", async () => {
+    // Somebody is actively sorting this out and the customer is the person
+    // waiting to hear. Filing it under history says the opposite.
+    const booking = await paidBooking();
+    await db
+      .update(bookings)
+      .set({ status: "exception" })
+      .where(eq(bookings.id, booking.id));
+
+    const trips = await listCustomerTrips(
+      db,
+      session,
+      new Date(departureAt.getTime() + HOUR),
+    );
+
+    expect(trips.upcoming.map((t) => t.booking.id)).toEqual([booking.id]);
+  });
+
+  it("moves an in-transit booking to Past the moment it completes", async () => {
+    // Active until done — then done, whatever the clock says.
+    const booking = await paidBooking();
+    await db
+      .update(bookings)
+      .set({ status: "completed" })
+      .where(eq(bookings.id, booking.id));
+
+    const trips = await listCustomerTrips(db, session, now);
+    expect(trips.upcoming).toHaveLength(0);
+    expect(trips.past.map((t) => t.booking.id)).toEqual([booking.id]);
   });
 
   it("moves a cancelled booking to Past immediately", async () => {
