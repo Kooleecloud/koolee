@@ -275,6 +275,8 @@ export {
 
 export {
   adminForceEndShift,
+  adminStartShiftOnBehalf,
+  listOnBehalfDriverOptions,
   bagsOnShift,
   createTruck,
   endShift,
@@ -292,6 +294,8 @@ export {
   type UpdateTruckInput,
   type AdminForceEndShiftInput,
   type AdminForceEndShiftResult,
+  type AdminStartShiftOnBehalfInput,
+  type OnBehalfDriverOption,
   type EndShiftResult,
   type ShiftBlocker,
   type StartShiftInput,

@@ -108,6 +108,25 @@ export const driverShifts = pgTable(
       .notNull()
       .references(() => trucks.id, { onDelete: "restrict" }),
     startedAt: timestamptz("started_at").notNull().defaultNow(),
+    /**
+     * The ADMIN who opened this shift on the driver's behalf, or null when
+     * the driver started it themselves. Null is the ordinary case.
+     *
+     * WHY A COLUMN AND NOT A CUSTODY EVENT. `custody_events.booking_id` is
+     * NOT NULL and a shift belongs to no booking — there is nothing to hang
+     * the record on. `adminForceEndShift` gets away with writing custody
+     * events because it always touches bookings (it releases their pickups);
+     * a start touches none. `admin_audit_log` is the general answer and is
+     * still deferred (LAUNCH-CHECKLIST P19), so rather than build half of it
+     * for one action, the fact lives on the row it is a fact about.
+     *
+     * `ON DELETE set null`, not `restrict`: an admin leaving the company must
+     * not be undeletable because they once started somebody's shift, and the
+     * shift is still a true record of itself without their id.
+     */
+    startedByUserId: uuid("started_by_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
     /** Null while the shift is open. Set once, never cleared. */
     endedAt: timestamptz("ended_at"),
     createdAt: createdAt(),

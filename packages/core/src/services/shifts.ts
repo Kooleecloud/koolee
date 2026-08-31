@@ -297,6 +297,59 @@ function assertReserveLeavesRoom(reservedSpaces: number, bagCapacity: number): v
   }
 }
 
+export interface OnBehalfDriverOption {
+  staffUserId: string;
+  name: string | null;
+  email: string | null;
+  /** The shift they are already on, when there is one. */
+  activeShiftTruckName: string | null;
+}
+
+/**
+ * Everyone an admin could start a shift for.
+ *
+ * Cleared drivers only — active staff with `can_drive` — because
+ * `can_drive` defaults FALSE and granting it is a deliberate act on the same
+ * page. Somebody who has not been granted it is not a candidate whose name
+ * belongs in a picker; they are a `/staff` task.
+ *
+ * Drivers already out are RETURNED, not filtered, for the same reason
+ * `listTruckOptions` returns held trucks: a name missing from a list teaches
+ * nothing, and "already out with Van A" is an answer. The caller disables
+ * them; `startShift` refuses either way, so the list is a convenience and
+ * never the guarantee.
+ */
+export async function listOnBehalfDriverOptions(
+  db: Database,
+): Promise<OnBehalfDriverOption[]> {
+  const rows = await db
+    .select({
+      staffUserId: staffMembers.userId,
+      name: users.fullName,
+      email: users.email,
+      activeShiftTruckName: trucks.name,
+    })
+    .from(staffMembers)
+    .innerJoin(users, eq(users.id, staffMembers.userId))
+    .leftJoin(
+      driverShifts,
+      and(
+        eq(driverShifts.staffUserId, staffMembers.userId),
+        isNull(driverShifts.endedAt),
+      ),
+    )
+    .leftJoin(trucks, eq(trucks.id, driverShifts.truckId))
+    .where(and(eq(staffMembers.active, true), eq(staffMembers.canDrive, true)))
+    .orderBy(users.fullName, users.email);
+
+  return rows.map((r) => ({
+    staffUserId: r.staffUserId,
+    name: r.name,
+    email: r.email,
+    activeShiftTruckName: r.activeShiftTruckName,
+  }));
+}
+
 export interface CreateTruckInput {
   name: string;
   bagCapacity: number;
@@ -428,6 +481,12 @@ export async function updateTruck(db: Database, input: UpdateTruckInput): Promis
 export interface StartShiftInput {
   staffUserId: string;
   truckId: string;
+  /**
+   * The ADMIN opening this shift on the driver's behalf. Omitted when the
+   * driver starts it themselves, which is the ordinary case and what a null
+   * `started_by_user_id` means.
+   */
+  startedByUserId?: string;
 }
 
 /**
@@ -471,6 +530,9 @@ export async function startShift(
         staffUserId: input.staffUserId,
         truckId: truck.id,
         startedAt: config.clock.now(),
+        ...(input.startedByUserId === undefined
+          ? {}
+          : { startedByUserId: input.startedByUserId }),
       })
       .returning();
     if (!shift) throw new Error("Insert of driver shift returned no row");
@@ -479,6 +541,58 @@ export async function startShift(
   } catch (error) {
     if (pgErrorCode(error) !== "23505") throw error;
     throw await describeShiftCollision(db, input);
+  }
+}
+
+export interface AdminStartShiftOnBehalfInput {
+  staffUserId: string;
+  truckId: string;
+  /** The admin doing it. Stamped on the row; admin-ness is the action layer's. */
+  adminUserId: string;
+}
+
+/**
+ * Opens a shift FOR somebody else.
+ *
+ * THE PAIR TO `adminForceEndShift`, which has existed since Tier 4. The
+ * console could take a driver OFF the road and not put one back on it: a
+ * driver with a dead phone, a locked-out account or an app that will not load
+ * had to be talked through starting their own shift, or the van stayed parked
+ * and every sealed booking in that zone read "needs a driver".
+ *
+ * SAME ELIGIBILITY AS SELF-START, and not a copy of it. This calls
+ * `startShift`, so active staff, `can_drive`, an active truck, and both
+ * partial unique indexes are enforced by exactly the same code — including
+ * the 23505 path that turns two concurrent starts into one shift and a
+ * sentence saying which half collided. A second implementation here is how
+ * the two would drift, and the one that drifts is the one nobody drives every
+ * day.
+ *
+ * The refusal messages are re-pointed, though. `startShift` speaks to the
+ * driver ("You are already on shift with…"), and an admin reading that about
+ * somebody else has to work out who "you" is.
+ *
+ * NO REASON IS REQUIRED, unlike force-end. Ending somebody's shift strands
+ * bags and raises exceptions; starting one is routine dispatch. Demanding a
+ * justification for an ordinary act trains people to type "x".
+ */
+export async function adminStartShiftOnBehalf(
+  config: CoreConfig,
+  input: AdminStartShiftOnBehalfInput,
+): Promise<ActiveShift> {
+  try {
+    return await startShift(config, {
+      staffUserId: input.staffUserId,
+      truckId: input.truckId,
+      startedByUserId: input.adminUserId,
+    });
+  } catch (error) {
+    // Re-point the second person. Everything else — the guards, the codes,
+    // the error classes — is `startShift`'s and stays as it is.
+    if (error instanceof ConflictError) {
+      throw new ConflictError("shift", error.message.replace(/^You are/, "They are"));
+    }
+    throw error;
   }
 }
 

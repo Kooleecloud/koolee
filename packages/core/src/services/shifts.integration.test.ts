@@ -29,9 +29,11 @@ import { ensureAddress } from "./customers";
 import { PICKUP_EVENT_TYPES } from "./pickup-events";
 import {
   adminForceEndShift,
+  adminStartShiftOnBehalf,
   createTruck,
   endShift,
   getActiveShift,
+  listOnBehalfDriverOptions,
   listTruckOptions,
   startShift,
   updateTruck,
@@ -501,6 +503,185 @@ describeIntegration("driver shifts (integration)", () => {
       await expect(
         createTruck(db, { name: "Van Z", bagCapacity: 10, reservedSpaces: -1 }),
       ).rejects.toThrow(/cannot be negative/i);
+    });
+  });
+
+  /* --- starting somebody else's shift ------------------------------- */
+
+  /**
+   * THE PAIR TO `adminForceEndShift`, which has existed since Tier 4.
+   *
+   * The console could take a driver OFF the road and not put one back on: a
+   * dead phone, a locked-out account or an app that would not load meant
+   * talking somebody through starting their own shift, or the van stayed
+   * parked while every sealed booking in that zone read "needs a driver".
+   *
+   * The eligibility rules are not re-implemented — `adminStartShiftOnBehalf`
+   * CALLS `startShift` — so these tests are as much about that as about the
+   * feature: a second implementation is how the two would drift, and the one
+   * that drifts is the one nobody drives every day.
+   */
+  describe("adminStartShiftOnBehalf", () => {
+    it("opens the shift and stamps the admin who did it", async () => {
+      const driver = await makeDriver("Nina Petrov");
+      const truck = await createTruck(db, { name: "Van Z", bagCapacity: 20 });
+
+      const shift = await adminStartShiftOnBehalf(config, {
+        staffUserId: driver,
+        truckId: truck.id,
+        adminUserId: adminId,
+      });
+
+      expect(shift.shift.staffUserId).toBe(driver);
+      expect(shift.shift.truckId).toBe(truck.id);
+      expect(shift.shift.endedAt).toBeNull();
+      expect(shift.shift.startedByUserId).toBe(adminId);
+    });
+
+    it("leaves startedByUserId NULL when the driver starts it themselves", async () => {
+      const driver = await makeDriver("Nina Petrov");
+      const truck = await createTruck(db, { name: "Van Z", bagCapacity: 20 });
+
+      const shift = await startShift(config, {
+        staffUserId: driver,
+        truckId: truck.id,
+      });
+      // NULL is not "unknown" — it is the ordinary case, and it is what
+      // distinguishes a self-start from an on-behalf one.
+      expect(shift.shift.startedByUserId).toBeNull();
+    });
+
+    it("is visible to the driver's own app exactly like a self-start", async () => {
+      const driver = await makeDriver("Nina Petrov");
+      const truck = await createTruck(db, { name: "Van Z", bagCapacity: 20 });
+      await adminStartShiftOnBehalf(config, {
+        staffUserId: driver,
+        truckId: truck.id,
+        adminUserId: adminId,
+      });
+
+      // `getActiveShift` is what the field app's shift bar reads. Nothing
+      // about the origin of the shift changes what the driver sees.
+      const active = await getActiveShift(db, driver);
+      expect(active).not.toBeNull();
+      expect(active!.truck.name).toBe("Van Z");
+      expect(active!.bagsOnBoard).toBe(0);
+    });
+
+    describe("the same eligibility as a self-start", () => {
+      it("refuses somebody who is not cleared to drive", async () => {
+        const notDriver = await makeDriver("Sam Ops", { canDrive: false });
+        const truck = await createTruck(db, { name: "Van Z", bagCapacity: 20 });
+        await expect(
+          adminStartShiftOnBehalf(config, {
+            staffUserId: notDriver,
+            truckId: truck.id,
+            adminUserId: adminId,
+          }),
+        ).rejects.toThrow(/not cleared to drive/i);
+      });
+
+      it("refuses a truck that is out of service", async () => {
+        const driver = await makeDriver("Nina Petrov");
+        const truck = await createTruck(db, { name: "Van Z", bagCapacity: 20 });
+        await updateTruck(db, { id: truck.id, active: false });
+        await expect(
+          adminStartShiftOnBehalf(config, {
+            staffUserId: driver,
+            truckId: truck.id,
+            adminUserId: adminId,
+          }),
+        ).rejects.toThrow(/out of service/i);
+      });
+
+      it("refuses a driver who is already out, in the THIRD person", async () => {
+        const driver = await makeDriver("Nina Petrov");
+        const a = await createTruck(db, { name: "Van A", bagCapacity: 20 });
+        const b = await createTruck(db, { name: "Van B", bagCapacity: 20 });
+        await startShift(config, { staffUserId: driver, truckId: a.id });
+
+        // `startShift` says "You are already on shift…", which an admin
+        // reading about somebody else has to translate.
+        await expect(
+          adminStartShiftOnBehalf(config, {
+            staffUserId: driver,
+            truckId: b.id,
+            adminUserId: adminId,
+          }),
+        ).rejects.toThrow(/They are already on shift with Van A/);
+      });
+
+      it("refuses a truck somebody else has, naming them", async () => {
+        const nina = await makeDriver("Nina Petrov");
+        const other = await makeDriver("Alex Kim");
+        const truck = await createTruck(db, { name: "Van A", bagCapacity: 20 });
+        await startShift(config, { staffUserId: other, truckId: truck.id });
+
+        await expect(
+          adminStartShiftOnBehalf(config, {
+            staffUserId: nina,
+            truckId: truck.id,
+            adminUserId: adminId,
+          }),
+        ).rejects.toThrow(/already out with Alex Kim/);
+      });
+    });
+
+    /**
+     * TWO STARTS AT ONCE. The freeness check is the database's, not ours:
+     * both calls pass any SELECT either could write, and only the partial
+     * unique index refuses the second (23505). This is the same guarantee
+     * self-start has; it must not be weaker because an admin pressed it.
+     */
+    it("two concurrent on-behalf starts produce exactly one shift", async () => {
+      const driver = await makeDriver("Nina Petrov");
+      const a = await createTruck(db, { name: "Van A", bagCapacity: 20 });
+      const b = await createTruck(db, { name: "Van B", bagCapacity: 20 });
+
+      const outcomes = await Promise.allSettled([
+        adminStartShiftOnBehalf(config, {
+          staffUserId: driver,
+          truckId: a.id,
+          adminUserId: adminId,
+        }),
+        adminStartShiftOnBehalf(config, {
+          staffUserId: driver,
+          truckId: b.id,
+          adminUserId: adminId,
+        }),
+      ]);
+
+      expect(outcomes.filter((o) => o.status === "fulfilled")).toHaveLength(1);
+      const lost = outcomes.find((o) => o.status === "rejected");
+      expect((lost as PromiseRejectedResult).reason).toBeInstanceOf(ConflictError);
+
+      const open = await db
+        .select()
+        .from(driverShifts)
+        .where(eq(driverShifts.staffUserId, driver));
+      expect(open).toHaveLength(1);
+    });
+
+    it("lists cleared drivers, saying which are already out", async () => {
+      const free = await makeDriver("Nina Petrov");
+      const busy = await makeDriver("Alex Kim");
+      await makeDriver("Sam Ops", { canDrive: false });
+      const truck = await createTruck(db, { name: "Van A", bagCapacity: 20 });
+      await startShift(config, { staffUserId: busy, truckId: truck.id });
+
+      const options = await listOnBehalfDriverOptions(db);
+      const ids = options.map((o) => o.staffUserId);
+      // `can_drive: false` is a /staff task, not a picker entry.
+      expect(ids).toHaveLength(2);
+      expect(ids).toContain(free);
+      expect(ids).toContain(busy);
+      // Shown, not hidden — a missing name teaches nothing.
+      expect(options.find((o) => o.staffUserId === busy)!.activeShiftTruckName).toBe(
+        "Van A",
+      );
+      expect(
+        options.find((o) => o.staffUserId === free)!.activeShiftTruckName,
+      ).toBeNull();
     });
   });
 });
