@@ -1,6 +1,8 @@
+import { Plus } from "lucide-react";
 import { redirect } from "next/navigation";
 import {
   Badge,
+  Button,
   Card,
   CardContent,
   CardDescription,
@@ -8,6 +10,7 @@ import {
   CardTitle,
   DatabaseNotConfigured,
   EmptyState,
+  FormSheet,
   PageHeader,
 } from "@koolee/ui";
 import { listTrucks, type TruckRow } from "@koolee/core";
@@ -61,88 +64,94 @@ export default async function TrucksPage() {
             ? "Database not configured."
             : `${active.length} in service · ${out.length} out right now · ${totalCapacity} bags of capacity`
         }
+        actions={
+          unavailable ? null : (
+            <FormSheet
+              trigger={
+                <Button size="sm">
+                  <Plus aria-hidden="true" />
+                  Add a truck
+                </Button>
+              }
+              title="Add a truck"
+              description={
+                <>
+                  Bag capacity is what decides who a customer can pick, and reserved
+                  spaces are <strong>held back from booking capacity</strong>: a van is
+                  offered <em>capacity &minus; reserved &minus; bags already on board</em>
+                  , so two spaces kept for a wheelchair or a fragile case stay empty.
+                  Reserve fewer than the capacity &mdash; a van with nothing bookable
+                  should be taken out of service instead.
+                </>
+              }
+            >
+              <AddTruckForm />
+            </FormSheet>
+          )
+        }
       />
 
-      <div className="grid items-start gap-6 lg:grid-cols-[2fr_1fr]">
-        <section className="flex flex-col gap-3">
-          {unavailable ? (
-            <DatabaseNotConfigured />
-          ) : trucks.length === 0 ? (
-            <EmptyState
-              title="No trucks yet"
-              description="Add the vans you actually run. A driver cannot start a shift without one, and a customer cannot choose a driver who is not on shift."
-            />
-          ) : (
-            trucks.map((truck) => (
-              <Card key={truck.id}>
-                <CardHeader className="flex-row items-start justify-between gap-4 space-y-0">
-                  <div className="flex flex-col gap-1.5">
-                    <CardTitle className="flex flex-wrap items-center gap-2 text-base">
-                      {truck.name}
-                      {!truck.active ? (
-                        <Badge variant="secondary">Out of service</Badge>
-                      ) : truck.heldByUserId ? (
-                        <Badge variant="success">
-                          Out with {truck.heldByName ?? "a driver"}
-                        </Badge>
-                      ) : (
-                        <Badge variant="outline">Available</Badge>
-                      )}
-                    </CardTitle>
-                    <CardDescription>
-                      {truck.heldByUserId
-                        ? `${truck.bagsOnBoard} of ${truck.bagCapacity} bag spaces in use`
-                        : `Holds ${truck.bagCapacity} bags`}
-                      {/* Enforced now (slice F4). The number in brackets is
+      <section className="flex flex-col gap-3">
+        {unavailable ? (
+          <DatabaseNotConfigured />
+        ) : trucks.length === 0 ? (
+          <EmptyState
+            title="No trucks yet"
+            description="Add the vans you actually run. A driver cannot start a shift without one, and a customer cannot choose a driver who is not on shift."
+          />
+        ) : (
+          trucks.map((truck) => (
+            <Card key={truck.id}>
+              <CardHeader className="flex-row items-start justify-between gap-4 space-y-0">
+                <div className="flex flex-col gap-1.5">
+                  <CardTitle className="flex flex-wrap items-center gap-2 text-base">
+                    {truck.name}
+                    {!truck.active ? (
+                      <Badge variant="secondary">Out of service</Badge>
+                    ) : truck.heldByUserId ? (
+                      <Badge variant="success">
+                        Out with {truck.heldByName ?? "a driver"}
+                      </Badge>
+                    ) : (
+                      <Badge variant="outline">Available</Badge>
+                    )}
+                  </CardTitle>
+                  <CardDescription>
+                    {truck.heldByUserId
+                      ? `${truck.bagsOnBoard} of ${truck.bagCapacity} bag spaces in use`
+                      : `Holds ${truck.bagCapacity} bags`}
+                    {/* Enforced now (slice F4). The number in brackets is
                           what a customer can actually be offered, which is the
                           question an operator is asking when they read this
                           line at all. */}
-                      {truck.reservedSpaces > 0
-                        ? ` · ${truck.reservedSpaces} held back — ${Math.max(
-                            0,
-                            truck.bagCapacity -
-                              truck.reservedSpaces -
-                              (truck.heldByUserId ? truck.bagsOnBoard : 0),
-                          )} bookable`
-                        : ""}
-                    </CardDescription>
-                  </div>
-                </CardHeader>
-                <CardContent>
-                  <TruckRowForms
-                    truck={{
-                      id: truck.id,
-                      name: truck.name,
-                      bagCapacity: truck.bagCapacity,
-                      reservedSpaces: truck.reservedSpaces,
-                      active: truck.active,
-                      heldByName: truck.heldByName,
-                      bagsOnBoard: truck.bagsOnBoard,
-                    }}
-                  />
-                </CardContent>
-              </Card>
-            ))
-          )}
-        </section>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Add a truck</CardTitle>
-            <CardDescription>
-              Bag capacity is what decides who a customer can pick, and reserved spaces
-              are <strong>held back from booking capacity</strong>: a van is offered{" "}
-              <em>capacity &minus; reserved &minus; bags already on board</em>, so two
-              spaces kept for a wheelchair or a fragile case stay empty. Reserve fewer
-              than the capacity &mdash; a van with nothing bookable should be taken out of
-              service instead, where the console says so.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <AddTruckForm />
-          </CardContent>
-        </Card>
-      </div>
+                    {truck.reservedSpaces > 0
+                      ? ` · ${truck.reservedSpaces} held back — ${Math.max(
+                          0,
+                          truck.bagCapacity -
+                            truck.reservedSpaces -
+                            (truck.heldByUserId ? truck.bagsOnBoard : 0),
+                        )} bookable`
+                      : ""}
+                  </CardDescription>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <TruckRowForms
+                  truck={{
+                    id: truck.id,
+                    name: truck.name,
+                    bagCapacity: truck.bagCapacity,
+                    reservedSpaces: truck.reservedSpaces,
+                    active: truck.active,
+                    heldByName: truck.heldByName,
+                    bagsOnBoard: truck.bagsOnBoard,
+                  }}
+                />
+              </CardContent>
+            </Card>
+          ))
+        )}
+      </section>
     </ConsoleMain>
   );
 }

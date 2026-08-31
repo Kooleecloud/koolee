@@ -791,3 +791,88 @@ wording it matches moved. Noted here rather than quietly adjusted.
 | `pnpm turbo test`                             | 1,041 passed, 1 skipped (+13 `assignmentGate`) |
 | `pnpm --filter @koolee/core test:integration` | 366 passed, 3 skipped                          |
 | `pnpm turbo build`                            | 3/3                                            |
+
+---
+
+## Phase 5 (part 1) — the console stops keeping a form open all day
+
+TD's mid-session note: several admin pages render a form permanently down the
+right instead of behind a labelled button.
+
+### What was there
+
+Six pages had grown the same layout — a list on the left and a form pinned down
+the right in a `2fr 1fr` grid: invite staff, add a truck, assign ZIPs, block
+windows, add an airline, publish a pricing rule. Every one of those forms is
+used occasionally and read never, and each was taking a third of the page from
+the thing an operator came to look at. The staff roster, the truck list and the
+zone table all rendered in two thirds of their available width, with a blank
+form beside them, permanently.
+
+### `Sheet` and `FormSheet`, in `packages/ui`
+
+A side panel built on the same Radix Dialog primitive the modal already uses, so
+focus trapping, scroll locking, Escape and return-focus-to-trigger are the app's
+existing ones rather than a second implementation.
+
+**A sheet rather than a dialog**, and the difference matters for these: a modal
+in the middle of the screen is for a decision — confirm, cancel — while these
+are data entry with five or six fields and sometimes a list to scroll. A side
+panel gives them full page height without covering the table the operator is
+checking their entry against. `ConfirmDialog` stays exactly what it is and is
+still right for a destructive yes/no.
+
+`FormSheet` wraps trigger + title + description + close, so six pages do not
+each wire that up — which is how six sheets end up with six paddings and one of
+them missing its description.
+
+### Pricing got more than a sheet
+
+It was the worst of the six and TD asked for better. The publish FORM was in the
+wide left column and the live rule was second and narrower **below it**, so the
+one question anybody opens that page to answer — what are we charging right
+now? — was answered after a form nobody came to fill in, and the actual figures
+existed only in the page subtitle.
+
+Now the live rule leads, with its base fee, per-bag and per-km **as figures at a
+size somebody can read across a desk** (a price is the kind of number that gets
+read out loud on a call), the history follows under its own heading each one
+click from being live again, and publishing is a header button. With no active
+rule the lead card says so in destructive colours, because "every quote is
+refusing right now" is the most important sentence on that page when it is true.
+
+### Agreements: history is a drawer
+
+Different from the other five and worth stating. It was a genuine master-detail
+`2fr 1fr`, not a form pinned to a side — but the editor is a rich-text surface
+for a legal document and wants every pixel, while the history is a list somebody
+scans occasionally to view or amend a version. So the editor gets the page and
+the history opens over it. Picking a version closes the drawer: otherwise it
+stays open over the editor it just loaded something into.
+
+### The sidebar's "2", also from TD — and it was a bug
+
+The Shifts badge counts sealed bookings with no driver chosen. The rail's
+screen-reader text was a ternary that knew about two of the three badges:
+`exceptionsOpen` said "open" and **everything else** said "needing an agent". So
+that badge announced "Shifts, 2 needing an agent" — a different problem on a
+different page. Sighted operators got a bare "2" whose only tooltip described
+the section rather than the number.
+
+`CONSOLE_BADGE_MEANING` is now a `Record` keyed by the badge type, so a new
+badge cannot be added without a phrase — the compiler asks. It feeds both the
+screen-reader text and a tooltip on the number itself.
+
+### Verified
+
+| Check                                      | Result                                                                                                                                                                                 |
+| ------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm format:check` / `typecheck` / `lint` | clean, 6/6, 6/6                                                                                                                                                                        |
+| `pnpm turbo test`                          | 1,042 passed, 1 skipped                                                                                                                                                                |
+| `pnpm turbo build`                         | 3/3                                                                                                                                                                                    |
+| Browser (admin, headed)                    | Invite opens a 448px right-hand sheet titled "Invite staff" with the email field; the roster behind it now uses the full width; the rail badge's tooltip reads "2 waiting on a driver" |
+
+**Still to do in Phase 5:** staff grouped by role with filters and per-person
+workload, trucks editable during an active shift, booking-detail section
+consolidation, booking-list filters applying immediately with a debounced
+search, and agent/admin profile parity with the customer app.

@@ -170,6 +170,17 @@ export {
 } from "./components/booking-status-badge";
 export { ConfirmDialog, type ConfirmDialogProps } from "./components/confirm-dialog";
 export {
+  FormSheet,
+  Sheet,
+  SheetTrigger,
+  SheetClose,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetDescription,
+  type SheetContentProps,
+} from "./components/sheet";
+export {
   SegmentedControl,
   type SegmentedControlItem,
   type SegmentedControlProps,

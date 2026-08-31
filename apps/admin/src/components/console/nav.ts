@@ -34,6 +34,25 @@ import {
 export type ConsoleBadgeKey =
   "unassignedToday" | "awaitingDriverToday" | "exceptionsOpen";
 
+/**
+ * What each badge's number MEANS, in a phrase that finishes "3 …".
+ *
+ * IT LIVES HERE BECAUSE IT WAS A TERNARY IN THE RAIL, and that ternary knew
+ * about two of the three badges: `exceptionsOpen` said "open" and EVERYTHING
+ * ELSE said "needing an agent". So the Shifts badge — which counts sealed
+ * bookings with no DRIVER chosen — was announced to a screen reader as "2
+ * needing an agent", which is a different problem on a different page.
+ *
+ * A record keyed by the badge type means a new badge cannot be added without
+ * a phrase: the compiler asks for one. That is the whole reason it is a
+ * `Record` and not a lookup with a fallback.
+ */
+export const CONSOLE_BADGE_MEANING: Record<ConsoleBadgeKey, string> = {
+  unassignedToday: "needing an agent",
+  awaitingDriverToday: "waiting on a driver",
+  exceptionsOpen: "stopped and open",
+};
+
 export interface ConsoleNavItem {
   href: string;
   label: string;

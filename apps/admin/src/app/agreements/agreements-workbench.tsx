@@ -1,5 +1,7 @@
 "use client";
 
+import { History } from "lucide-react";
+
 import * as React from "react";
 import { useActionState } from "react";
 import {
@@ -16,6 +18,12 @@ import {
   Label,
   Markdown,
   RichTextEditor,
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
 } from "@koolee/ui";
 
 import {
@@ -166,16 +174,55 @@ export function AgreementsWorkbench({ versions }: { versions: AgreementVersionVi
     setMode((current) => (current.kind === "new" ? current : { kind: "new" }));
   }, []);
 
+  /*
+   * PICKING A VERSION CLOSES THE DRAWER. Without this the history stays open
+   * over the editor it just loaded something into, and the operator has to
+   * dismiss it to see the result of their own click.
+   */
+  const [historyOpen, setHistoryOpen] = React.useState(false);
+  const selectAndClose = React.useCallback((next: Mode) => {
+    setMode(next);
+    setHistoryOpen(false);
+  }, []);
+
   return (
     /*
-     * 2fr / 1fr, the same split the booking detail uses, so the console has
-     * one ratio rather than one per page. History was on `4fr_1fr`, which left
-     * it about 300px: every version title wrapped to two lines and the
-     * effective-date stamp — the thing you scan this list FOR — wrapped under
-     * it. The editor does not need the width it was taking; prose is read at a
-     * measure, not at whatever the viewport allows.
+     * THE HISTORY IS A DRAWER, not a rail — TD's call, and it is the right one
+     * for what each half is.
+     *
+     * It was a `2fr / 1fr` split, which is a fine ratio for a master-detail
+     * layout and the wrong shape for these two. The editor is a rich-text
+     * surface for a legal document: it wants every pixel of width, and prose
+     * is read at a measure the viewport should not be arguing with. The
+     * history is a list somebody scans occasionally, to view an old version or
+     * amend a scheduled one — an act, with a beginning and an end.
+     *
+     * So the editor gets the page and the history opens over it. Which one is
+     * loaded stays visible in the drawer's own list when it is next opened.
      */
-    <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+    <div className="flex flex-col gap-4">
+      <div className="flex items-center justify-end">
+        <Sheet open={historyOpen} onOpenChange={setHistoryOpen}>
+          <SheetTrigger asChild>
+            <Button variant="outline" size="sm">
+              <History aria-hidden="true" />
+              History · {versions.length}
+            </Button>
+          </SheetTrigger>
+          <SheetContent>
+            <SheetHeader>
+              <SheetTitle>Version history</SheetTitle>
+              <SheetDescription>
+                Every version ever published. A version in force can never be edited —
+                bookings reference it by id, so editing it would rewrite what past
+                acceptors agreed to.
+              </SheetDescription>
+            </SheetHeader>
+            <VersionHistory versions={versions} mode={mode} onSelect={selectAndClose} />
+          </SheetContent>
+        </Sheet>
+      </div>
+
       {mode.kind === "view" ? (
         <AgreementReaderPanel version={mode.version} onDone={resetToNew} />
       ) : (
@@ -190,7 +237,6 @@ export function AgreementsWorkbench({ versions }: { versions: AgreementVersionVi
           onDone={resetToNew}
         />
       )}
-      <VersionHistory versions={versions} mode={mode} onSelect={setMode} />
     </div>
   );
 }
@@ -413,7 +459,7 @@ function VersionHistory({
     /* `top-20`, not `top-6`: the console's top bar is a sticky `h-14`, so a
        24px offset parks this card underneath it. Same offset as the other
        sticky panels in the console. */
-    <Card className="lg:sticky lg:top-20">
+    <Card className="border-0 shadow-none">
       <CardHeader>
         <CardTitle className="text-base">History</CardTitle>
         <CardDescription>

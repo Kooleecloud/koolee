@@ -1,16 +1,15 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { formatDistanceToNow } from "date-fns";
+import { UserPlus } from "lucide-react";
 import {
   Avatar,
   Badge,
+  Button,
   Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
   DatabaseNotConfigured,
   EmptyState,
+  FormSheet,
   PageHeader,
 } from "@koolee/ui";
 import { listStaffMembers, type StaffMemberWithIdentity } from "@koolee/core";
@@ -58,104 +57,111 @@ export default async function StaffPage() {
             ? "Database not configured."
             : `${staff.filter((member) => member.active).length} active of ${staff.length} · invite-only. Agents land in the agent app, admins here.`
         }
+        /*
+         * THE FORM MOVED BEHIND A NAMED BUTTON. It used to sit pinned down the
+         * right in a `2fr 1fr` grid, so the roster — the thing an operator
+         * opens this page to read — rendered in two thirds of the width it
+         * had, with a blank form beside it, all day. Inviting somebody is an
+         * occasional act; reading the roster is why the page exists.
+         */
+        actions={
+          unavailable ? null : (
+            <FormSheet
+              trigger={
+                <Button size="sm">
+                  <UserPlus aria-hidden="true" />
+                  Invite
+                </Button>
+              }
+              title="Invite staff"
+              description="They'll receive an email link to set a password. Agents land in the agent app, admins here."
+            >
+              <InviteStaffForm />
+            </FormSheet>
+          )
+        }
       />
 
-      <div className="grid gap-6 lg:grid-cols-[2fr_1fr]">
-        <section className="flex flex-col gap-3">
-          {unavailable ? (
-            <DatabaseNotConfigured />
-          ) : staff.length === 0 ? (
-            <EmptyState
-              title="No staff yet"
-              description="Invite your first agent or admin with the form."
-            />
-          ) : (
-            <ul className="console-rows flex flex-col gap-3">
-              {staff.map((member) => (
-                <Card asChild key={member.id}>
-                  <li className="flex items-center justify-between gap-4 p-4">
-                    <div className="flex min-w-0 items-center gap-3">
-                      <Avatar
-                        size="md"
-                        name={member.fullName ?? member.email}
-                        src={
-                          member.avatarStoragePath
-                            ? (avatarUrls.get(member.avatarStoragePath) ?? null)
-                            : null
-                        }
-                        alt=""
-                        // A deactivated operator still has a face; dimming it
-                        // is how the row says so without a second badge.
-                        className={member.active ? undefined : "opacity-50"}
-                      />
-                      <div className="flex min-w-0 flex-col gap-0.5">
-                        {/* The name is the way in to this person's work
+      <section className="flex flex-col gap-3">
+        {unavailable ? (
+          <DatabaseNotConfigured />
+        ) : staff.length === 0 ? (
+          <EmptyState
+            title="No staff yet"
+            description="Invite your first agent or admin — the button is above."
+          />
+        ) : (
+          <ul className="console-rows flex flex-col gap-3">
+            {staff.map((member) => (
+              <Card asChild key={member.id}>
+                <li className="flex items-center justify-between gap-4 p-4">
+                  <div className="flex min-w-0 items-center gap-3">
+                    <Avatar
+                      size="md"
+                      name={member.fullName ?? member.email}
+                      src={
+                        member.avatarStoragePath
+                          ? (avatarUrls.get(member.avatarStoragePath) ?? null)
+                          : null
+                      }
+                      alt=""
+                      // A deactivated operator still has a face; dimming it
+                      // is how the row says so without a second badge.
+                      className={member.active ? undefined : "opacity-50"}
+                    />
+                    <div className="flex min-w-0 flex-col gap-0.5">
+                      {/* The name is the way in to this person's work
                             history — counts, tasks and shifts — which used to
                             be reachable only by cross-referencing ids by
                             hand across three pages. */}
-                        <Link
-                          href={`/staff/${member.userId}`}
-                          className="truncate font-medium text-navy-800 underline decoration-transparent underline-offset-4 transition-colors hover:decoration-sky-400 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
-                        >
-                          {member.fullName ?? member.email ?? member.userId}
-                        </Link>
-                        <span className="truncate text-xs text-muted-foreground">
-                          {/* The name moved up to the primary line, so the
+                      <Link
+                        href={`/staff/${member.userId}`}
+                        className="truncate font-medium text-navy-800 underline decoration-transparent underline-offset-4 transition-colors hover:decoration-sky-400 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
+                      >
+                        {member.fullName ?? member.email ?? member.userId}
+                      </Link>
+                      <span className="truncate text-xs text-muted-foreground">
+                        {/* The name moved up to the primary line, so the
                             email — the thing an invite is actually addressed
                             to — takes its place here. Relative time: a staff
                             record belongs to no booking, so there is no
                             airport zone to render it in. */}
-                          {member.fullName && member.email ? `${member.email} · ` : ""}
-                          Added{" "}
-                          {formatDistanceToNow(member.createdAt, { addSuffix: true })}
-                        </span>
-                      </div>
+                        {member.fullName && member.email ? `${member.email} · ` : ""}
+                        Added {formatDistanceToNow(member.createdAt, { addSuffix: true })}
+                      </span>
                     </div>
-                    <div className="flex items-center gap-3">
-                      <Badge variant={member.role === "admin" ? "default" : "secondary"}>
-                        {member.role}
-                      </Badge>
-                      {member.active ? (
-                        <Badge variant="success">active</Badge>
-                      ) : (
-                        <Badge variant="warning">deactivated</Badge>
-                      )}
-                      {/* An admin may replace any staff photo — see
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <Badge variant={member.role === "admin" ? "default" : "secondary"}>
+                      {member.role}
+                    </Badge>
+                    {member.active ? (
+                      <Badge variant="success">active</Badge>
+                    ) : (
+                      <Badge variant="warning">deactivated</Badge>
+                    )}
+                    {/* An admin may replace any staff photo — see
                           `canReplaceAvatarOf`. A customer's photo is
                           deliberately out of reach from here. */}
-                      <StaffPhotoDialog
-                        userId={member.userId}
-                        name={member.fullName ?? member.email}
-                        currentUrl={
-                          member.avatarStoragePath
-                            ? (avatarUrls.get(member.avatarStoragePath) ?? null)
-                            : null
-                        }
-                      />
-                      {member.active ? (
-                        <DeactivateStaffButton userId={member.userId} />
-                      ) : null}
-                    </div>
-                  </li>
-                </Card>
-              ))}
-            </ul>
-          )}
-        </section>
-
-        <Card className="h-fit lg:sticky lg:top-20">
-          <CardHeader>
-            <CardTitle className="text-base">Invite staff</CardTitle>
-            <CardDescription>
-              They&apos;ll receive an email link to set a password. Agents land in the
-              agent app, admins here.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <InviteStaffForm />
-          </CardContent>
-        </Card>
-      </div>
+                    <StaffPhotoDialog
+                      userId={member.userId}
+                      name={member.fullName ?? member.email}
+                      currentUrl={
+                        member.avatarStoragePath
+                          ? (avatarUrls.get(member.avatarStoragePath) ?? null)
+                          : null
+                      }
+                    />
+                    {member.active ? (
+                      <DeactivateStaffButton userId={member.userId} />
+                    ) : null}
+                  </div>
+                </li>
+              </Card>
+            ))}
+          </ul>
+        )}
+      </section>
     </ConsoleMain>
   );
 }

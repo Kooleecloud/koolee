@@ -1,6 +1,8 @@
+import { Plus } from "lucide-react";
 import { redirect } from "next/navigation";
 import {
   Badge,
+  Button,
   Card,
   CardContent,
   CardDescription,
@@ -8,6 +10,7 @@ import {
   CardTitle,
   DatabaseNotConfigured,
   EmptyState,
+  FormSheet,
   PageHeader,
 } from "@koolee/ui";
 import { listPricingRules, type PricingRule } from "@koolee/core";
@@ -95,69 +98,122 @@ export default async function PricingPage() {
                 )} a bag, ${Number(active.distanceMultiplier)}¢ per km`
               : "No active rule — every quote is refusing right now."
         }
+        actions={
+          unavailable ? null : (
+            <FormSheet
+              trigger={
+                <Button size="sm" variant={active ? "outline" : "default"}>
+                  <Plus aria-hidden="true" />
+                  {active ? "Publish a new rule" : "Publish the first rule"}
+                </Button>
+              }
+              title={active ? "Publish a new rule" : "Publish the first rule"}
+              description={
+                active
+                  ? "Pre-filled from the live rule. Change what needs changing; the old one stays in the history and can be switched back to."
+                  : "Nothing is priced until one rule is active. The values below are the launch defaults."
+              }
+            >
+              <PublishPricingRuleForm defaults={defaults} />
+            </FormSheet>
+          )
+        }
       />
 
       {unavailable ? (
         <DatabaseNotConfigured />
       ) : (
-        <div className="grid items-start gap-6 lg:grid-cols-[3fr_2fr]">
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">
-                {active ? "Publish a new rule" : "Publish the first rule"}
-              </CardTitle>
-              <CardDescription>
-                {active
-                  ? "Pre-filled from the live rule. Change what needs changing; the old one stays in the history and can be switched back to."
-                  : "Nothing is priced until one rule is active. The values below are the launch defaults."}
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <PublishPricingRuleForm defaults={defaults} />
-            </CardContent>
-          </Card>
+        /*
+         * WHAT IT COSTS, FIRST. This page had the publish FORM in the wide
+         * left column and the live rule second and narrower, below it — so
+         * the one question anybody opens this page to answer ("what are we
+         * charging right now?") was answered after a form nobody came to
+         * fill in. The numbers were only in the page subtitle.
+         *
+         * Now: the live rule leads, with its actual figures rather than a
+         * summary; the history follows, each one click from being live again;
+         * and publishing is a button in the header, which is the right weight
+         * for something done a handful of times a year.
+         */
+        <section className="flex flex-col gap-3">
+          {active ? (
+            <Card className="border-success/40">
+              <CardHeader className="gap-1.5">
+                <CardTitle className="flex flex-wrap items-center gap-2 text-base">
+                  {active.name}
+                  <Badge variant="success">Live</Badge>
+                </CardTitle>
+                <CardDescription>
+                  In effect since {active.effectiveFrom.toISOString().slice(0, 10)}
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="flex flex-col gap-4">
+                {/* The figures themselves, at a size somebody can read across
+                    a desk. A price is the kind of number that gets read out
+                    loud on a call. */}
+                <dl className="grid gap-4 sm:grid-cols-3">
+                  <div>
+                    <dt className="text-sm text-muted-foreground">Base fee</dt>
+                    <dd className="font-display text-2xl font-semibold tabular-nums text-navy-800">
+                      ${dollars(active.baseFeeCents)}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-sm text-muted-foreground">Per bag</dt>
+                    <dd className="font-display text-2xl font-semibold tabular-nums text-navy-800">
+                      ${dollars(active.perBagCents)}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-sm text-muted-foreground">Per km</dt>
+                    <dd className="font-display text-2xl font-semibold tabular-nums text-navy-800">
+                      {Number(active.distanceMultiplier)}¢
+                    </dd>
+                  </div>
+                </dl>
+                <p className="text-sm text-muted-foreground">{curveSummary(active)}</p>
+              </CardContent>
+            </Card>
+          ) : (
+            <Card className="border-destructive/50">
+              <CardHeader className="gap-1.5">
+                <CardTitle className="text-base">Nothing is priced</CardTitle>
+                <CardDescription>
+                  No rule is active, so every quote is refusing right now. Publish one
+                  from the button above — the form carries the launch defaults.
+                </CardDescription>
+              </CardHeader>
+            </Card>
+          )}
 
-          <section className="flex flex-col gap-3">
-            {active ? (
-              <Card>
+          <h2 className="mt-3 text-xs font-semibold tracking-wider text-muted-foreground uppercase">
+            Previously live
+          </h2>
+
+          {history.length === 0 ? (
+            <EmptyState
+              title="No previous rules"
+              description="Every rule you publish stays here. Nothing is ever deleted, so a price that turned out wrong is one click back."
+            />
+          ) : (
+            history.map((rule) => (
+              <Card key={rule.id}>
                 <CardHeader className="gap-1.5">
-                  <CardTitle className="flex flex-wrap items-center gap-2 text-base">
-                    {active.name}
-                    <Badge variant="success">Live</Badge>
-                  </CardTitle>
+                  <CardTitle className="text-base">{rule.name}</CardTitle>
                   <CardDescription>
-                    In effect since {active.effectiveFrom.toISOString().slice(0, 10)} ·{" "}
-                    {curveSummary(active)}
+                    ${dollars(rule.baseFeeCents)} base · ${dollars(rule.perBagCents)} a
+                    bag · {Number(rule.distanceMultiplier)}¢/km · {curveSummary(rule)}
+                    <br />
+                    Was live from {rule.effectiveFrom.toISOString().slice(0, 10)}
                   </CardDescription>
                 </CardHeader>
+                <CardContent>
+                  <ReactivateRuleForm id={rule.id} name={rule.name} />
+                </CardContent>
               </Card>
-            ) : null}
-
-            {history.length === 0 ? (
-              <EmptyState
-                title="No previous rules"
-                description="Every rule you publish stays here. Nothing is ever deleted, so a price that turned out wrong is one click back."
-              />
-            ) : (
-              history.map((rule) => (
-                <Card key={rule.id}>
-                  <CardHeader className="gap-1.5">
-                    <CardTitle className="text-base">{rule.name}</CardTitle>
-                    <CardDescription>
-                      ${dollars(rule.baseFeeCents)} base · ${dollars(rule.perBagCents)} a
-                      bag · {Number(rule.distanceMultiplier)}¢/km · {curveSummary(rule)}
-                      <br />
-                      Was live from {rule.effectiveFrom.toISOString().slice(0, 10)}
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <ReactivateRuleForm id={rule.id} name={rule.name} />
-                  </CardContent>
-                </Card>
-              ))
-            )}
-          </section>
-        </div>
+            ))
+          )}
+        </section>
       )}
     </ConsoleMain>
   );

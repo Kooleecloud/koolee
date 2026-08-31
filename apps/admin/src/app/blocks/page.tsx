@@ -1,13 +1,12 @@
+import { CalendarOff } from "lucide-react";
 import { redirect } from "next/navigation";
 import {
   Badge,
+  Button,
   Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
   DatabaseNotConfigured,
   EmptyState,
+  FormSheet,
   PageHeader,
 } from "@koolee/ui";
 import {
@@ -64,60 +63,61 @@ export default async function BlocksPage() {
             ? "Database not configured."
             : `${blocks.length} upcoming block${blocks.length === 1 ? "" : "s"}. Hiding a window is how ops closes the shop — weather, driver shortage, holidays. Existing bookings in a blocked span are not affected.`
         }
+        actions={
+          unavailable ? null : (
+            <FormSheet
+              trigger={
+                <Button size="sm">
+                  <CalendarOff aria-hidden="true" />
+                  Block windows
+                </Button>
+              }
+              title="Block windows"
+              description="Hours are the airport's local time. Blocks take effect immediately — customers mid-funnel will see the window rejected at checkout."
+            >
+              <CreateBlockForm />
+            </FormSheet>
+          )
+        }
       />
 
-      <div className="grid gap-6 lg:grid-cols-[2fr_1fr]">
-        <section className="flex flex-col gap-3">
-          {unavailable ? (
-            <DatabaseNotConfigured />
-          ) : blocks.length === 0 ? (
-            <EmptyState
-              title="No upcoming blocks"
-              description="Every pickup window is currently bookable. Add a block with the form."
-            />
-          ) : (
-            <ul className="console-rows flex flex-col gap-3">
-              {blocks.map((block) => (
-                <Card asChild key={block.id}>
-                  <li className="flex items-center justify-between gap-4 p-4">
-                    <div className="flex flex-col gap-0.5">
-                      <span className="font-medium">
-                        {formatWindowInAirportTz(
-                          block.blockStart,
-                          block.blockEnd,
-                          zoneFor(zones, block.airportCode),
-                        )}
+      <section className="flex flex-col gap-3">
+        {unavailable ? (
+          <DatabaseNotConfigured />
+        ) : blocks.length === 0 ? (
+          <EmptyState
+            title="No upcoming blocks"
+            description="Every pickup window is currently bookable. Add a block with the form."
+          />
+        ) : (
+          <ul className="console-rows flex flex-col gap-3">
+            {blocks.map((block) => (
+              <Card asChild key={block.id}>
+                <li className="flex items-center justify-between gap-4 p-4">
+                  <div className="flex flex-col gap-0.5">
+                    <span className="font-medium">
+                      {formatWindowInAirportTz(
+                        block.blockStart,
+                        block.blockEnd,
+                        zoneFor(zones, block.airportCode),
+                      )}
+                    </span>
+                    {block.reason ? (
+                      <span className="text-xs text-muted-foreground">
+                        {block.reason}
                       </span>
-                      {block.reason ? (
-                        <span className="text-xs text-muted-foreground">
-                          {block.reason}
-                        </span>
-                      ) : null}
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <Badge variant="secondary">{block.airportCode}</Badge>
-                      <RemoveBlockButton id={block.id} />
-                    </div>
-                  </li>
-                </Card>
-              ))}
-            </ul>
-          )}
-        </section>
-
-        <Card className="h-fit lg:sticky lg:top-20">
-          <CardHeader>
-            <CardTitle className="text-base">Block windows</CardTitle>
-            <CardDescription>
-              Hours are the airport&apos;s local time. Blocks take effect immediately —
-              customers mid-funnel will see the window rejected at checkout.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <CreateBlockForm />
-          </CardContent>
-        </Card>
-      </div>
+                    ) : null}
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <Badge variant="secondary">{block.airportCode}</Badge>
+                    <RemoveBlockButton id={block.id} />
+                  </div>
+                </li>
+              </Card>
+            ))}
+          </ul>
+        )}
+      </section>
     </ConsoleMain>
   );
 }

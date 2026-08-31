@@ -6,7 +6,12 @@ import { usePathname } from "next/navigation";
 import { PanelLeft, X } from "lucide-react";
 import { cn, KooleeLogo } from "@koolee/ui";
 
-import { CONSOLE_NAV, resolveConsoleRoute, type ConsoleBadgeCounts } from "./nav";
+import {
+  CONSOLE_BADGE_MEANING,
+  CONSOLE_NAV,
+  resolveConsoleRoute,
+  type ConsoleBadgeCounts,
+} from "./nav";
 
 export interface ConsoleRailProps {
   /** Live counts for the badged items. Zero counts render nothing. */
@@ -189,6 +194,10 @@ export function ConsoleRail({
                         {count > 0 && (
                           <>
                             <span
+                              /* A bare number beside a section name says
+                                 nothing. The item's own `title` describes the
+                                 PAGE, so the badge needs its own. */
+                              title={`${count} ${CONSOLE_BADGE_MEANING[item.badge!]}`}
                               className={cn(
                                 "inline-flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-[11px] font-semibold tabular-nums",
                                 item.badge === "exceptionsOpen"
@@ -213,10 +222,7 @@ export function ConsoleRail({
                               )}
                             />
                             <span className="sr-only">
-                              {count}{" "}
-                              {item.badge === "exceptionsOpen"
-                                ? "open"
-                                : "needing an agent"}
+                              {count} {CONSOLE_BADGE_MEANING[item.badge!]}
                             </span>
                           </>
                         )}
