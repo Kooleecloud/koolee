@@ -2,7 +2,7 @@
 
 > **How a Koolee screen updates without anybody pressing anything, and the one
 > rule that keeps that from becoming a second data path.** Baseline:
-> `feat/f2-live-ux`.
+> `dev` @ `5db21a4`.
 >
 > For the notification matrix (what is in-app versus email) read
 > [notifications.md](notifications.md). For the storage buckets that use the

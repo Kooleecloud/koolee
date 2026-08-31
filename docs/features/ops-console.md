@@ -1,28 +1,72 @@
 # Admin ops console
 
-> Dispatch, exceptions, blackouts, staff, zones. App: `apps/admin` (`:3002`).
-> Baseline: `dev` @ `2fe3a2b`. ← [Features index](README.md) ·
+> Dispatch, shifts, exceptions — and everything about Koolee that is
+> configurable without a deploy. App: `apps/admin` (`:3002`).
+> Baseline: `dev` @ `5db21a4`. ← [Features index](README.md) ·
 > Deeper: [ops-console.md](../../apps/admin/docs/ops-console.md) ·
 > [staff-auth.md](../../apps/admin/docs/staff-auth.md)
 
 ---
 
-## 1. The pages
+## 1. The pages, and the two errands they split into
 
 Each is a server component + an `actions.ts` + a client form file.
 
-| Route                   | Does                                                                                            |
-| ----------------------- | ----------------------------------------------------------------------------------------------- |
-| `/`                     | Dashboard — today's bookings by status, unassigned count, open exceptions. **All real queries** |
-| `/bookings`             | Dispatch board — filter by status/airport/day, assign an agent, see at-risk bookings            |
-| `/bookings/[bookingId]` | Full booking detail + custody timeline                                                          |
-| `/blocks`               | Window blackouts — **the only lever over what customers can book**                              |
-| `/exceptions`           | Bookings in `exception`, with the three legal resolutions                                       |
-| `/staff`                | Invite / list / deactivate agents and admins                                                    |
-| `/zones`                | Agent zone coverage, feeding auto-assignment                                                    |
+**The information architecture is one file** —
+[components/console/nav.ts](../../apps/admin/src/components/console/nav.ts) is
+the only place that knows what sections exist and how they group. The rail, the
+breadcrumb trail and the badge counts all derive from it.
 
-On `/bookings/[bookingId]`, the bags card and the custody timeline render
-evidence photos through the shared `ImageLightbox`
+Until 2026-08-29 these were seven flat links in the shared `AppHeader`. The
+problems were structural, not cosmetic: a header has no room past about seven
+items, and a flat list hides that **"what am I doing today" and "how is this
+console configured" are different errands, on different days.**
+
+### Operations
+
+| Route                   | Does                                                                                                     | Badge                |
+| ----------------------- | -------------------------------------------------------------------------------------------------------- | -------------------- |
+| `/`                     | Dashboard — today's bookings by status, unassigned, sealed-with-no-driver, open exceptions. **All real queries** | —             |
+| `/bookings`             | Dispatch board — filter by status/airport/day, assign an agent, see at-risk bookings                    | `unassignedToday`    |
+| `/bookings/[bookingId]` | Full booking detail + custody timeline + evidence + payment                                              | —                    |
+| `/shifts`               | Who is out driving, in what, with how many bags. Force-end with a required reason; grant/revoke `can_drive` | `awaitingDriverToday` |
+| `/exceptions`           | Bookings in `exception`, with the three legal resolutions                                                | `exceptionsOpen`     |
+
+### Configuration
+
+| Route              | Does                                                                                       |
+| ------------------ | ------------------------------------------------------------------------------------------- |
+| `/pricing`         | The active pricing rule and the lead-time curve — **a path to change a price that is not SQL** |
+| `/cutoffs`         | Airline bag-drop cutoffs per airline × airport × domestic/international                     |
+| `/blocks`          | Window blackouts — **the only lever over what customers can book** (§3)                     |
+| `/zones`           | Agent ZIP coverage, feeding auto-assignment                                                 |
+| `/agreements`      | Versioned booking agreements. "Current" is derived, never a flag                            |
+| `/trucks`          | The fleet: name, bag capacity, active toggle. `reserved_spaces` is editable and labelled **not yet enforced** |
+| `/staff`           | Invite / list / deactivate agents and admins                                                |
+| `/staff/[userId]`  | One staff member — their history, their zones, `can_drive`                                  |
+
+Plus `/login`, `/login/reset` and `/set-password`, which sit outside the rail.
+
+🧭 **The three badge counts compute nothing new.** All three already existed on
+`OpsDashboard`; the rail surfaces numbers an operator previously had to navigate
+to the landing page to see. `unassignedToday` and `awaitingDriverToday` are
+deliberately **separate** — one needs an agent sent to a door, the other needs a
+van, and one badge meaning both would hide whichever is rarer.
+
+`resolveConsoleRoute` matches a pathname by **longest prefix**, so
+`/bookings/<id>` resolves to Bookings rather than to Overview, whose `/`
+prefixes everything. An unknown path returns null and the chrome renders without
+a trail rather than guessing.
+
+⚠️ **The rail is admin-only on purpose.**
+[DESIGN.md](../../packages/ui/DESIGN.md) promotes a pattern into the shared
+package once two apps repeat it — and neither web (two dashboard links) nor
+agent (a tab bar) has a rail's worth of navigation.
+
+### Evidence on the booking detail page
+
+The bags card and the custody timeline render evidence photos through the shared
+`ImageLightbox`
 ([packages/ui](../../packages/ui/src/components/image-lightbox.tsx)) — photos
 are captured at ~1200px and thumbnails alone are unreadable when the question is
 _"was that bag already scuffed?"_. The same component backs the agent's capture
@@ -118,15 +162,54 @@ staff. Never render a bare name without that fallback.
 
 ## 5. Assignment
 
+**Auto, on `paid`.** Since 2026-08-23 `autoAssignOnPaid` runs when a booking is
+paid; the board's **Assign** button is the manual override, not the normal path.
+An uncovered ZIP still falls through to a human via the at-risk flag.
+
 **Manual:** `assignAgentToBooking` from the dispatch board.
 
-**Auto:** [auto-assign.ts](../../packages/core/src/services/auto-assign.ts) —
-naive v1. Matches `agent_zones` against the pickup ZIP and the airport-local
-day, then balances by current workload. Managed from `/zones`
-(`addAgentZones`, `listAgentZones`, `removeAgentZone`).
+[auto-assign.ts](../../packages/core/src/services/auto-assign.ts) is a naive v1:
+match `agent_zones` against the pickup ZIP and the airport-local day, then
+balance by current workload. Managed from `/zones` (`addAgentZones`,
+`listAgentZones`, `removeAgentZone`).
 
 🧭 It is explicitly labelled v1 in the source. Treat it as a placeholder with a
 correct _interface_, not as a solved routing problem.
+
+### 5.1 — At-risk says WHICH now
+
+Until the driver slice there was one flag and one word, and it only ever meant
+"paid, nobody assigned to verify" — every at-risk surface read
+`verification_tasks` alone. So a booking with its bags **sealed on a doorstep
+and nobody coming for them looked healthy.**
+
+`BoardRow.atRiskReason` is now `no_agent | no_driver | null`, and
+`OpsDashboard.awaitingDriverToday` is a separate count from `unassignedToday`
+for the same reason the badges are separate: the two need different actions.
+
+### 5.2 — Reassigning a pickup reuses the customer's own path
+
+`adminReassignPickup` runs the same transaction, the same single advisory lock
+and the same capacity recount as the customer-facing `selectDriver`. They are
+**one operation with two actors**, and letting them drift into two concurrency
+stories is how a van ends up overloaded.
+
+What differs is written down at the function, and only this:
+
+- no ownership check;
+- a relaxed started-travel guard — ops may move a run that has already set off,
+  a customer may not;
+- a zone/capacity override, which is **RECORDED on the custody event together
+  with the rule it waived**.
+
+### 5.3 — Shifts gate the driving half
+
+A driver clocks on from the top of the agent app's Today page, picking a truck.
+They **cannot clock off while a pickup on the shift is still open**, and the
+refusal names the bookings. `driver_shifts`' two partial unique indexes
+(`WHERE ended_at IS NULL`) are what make "one open shift per person, one per
+truck" hold under concurrency. `/shifts` is where ops watches that and, when
+they must, force-ends a shift with a required reason.
 
 ---
 
@@ -145,10 +228,17 @@ refuses to boot instead.
 
 ## 7. Env
 
-`DATABASE_URL`, `DIRECT_DATABASE_URL`, Supabase URL + anon +
-**`SUPABASE_SERVICE_ROLE_KEY`** (staff invites and evidence-photo signed URLs),
-`NEXT_PUBLIC_AGENT_APP_URL`, `STRIPE_SECRET_KEY` (**refunds only**),
-`SENTRY_DSN`.
+Gated at boot, with **no coming-soon exemption** — the console is staff-only and
+always live: `DATABASE_URL`, `NEXT_PUBLIC_SUPABASE_URL`,
+`NEXT_PUBLIC_SUPABASE_ANON_KEY`, **`SUPABASE_SERVICE_ROLE_KEY`** (staff invites
+and evidence-photo signed URLs), `NEXT_PUBLIC_AGENT_APP_URL`.
+
+Optional: `STRIPE_SECRET_KEY` (**refunds only**), `NEXT_PUBLIC_SENTRY_DSN`,
+`ASSIGNMENT_HORIZON_HOURS` (**must match `apps/web`**, or the badges disagree
+with the sweep), and the four VAPID vars when push is on — all four or none.
+The full inventory is [ENVIRONMENT.md §3](../ENVIRONMENT.md#3-the-full-matrix);
+the gate itself is
+[scripts/env-manifest.json](../../scripts/env-manifest.json).
 
 `assertProductionBootConfig()` refuses to boot without the Supabase URL, anon
 key, service-role key, or agent app URL — each of which otherwise **silently**

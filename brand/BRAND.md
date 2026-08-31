@@ -69,9 +69,15 @@ Rules:
 
 - Display / wordmark: **Sora** (SemiBold 600 in the wordmark, baked as
   outlines — logo rendering never depends on font loading).
-- Body: **Inter**. Both loaded via `next/font` in the apps; the shared
-  Tailwind preset (`packages/ui/tailwind-preset.js`) defines `font-display`
-  and the fluid `text-display-*` scale.
+- Body: **Inter**. Both are declared once in
+  [`packages/ui/src/fonts.ts`](../packages/ui/src/fonts.ts) and imported through
+  the **`@koolee/ui/fonts` subpath, never the package barrel** — `next/font`
+  only resolves inside a Next build, and Storybook builds this package with
+  Vite. They expose `--font-display` and `--font-sans`, which
+  [`packages/ui/styles/theme.css`](../packages/ui/styles/theme.css) reads for
+  the `font-display` / `font-sans` families and the fluid `text-display-*`
+  scale. ⚠️ An app that forgets to mount the font classes silently renders every
+  heading in `system-ui` — there is no error.
 - Don't typeset "koolee" in live text as a logo substitute; use the wordmark
   asset or component so tracking and cut stay exact.
 

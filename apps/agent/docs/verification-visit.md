@@ -1,7 +1,24 @@
 # The verification visit — agent app core flow
 
 Shipped 2026-08-09 (overnight run 1, Phase 6). The agent app is now
-operationally usable for the core visit.
+operationally usable for the core visit. Baseline: `dev` @ `5db21a4`.
+Feature-level overview:
+[docs/features/agent-visit.md](../../../docs/features/agent-visit.md).
+
+## Where this sits in the day
+
+Since 2026-08-30 the visit is **one leg of a job, not a standalone task**. The
+app groups a booking's `verification_tasks` and `pickup_tasks` rows into a
+single job in presentation (`src/lib/job.ts`) — **Verify & seal** at the door,
+then **Collect & deliver** to the bag drop — because a driver experiences one
+trip to one door with two things to do there, not two tasks three lines apart.
+The tables stay separate underneath, which keeps this reversible the day the
+two halves are assigned to different people.
+
+The Today page (`/`) renders the day as one connected rail with exactly one
+open stop, ordered by scheduled time (never by geography — the customer bought
+a window). Overdue stops lead the route and are marked late. Everything below
+describes what happens once a driver opens the verification leg.
 
 ## Screen order (design call)
 

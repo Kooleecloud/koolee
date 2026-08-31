@@ -4,6 +4,9 @@ One system serves every Koolee app (web, admin, agent, and whatever comes
 next). Nothing visual gets redefined per app; apps compose what this package
 exports. This file is the contract — read it before adding UI anywhere.
 
+Baseline: `dev` @ `5db21a4`. Brand tokens and typography:
+[../../brand/BRAND.md](../../brand/BRAND.md).
+
 ## Layering
 
 ```
@@ -24,7 +27,21 @@ packages/ui  (forms)           PhoneInput, OTPInput, PriceEstimator, StaffLoginF
 packages/ui  (marketing)       MarketingNav, MarketingFooter, Section/SectionHeader,
         │                      StepCard, AirportCard, FAQAccordion, StatBadge, SealMotif
         │
-packages/ui  (domain + motion) CustodyTimeline, Reveal, HeroRouteScene
+packages/ui  (domain + motion) CustodyTimeline, Reveal, HeroRouteScene,
+        │                      MilestoneTrack, ProgressTrack, JourneyGlyph,
+        │                      TripContrast, CoverageScene, VerifiedIndicator
+        │
+packages/ui  (tracking)        LiveMap — MapLibre over OpenFreeMap, no key
+        │
+packages/ui  (media + identity) Avatar, AvatarUploader, ImageLightbox
+        │
+packages/ui  (rich input)      AutocompleteField, DateTimeField, MultiSelect,
+        │                      NumberStepper, Calendar, Checkbox, Popover,
+        │                      RichTextEditor, Markdown, RawDataDisclosure
+        │
+packages/ui  (push)            PushEnableCard, useWebPush
+        │
+packages/ui  (live)            useBookingSignal, useAnnounceChange
         │
 apps/*                         pages compose the layers; app-specific modules only
 ```

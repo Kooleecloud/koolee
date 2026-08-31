@@ -1,5 +1,8 @@
 # Auth setup — provider ownership, CAPTCHA, and OTP-send safety
 
+Baseline: `dev` @ `5db21a4`. Feature-level overview:
+[docs/features/auth.md](../../../docs/features/auth.md).
+
 How Koolee's customer auth (phone/email OTP) is wired, and exactly which
 credential lives where. The one-sentence version: **every auth _provider_
 credential lives in the Supabase dashboard; `apps/web` holds only the public

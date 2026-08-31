@@ -50,6 +50,17 @@ you would be adding the first such model, not extending an existing one.
 | **Task**          | `verification_tasks`, `pickup_tasks` | The unit of work an agent or driver sees.                                                                                                                                                                       |
 | **Payment**       | `payments`, `payment_webhook_events` | Intent → authorize → capture. The second table is the webhook replay guard.                                                                                                                                     |
 | **Staff member**  | `staff_members`                      | Invite-only agent/admin accounts.                                                                                                                                                                               |
+| **Agreement**     | `agreement_versions`, `agreement_acceptances` | The terms, versioned, and the evidence a named person accepted one. **"Current" is DERIVED** — `max(version)` where `effective_from <= now()`. There is no `is_active` column and there must not be one.  |
+| **Truck / shift** | `trucks`, `driver_shifts`            | A van and its bag capacity; one person in one truck for one stretch of the day.                                                                                                                                 |
+| **Driver position** | `driver_positions`                 | One **mutable** row per driver, overwritten every ~45s. Explicitly **not** chain of custody — a position is not evidence.                                                                                        |
+| **Booking signal** | `booking_signals`                   | The realtime **doorbell**: one mutable row per booking, the only table a browser may read. It says "something moved"; the payload is never rendered.                                                             |
+
+The nouns above are the ones you need to reason about the product. The
+remaining tables are supporting cast, listed in
+[CODEBASE-MAP Ch.1](../CODEBASE-MAP.md#chapter-1--the-product--its-nouns):
+`push_subscriptions`, `agent_zones`, `zip_centroids`, `pricing_rules`,
+`ticket_uploads`, `otp_send_log`, `waitlist_signups`, `passport_verifications`,
+`addresses`, `airports`, `users`, and the legacy `slots`.
 
 Schema lives one-file-per-cluster in
 [packages/db/src/schema/](../../packages/db/src/schema/); the status/role/tier

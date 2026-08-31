@@ -3,6 +3,24 @@
 Shipped 2026-08-09 (overnight run 1, Phase 5). Closes the deferred Stripe
 loop. Everything goes through the `PaymentProvider` seam — nothing outside
 `packages/core/src/payments/stripe/` imports the Stripe SDK.
+Baseline: `dev` @ `5db21a4`. Feature-level overview:
+[docs/features/payments.md](../../../docs/features/payments.md).
+
+## The redirect is not the authority
+
+Stripe's `return_url` lands on **`GET /book/return`** after every confirmation
+attempt — success, a 3DS outcome, or a failure. It appends `redirect_status`
+and `payment_intent_client_secret`, and **both are deliberately ignored**: the
+only authority consulted is `reconcileBookingPayment`, which re-reads the
+intent through the seam and advances the booking through the same matrix move
+the webhook uses. A query string is something a customer can type.
+
+It is a route handler rather than a page because the authorized outcome must
+clear the draft cookie, and only actions and route handlers may write cookies.
+An outcome that is neither settled nor failed — Stripe's `processing`, or a
+status that could not be read — lands on `/book/processing`, which makes no
+claim and whose "Check again" re-runs this same re-check. The draft cookie is
+left intact so a failure can retry the pay step with everything in it.
 
 ## Webhook (`/api/webhooks/stripe`, nodejs runtime)
 

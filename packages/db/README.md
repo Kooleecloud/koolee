@@ -4,6 +4,10 @@ Drizzle schema, migrations, and connection factories. This package owns **all**
 database access. Apps never import it directly (an ESLint rule enforces that);
 they go through a service in `@koolee/core`.
 
+Today: **24 schema files, 29 tables, 34 migrations** (`0000`–`0033`). Baseline:
+`dev` @ `5db21a4`. Migration mechanics, the drift report and the full history
+table live in [docs/MIGRATIONS.md](../../docs/MIGRATIONS.md).
+
 ## Connection model
 
 Two connections, and using the wrong one causes failures that will not
@@ -137,6 +141,43 @@ history.
   so pre-cutover rule rows keep their history.
 - `payments (provider, provider_ref)` is unique — it is the idempotency key for
   webhook processing.
+- **A booking carries its own pickup address** (migration `0033`). Eight
+  `pickup_*` columns are snapshotted onto `bookings`; `pickup_address_id` is
+  provenance only and goes `NULL` when the customer deletes the saved address.
+  ⚠️ Every reader takes the doorstep off the booking — **joining `addresses`
+  to render one is a bug** that looks fine until the first deletion. This
+  exists so an address CAN be deleted; before it, a saved address was permanent
+  because a booking depended on it.
+- `booking_signals` is a **doorbell, not data**: one mutable row per booking,
+  three columns, and the only table in `public` a browser may read. An
+  `AFTER INSERT` trigger on `custody_events` touches it, which is the one write
+  path that is not a service call — deliberately, because ~20 services append
+  custody events and none of them should have to know a realtime table exists.
+  Migration `0031` adds the `GRANT` without which `0030`'s policy delivered
+  nothing.
+- `push_subscriptions.endpoint` is unique **on its own**, not
+  `(user_id, endpoint)`. An endpoint identifies one browser install globally,
+  so subscribe is an upsert that overwrites `user_id`: a device that changes
+  hands **moves** to its new owner instead of duplicating and notifying the
+  previous one.
+- `driver_shifts` carries two partial unique indexes (`WHERE ended_at IS NULL`)
+  — one open shift per person, one per truck. They are the only thing between
+  two taps on "Start shift" and two people dispatched to the same van.
+- `driver_positions` is one **mutable** row per driver, overwritten every ~45
+  seconds. Explicitly **not** chain of custody: a position is not evidence.
+- `agreement_versions` rows are immutable once `effective_from` has passed
+  (trigger, `0024`), and "current" is DERIVED — `max(version)` where
+  `effective_from <= now()`. **There is no `is_active` column and there must
+  not be one.** `agreement_acceptances` holds at most one row per booking
+  (`UNIQUE (booking_id)`, `0025`): the version a booking accepts pins for that
+  booking's whole life.
+- `zip_centroids` (837 US-Census ZCTA rows) covers a **wider** area than
+  coverage does, deliberately, so an out-of-zone driver still resolves to a
+  position. Runtime reads the table; `src/zip-centroids.ts` is what the seed
+  reconciles it to.
+- `otp_send_log` keys throttle rows by a **hashed** destination
+  (`OTP_LOG_HMAC_KEY`) — the log has to be worthless to anyone who can read
+  it.
 
 ## Commands
 
@@ -152,6 +193,14 @@ pnpm seed:local    # the same seed, pinned to the local Supabase stack
 
 `pnpm db:generate` works offline and needs no credentials. Only `db:migrate`,
 `db:studio`, `seed`, and `seed:local` connect.
+
+Two staff scripts are not in the root package.json and are run through the
+filter:
+
+```bash
+pnpm --filter @koolee/db bootstrap:staff   # the first admin, on an empty project
+pnpm --filter @koolee/db create:staff      # one more staff member
+```
 
 The seed writes reference data only: airports, airline cutoffs, and one active
 pricing rule (installing the launch lead-time curve on a pre-cutover rule row
