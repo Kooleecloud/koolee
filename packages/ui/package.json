@@ -8,6 +8,7 @@
     "./styles/theme.css": "./styles/theme.css",
     "./lib/utils": "./src/lib/utils.ts",
     "./lib/photo": "./src/lib/photo.ts",
+    "./lib/phone": "./src/lib/phone.ts",
     "./lib/credentials": "./src/lib/credentials.ts",
     "./components/*": "./src/components/*.tsx",
     "./fonts": "./src/fonts.ts"

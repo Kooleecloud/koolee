@@ -115,14 +115,19 @@ export { StageDot, type StageDotProps, type StageState } from "./components/stag
 export { ProgressTrack, type ProgressTrackProps } from "./components/progress-track";
 
 /* Forms */
+export { PhoneInput, type PhoneInputProps } from "./components/phone-input";
+/*
+ * FROM lib/phone, NOT from the component. Re-exporting them through
+ * `phone-input.tsx` would put them back behind that file's `"use client"`,
+ * and a server component calling one throws at render time — which is exactly
+ * the bug this split fixed. See lib/phone.ts.
+ */
 export {
-  PhoneInput,
   formatE164ForDisplay,
   formatUsPhone,
   normalizeUsPhone,
   toE164,
-  type PhoneInputProps,
-} from "./components/phone-input";
+} from "./lib/phone";
 export { OTPInput, type OTPInputProps } from "./components/otp-input";
 export {
   AutocompleteField,

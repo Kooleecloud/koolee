@@ -18,6 +18,11 @@ import { AutocompleteField, type AutocompleteSuggestion } from "@koolee/ui";
  * before, and the form submits it. Nothing about the address step depends on
  * Google being up.
  *
+ * NOTHING IS SEARCHED UNTIL SOMEBODY TYPES. The field is frequently mounted
+ * with a value already in it, and searching on mount billed a Places call per
+ * mount — ten expands of one saved address was ten identical billed
+ * autocompletes nobody saw. See `hasTyped`.
+ *
  * SESSION TOKENS. One token per typing session, minted here, sent with every
  * suggest call and with the details call that ends it, then thrown away.
  * Google bills that as one autocomplete plus one details request; without a
@@ -94,6 +99,22 @@ export function AddressAutocomplete({
   // Set immediately after a selection so the resulting value change does not
   // fire a fresh search for the text we just filled in.
   const justSelected = React.useRef(false);
+  /**
+   * Has a HUMAN typed in this field yet?
+   *
+   * Nothing is searched until they have, and that is a billing rule, not a
+   * nicety. The field is often mounted with a value already in it — the saved
+   * address inside an accordion row, the funnel's pickup step when somebody
+   * steps back to edit — and the effect below keys on the query, so mounting
+   * with three or more characters fired a Places autocomplete for text nobody
+   * had entered. Expanding and collapsing one saved address ten times was ten
+   * billed calls for ten identical suggestions the customer never asked for
+   * and never saw.
+   *
+   * A ref rather than state: it must not cause a render, and the effect reads
+   * it at the moment it runs rather than closing over a stale value.
+   */
+  const hasTyped = React.useRef(false);
 
   const query = value.trim();
   const searchable = query.length >= MIN_CHARS;
@@ -104,6 +125,8 @@ export function AddressAutocomplete({
       justSelected.current = false;
       return;
     }
+    // A value that arrived as a default is not a search. See `hasTyped`.
+    if (!hasTyped.current) return;
     if (!searchable) return;
 
     const seq = ++requestSeq.current;
@@ -222,13 +245,25 @@ export function AddressAutocomplete({
     })();
   };
 
+  /**
+   * The only thing that marks this field as typed-in.
+   *
+   * `AutocompleteField` calls this from a real input event, so it cannot fire
+   * for a mounted default. `onSelect` also calls the caller's handler, but the
+   * `justSelected` guard above already stops that from searching.
+   */
+  const onTyped = (next: string) => {
+    hasTyped.current = true;
+    onValueChange(next);
+  };
+
   return (
     <AutocompleteField
       {...props}
       id={id}
       name={name}
       value={value}
-      onValueChange={onValueChange}
+      onValueChange={onTyped}
       suggestions={options}
       onSelect={onSelect}
       loading={loading}
