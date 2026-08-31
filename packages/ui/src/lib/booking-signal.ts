@@ -46,6 +46,30 @@ export const SIGNAL_DEBOUNCE_MS = 400;
 /** Fallback cadence when the socket is not delivering. */
 export const SIGNAL_POLL_MS = 30_000;
 
+/**
+ * The fallback interval for a surface the POLL IS ACTUALLY DRIVING.
+ *
+ * The 30-second default assumes the socket is the path and the poll is the
+ * safety net — true almost everywhere, because almost everything worth
+ * refreshing for writes a custody event, and the trigger on that table fires
+ * the signal.
+ *
+ * The driver shortlist is the exception, and it is not a bug. A candidate
+ * driver's position ping deliberately signals only bookings ALREADY BOUND to
+ * that driver's shift (`recordDriverPosition`), and a booking still choosing
+ * has no shift on its pickup task. Widening that would mean one driver's ping
+ * waking every customer currently choosing — and each wake is a full trip-page
+ * re-render, ETA round-trips included. The fan-out is the reason, not an
+ * oversight.
+ *
+ * So on that one screen the poll IS the transport, and 30 seconds is too slow
+ * to read as a live map: pins hold still long enough to look frozen. Twelve is
+ * frequent enough that something is almost always moving, and cheap enough to
+ * be honest about — a page a customer has open for a minute or two while they
+ * choose, not one they leave open all day.
+ */
+export const SIGNAL_POLL_FAST_MS = 12_000;
+
 interface SignalChannel {
   on(
     type: "postgres_changes",

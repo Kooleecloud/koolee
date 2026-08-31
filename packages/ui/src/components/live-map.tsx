@@ -1162,6 +1162,31 @@ function pickupPin(label: string): HTMLElement {
 function driverPin(driver: MapDriver): HTMLElement {
   const root = markerRoot();
   root.dataset.selected = driver.selected ? "true" : "false";
+  // The pin sits above its own ring; both share the root's centre.
+  root.classList.add("relative");
+
+  /*
+   * THE RING, and why a map needs one.
+   *
+   * Between updates every pin holds perfectly still, and a still map is
+   * indistinguishable from a broken one — which is the exact confusion this
+   * component has already cost twice. The ring says "these are live
+   * positions" continuously, without claiming a frequency it cannot keep and
+   * without a single extra request.
+   *
+   * Slow (2.8s) and low-contrast on purpose: a fast, bright pulse reads as an
+   * alert, and nothing here is wrong. `motion-reduce` drops it entirely —
+   * somebody who asked for less motion is not asking for a subtler version of
+   * it, and the map is complete without it.
+   */
+  const ring = document.createElement("span");
+  ring.setAttribute("aria-hidden", "true");
+  ring.className = [
+    "pointer-events-none absolute left-1/2 top-1/2 size-9 -translate-x-1/2 -translate-y-1/2",
+    "rounded-full bg-sky-500/40 animate-pin-ping motion-reduce:hidden",
+    "group-data-[selected=true]:bg-tag-500/40",
+  ].join(" ");
+  root.appendChild(ring);
 
   const button = document.createElement("button");
   button.type = "button";
@@ -1172,7 +1197,8 @@ function driverPin(driver: MapDriver): HTMLElement {
     driver.label ? `Driver ${driver.label}` : "Koolee driver",
   );
   button.className = [
-    "flex cursor-pointer items-center gap-1 rounded-full border-2 border-white px-2 py-1",
+    // `relative` so the pill paints above the ring behind it.
+    "relative flex cursor-pointer items-center gap-1 rounded-full border-2 border-white px-2 py-1",
     "text-xs font-semibold text-white shadow-lg",
     // Only `scale` transitions. NOT `transition-transform`, which would also
     // cover `transform` — the property MapLibre rewrites every frame on the

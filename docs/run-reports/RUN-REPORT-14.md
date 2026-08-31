@@ -659,3 +659,64 @@ same reason the MapLibre stylesheet is imported per app.
 Verified in the browser after each round: pin 44×44 and focusable, `aria-label`
 "Your pickup", the card opens with the right text and our own corner radius in
 Storybook as well as the app. Gates re-run clean — 1,027 unit, builds 3/3.
+
+---
+
+## Phase 2 addendum 2 — making the shortlist map feel live
+
+TD asked for "whatever makes this map feature more live and fun and
+interactive", having read the 30-second finding.
+
+**The poll on that one screen is now 12 s** (`SIGNAL_POLL_FAST_MS`), derived
+from the stage the server already computes, so it turns itself off the moment a
+driver is chosen and the socket takes over.
+
+**The expensive option was declined, with a reason.** Widening
+`recordDriverPosition` to also signal sealed bookings awaiting a driver would
+make the shortlist genuinely live — and would mean one driver's ping waking
+every customer currently choosing, where each wake is a **full trip-page
+re-render**: the candidate query, and an ETA round-trip per candidate through
+the Routes seam. Four candidates × three pings a minute × everybody choosing is
+a lot of billable work for pins that move a block. The scoping is a decision,
+not an oversight, and it is now written down where the constant is.
+
+**A ring behind every driver pin** (`--animate-pin-ping`, 2.8 s). Between
+updates every pin holds perfectly still, and a still map is indistinguishable
+from a broken one — the exact confusion this component has already cost twice.
+The ring says "these are live positions" continuously, without claiming a
+frequency it cannot keep and without one extra request. Slow and low-contrast
+on purpose: a fast, bright pulse reads as an alert, and nothing here is wrong.
+`motion-reduce:hidden` drops it entirely — somebody who asked for less motion is
+not asking for a subtler version of it.
+
+Verified in the browser: `animationName: "pin-ping"`, 2.8 s, infinite, and the
+computed opacity sampled at three moments (0 → 0.195 → 0.075) proves it is
+actually running rather than merely declared.
+
+## Closing the browser-coverage gap
+
+`DriverChoice` cannot be storied in this Storybook: it is `@storybook/react-vite`
+with no Next adapter, and the component uses `useRouter` and imports a server
+action at module scope. Making it renderable there is framework work, not a
+story, and it would be fragile.
+
+What was done instead is the thing that was actually wrong underneath.
+**`SegmentedControl` is now in `packages/ui`, with a story, and both apps use
+it.** The agent's schedule/history switch and the customer's new map/list switch
+were written independently three weeks apart and arrived at the same control by
+coincidence — the same padded track, the same raised pill, very nearly the same
+class strings. Two apps quietly growing their own copy of one control is how the
+consoles drift, and lifting on the second use is the repo's own rule.
+
+It supports links _or_ buttons because the two callers genuinely differ: the
+agent's tabs are URLs you can bookmark, the customer's is a view preference no
+URL should carry. The active tab is RAISED rather than tinted — a colour change
+alone is what disappears at a glance on a small screen or in bright sun.
+
+Verified by driving the story: both tabs render with `role="tab"`, clicking
+List flips `aria-selected` on both and swaps the rendered view.
+
+**Still not seen on the real trip page:** the shortlist as `/trips/[bookingId]`
+renders it — the map inside that card, and the pick-the-best row. Both need a
+booking with sealed bags and two positioned drivers, which the local database
+does not have. TD's post-merge browser pass covers it.

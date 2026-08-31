@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { DatabaseNotConfigured, EmptyState, cn } from "@koolee/ui";
+import { DatabaseNotConfigured, EmptyState, SegmentedControl, cn } from "@koolee/ui";
 import {
   airportLocalDay,
   airportLocalDayBounds,
@@ -81,7 +81,25 @@ export default async function SchedulePage({
         <h1 className="font-display text-3xl font-semibold text-navy-800">
           {history ? "History" : "Schedule"}
         </h1>
-        <ViewToggle history={history} openCount={open} doneCount={finished.length} />
+        {/*
+          LINKS, not state: the page is `force-dynamic` and each view needs a
+          different query, so the URL is the state — a schedule you can
+          bookmark and go back to. The shared control renders anchors for any
+          item carrying an `href`; see `SegmentedControl`.
+        */}
+        <SegmentedControl
+          items={[
+            { value: "todo" as const, label: `To do · ${open}`, href: "/tasks" },
+            {
+              value: "history" as const,
+              label: `History · ${finished.length}`,
+              href: "/tasks?view=history",
+            },
+          ]}
+          value={history ? "history" : "todo"}
+          linkComponent={Link}
+          label="Schedule or history"
+        />
       </header>
 
       {unavailable ? (
@@ -92,56 +110,6 @@ export default async function SchedulePage({
         <ScheduleList sections={sections} empty={jobs.length === 0} />
       )}
     </AgentMain>
-  );
-}
-
-/**
- * Schedule ⇄ History.
- *
- * Two links rather than a client component with state: the page is
- * `force-dynamic` and each view needs a different query anyway, so the URL is
- * the state and a shared link lands where it says it does.
- */
-function ViewToggle({
-  history,
-  openCount,
-  doneCount,
-}: {
-  history: boolean;
-  openCount: number;
-  doneCount: number;
-}) {
-  const base =
-    "flex-1 rounded-md px-3 py-2 text-center text-sm font-medium transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring";
-  return (
-    <div
-      className="flex gap-1 rounded-lg border border-border bg-muted/40 p-1"
-      role="tablist"
-      aria-label="Schedule or history"
-    >
-      <Link
-        href="/tasks"
-        role="tab"
-        aria-selected={!history}
-        className={cn(
-          base,
-          history ? "text-muted-foreground" : "bg-card text-navy-800 shadow-lift",
-        )}
-      >
-        To do · {openCount}
-      </Link>
-      <Link
-        href="/tasks?view=history"
-        role="tab"
-        aria-selected={history}
-        className={cn(
-          base,
-          history ? "bg-card text-navy-800 shadow-lift" : "text-muted-foreground",
-        )}
-      >
-        History · {doneCount}
-      </Link>
-    </div>
   );
 }
 

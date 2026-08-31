@@ -14,6 +14,7 @@ import {
   CardTitle,
   FormMessage,
   LiveMap,
+  SegmentedControl,
   ProgressTrack,
 } from "@koolee/ui";
 
@@ -248,7 +249,24 @@ export function DriverChoice({
           </CardDescription>
         )}
         {showMap && (
-          <ViewToggle view={view} onChange={setView} count={candidates.length} />
+          <SegmentedControl
+            items={[
+              { value: "map" as const, label: "Map" },
+              /*
+               * The count is on the LIST tab alone, and that is the point
+               * rather than an omission: the list holds EVERY candidate, and
+               * the map can only draw the ones who have reported a position.
+               * Two different numbers on two tabs would read as a discrepancy
+               * rather than as a fact about GPS — the map view says the rest
+               * in a sentence when they differ.
+               */
+              { value: "list" as const, label: `List · ${candidates.length}` },
+            ]}
+            value={view}
+            onChange={setView}
+            label="Map or list"
+            className="mt-3 sm:max-w-56"
+          />
         )}
       </CardHeader>
 
@@ -377,74 +395,6 @@ export function DriverChoice({
         )}
       </CardContent>
     </Card>
-  );
-}
-
-/**
- * Map or list, one at a time.
- *
- * A `role="tablist"` of real buttons rather than a styled checkbox, matching
- * the agent app's schedule/history control — same shape, same affordance, so
- * the two consoles do not each invent their own segmented control.
- *
- * BOTH VIEWS ARE ALWAYS REACHABLE, which is what keeps this accessible: the
- * list is a tab, not a fallback hidden behind a hover or a breakpoint, and it
- * carries every driver including the ones the map cannot draw.
- */
-function ViewToggle({
-  view,
-  onChange,
-  count,
-}: {
-  view: "map" | "list";
-  onChange: (next: "map" | "list") => void;
-  /**
-   * How many drivers there are, shown on the List tab.
-   *
-   * ON THE LIST TAB ONLY, and that is the point rather than an omission: the
-   * list holds EVERY candidate, while the map can only draw the ones who have
-   * reported a position. Two different numbers on two tabs would read as a
-   * discrepancy rather than as a fact about GPS, so the tab that can promise
-   * the number is the one that carries it — and the map view says the rest in
-   * a sentence when the two counts differ.
-   */
-  count: number;
-}) {
-  const base =
-    "flex-1 rounded-md px-3 py-1.5 text-center text-sm font-medium transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring";
-  return (
-    <div
-      className="mt-3 flex gap-1 rounded-lg border border-border bg-muted/40 p-1 sm:max-w-56"
-      role="tablist"
-      aria-label="Map or list"
-    >
-      <button
-        type="button"
-        role="tab"
-        aria-selected={view === "map"}
-        onClick={() => onChange("map")}
-        className={
-          view === "map"
-            ? `${base} bg-card text-navy-800 shadow-lift`
-            : `${base} text-muted-foreground`
-        }
-      >
-        Map
-      </button>
-      <button
-        type="button"
-        role="tab"
-        aria-selected={view === "list"}
-        onClick={() => onChange("list")}
-        className={
-          view === "list"
-            ? `${base} bg-card text-navy-800 shadow-lift`
-            : `${base} text-muted-foreground`
-        }
-      >
-        List · {count}
-      </button>
-    </div>
   );
 }
 

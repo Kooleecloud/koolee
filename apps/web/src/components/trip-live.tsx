@@ -2,7 +2,12 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { toast, useAnnounceChange, useBookingSignal } from "@koolee/ui";
+import {
+  SIGNAL_POLL_FAST_MS,
+  toast,
+  useAnnounceChange,
+  useBookingSignal,
+} from "@koolee/ui";
 
 import { getSupabaseBrowserClient } from "@/lib/supabase/browser";
 
@@ -59,6 +64,20 @@ export function TripLive({
   active?: boolean;
   stage?: string | null;
 }) {
+  /*
+   * THE ONE SCREEN THE POLL ACTUALLY DRIVES, so it gets the faster one.
+   *
+   * Everywhere else the socket is the path: a custody event fires the trigger
+   * and the page refetches in about three seconds, with the 30-second poll as
+   * the net. On the driver shortlist there is no socket traffic at all — a
+   * candidate's position ping signals only bookings already bound to that
+   * driver's shift, and a booking still choosing has none. See
+   * `SIGNAL_POLL_FAST_MS` for why widening that is the expensive answer.
+   *
+   * Derived from the STAGE the server computed, so it turns itself off the
+   * moment a driver is chosen and the socket takes over.
+   */
+  const choosing = stage === "choose_driver";
   const router = useRouter();
   const client = getSupabaseBrowserClient();
   const bookingIds = React.useMemo(() => (bookingId ? [bookingId] : []), [bookingId]);
@@ -68,6 +87,7 @@ export function TripLive({
     bookingIds,
     onSignal: () => router.refresh(),
     enabled: active,
+    pollMs: choosing ? SIGNAL_POLL_FAST_MS : undefined,
   });
 
   useAnnounceChange(stage, (next) => {

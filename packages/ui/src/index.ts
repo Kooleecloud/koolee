@@ -169,6 +169,11 @@ export {
   type BookingStatusBadgeProps,
 } from "./components/booking-status-badge";
 export { ConfirmDialog, type ConfirmDialogProps } from "./components/confirm-dialog";
+export {
+  SegmentedControl,
+  type SegmentedControlItem,
+  type SegmentedControlProps,
+} from "./components/segmented-control";
 export { ImageLightbox, type ImageLightboxProps } from "./components/image-lightbox";
 
 /* Feedback — every async action must show one of these */
@@ -180,6 +185,7 @@ export { useAnnounceChange } from "./lib/announce-change";
 export {
   BOOKING_SIGNAL_TABLE,
   SIGNAL_DEBOUNCE_MS,
+  SIGNAL_POLL_FAST_MS,
   SIGNAL_POLL_MS,
   useBookingSignal,
   type BookingSignalClient,
