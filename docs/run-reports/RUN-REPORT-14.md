@@ -41,6 +41,8 @@ Read this section first; the rest is the record.
 | M2  | Driver list in Phase 2 — always visible below the map, or collapsed behind a toggle?                                           | **Always visible below the map.**                                             |
 | M3  | Session autonomy across seven phases                                                                                           | **Pause after Phase 0 + 1** for review before Phase 2.                        |
 
+| M4 | Which MapLibre controls to add in Phase 2 | **All four offered:** recenter-when-panned, `GeolocateControl`, cooperative gestures, fullscreen. |
+
 ### Arrived mid-session, not in the slice prompt
 
 TD asked for a pass over the admin app's inline forms: several surfaces render a
@@ -349,3 +351,44 @@ payment), so the positive case has no live subject here. The rule behind it is
 proved by 19 integration cases against real Postgres — window boundary to the
 millisecond, ownership 404, capture refusal, double-cancel, actor, and the hold
 actually released at the provider — and the prod build proves it bundles.
+
+### Carried into Phase 2 (TD, mid-session)
+
+**Pin flicker on hover.** Diagnosed, not yet fixed. The driver pin carries
+`transition-transform hover:scale-110` on the element MAPLIBRE OWNS. Two
+separate faults in one class list:
+
+- MapLibre rewrites that element's `transform: translate(...)` on every render
+  frame, and `transition-transform` makes the browser animate each of those
+  rewrites. `walkMarker`'s own `requestAnimationFrame` loop writes a new
+  position every frame during the 1.2s walk, so the CSS transition restarts on
+  each one — two animations driving the same property.
+- Tailwind v4 compiles `scale-110` to the standalone `scale:` property, not to
+  `transform`, so `transition-transform` does not animate the hover growth at
+  all. It was never doing the job it was added for.
+
+The fix is the standard MapLibre pattern: the marker element belongs to the
+library and is positioned by it; every visual effect goes on a child. Phase 2.
+
+**Map refresh cadence, asked and answered.** Four numbers, all measured from
+the code rather than estimated:
+
+| Hop                       | Interval                                      | Where                                                     |
+| ------------------------- | --------------------------------------------- | --------------------------------------------------------- |
+| Driver's phone → server   | **45 s** (a fix older than 60 s is discarded) | `PING_INTERVAL_MS`, `apps/agent/.../gps-pinger.tsx`       |
+| Server → customer's page  | signal, else **30 s** poll, 400 ms debounce   | `SIGNAL_POLL_MS`, `packages/ui/src/lib/booking-signal.ts` |
+| Position considered stale | **3 min** — dropped rather than drawn         | `POSITION_FRESH_MS`, `services/driver-selection.ts`       |
+| Pin walk between fixes    | **1.2 s** eased; jumps past 2.5 km            | `MOVE_DURATION_MS`, `MAX_SMOOTH_METRES`                   |
+
+**A finding that matters for Phase 2.** On the driver-SELECTION step the
+realtime signal does nothing. `recordDriverPosition` touches
+`booking_signals` only for bookings whose pickup task is already bound to that
+driver's shift (`driver_shift_id = shift.id`, status assigned/in_progress) —
+and during selection no driver has been chosen, so `driver_shift_id` is null.
+Candidate pins therefore move on the **30-second poll alone**, not live. The
+tracking map after selection is the one that gets the 45-second signal.
+
+That is a deliberate scoping in `recordDriverPosition` ("so a ping does not
+wake pages for bookings whose bags are still on a doorstep"), not a bug — but
+Phase 2's "pins refresh on the existing signal/poll cadence" means 30 s there,
+and the copy around the shortlist must not imply anything faster.
