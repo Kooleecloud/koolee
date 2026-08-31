@@ -24,10 +24,13 @@ export {
 
 export {
   assertActionable,
+  assignmentGate,
   bookingActionability,
   getBookingActionability,
   type ActionabilitySubject,
   type ActionName,
+  type AssignmentGate,
+  type AssignmentKind,
   type BookingActionability,
   type BookingActions,
   type BookingPhase,

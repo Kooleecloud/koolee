@@ -181,6 +181,101 @@ function phaseOf(subject: ActionabilitySubject, now: Date): BookingPhase {
   return "before_window_end";
 }
 
+/* ------------------------------------------------------------------ */
+/* Assignment, which is ops' question rather than the customer's         */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The two things a dispatcher can still move on a booking.
+ *
+ * NOT one of the five gated actions above, and deliberately kept apart from
+ * them: those five are things a CUSTOMER or an AGENT does, and every one is
+ * about time — a late booking is still savable, which is the whole reason
+ * `phase` exists. Reassignment is neither. It is about STANDING alone: has the
+ * work this assignment exists for already happened, or stopped happening?
+ *
+ * A booking twenty minutes past its window can still be reassigned to a driver
+ * who can make the cutoff — that is exactly when a dispatcher most needs to.
+ * So this reads `standing` and never `phase`, and folding it into
+ * `BookingActions` would have dragged the time axis in with it.
+ */
+export type AssignmentKind =
+  /** The agent who verifies and seals at the door. */
+  | "verification"
+  /** The driver who collects and delivers. */
+  | "pickup";
+
+export interface AssignmentGate {
+  allowed: boolean;
+  /** One sentence, for the refusal AND for the disabled control. Null when allowed. */
+  reason: string | null;
+}
+
+/**
+ * Whether ops may still change who is on this booking.
+ *
+ * ONE PLACE, because it was three. `assignAgentToBooking` checked the
+ * verification task's own status, `adminUnassignPickup` carried a
+ * three-status array and `adminReassignPickup` a two-status one — and every
+ * one of them had the same hole: **none mentioned `cancelled`**. A cancelled
+ * booking could have its driver swapped, and a cancelled booking whose agent
+ * was already assigned skipped the status check outright, because that branch
+ * only ran for a FIRST assignment.
+ *
+ * The two kinds close at different moments, and that asymmetry is the point:
+ *
+ *  - **Verification closes when the visit is done.** Once bags are sealed the
+ *    agent's work is finished and recorded against them — seals they put on,
+ *    photos they took, a passport they confirmed. Reassigning that would
+ *    reattribute somebody's evidence.
+ *  - **Pickup closes when the BOOKING is done**, which is later. A driver can
+ *    be swapped right up until the bags are in a van, because until then the
+ *    job is "go to a door", and any driver can do it.
+ *
+ * The in-transit refusal is separate and stays where it is: it carries its own
+ * sentence naming force-end-shift as the honest route, which is a fact about
+ * the incident path rather than about standing.
+ */
+export function assignmentGate(
+  kind: AssignmentKind,
+  subject: { status: BookingStatus; ref?: string },
+  visitComplete: boolean,
+): AssignmentGate {
+  const standing = standingOf(subject.status);
+  const named = subject.ref ? `Booking ${subject.ref}` : "This booking";
+
+  if (subject.status === "cancelled") {
+    return {
+      allowed: false,
+      reason: `${named} was cancelled — there is nobody to assign it to.`,
+    };
+  }
+
+  if (standing === "terminal") {
+    return { allowed: false, reason: `${named} is complete — the job is finished.` };
+  }
+
+  if (kind === "verification") {
+    if (visitComplete) {
+      return {
+        allowed: false,
+        reason:
+          "The visit is already complete — the seals, photos and passport check are recorded against the agent who did it.",
+      };
+    }
+    return { allowed: true, reason: null };
+  }
+
+  if (standing === "handed_over") {
+    return {
+      allowed: false,
+      reason: `${named} is with the airline — the bags have already been handed over.`,
+    };
+  }
+
+  return { allowed: true, reason: null };
+}
+
 /**
  * The pure computation. Exported because every rule below is a claim about
  * time that ought to be provable without a database.

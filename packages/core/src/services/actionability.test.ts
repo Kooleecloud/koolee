@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { bookingActionability, type ActionabilitySubject } from "./actionability";
+import {
+  assignmentGate,
+  bookingActionability,
+  type ActionabilitySubject,
+} from "./actionability";
 
 /**
  * The gate matrix, one test per row.
@@ -218,5 +222,99 @@ describe("boundaries are inclusive of the deadline itself", () => {
 
   it("is departed exactly at departure", () => {
     expect(bookingActionability(subject(), DEPARTURE).phase).toBe("departed");
+  });
+});
+
+/**
+ * Who ops may still move, which is a question about STANDING alone.
+ *
+ * THE HOLE THIS CLOSES. Three call sites each carried their own status list —
+ * `assignAgentToBooking` checked the visit task, `adminUnassignPickup` a
+ * three-status array, `adminReassignPickup` a two-status one — and not one of
+ * them mentioned `cancelled`. A cancelled booking could have its driver
+ * swapped; worse, a cancelled booking that already HAD an agent skipped the
+ * status check entirely, because that branch only ran for a first assignment.
+ *
+ * No `phase` appears below, and that is the design: a booking twenty minutes
+ * past its window can still be reassigned to a driver who can make the
+ * cutoff — that is exactly when a dispatcher needs to.
+ */
+describe("assignmentGate", () => {
+  const ref = "KOO-T0001";
+
+  it.each(["paid", "agent_assigned", "verified_sealed", "awaiting_pickup"] as const)(
+    "lets ops reassign the pickup while the booking is %s",
+    (status) => {
+      expect(assignmentGate("pickup", { status, ref }, false).allowed).toBe(true);
+    },
+  );
+
+  /* THE BUG. Every call site missed this one. */
+  it.each(["verification", "pickup"] as const)(
+    "refuses %s assignment on a cancelled booking",
+    (kind) => {
+      const gate = assignmentGate(kind, { status: "cancelled", ref }, false);
+      expect(gate.allowed).toBe(false);
+      expect(gate.reason).toMatch(/cancelled/i);
+    },
+  );
+
+  it.each(["verification", "pickup"] as const)(
+    "refuses %s assignment once the booking is complete",
+    (kind) => {
+      const gate = assignmentGate(kind, { status: "completed", ref }, false);
+      expect(gate.allowed).toBe(false);
+      expect(gate.reason).toMatch(/complete/i);
+    },
+  );
+
+  /* --- the two kinds close at DIFFERENT moments ----------------------- */
+
+  /*
+   * Verification closes when the VISIT is done: the seals, the photos and the
+   * passport check are recorded against the agent who did them, and
+   * reassigning would reattribute somebody's evidence.
+   */
+  it("refuses a verification reassignment once the visit is complete", () => {
+    const gate = assignmentGate("verification", { status: "verified_sealed", ref }, true);
+    expect(gate.allowed).toBe(false);
+    expect(gate.reason).toMatch(/visit is already complete/i);
+  });
+
+  /*
+   * Pickup closes LATER — a driver can be swapped right up until the bags are
+   * in a van, because until then the job is "go to a door" and any driver can
+   * do it. A finished visit is no obstacle to that.
+   */
+  it("still allows a pickup reassignment after the visit is complete", () => {
+    expect(
+      assignmentGate("pickup", { status: "verified_sealed", ref }, true).allowed,
+    ).toBe(true);
+  });
+
+  it("refuses a pickup reassignment once the bags are with the airline", () => {
+    const gate = assignmentGate("pickup", { status: "delivered_to_bagdrop", ref }, false);
+    expect(gate.allowed).toBe(false);
+    expect(gate.reason).toMatch(/airline/i);
+  });
+
+  /*
+   * `in_transit` is NOT refused here. Its refusal lives in
+   * `adminUnassignPickup`, where the sentence can name force-end-shift as the
+   * honest route — a fact about the incident path rather than about standing.
+   */
+  it("leaves the in-transit case to the caller that can explain it", () => {
+    expect(assignmentGate("pickup", { status: "in_transit", ref }, false).allowed).toBe(
+      true,
+    );
+  });
+
+  it("names the booking when it has a ref, and stays generic without one", () => {
+    expect(
+      assignmentGate("pickup", { status: "completed", ref }, false).reason,
+    ).toContain(ref);
+    expect(assignmentGate("pickup", { status: "completed" }, false).reason).toMatch(
+      /^This booking/,
+    );
   });
 });

@@ -21,7 +21,7 @@ import {
   NotAuthorizedError,
   NotFoundError,
 } from "../errors";
-import { assertActionable } from "./actionability";
+import { assertActionable, assignmentGate } from "./actionability";
 import { touchBookingSignals } from "./booking-signals";
 import { toCoordinates, type Coordinates } from "../geo/coordinates";
 import type { EtaRange } from "../geo/eta";
@@ -924,12 +924,10 @@ export async function adminReassignPickup(
   const { db } = config;
   const { booking, pickup } = await loadSelectionContext(db, input.bookingId);
 
-  if (booking.status === "delivered_to_bagdrop" || booking.status === "completed") {
-    throw new ConflictError(
-      "driver",
-      `Booking ${booking.ref} is ${booking.status} — the bags are already with the airline.`,
-    );
-  }
+  // The shared gate: complete, cancelled, or already with the airline. It
+  // replaces a two-status array here that never mentioned `cancelled`.
+  const reassignGate = assignmentGate("pickup", booking, false);
+  if (!reassignGate.allowed) throw new ConflictError("driver", reassignGate.reason!);
 
   return db.transaction(async (tx) => {
     await tx.execute(
@@ -1092,18 +1090,22 @@ export async function adminUnassignPickup(
     .limit(1);
   if (!booking) throw new NotFoundError("Booking", input.bookingId);
 
-  if (
-    booking.status === "in_transit" ||
-    booking.status === "delivered_to_bagdrop" ||
-    booking.status === "completed"
-  ) {
+  /*
+   * THE IN-TRANSIT REFUSAL STAYS HERE, and only it. Its sentence names
+   * force-end-shift as the honest route, which is a fact about the incident
+   * path rather than about the booking's standing — see the header.
+   */
+  if (booking.status === "in_transit") {
     throw new ConflictError(
       "driver",
-      booking.status === "in_transit"
-        ? `The bags for ${booking.ref} are already in this driver's van. Unassigning would re-list them for collection from a door they have left. Force-end the shift instead — that releases the run AND raises an exception, which pages ops.`
-        : `Booking ${booking.ref} is ${booking.status} — the bags are already with the airline.`,
+      `The bags for ${booking.ref} are already in this driver's van. Unassigning would re-list them for collection from a door they have left. Force-end the shift instead — that releases the run AND raises an exception, which pages ops.`,
     );
   }
+
+  // Everything else — complete, cancelled, already with the airline — is the
+  // shared gate. It is where the `cancelled` case this used to miss lives.
+  const gate = assignmentGate("pickup", booking, false);
+  if (!gate.allowed) throw new ConflictError("driver", gate.reason!);
 
   return db.transaction(async (tx) => {
     const task = await tx.query.pickupTasks.findFirst({

@@ -328,7 +328,15 @@ describeIntegration("admin dispatch + overrides (integration)", () => {
     });
     expect(result.ok).toBe(false);
     if (result.ok) return;
-    expect(result.error).toMatch(/completed/);
+    /*
+     * The refusal now comes from `assignmentGate` in the actionability
+     * service rather than from a line in `assignAgentToBooking`, so the
+     * WORDING moved with it ("the visit is already complete", plus why). The
+     * rule this test exists for is unchanged and still asserted: a finished
+     * visit cannot be reassigned, because the seals and the passport check
+     * are recorded against the agent who did it.
+     */
+    expect(result.error).toMatch(/visit is already complete/i);
   });
 
   it("refuses inactive agents, non-agent staff, and non-paid first assignments — without leaving orphan tasks", async () => {

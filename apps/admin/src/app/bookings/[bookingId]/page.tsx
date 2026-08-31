@@ -21,6 +21,7 @@ import {
   EVENT_TYPES,
   getBookingAgreementState,
   getPassportVerification,
+  assignmentGate,
   cancellationFromTimeline,
   formatInstantInAirportTz,
   formatWindowInAirportTz,
@@ -205,6 +206,23 @@ export default async function BookingDetailPage({
       ? timeline.find((event) => event.eventType === "booking.cancelled")
       : undefined;
   const cancellation = cancellationFromTimeline(timeline);
+
+  /*
+   * WHETHER OPS MAY STILL MOVE PEOPLE ON THIS BOOKING, from the same function
+   * core refuses with. The two answers differ — the verification closes when
+   * the visit is done, the pickup when the booking is — so both are asked.
+   *
+   * Read here rather than reasoned about in the JSX: a control hidden by one
+   * rule while the server refuses by another is how an operator ends up
+   * looking at a button that cannot work, or at no button when the action was
+   * available all along.
+   */
+  const visitGate = assignmentGate(
+    "verification",
+    booking,
+    assignment.taskStatus === "done",
+  );
+  const pickupGate = assignmentGate("pickup", booking, false);
 
   // The identity gate's two halves, read for display only. Ops cannot satisfy
   // either of them from here by design: the acceptance is the customer's act,
@@ -626,24 +644,33 @@ export default async function BookingDetailPage({
               </CardDescription>
             </CardHeader>
             <CardContent className="flex flex-col gap-4">
-              <AssignAgentForm
-                bookingId={booking.id}
-                agents={agents.map((agent) => {
-                  const name = agent.fullName
-                    ? `${agent.fullName} (${agent.email ?? agent.userId})`
-                    : (agent.email ?? agent.userId);
-                  // Load is on the label, not a second column: the operator is
-                  // choosing inside this list and cannot see anything else.
-                  return {
-                    userId: agent.userId,
-                    label: `${name} — ${agent.openTasks} open`,
-                  };
-                })}
-                currentAssignee={assignment.assigneeUserId}
-              />
-              {!assignment.assigneeUserId && booking.status === "paid" && (
-                <AutoAssignButton bookingId={booking.id} />
+              {/* The gate's own sentence, in place of the control it refuses.
+                  A disabled button with no reason beside it is the same dead
+                  end as one that silently fails. */}
+              {!visitGate.allowed ? (
+                <p className="rounded-md border border-border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
+                  {visitGate.reason}
+                </p>
+              ) : (
+                <AssignAgentForm
+                  bookingId={booking.id}
+                  agents={agents.map((agent) => {
+                    const name = agent.fullName
+                      ? `${agent.fullName} (${agent.email ?? agent.userId})`
+                      : (agent.email ?? agent.userId);
+                    // Load is on the label, not a second column: the operator is
+                    // choosing inside this list and cannot see anything else.
+                    return {
+                      userId: agent.userId,
+                      label: `${name} — ${agent.openTasks} open`,
+                    };
+                  })}
+                  currentAssignee={assignment.assigneeUserId}
+                />
               )}
+              {visitGate.allowed &&
+                !assignment.assigneeUserId &&
+                booking.status === "paid" && <AutoAssignButton bookingId={booking.id} />}
             </CardContent>
           </Card>
           <Card>
@@ -666,35 +693,43 @@ export default async function BookingDetailPage({
               </CardDescription>
             </CardHeader>
             <CardContent className="flex flex-col gap-4">
-              <ReassignPickupForm
-                bookingId={booking.id}
-                bagCount={booking.bagCount}
-                currentShiftId={selectedDriver?.shiftId ?? null}
-                options={reassignOptions.map((option) => ({
-                  shiftId: option.shiftId,
-                  // The free count is net of the reserve now — the same
-                  // `bookableSpaces` figure the customer's shortlist filters
-                  // on, so the console and the funnel cannot disagree about
-                  // whether a van has room.
-                  label: `${option.driverName ?? "Unnamed driver"} — ${option.truckName} (${Math.max(
-                    0,
-                    option.bagCapacity - option.reservedSpaces - option.bagsOnBoard,
-                  )} free${option.reservedSpaces > 0 ? `, ${option.reservedSpaces} held back` : ""})`,
-                  inZone: option.inZone,
-                  hasRoom: option.hasRoom,
-                }))}
-              />
+              {!pickupGate.allowed ? (
+                <p className="rounded-md border border-border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
+                  {pickupGate.reason}
+                </p>
+              ) : (
+                <>
+                  <ReassignPickupForm
+                    bookingId={booking.id}
+                    bagCount={booking.bagCount}
+                    currentShiftId={selectedDriver?.shiftId ?? null}
+                    options={reassignOptions.map((option) => ({
+                      shiftId: option.shiftId,
+                      // The free count is net of the reserve now — the same
+                      // `bookableSpaces` figure the customer's shortlist filters
+                      // on, so the console and the funnel cannot disagree about
+                      // whether a van has room.
+                      label: `${option.driverName ?? "Unnamed driver"} — ${option.truckName} (${Math.max(
+                        0,
+                        option.bagCapacity - option.reservedSpaces - option.bagsOnBoard,
+                      )} free${option.reservedSpaces > 0 ? `, ${option.reservedSpaces} held back` : ""})`,
+                      inZone: option.inZone,
+                      hasRoom: option.hasRoom,
+                    }))}
+                  />
 
-              {/* Only when there IS somebody to remove. Core refuses an
+                  {/* Only when there IS somebody to remove. Core refuses an
                   unassign on an empty task, and an affordance that only ever
                   produces a refusal is noise. */}
-              {selectedDriver && selectedDriver.taskStatus !== "done" && (
-                <div className="border-t border-border pt-3">
-                  <UnassignPickupForm
-                    bookingId={booking.id}
-                    driverLabel={`${selectedDriver.givenName ?? "this driver"} (${selectedDriver.truckName})`}
-                  />
-                </div>
+                  {selectedDriver && selectedDriver.taskStatus !== "done" && (
+                    <div className="border-t border-border pt-3">
+                      <UnassignPickupForm
+                        bookingId={booking.id}
+                        driverLabel={`${selectedDriver.givenName ?? "this driver"} (${selectedDriver.truckName})`}
+                      />
+                    </div>
+                  )}
+                </>
               )}
             </CardContent>
           </Card>

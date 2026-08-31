@@ -40,6 +40,7 @@ import { airportLocalDayBounds } from "../slots/cutoff";
 import { withinAssignmentHorizon } from "./assignment-horizon";
 import { applyTransition } from "./bookings";
 import { OPEN_TASK_STATUSES } from "./tasks";
+import { assignmentGate } from "./actionability";
 import { cancelBookingWithRefund } from "./payment-lifecycle";
 import { getActiveStaffRole } from "./staff";
 
@@ -149,9 +150,23 @@ export async function assignAgentToBooking(
   const existing = await db.query.verificationTasks.findFirst({
     where: eq(verificationTasks.bookingId, booking.id),
   });
-  if (existing && (existing.status === "done" || existing.completedAt)) {
-    return { ok: false, error: "The visit is already completed — nothing to reassign." };
-  }
+
+  /*
+   * ONE GATE, and it used to be this one line plus a hole.
+   *
+   * The visit-complete check was here and correct; what was missing was the
+   * BOOKING's own standing. A cancelled booking could be assigned an agent —
+   * and worse, a cancelled booking that already HAD one skipped the status
+   * check below entirely, because that branch only runs for a first
+   * assignment. `assignmentGate` answers both, in the same module the rest of
+   * the app asks "can this booking still be acted on".
+   */
+  const gate = assignmentGate(
+    "verification",
+    booking,
+    Boolean(existing && (existing.status === "done" || existing.completedAt)),
+  );
+  if (!gate.allowed) return { ok: false, error: gate.reason! };
 
   // The booking carries its pickup window directly (legacy slot rows were
   // backfilled into these columns by migration 0012).

@@ -720,3 +720,74 @@ List flips `aria-selected` on both and swaps the rendered view.
 renders it — the map inside that card, and the pick-the-best row. Both need a
 booking with sealed bags and two positioned drivers, which the local database
 does not have. TD's post-merge browser pass covers it.
+
+---
+
+## Phase 4 — Reassignment gates
+
+The brief asked to close reassignment at two moments and route both through
+the F1 actionability service instead of scattered status checks. Doing that
+found a hole none of the three call sites had noticed.
+
+### What was actually there
+
+Three places each carried their own status list, and **not one of them
+mentioned `cancelled`**:
+
+| Call site              | Its own check                                     | Missing                |
+| ---------------------- | ------------------------------------------------- | ---------------------- |
+| `assignAgentToBooking` | verification task `done`/`completedAt`            | every booking standing |
+| `adminUnassignPickup`  | `in_transit`, `delivered_to_bagdrop`, `completed` | `cancelled`            |
+| `adminReassignPickup`  | `delivered_to_bagdrop`, `completed`               | `cancelled`            |
+
+So a cancelled booking could have its driver swapped. Worse: in
+`assignAgentToBooking` the status check ran only for a FIRST assignment
+(`!reassigned`), so a cancelled booking that already had an agent skipped it
+outright and could be reassigned freely.
+
+### `assignmentGate`, in the actionability service
+
+One function, next to the five customer/agent gates but deliberately **not one
+of them**. Those five are all about TIME — a late booking is still savable,
+which is the whole reason `phase` exists. Reassignment is about STANDING alone:
+a booking twenty minutes past its window can still be handed to a driver who
+can make the cutoff, and that is exactly when a dispatcher needs it. So the
+gate reads `standing` and never `phase`, and folding it into `BookingActions`
+would have dragged the time axis in with it.
+
+**The two kinds close at different moments, and that asymmetry is the point.**
+
+- **Verification closes when the VISIT is done.** Once bags are sealed, the
+  seals, the photos and the passport check are recorded against the agent who
+  did them; reassigning would reattribute somebody's evidence.
+- **Pickup closes when the BOOKING is done**, which is later. A driver can be
+  swapped right up until the bags are in a van, because until then the job is
+  "go to a door" and any driver can do it.
+
+**The in-transit refusal stayed where it was**, deliberately. Its sentence
+names force-end-shift as the honest route, which is a fact about the incident
+path rather than about standing — and F4's rule that it stays a refusal rather
+than becoming a silent exception is untouched.
+
+### The console says the same thing
+
+Both panels read the same gate the server refuses with, and render **the gate's
+own sentence in place of the control**. A control hidden by one rule while the
+server refuses by another is how an operator ends up looking at a button that
+cannot work — or at no button when the action was available all along.
+
+### One test assertion changed, and why
+
+`dispatch.integration.test.ts` asserted `/completed/` against a message that
+now lives in the shared gate and reads "the visit is already complete", plus
+why. The rule the test exists for is unchanged and still asserted; only the
+wording it matches moved. Noted here rather than quietly adjusted.
+
+### Verified
+
+| Check                                         | Result                                         |
+| --------------------------------------------- | ---------------------------------------------- |
+| `pnpm format:check` / `typecheck` / `lint`    | clean, 6/6, 6/6                                |
+| `pnpm turbo test`                             | 1,041 passed, 1 skipped (+13 `assignmentGate`) |
+| `pnpm --filter @koolee/core test:integration` | 366 passed, 3 skipped                          |
+| `pnpm turbo build`                            | 3/3                                            |
