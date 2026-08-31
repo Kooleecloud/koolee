@@ -24,6 +24,7 @@
     "test": "vitest run --exclude '**/*.integration.test.ts'",
     "test:watch": "vitest",
     "test:integration": "vitest run integration.test; rc=$?; pnpm --filter @koolee/db seed:local; exit $rc",
+    "test:integration:ci": "vitest run integration.test --exclude \"**/auth/upgrade-guard.integration.test.ts\" --exclude \"**/services/staff-auth.integration.test.ts\"",
     "clean": "rm -rf .turbo node_modules coverage *.tsbuildinfo"
   },
   "dependencies": {

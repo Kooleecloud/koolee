@@ -1,0 +1,166 @@
+# The gate every change to `dev` and `main` passes through.
+#
+# WHAT IT RUNS, and why each is here rather than trusted to a human:
+#
+#   format:check  — `pnpm format` rewrites the repo, so a branch that ran it
+#                   and a branch that did not produce conflicting diffs over
+#                   untouched code. Cheap to enforce, expensive to reconcile.
+#   typecheck     — 6 packages.
+#   lint          — 6 packages.
+#   unit tests    — every package's pure tier.
+#   builds        — 3 Next apps. `next build` is the only step that renders
+#                   pages, and this repo has shipped two bugs (a client
+#                   component with no directive, a `null` return that never
+#                   mounts) that typecheck, lint and every test were green
+#                   over. A build is not a substitute for a browser, but it is
+#                   the cheapest thing that is not a test.
+#   integration   — packages/core against a REAL Postgres, in a service
+#                   container that exists for the length of the job.
+#
+# TWO JOBS, ONE WORKFLOW. The integration tier needs a database and nothing
+# else does, so it runs beside `checks` rather than after it: a red database
+# job and a red typecheck should both be visible on the first run, not one
+# after the other.
+#
+# THE DATABASE IS ALWAYS EPHEMERAL AND ALWAYS LOCAL. `postgres:16` on
+# localhost, created and destroyed with the job. `migrate.yml` remains the
+# ONLY workflow in this repository that connects to a hosted database, and
+# nothing here has, or can obtain, a hosted credential.
+#
+# WHY A BOOTSTRAP SCRIPT. `packages/db/README.md` claims the migrations run
+# against a plain Postgres. Measured: they get as far as 0008, which writes
+# `storage.buckets` unguarded. The migrations cannot be fixed — `db:status`
+# compares by content hash, so editing an applied migration means permanent
+# drift against hosted — so `scripts/ci-postgres-bootstrap.sql` creates the
+# small Supabase surface they touch instead. Full reasoning in that file.
+#
+# WHAT IS DELIBERATELY NOT RUN HERE: the two integration suites that need a
+# real GoTrue (`upgrade-guard`, `staff-auth`). They refuse to skip rather than
+# rot silently, and standing up eleven Supabase containers per run to satisfy
+# two files is a trade this pipeline does not make. They run locally through
+# `pnpm test:env:up && pnpm --filter @koolee/core test:integration`.
+#
+# HOW TO REPRODUCE ANY STEP LOCALLY: docs/SCRIPTS.md § Continuous integration.
+
+name: CI
+
+on:
+  pull_request:
+    branches: [dev, main]
+  push:
+    branches: [dev, main]
+
+# One run per branch. A force-push supersedes its predecessor rather than
+# racing it — except on `dev`/`main` themselves, where a cancelled run would
+# leave a merged commit with no verdict against it.
+concurrency:
+  group: ci-${{ github.event_name }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  # Turbo's cache is NOT persisted between runs. `.next/dev` once put 616 GB
+  # into it on one machine (see turbo.json); an Actions cache has a 10 GB
+  # budget for the whole repository, and a poisoned build cache is a class of
+  # failure that costs more to diagnose than the minutes it saves. The pnpm
+  # store is cached; build output is not.
+  TURBO_TELEMETRY_DISABLED: 1
+  DO_NOT_TRACK: 1
+
+jobs:
+  checks:
+    name: types, lint, format, unit tests, builds
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4 # version comes from package.json "packageManager"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      # First, and on its own line: a formatting failure is one command to fix
+      # and should not be buried under a compiler's output.
+      - name: Format
+        run: pnpm format:check
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Unit tests
+        run: pnpm test
+
+      # No environment is supplied on purpose. `apps/*/src/env.ts` guarantees
+      # that importing it never throws and that every production gate is
+      # exempt during `phase-production-build` — a build on a credential-less
+      # machine is the contract, and this is what keeps it true.
+      - name: Build (3 apps)
+        run: pnpm build
+
+  integration:
+    name: core integration tier (ephemeral Postgres)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: koolee_test
+          # Matches docker-compose.yml: deterministic ordering regardless of
+          # the runner's locale.
+          POSTGRES_INITDB_ARGS: "--locale=C --encoding=UTF8"
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d koolee_test"
+          --health-interval 3s
+          --health-timeout 3s
+          --health-retries 20
+
+    env:
+      # One URL, two variables, because the migrator prefers DIRECT_ and the
+      # suites read TEST_. Both point at the container above and nowhere else.
+      DIRECT_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/koolee_test
+      TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/koolee_test
+      # No GoTrue here. The two suites that need one are excluded by name.
+      AUTH_SCHEMA_AVAILABLE: "false"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      # core's tests import @koolee/db; the rest of the workspace is not
+      # needed to run them.
+      - name: Install (core and its dependencies)
+        run: pnpm install --frozen-lockfile --filter @koolee/core...
+
+      - name: Bootstrap the Supabase surface the migrations touch
+        run: psql "$DIRECT_DATABASE_URL" -v ON_ERROR_STOP=1 -f scripts/ci-postgres-bootstrap.sql
+
+      - name: Apply migrations
+        run: pnpm --filter @koolee/db db:migrate
+
+      # Same assertion migrate.yml makes against hosted: the applied set has
+      # to match this checkout by content hash, not by count.
+      - name: Verify the applied set matches this checkout
+        run: pnpm --filter @koolee/db db:status
+
+      - name: Integration tests
+        run: pnpm --filter @koolee/core test:integration:ci
