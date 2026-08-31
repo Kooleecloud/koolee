@@ -48,3 +48,29 @@ export function haversineKm(from: Coordinates, to: Coordinates): number {
 
   return 2 * EARTH_RADIUS_KM * Math.asin(Math.min(1, Math.sqrt(a)));
 }
+
+/** Statute miles per kilometre. */
+const MILES_PER_KM = 0.621371;
+
+/**
+ * Distance as a customer in New York reads it.
+ *
+ * KILOMETRES ARE AN INTERNAL UNIT HERE. Every distance in the system is stored
+ * and priced in km — the pricing rule is cents per km, the ZIP centroids and
+ * the haversine are metric, and none of that changes. But the customer-facing
+ * "3.2 km away" line on the trip page was the only place in a US product that
+ * quoted a metric distance to somebody standing in Manhattan waiting for a van.
+ *
+ * One decimal under ten miles, whole miles above: "0.8 miles" is a useful
+ * number and "12.4 miles" is false precision on an estimate whose input is a
+ * ZIP centroid.
+ */
+export function formatMiles(km: number): string {
+  const miles = km * MILES_PER_KM;
+  if (miles < 0.1) return "less than 0.1 miles";
+  // A trailing ".0" is noise on a number this coarse — "1.0 mile" reads as a
+  // measurement, and this is an estimate.
+  const value =
+    miles < 10 ? miles.toFixed(1).replace(/\.0$/, "") : String(Math.round(miles));
+  return `${value} ${value === "1" ? "mile" : "miles"}`;
+}

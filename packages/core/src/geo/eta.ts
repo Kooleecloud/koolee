@@ -169,8 +169,42 @@ export class HaversineEtaEstimator implements EtaEstimator {
   }
 }
 
-/** Renders a range for a customer. Never a bare number — see `EtaRange`. */
+/**
+ * The range, spelled out. For OPERATORS and logs — the admin console and the
+ * cutoff monitor's alert detail, where the width of the band is information.
+ */
 export function formatEtaRange(eta: EtaRange | null): string {
   if (eta === null) return "ETA on the way";
   return `${eta.minMinutes}–${eta.maxMinutes} min`;
+}
+
+/**
+ * The number a CUSTOMER reads.
+ *
+ * WHY THIS IS ONE NUMBER AND THE RANGE STAYS INTERNAL. A range is the honest
+ * shape of the estimate and the monitor needs its pessimistic end — that has
+ * not changed, and `EtaRange` is still what every estimator returns. But
+ * "40–75 min" on a trip page is not honesty, it is a refusal to answer: the
+ * question somebody watching a van is asking is "when do I need to be at the
+ * door", and a 35-minute band means they have to be at the door for the whole
+ * band. Every delivery app in the world answers with a number, and so do we.
+ *
+ * The number LEANS LATE — 60% of the way up the band, not the midpoint —
+ * because the two errors are not symmetric. Being ready early costs a customer
+ * a few minutes; being told 40 and answering the door at 70 is the failure
+ * they remember. Rounded to 5 so it never claims a precision the estimate
+ * does not have.
+ *
+ * `null` is a real state (no driver position yet) and says so rather than
+ * inventing a number.
+ */
+export function formatEtaMinutes(eta: EtaRange | null): string {
+  if (eta === null) return "ETA on the way";
+  return `about ${etaDisplayMinutes(eta)} min`;
+}
+
+/** The single number behind {@link formatEtaMinutes}. Exported for tests. */
+export function etaDisplayMinutes(eta: EtaRange): number {
+  const leaning = eta.minMinutes + (eta.maxMinutes - eta.minMinutes) * 0.6;
+  return Math.max(5, Math.round(leaning / 5) * 5);
 }

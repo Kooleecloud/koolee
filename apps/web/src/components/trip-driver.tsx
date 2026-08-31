@@ -47,7 +47,7 @@ export interface DriverCandidateView {
   /** Room left on that van after this booking's bags. */
   availableCapacity: number;
   outOfZone: boolean;
-  /** Preformatted by `formatEtaRange` — "20–30 min" or "ETA on the way". */
+  /** Preformatted by `formatEtaMinutes` — "about 25 min" or "ETA on the way". */
   etaLabel: string;
   /** True when the ETA is a real estimate rather than the fallback phrase. */
   hasEta: boolean;
@@ -58,7 +58,7 @@ export interface SelectedDriverView {
   avatarUrl: string | null;
   truckName: string;
   etaLabel: string;
-  /** Rounded, e.g. "3.2 km away". Null when the driver has not pinged. */
+  /** Miles, e.g. "3.2 miles away". Null when the driver has not pinged. */
   distanceLabel: string | null;
   /** Airport-local, preformatted. Null when there is no position yet. */
   lastSeenLabel: string | null;

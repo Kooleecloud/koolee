@@ -17,7 +17,7 @@ import {
 } from "@koolee/ui";
 import {
   DRIVER_SELECTABLE_STATUSES,
-  formatEtaRange,
+  formatEtaMinutes,
   formatInstantInAirportTz,
   formatWindowInAirportTz,
   getBookingActionability,
@@ -25,6 +25,7 @@ import {
   getBookingDetailForSession,
   getPassportVerification,
   getSelectedDriver,
+  formatMiles,
   haversineKm,
   listCandidateDrivers,
   reportEmptyDriverPool,
@@ -246,17 +247,17 @@ export default async function TripPage({
       truckName: candidate.truckName,
       availableCapacity: candidate.availableCapacity - booking.bagCount,
       outOfZone: candidate.outOfZone,
-      etaLabel: formatEtaRange(candidate.eta),
+      etaLabel: formatEtaMinutes(candidate.eta),
       hasEta: candidate.eta !== null,
     })),
   );
 
   // Awaited before the view is assembled: `estimate` became async in Tier 5 so
   // a routing provider can sit behind the seam. It is not load-bearing — the
-  // adapter falls back to arithmetic on any failure and `formatEtaRange(null)`
+  // adapter falls back to arithmetic on any failure and `formatEtaMinutes(null)`
   // is a complete answer — so nothing below branches on it.
   const selectedDriverEta =
-    selectedDriver?.position && pickupAddress?.lat != null && pickupAddress.lng != null
+    selectedDriver?.position && pickupAddress.lat != null && pickupAddress.lng != null
       ? await core.etaEstimator.estimate({
           from: selectedDriver.position,
           to: { lat: pickupAddress.lat, lng: pickupAddress.lng },
@@ -268,13 +269,18 @@ export default async function TripPage({
         givenName: selectedDriver.givenName,
         avatarUrl: relatedAvatars.get(selectedDriver.staffUserId) ?? null,
         truckName: selectedDriver.truckName,
-        etaLabel: formatEtaRange(selectedDriverEta),
+        etaLabel: formatEtaMinutes(selectedDriverEta),
+        // Miles, because the customer waiting for this van is in New York.
+        // Kilometres stay the internal unit everywhere else — pricing, the
+        // centroids, the haversine — and nothing about that changes.
         distanceLabel:
-          selectedDriver.position && pickupAddress?.lat != null && pickupAddress.lng != null
-            ? `${haversineKm(selectedDriver.position, {
-                lat: pickupAddress.lat,
-                lng: pickupAddress.lng,
-              }).toFixed(1)} km away`
+          selectedDriver.position && pickupAddress.lat != null && pickupAddress.lng != null
+            ? `${formatMiles(
+                haversineKm(selectedDriver.position, {
+                  lat: pickupAddress.lat,
+                  lng: pickupAddress.lng,
+                }),
+              )} away`
             : null,
         lastSeenLabel: selectedDriver.positionRecordedAt
           ? formatInstantInAirportTz(selectedDriver.positionRecordedAt, tz)
@@ -395,7 +401,7 @@ export default async function TripPage({
 
       <Card>
         <CardHeader>
-          <CardTitle className="font-display text-base">Your pickup</CardTitle>
+          <CardTitle className="font-display text-base">Pickup details</CardTitle>
           <CardDescription>
             Times are local to {booking.departureAirport}. Please have your bags and your
             passport ready when your agent arrives.
