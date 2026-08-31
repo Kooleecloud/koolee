@@ -128,10 +128,7 @@ export function UpcomingTripCard({ trip }: { trip: TripSummary }) {
           <TripFact label="Bags" value={bagsLabel(booking.bagCount)} />
           {/* "Total", not "Paid" — a booking can sit unpaid, and `priceCents`
               is the quote either way. */}
-          <TripFact
-            label="Total"
-            value={dollars(booking.priceCents, booking.currency)}
-          />
+          <TripFact label="Total" value={dollars(booking.priceCents, booking.currency)} />
           <TripFact label="Reference" value={booking.ref} />
         </dl>
       </Link>

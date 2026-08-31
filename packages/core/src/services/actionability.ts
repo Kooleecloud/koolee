@@ -217,7 +217,8 @@ export function bookingActionability(
     return {
       ...base,
       can: NOTHING,
-      blockedReason: "Your bags are with the airline. Anything further goes through support.",
+      blockedReason:
+        "Your bags are with the airline. Anything further goes through support.",
       lateNotice: null,
       raisesException: false,
     };

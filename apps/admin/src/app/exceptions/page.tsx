@@ -133,16 +133,16 @@ export default async function ExceptionsPage() {
         <CardHeader>
           <CardTitle className="text-base">Resolving an exception</CardTitle>
           <CardDescription>
-            Open the booking and use the resolution panel there: cancel and refund,
-            put the bags back in transit, or close it out as complete. Each one asks
-            for a reason and writes it to the custody trail, which is append-only —
-            nothing you do here can erase what happened.
+            Open the booking and use the resolution panel there: cancel and refund, put
+            the bags back in transit, or close it out as complete. Each one asks for a
+            reason and writes it to the custody trail, which is append-only — nothing you
+            do here can erase what happened.
           </CardDescription>
         </CardHeader>
         <CardContent className="text-sm text-muted-foreground">
           Dedicated flows for the common cases — rejected bag, lost bag, re-dispatch,
-          partial refund — are not built yet. Until they are, the reason you type is
-          what the next person reads, so write it for them.
+          partial refund — are not built yet. Until they are, the reason you type is what
+          the next person reads, so write it for them.
         </CardContent>
       </Card>
     </ConsoleMain>

@@ -7,12 +7,7 @@ import * as React from "react";
  * bundler that papers over it you get `undefined.Map is not a function` at
  * runtime instead.
  */
-import {
-  LngLatBounds,
-  Map as MapLibreMap,
-  Marker,
-  NavigationControl,
-} from "maplibre-gl";
+import { LngLatBounds, Map as MapLibreMap, Marker, NavigationControl } from "maplibre-gl";
 
 import { cn } from "../lib/utils";
 
@@ -308,12 +303,17 @@ export function LiveMap({
          * swap keeps the selected state in step without touching position.
          */
         const from = existing.getLngLat();
-        walkMarker(existing, { lat: from.lat, lng: from.lng }, driver.position, (frame) => {
-          const previous = moves.current.get(driver.id);
-          if (previous !== undefined) cancelAnimationFrame(previous);
-          if (frame === null) moves.current.delete(driver.id);
-          else moves.current.set(driver.id, frame);
-        });
+        walkMarker(
+          existing,
+          { lat: from.lat, lng: from.lng },
+          driver.position,
+          (frame) => {
+            const previous = moves.current.get(driver.id);
+            if (previous !== undefined) cancelAnimationFrame(previous);
+            if (frame === null) moves.current.delete(driver.id);
+            else moves.current.set(driver.id, frame);
+          },
+        );
         const element = existing.getElement();
         element.dataset.selected = driver.selected ? "true" : "false";
         element.setAttribute("aria-pressed", driver.selected ? "true" : "false");
@@ -376,7 +376,10 @@ export function LiveMap({
      * politely stopped showing the thing it is for is worse than a map that
      * moves. So we re-frame then, and only then.
      */
-    const signature = drivers.map((driver) => driver.id).sort().join("|");
+    const signature = drivers
+      .map((driver) => driver.id)
+      .sort()
+      .join("|");
     if (framedFor.current === signature) {
       if (drivers.length === 0) return;
       const visible = instance.getBounds();
@@ -392,11 +395,9 @@ export function LiveMap({
       return;
     }
 
-    const bounds = new LngLatBounds(
-      [pickup.lng, pickup.lat],
-      [pickup.lng, pickup.lat],
-    );
-    for (const driver of drivers) bounds.extend([driver.position.lng, driver.position.lat]);
+    const bounds = new LngLatBounds([pickup.lng, pickup.lat], [pickup.lng, pickup.lat]);
+    for (const driver of drivers)
+      bounds.extend([driver.position.lng, driver.position.lat]);
     // `maxZoom` matters: a driver already outside the building would otherwise
     // frame two pins a few metres apart at street level, which is a map of
     // nothing.
@@ -423,7 +424,10 @@ export function LiveMap({
       ref={container}
       role="img"
       aria-label={label}
-      className={cn("overflow-hidden rounded-lg border border-border bg-muted/30", className)}
+      className={cn(
+        "overflow-hidden rounded-lg border border-border bg-muted/30",
+        className,
+      )}
     />
   );
 }
@@ -490,8 +494,7 @@ function pickupPin(): HTMLElement {
   const element = document.createElement("div");
   element.className =
     "flex size-6 items-center justify-center rounded-full border-2 border-white bg-navy-800 shadow-lg";
-  element.innerHTML =
-    '<span class="block size-2 rounded-full bg-white"></span>';
+  element.innerHTML = '<span class="block size-2 rounded-full bg-white"></span>';
   element.setAttribute("aria-hidden", "true");
   return element;
 }

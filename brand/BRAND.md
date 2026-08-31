@@ -13,16 +13,16 @@ field and the reasoning).
 
 ## Files
 
-| File | Use |
-| --- | --- |
-| `logo-full.svg` | Primary lockup (mark + wordmark), light grounds |
-| `logo-full-inverse.svg` | Lockup for navy/dark grounds |
-| `logo-full-mono.svg` | Single-color lockup (print, engraving, embroidery) |
-| `logo-icon.svg` | Square mark alone, light grounds |
-| `logo-icon-inverse.svg` | Square mark for navy/dark grounds |
-| `logo-icon-mono.svg` | Single-color mark |
-| `logo-wordmark.svg` / `-inverse` | Wordmark alone (Sora SemiBold baked outlines, +2% tracking) |
-| `app-tile.svg` | Navy tile + inverse mark — source for favicons and PWA icons |
+| File                             | Use                                                          |
+| -------------------------------- | ------------------------------------------------------------ |
+| `logo-full.svg`                  | Primary lockup (mark + wordmark), light grounds              |
+| `logo-full-inverse.svg`          | Lockup for navy/dark grounds                                 |
+| `logo-full-mono.svg`             | Single-color lockup (print, engraving, embroidery)           |
+| `logo-icon.svg`                  | Square mark alone, light grounds                             |
+| `logo-icon-inverse.svg`          | Square mark for navy/dark grounds                            |
+| `logo-icon-mono.svg`             | Single-color mark                                            |
+| `logo-wordmark.svg` / `-inverse` | Wordmark alone (Sora SemiBold baked outlines, +2% tracking)  |
+| `app-tile.svg`                   | Navy tile + inverse mark — source for favicons and PWA icons |
 
 In app code, don't embed these files — use the `KooleeLogo` component from
 `@koolee/ui` (`withWordmark={false}` for the mark alone). It renders the tag
@@ -32,12 +32,12 @@ change color.
 
 ## Color
 
-| Token | Hex | Role |
-| --- | --- | --- |
-| Navy | `#0B2545` | Tag body, wordmark, primary UI color |
-| Sky | `#38B6E3` | Upper arm only (in the mark); accent in UI |
+| Token      | Hex       | Role                                                                 |
+| ---------- | --------- | -------------------------------------------------------------------- |
+| Navy       | `#0B2545` | Tag body, wordmark, primary UI color                                 |
+| Sky        | `#38B6E3` | Upper arm only (in the mark); accent in UI                           |
 | Tag Orange | `#FF6B35` | Grommet only (in the mark); CTA, seal, and live-custody marker in UI |
-| Inverse | `#F4F7FA` | Tag body + wordmark on navy/dark grounds |
+| Inverse    | `#F4F7FA` | Tag body + wordmark on navy/dark grounds                             |
 
 Rules:
 

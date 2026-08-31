@@ -205,7 +205,11 @@ describe("groupIntoSections", () => {
     // Ordering of the checks, pinned: a failed stop from yesterday belongs at
     // the top of the screen, not filed under "Overdue" with the merely late.
     const jobs = [
-      job({ bookingId: "x", state: "problem", startsAt: new Date("2026-06-01T15:00:00Z") }),
+      job({
+        bookingId: "x",
+        state: "problem",
+        startsAt: new Date("2026-06-01T15:00:00Z"),
+      }),
     ];
     const s = groupIntoSections(jobs, NOW, dayBounds, localDay);
     expect(s.problems).toHaveLength(1);
@@ -241,9 +245,17 @@ describe("groupIntoSections", () => {
 describe("finishedJobs", () => {
   it("returns only finished work, most recent first", () => {
     const jobs = [
-      job({ bookingId: "old", state: "done", startsAt: new Date("2026-06-01T14:00:00Z") }),
+      job({
+        bookingId: "old",
+        state: "done",
+        startsAt: new Date("2026-06-01T14:00:00Z"),
+      }),
       job({ bookingId: "open", startsAt: NOW }),
-      job({ bookingId: "new", state: "done", startsAt: new Date("2026-06-10T14:00:00Z") }),
+      job({
+        bookingId: "new",
+        state: "done",
+        startsAt: new Date("2026-06-10T14:00:00Z"),
+      }),
     ];
     expect(finishedJobs(jobs).map((j) => j.bookingId)).toEqual(["new", "old"]);
   });

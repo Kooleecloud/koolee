@@ -4,7 +4,11 @@ import { cookies } from "next/headers";
 
 import { bookingDraftSchema, type TypedBookingDraft } from "./booking-draft-schema";
 
-export { bookingDraftSchema, type BookingDraft, type TypedBookingDraft } from "./booking-draft-schema";
+export {
+  bookingDraftSchema,
+  type BookingDraft,
+  type TypedBookingDraft,
+} from "./booking-draft-schema";
 
 /**
  * Multi-step booking draft, held in a cookie.

@@ -120,10 +120,16 @@ describeIntegration("driver shifts (integration)", () => {
 
     const [admin] = await db
       .insert(users)
-      .values({ email: "ops@koolee-test.example", role: "admin", fullName: "Alex Morgan" })
+      .values({
+        email: "ops@koolee-test.example",
+        role: "admin",
+        fullName: "Alex Morgan",
+      })
       .returning();
     adminId = admin!.id;
-    await db.insert(staffMembers).values({ userId: adminId, role: "admin", active: true });
+    await db
+      .insert(staffMembers)
+      .values({ userId: adminId, role: "admin", active: true });
     refCounter = 0;
   });
 
@@ -389,7 +395,9 @@ describeIntegration("driver shifts (integration)", () => {
     });
 
     expect(result.raisedExceptions).toEqual([booking.id]);
-    const after = await db.query.bookings.findFirst({ where: eq(bookings.id, booking.id) });
+    const after = await db.query.bookings.findFirst({
+      where: eq(bookings.id, booking.id),
+    });
     expect(after?.status).toBe("exception");
   });
 

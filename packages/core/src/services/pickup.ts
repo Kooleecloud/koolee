@@ -111,7 +111,11 @@ export async function getPickupContext(
 
   const [bagRows, timeline, tz, customerRows, shiftRows] = await Promise.all([
     // By ordinal, never createdAt — this is the list the driver counts down.
-    db.select().from(bags).where(eq(bags.bookingId, booking.id)).orderBy(asc(bags.ordinal)),
+    db
+      .select()
+      .from(bags)
+      .where(eq(bags.bookingId, booking.id))
+      .orderBy(asc(bags.ordinal)),
     db
       .select()
       .from(custodyEvents)
@@ -222,7 +226,11 @@ export async function startPickupTravel(
   await db.transaction(async (tx) => {
     await tx
       .update(pickupTasks)
-      .set({ status: "in_progress", startedAt: config.clock.now(), updatedAt: new Date() })
+      .set({
+        status: "in_progress",
+        startedAt: config.clock.now(),
+        updatedAt: new Date(),
+      })
       .where(eq(pickupTasks.id, context.task.id));
 
     await tx.insert(custodyEvents).values({

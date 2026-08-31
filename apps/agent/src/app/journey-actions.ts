@@ -48,9 +48,7 @@ export interface StartPickupResult {
   error?: string;
 }
 
-export async function startPickupFromJourney(
-  taskId: string,
-): Promise<StartPickupResult> {
+export async function startPickupFromJourney(taskId: string): Promise<StartPickupResult> {
   if (!taskId) return { ok: false, error: "Missing task." };
 
   try {

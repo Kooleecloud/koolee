@@ -32,20 +32,20 @@ four real documents TD already has plus seven synthetic itineraries built with
 the existing `makePdf` helper, plus one image rendered from a synthetic PDF to
 exercise the vision path. Twelve documents in all.
 
-| Fixture | What it is | Expected legs | Expected chosen leg |
-|---|---|---|---|
-| `real-yatra-round-trip.pdf` | The real Yatra e-ticket (27 KB). Return leg printed FIRST in the text layer; durations printed beside departure times | 2 | EWR→DEL, `AI144`, 2017-12-12T13:15 |
-| `real-multi-serviced-legs.pdf` | Air India multi-city, TWO New York departures (JFK and EWR) | 2 | ambiguous — JFK→LHR `AI191` 2026-12-18T09:40, with EWR→CDG offered |
-| `real-ua1189.pdf` | United receipt, **SFO→JFK** — arrives in New York, departs somewhere we do not serve | 1 | none; `no_serviced_origin`, origin SFO |
-| `real-ua1189-generated.pdf` | United receipt, JFK→SFO, one leg | 1 | JFK→SFO `UA1189` 2026-08-04T17:45 |
-| `syn-round-trip.pdf` | Round trip JFK→LAX / LAX→JFK, with a **purchaser** line and an **issue date** printed above the departure date | 2 | JFK→LAX `DL411` 2026-09-14T07:45 |
-| `syn-connecting-legs.pdf` | Connecting legs EWR→ORD→SFO, same day | 2 | EWR→ORD `UA1189` 2026-10-03T06:15 |
-| `syn-multi-city.pdf` | JFK→LHR→CDG→EWR, three legs, three airlines | 3 | JFK→LHR `BA178` 2026-11-14T19:30 |
-| `syn-open-jaw.pdf` | JFK out, MIA→EWR back, then a second EWR departure | 3 | ambiguous — two serviced origins |
-| `syn-reversed-print-order.pdf` | Yatra layout compressed: return leg first, durations beside times | 2 | EWR→DEL `AI144` 2026-12-15T13:15 |
-| `syn-purchaser-vs-traveler.pdf` | Cardholder, loyalty-programme member and passenger are three different people | 1 | JFK→NRT `NH9` 2026-09-30T11:05, pax **Yuki Nakamura** |
-| `syn-no-text-layer.pdf` | A PDF with no text layer (the scanned-ticket case) | 0 | unreadable |
-| `syn-round-trip.png` | `syn-round-trip.pdf` rendered to PNG — a photographed ticket | 2 | same as `syn-round-trip.pdf` |
+| Fixture                         | What it is                                                                                                            | Expected legs | Expected chosen leg                                                |
+| ------------------------------- | --------------------------------------------------------------------------------------------------------------------- | ------------- | ------------------------------------------------------------------ |
+| `real-yatra-round-trip.pdf`     | The real Yatra e-ticket (27 KB). Return leg printed FIRST in the text layer; durations printed beside departure times | 2             | EWR→DEL, `AI144`, 2017-12-12T13:15                                 |
+| `real-multi-serviced-legs.pdf`  | Air India multi-city, TWO New York departures (JFK and EWR)                                                           | 2             | ambiguous — JFK→LHR `AI191` 2026-12-18T09:40, with EWR→CDG offered |
+| `real-ua1189.pdf`               | United receipt, **SFO→JFK** — arrives in New York, departs somewhere we do not serve                                  | 1             | none; `no_serviced_origin`, origin SFO                             |
+| `real-ua1189-generated.pdf`     | United receipt, JFK→SFO, one leg                                                                                      | 1             | JFK→SFO `UA1189` 2026-08-04T17:45                                  |
+| `syn-round-trip.pdf`            | Round trip JFK→LAX / LAX→JFK, with a **purchaser** line and an **issue date** printed above the departure date        | 2             | JFK→LAX `DL411` 2026-09-14T07:45                                   |
+| `syn-connecting-legs.pdf`       | Connecting legs EWR→ORD→SFO, same day                                                                                 | 2             | EWR→ORD `UA1189` 2026-10-03T06:15                                  |
+| `syn-multi-city.pdf`            | JFK→LHR→CDG→EWR, three legs, three airlines                                                                           | 3             | JFK→LHR `BA178` 2026-11-14T19:30                                   |
+| `syn-open-jaw.pdf`              | JFK out, MIA→EWR back, then a second EWR departure                                                                    | 3             | ambiguous — two serviced origins                                   |
+| `syn-reversed-print-order.pdf`  | Yatra layout compressed: return leg first, durations beside times                                                     | 2             | EWR→DEL `AI144` 2026-12-15T13:15                                   |
+| `syn-purchaser-vs-traveler.pdf` | Cardholder, loyalty-programme member and passenger are three different people                                         | 1             | JFK→NRT `NH9` 2026-09-30T11:05, pax **Yuki Nakamura**              |
+| `syn-no-text-layer.pdf`         | A PDF with no text layer (the scanned-ticket case)                                                                    | 0             | unreadable                                                         |
+| `syn-round-trip.png`            | `syn-round-trip.pdf` rendered to PNG — a photographed ticket                                                          | 2             | same as `syn-round-trip.pdf`                                       |
 
 ### 0.2 Reproduction — the two extractors, same twelve documents
 
@@ -148,7 +148,7 @@ and the table above reproduces all three:**
      ([claude/extractor.ts:129](../../packages/core/src/extraction/claude/extractor.ts#L129)),
      and the heuristic has no such guard.
    - **The date and the time come from different rows.** The date is the
-     *first* date anywhere in the document and the time is the *first* time
+     _first_ date anywhere in the document and the time is the _first_ time
      anywhere, with no requirement that they belong to the same leg or even to
      a leg at all. `syn-round-trip.pdf` → `2026-08-12T07:45`: **August 12 is
      the issue date**, 07:45 is the September 14 departure time.
@@ -165,20 +165,20 @@ it is a confident one.
 
 ### 0.4 The local-vs-hosted delta, enumerated
 
-| # | Candidate difference | Verdict | Evidence |
-|---|---|---|---|
-| 1 | **`ANTHROPIC_API_KEY` present locally, absent hosted → silent heuristic fallback** | **PRIME SUSPECT — reproduces all three symptoms** | §0.2/§0.3 above. `apps/web/.env.local:44` sets it; `env.ts:108` declares it `optionalString`; `core.ts:63` branches on it with no log, no warning and no boot gate. Confirmation that it is unset on `dev.koolee.cloud` is TD's to give (§0.6) |
-| 2 | Model id / version pinning | **RULED OUT** | `CLAUDE_EXTRACTION_MODEL = "claude-haiku-4-5"` and `CLAUDE_ESCALATION_MODEL = "claude-sonnet-5"` are module constants in `claude/extractor.ts:49,56`. Neither is read from env in any app; `grep -rn "EXTRACTION_MODEL\|ESCALATION_MODEL" apps/` returns nothing |
-| 3 | Prompt / tool-schema drift between environments | **RULED OUT** | `ITINERARY_TOOL` and `buildPrompt` are module constants. The only value that varies with the environment is `today`, and it feeds `selectSegment`'s "has this leg already flown?" test only — see #9 |
-| 4 | PDF-text path vs vision path selection | **RULED OUT as an independent cause; it IS #1** | The two paths are the two extractors. `ClaudeTicketExtractor.documentBlock` always sends the raw bytes as a `document`/`image` block and never runs `unpdf`; `HeuristicTicketExtractor` always runs `unpdf` and **refuses images outright** (`syn-round-trip.png` → `no text extraction for image/png yet`). A customer who photographs a ticket gets nothing at all on the heuristic path and a correct read on the Claude path |
-| 5 | File size / downscale limits | **RULED OUT** | `MAX_TICKET_UPLOAD_BYTES = 10 * 1024 * 1024` is a constant in `uploads/buckets.ts:46`, enforced identically in `handleTicketUpload`. No env var, no per-environment override. Migration 0026 sets the bucket's own limit from the same constant |
-| 6 | `TICKET_EXTRACTION_DEBUG` | **RULED OUT as a cause; it is why staging is opaque** | `route.ts:84` uses it only to decide whether `diagnostics` is echoed to the browser. It is `1` in `apps/web/.env.local:66`. It does not touch extraction — but with it unset on staging there is no way to see which extractor ran, which is how this went unnoticed |
-| 7 | API version header | **RULED OUT** | The SDK sets `anthropic-version` itself; no override anywhere, no env var |
-| 8 | Streaming vs non-streaming | **RULED OUT** | `client.messages.create` non-streaming on both passes, in code, in both environments |
-| 9 | Truncation of long documents | **NOT the reported bug; a real multi-leg hazard** | `MAX_OUTPUT_TOKENS = 4096`, and the escalation pass sets `thinking: { type: "adaptive" }` — thinking tokens are drawn from the same budget. Highest observed output on the fixtures was 525 tokens, so nothing here truncated; a long multi-city itinerary that escalates could. Identical in both environments, so it is not the local/hosted delta |
-| 10 | **Vercel serverless `maxDuration`** | **NOT the reported bug; a real hosted-only hazard** | `apps/web/src/app/api/ticket-uploads/route.ts` exports no `maxDuration`. Measured extraction latency on the fixtures: 2.3 s–8.1 s, and the escalation path is the slow end (`real-multi-serviced-legs` 5.7 s, `syn-open-jaw` 8.1 s) — before the multipart read, the Storage write and two DB round-trips. The Vercel default is 10 s. A timeout shows as a failed upload, not as wrong data, so it does not explain TD's symptom; it is worth closing anyway |
-| 11 | `@anthropic-ai/sdk` dynamic import under Next's bundler | **RULED OUT as the cause** | `getClient()` does `await import("@anthropic-ai/sdk")` inside `runPass`'s `try`. If it failed on hosted, both passes would set `attempt.error` and `finish()` would return `unreadable` — the "we couldn't read this, enter manually" path. TD reports **wrong values**, not a failure to read. (`next build` tracing is verified in the Phase 1 gate regardless) |
-| 12 | Server timezone (hosted UTC vs TD's local zone) | **RULED OUT for the reported times; one real minor defect** | See §0.5 |
+| #   | Candidate difference                                                               | Verdict                                                     | Evidence                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| --- | ---------------------------------------------------------------------------------- | ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | **`ANTHROPIC_API_KEY` present locally, absent hosted → silent heuristic fallback** | **PRIME SUSPECT — reproduces all three symptoms**           | §0.2/§0.3 above. `apps/web/.env.local:44` sets it; `env.ts:108` declares it `optionalString`; `core.ts:63` branches on it with no log, no warning and no boot gate. Confirmation that it is unset on `dev.koolee.cloud` is TD's to give (§0.6)                                                                                                                                                                                                                |
+| 2   | Model id / version pinning                                                         | **RULED OUT**                                               | `CLAUDE_EXTRACTION_MODEL = "claude-haiku-4-5"` and `CLAUDE_ESCALATION_MODEL = "claude-sonnet-5"` are module constants in `claude/extractor.ts:49,56`. Neither is read from env in any app; `grep -rn "EXTRACTION_MODEL\|ESCALATION_MODEL" apps/` returns nothing                                                                                                                                                                                              |
+| 3   | Prompt / tool-schema drift between environments                                    | **RULED OUT**                                               | `ITINERARY_TOOL` and `buildPrompt` are module constants. The only value that varies with the environment is `today`, and it feeds `selectSegment`'s "has this leg already flown?" test only — see #9                                                                                                                                                                                                                                                          |
+| 4   | PDF-text path vs vision path selection                                             | **RULED OUT as an independent cause; it IS #1**             | The two paths are the two extractors. `ClaudeTicketExtractor.documentBlock` always sends the raw bytes as a `document`/`image` block and never runs `unpdf`; `HeuristicTicketExtractor` always runs `unpdf` and **refuses images outright** (`syn-round-trip.png` → `no text extraction for image/png yet`). A customer who photographs a ticket gets nothing at all on the heuristic path and a correct read on the Claude path                              |
+| 5   | File size / downscale limits                                                       | **RULED OUT**                                               | `MAX_TICKET_UPLOAD_BYTES = 10 * 1024 * 1024` is a constant in `uploads/buckets.ts:46`, enforced identically in `handleTicketUpload`. No env var, no per-environment override. Migration 0026 sets the bucket's own limit from the same constant                                                                                                                                                                                                               |
+| 6   | `TICKET_EXTRACTION_DEBUG`                                                          | **RULED OUT as a cause; it is why staging is opaque**       | `route.ts:84` uses it only to decide whether `diagnostics` is echoed to the browser. It is `1` in `apps/web/.env.local:66`. It does not touch extraction — but with it unset on staging there is no way to see which extractor ran, which is how this went unnoticed                                                                                                                                                                                          |
+| 7   | API version header                                                                 | **RULED OUT**                                               | The SDK sets `anthropic-version` itself; no override anywhere, no env var                                                                                                                                                                                                                                                                                                                                                                                     |
+| 8   | Streaming vs non-streaming                                                         | **RULED OUT**                                               | `client.messages.create` non-streaming on both passes, in code, in both environments                                                                                                                                                                                                                                                                                                                                                                          |
+| 9   | Truncation of long documents                                                       | **NOT the reported bug; a real multi-leg hazard**           | `MAX_OUTPUT_TOKENS = 4096`, and the escalation pass sets `thinking: { type: "adaptive" }` — thinking tokens are drawn from the same budget. Highest observed output on the fixtures was 525 tokens, so nothing here truncated; a long multi-city itinerary that escalates could. Identical in both environments, so it is not the local/hosted delta                                                                                                          |
+| 10  | **Vercel serverless `maxDuration`**                                                | **NOT the reported bug; a real hosted-only hazard**         | `apps/web/src/app/api/ticket-uploads/route.ts` exports no `maxDuration`. Measured extraction latency on the fixtures: 2.3 s–8.1 s, and the escalation path is the slow end (`real-multi-serviced-legs` 5.7 s, `syn-open-jaw` 8.1 s) — before the multipart read, the Storage write and two DB round-trips. The Vercel default is 10 s. A timeout shows as a failed upload, not as wrong data, so it does not explain TD's symptom; it is worth closing anyway |
+| 11  | `@anthropic-ai/sdk` dynamic import under Next's bundler                            | **RULED OUT as the cause**                                  | `getClient()` does `await import("@anthropic-ai/sdk")` inside `runPass`'s `try`. If it failed on hosted, both passes would set `attempt.error` and `finish()` would return `unreadable` — the "we couldn't read this, enter manually" path. TD reports **wrong values**, not a failure to read. (`next build` tracing is verified in the Phase 1 gate regardless)                                                                                             |
+| 12  | Server timezone (hosted UTC vs TD's local zone)                                    | **RULED OUT for the reported times; one real minor defect** | See §0.5                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 
 ### 0.5 The three targeted tests the prompt asked for
 
@@ -203,7 +203,7 @@ Split answer.
   `selectSegment`'s own `alternatives` are already filtered to serviced origins
   before that. So on `syn-multi-city.pdf` (JFK→LHR→CDG→EWR) the model reads
   three legs and the customer is shown one, with no indication the document had
-  three. That is defensible for the *swap offer* — we cannot collect bags at
+  three. That is defensible for the _swap offer_ — we cannot collect bags at
   CDG — but it is why "only one leg" is a fair description of what the customer
   sees even when extraction worked.
 
@@ -227,9 +227,9 @@ takes the **UTC** date as the "has this leg already flown?" anchor. Between
 later today is classified as past. On a round trip that flips
 `earliest_upcoming_serviced_origin` (high confidence) to
 `all_serviced_departures_past` (low confidence) and can pick the wrong leg.
-It is a genuine hosted/local divergence in *behaviour near midnight*, it is
+It is a genuine hosted/local divergence in _behaviour near midnight_, it is
 airport-local-time-rule non-compliance per §7, and it is worth fixing — but it
-cannot produce a wrong *time* on a leg, only a wrong *choice* of leg, and only
+cannot produce a wrong _time_ on a leg, only a wrong _choice_ of leg, and only
 inside a four-hour window. Listed for Phase 1.
 
 **(c) Is the review form picking the wrong name field?**
@@ -304,17 +304,17 @@ correct whatever the current answer is.
 
 ### 0.8 Proposed fix plan (Phase 1)
 
-| # | Fix | Proven by | Where |
-|---|---|---|---|
-| 1 | **Fail-closed production boot gate on `ANTHROPIC_API_KEY`**, matching the `RESEND_API_KEY`/`OPS_ALERT_EMAIL` gate exactly (same exemptions: coming-soon, no Supabase, build phase) | §0.3, §0.4 #1 | `apps/web/src/env.ts` |
-| 2 | **Name the extractor in the boot diagnostics and in the upload log**, so "which extractor ran?" is answerable without a debug flag | §0.4 #6 | `apps/web/src/lib/core.ts`, `apps/web/src/env.ts` |
-| 3 | **Compose a digits-only flight number with the airline code** in `normalizeSegment` instead of dropping it | §0.6 defect 1 | `packages/core/src/extraction/select-segment.ts` |
-| 4 | **Bind the flight number to its own row** in the tool schema and prompt; require the designator in the value | §0.6 defect 2 | `packages/core/src/extraction/claude/extractor.ts` |
-| 5 | **Rewrite the heuristic as a segment extractor** sharing `selectSegment` and emitting real diagnostics: legs as an array, a departure time that must come from the same row as its date, durations (`NN:NN Hrs`) refused, issue/booking dates refused, titles stripped from names, and **never `confidence: "high"`** | §0.3 all three symptoms | `packages/core/src/extraction/heuristic/extractor.ts` |
-| 6 | **Render every extracted leg on the review form**, with the non-serviced ones shown read-only ("this ticket also has LHR → CDG — we collect bags in New York only") and the serviced ones as the existing one-click swap | §0.5 (a) | `apps/web/src/lib/ticket-upload-handler.ts`, `apps/web/src/app/book/flight/page.tsx` |
-| 7 | **Anchor "has this leg flown?" to airport-local time**, not UTC | §0.5 (b) | `packages/core/src/extraction/select-segment.ts` |
-| 8 | **Set `maxDuration` on the upload route** to cover the escalation path | §0.4 #10 | `apps/web/src/app/api/ticket-uploads/route.ts` |
-| 9 | **Fixture-based regression tests** asserting leg count, name and times for every fixture, with the fixtures built in code (`makePdf`) rather than committed binaries | — | `packages/core/src/extraction/fixtures.test.ts` |
+| #   | Fix                                                                                                                                                                                                                                                                                                                   | Proven by               | Where                                                                                |
+| --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------- | ------------------------------------------------------------------------------------ |
+| 1   | **Fail-closed production boot gate on `ANTHROPIC_API_KEY`**, matching the `RESEND_API_KEY`/`OPS_ALERT_EMAIL` gate exactly (same exemptions: coming-soon, no Supabase, build phase)                                                                                                                                    | §0.3, §0.4 #1           | `apps/web/src/env.ts`                                                                |
+| 2   | **Name the extractor in the boot diagnostics and in the upload log**, so "which extractor ran?" is answerable without a debug flag                                                                                                                                                                                    | §0.4 #6                 | `apps/web/src/lib/core.ts`, `apps/web/src/env.ts`                                    |
+| 3   | **Compose a digits-only flight number with the airline code** in `normalizeSegment` instead of dropping it                                                                                                                                                                                                            | §0.6 defect 1           | `packages/core/src/extraction/select-segment.ts`                                     |
+| 4   | **Bind the flight number to its own row** in the tool schema and prompt; require the designator in the value                                                                                                                                                                                                          | §0.6 defect 2           | `packages/core/src/extraction/claude/extractor.ts`                                   |
+| 5   | **Rewrite the heuristic as a segment extractor** sharing `selectSegment` and emitting real diagnostics: legs as an array, a departure time that must come from the same row as its date, durations (`NN:NN Hrs`) refused, issue/booking dates refused, titles stripped from names, and **never `confidence: "high"`** | §0.3 all three symptoms | `packages/core/src/extraction/heuristic/extractor.ts`                                |
+| 6   | **Render every extracted leg on the review form**, with the non-serviced ones shown read-only ("this ticket also has LHR → CDG — we collect bags in New York only") and the serviced ones as the existing one-click swap                                                                                              | §0.5 (a)                | `apps/web/src/lib/ticket-upload-handler.ts`, `apps/web/src/app/book/flight/page.tsx` |
+| 7   | **Anchor "has this leg flown?" to airport-local time**, not UTC                                                                                                                                                                                                                                                       | §0.5 (b)                | `packages/core/src/extraction/select-segment.ts`                                     |
+| 8   | **Set `maxDuration` on the upload route** to cover the escalation path                                                                                                                                                                                                                                                | §0.4 #10                | `apps/web/src/app/api/ticket-uploads/route.ts`                                       |
+| 9   | **Fixture-based regression tests** asserting leg count, name and times for every fixture, with the fixtures built in code (`makePdf`) rather than committed binaries                                                                                                                                                  | —                       | `packages/core/src/extraction/fixtures.test.ts`                                      |
 
 Model ids and parameters are **already pinned in code** (`claude/extractor.ts:49,56`)
 and read from no environment variable — §0.4 #2 needs no change beyond a
@@ -339,17 +339,17 @@ that way, and the timezone handling on the confirm path was already correct
 
 ### 1.1 What landed
 
-| # | Fix | Where | Proven by |
-|---|---|---|---|
-| 1 | `ANTHROPIC_API_KEY` is a fail-closed **production boot gate**, alongside `RESEND_API_KEY` and `OPS_ALERT_EMAIL`, with the same three exemptions (coming-soon, no Supabase, build phase) | `apps/web/src/env.ts` | §0.3, §0.4 #1 |
-| 2 | The dev status panel stops calling the fallback "out of scope for this scaffold" and says what it actually does | `apps/web/src/env.ts` | §0.4 #6 |
-| 3 | A **digits-only flight number is reassembled** with the airline code beside it instead of being dropped | `packages/core/src/extraction/select-segment.ts` | §0.6 defect 1 |
-| 4 | The tool schema and prompt **bind a flight number to its own printed row** and require the designator in the value | `packages/core/src/extraction/claude/extractor.ts` | §0.6 defect 2 |
-| 5 | The **heuristic extractor is a segment extractor**, sharing `selectSegment` and `assembleOutcome` with the model adapter, and is never `confidence: "high"` | `packages/core/src/extraction/heuristic/extractor.ts` (rewritten), `packages/core/src/extraction/read-result.ts` (new) | §0.3, all three symptoms |
-| 6 | The result carries **`legs` + `chosenLegIndex`** — every leg read, including the ones out of airports we do not serve — and the review form renders them | `extraction/types.ts`, `read-result.ts`, `apps/web/src/lib/ticket-upload-handler.ts`, `ticket-prefill-copy.ts`, `app/book/flight/page.tsx`, `booking-draft-schema.ts` | §0.5 (a) |
-| 7 | "Has this leg already flown?" is anchored to **airport-local** time, not UTC | `packages/core/src/extraction/select-segment.ts` | §0.5 (b) |
-| 8 | `maxDuration = 60` on the upload route | `apps/web/src/app/api/ticket-uploads/route.ts` | §0.4 #10 |
-| 9 | **18 fixture regression tests** across the three symptoms, all built in code | `packages/core/src/extraction/fixtures.test.ts` (new) | — |
+| #   | Fix                                                                                                                                                                                     | Where                                                                                                                                                                 | Proven by                |
+| --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------ |
+| 1   | `ANTHROPIC_API_KEY` is a fail-closed **production boot gate**, alongside `RESEND_API_KEY` and `OPS_ALERT_EMAIL`, with the same three exemptions (coming-soon, no Supabase, build phase) | `apps/web/src/env.ts`                                                                                                                                                 | §0.3, §0.4 #1            |
+| 2   | The dev status panel stops calling the fallback "out of scope for this scaffold" and says what it actually does                                                                         | `apps/web/src/env.ts`                                                                                                                                                 | §0.4 #6                  |
+| 3   | A **digits-only flight number is reassembled** with the airline code beside it instead of being dropped                                                                                 | `packages/core/src/extraction/select-segment.ts`                                                                                                                      | §0.6 defect 1            |
+| 4   | The tool schema and prompt **bind a flight number to its own printed row** and require the designator in the value                                                                      | `packages/core/src/extraction/claude/extractor.ts`                                                                                                                    | §0.6 defect 2            |
+| 5   | The **heuristic extractor is a segment extractor**, sharing `selectSegment` and `assembleOutcome` with the model adapter, and is never `confidence: "high"`                             | `packages/core/src/extraction/heuristic/extractor.ts` (rewritten), `packages/core/src/extraction/read-result.ts` (new)                                                | §0.3, all three symptoms |
+| 6   | The result carries **`legs` + `chosenLegIndex`** — every leg read, including the ones out of airports we do not serve — and the review form renders them                                | `extraction/types.ts`, `read-result.ts`, `apps/web/src/lib/ticket-upload-handler.ts`, `ticket-prefill-copy.ts`, `app/book/flight/page.tsx`, `booking-draft-schema.ts` | §0.5 (a)                 |
+| 7   | "Has this leg already flown?" is anchored to **airport-local** time, not UTC                                                                                                            | `packages/core/src/extraction/select-segment.ts`                                                                                                                      | §0.5 (b)                 |
+| 8   | `maxDuration = 60` on the upload route                                                                                                                                                  | `apps/web/src/app/api/ticket-uploads/route.ts`                                                                                                                        | §0.4 #10                 |
+| 9   | **18 fixture regression tests** across the three symptoms, all built in code                                                                                                            | `packages/core/src/extraction/fixtures.test.ts` (new)                                                                                                                 | —                        |
 
 **No migration. No new environment variable.** Fix 1 makes an EXISTING optional
 variable required in production; that is a deploy-config step for TD, recorded
@@ -360,7 +360,7 @@ in Phase 6, not a schema change.
 `read-result.ts` is new, and it exists because both adapters were assembling
 their own `TicketExtractionResult` and only one of them was doing it
 correctly. The heuristic wrote a `departureAirport` straight out of its own
-parse and never called `selectSegment` at all — which is *why* it could not
+parse and never called `selectSegment` at all — which is _why_ it could not
 report a second leg, offer a swap, or distinguish "departs SFO" from "we
 couldn't read it". An extractor's job now stops at READING; which leg the
 pickup is for, what may reach the airport dropdown, and what is offered as an
@@ -422,14 +422,14 @@ genuinely ambiguous documents).
 
 ### 1.5 Phase 1 gate
 
-| Gate | Result |
-|---|---|
-| `turbo typecheck` | **6/6 pass** |
-| `turbo lint` | **6/6 pass** (two real catches on the way: `no-useless-escape`, and the repo's own ban on bare date-fns `format()` — `todayAtServicedAirports` now builds the string from `TZDate`'s getters) |
-| `turbo test` (unit) | **core 423 passed / 1 skipped · web 89 passed** |
-| `pnpm --filter @koolee/core test:integration` | **180 passed / 3 skipped, 20 files** — `koolee_test` only, seed re-run clean |
-| `pnpm --filter @koolee/web build` | **pass** |
-| Migrations | **none** |
+| Gate                                          | Result                                                                                                                                                                                        |
+| --------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `turbo typecheck`                             | **6/6 pass**                                                                                                                                                                                  |
+| `turbo lint`                                  | **6/6 pass** (two real catches on the way: `no-useless-escape`, and the repo's own ban on bare date-fns `format()` — `todayAtServicedAirports` now builds the string from `TZDate`'s getters) |
+| `turbo test` (unit)                           | **core 423 passed / 1 skipped · web 89 passed**                                                                                                                                               |
+| `pnpm --filter @koolee/core test:integration` | **180 passed / 3 skipped, 20 files** — `koolee_test` only, seed re-run clean                                                                                                                  |
+| `pnpm --filter @koolee/web build`             | **pass**                                                                                                                                                                                      |
+| Migrations                                    | **none**                                                                                                                                                                                      |
 
 ---
 
@@ -456,16 +456,16 @@ cosmetic difference:
 
 ### 2.2 What landed
 
-| # | Thing | Where |
-|---|---|---|
-| 1 | `quotedZip` on the booking draft — the ZIP the price and coverage answer were computed for, kept as its own field | `apps/web/src/lib/booking-draft-schema.ts` |
-| 2 | `submitFlight` records `quotedZip` alongside `zip` | `apps/web/src/app/book/actions.ts` |
-| 3 | `submitPickup` reconciles: a mismatch returns `zipMismatch` instead of writing anything | `apps/web/src/app/book/actions.ts` |
-| 4 | The inline notice and its two actions | `apps/web/src/components/pickup-step-form.tsx` |
-| 5 | `CreateBookingInput.quotedZip` — **required**, checked against the pickup address's ZIP before anything is written | `packages/core/src/services/create-booking.ts` |
-| 6 | `QuoteZipMismatchError` (`QUOTE_ZIP_MISMATCH`) | `packages/core/src/errors.ts` |
-| 7 | Both checkout paths map the error to a message and route back to the pickup step | `apps/web/src/app/book/actions.ts`, `apps/web/src/app/book/pay/actions.ts` |
-| 8 | 3 integration + 6 unit tests | `create-booking.integration.test.ts`, `apps/web/src/app/book/pickup-zip-sync.test.ts` |
+| #   | Thing                                                                                                              | Where                                                                                 |
+| --- | ------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------- |
+| 1   | `quotedZip` on the booking draft — the ZIP the price and coverage answer were computed for, kept as its own field  | `apps/web/src/lib/booking-draft-schema.ts`                                            |
+| 2   | `submitFlight` records `quotedZip` alongside `zip`                                                                 | `apps/web/src/app/book/actions.ts`                                                    |
+| 3   | `submitPickup` reconciles: a mismatch returns `zipMismatch` instead of writing anything                            | `apps/web/src/app/book/actions.ts`                                                    |
+| 4   | The inline notice and its two actions                                                                              | `apps/web/src/components/pickup-step-form.tsx`                                        |
+| 5   | `CreateBookingInput.quotedZip` — **required**, checked against the pickup address's ZIP before anything is written | `packages/core/src/services/create-booking.ts`                                        |
+| 6   | `QuoteZipMismatchError` (`QUOTE_ZIP_MISMATCH`)                                                                     | `packages/core/src/errors.ts`                                                         |
+| 7   | Both checkout paths map the error to a message and route back to the pickup step                                   | `apps/web/src/app/book/actions.ts`, `apps/web/src/app/book/pay/actions.ts`            |
+| 8   | 3 integration + 6 unit tests                                                                                       | `create-booking.integration.test.ts`, `apps/web/src/app/book/pickup-zip-sync.test.ts` |
 
 **No migration.** The check is derived from two values that already exist —
 `addresses.zip` and the ZIP the caller quoted — and nothing is stored.
@@ -474,7 +474,7 @@ cosmetic difference:
 
 > This address is in **11201**, but your quote was for **10001**.
 >
-> [ Update quote to 11201 ]  [ Use a different address ]
+> [ Update quote to 11201 ] [ Use a different address ]
 >
 > Updating the quote re-checks coverage and pricing for 11201, and you will
 > pick your pickup window again.
@@ -511,14 +511,14 @@ form renders — the same reasoning as the identity gate in §7.
 
 ### 2.5 Phase 2 gate
 
-| Gate | Result |
-|---|---|
-| `turbo typecheck` | **6/6 pass** |
-| `turbo lint` | **6/6 pass** |
-| `turbo test` (unit) | **core 423 · web 95 · ui 85 · admin 27 · agent 12** |
+| Gate                                          | Result                                                                                                          |
+| --------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `turbo typecheck`                             | **6/6 pass**                                                                                                    |
+| `turbo lint`                                  | **6/6 pass**                                                                                                    |
+| `turbo test` (unit)                           | **core 423 · web 95 · ui 85 · admin 27 · agent 12**                                                             |
 | `pnpm --filter @koolee/core test:integration` | **183 passed / 3 skipped, 20 files** (was 180 — the three new ZIP cases), `koolee_test` only, seed re-run clean |
-| `pnpm --filter @koolee/web build` | **pass** |
-| Migrations | **none** |
+| `pnpm --filter @koolee/web build`             | **pass**                                                                                                        |
+| Migrations                                    | **none**                                                                                                        |
 
 ---
 
@@ -566,21 +566,21 @@ Two functions, on purpose:
 
 ### 3.2 The matrix as implemented
 
-| Row | Implemented | Note |
-|---|---|---|
-| `canceled` — customer view only; agent/driver closed; admin unaffected | **as specified** | Status is spelled `cancelled` in the enum (`BookingStatus`), so the report and the code differ by one letter, not by meaning |
-| `complete` / `delivered_to_bagdrop` onward — view + history; driver's own `complete` confirmation still available | **as specified** | The gate names **five** actions rather than exposing one boolean, and `confirmAirlineHandover` is not one of them — which is exactly what leaves the driver's confirmation working from `delivered_to_bagdrop` |
-| `exception` — unchanged, gates must not block admin resolution | **as specified** | The five gated actions are the customer's and the crew's. Ops resolves through `applyTransition` (`resume_transit` / `force_complete` / `cancel`), which this never touches. Integration-tested |
-| BEFORE pickup window end — everything as today | **as specified** | |
-| AFTER window end, BEFORE cutoff — "late but savable": customer MAY accept/upload, driver selection allowed, agent MAY run the visit, all three surfaces show a notice | **as specified** | The two customer actions are the ones that unblock a late visit; blocking them would refuse the rescue |
-| AFTER cutoff, bags not at bag drop — all forward actions block, clear message, exception raised exactly once, in-flight physical work carved out | **as specified** | Exactly-once and the carve-out are both mechanical — see §3.3 |
-| AFTER scheduled departure — same as missed, wording reflects departure | **as specified** | |
+| Row                                                                                                                                                                   | Implemented      | Note                                                                                                                                                                                                           |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `canceled` — customer view only; agent/driver closed; admin unaffected                                                                                                | **as specified** | Status is spelled `cancelled` in the enum (`BookingStatus`), so the report and the code differ by one letter, not by meaning                                                                                   |
+| `complete` / `delivered_to_bagdrop` onward — view + history; driver's own `complete` confirmation still available                                                     | **as specified** | The gate names **five** actions rather than exposing one boolean, and `confirmAirlineHandover` is not one of them — which is exactly what leaves the driver's confirmation working from `delivered_to_bagdrop` |
+| `exception` — unchanged, gates must not block admin resolution                                                                                                        | **as specified** | The five gated actions are the customer's and the crew's. Ops resolves through `applyTransition` (`resume_transit` / `force_complete` / `cancel`), which this never touches. Integration-tested                |
+| BEFORE pickup window end — everything as today                                                                                                                        | **as specified** |                                                                                                                                                                                                                |
+| AFTER window end, BEFORE cutoff — "late but savable": customer MAY accept/upload, driver selection allowed, agent MAY run the visit, all three surfaces show a notice | **as specified** | The two customer actions are the ones that unblock a late visit; blocking them would refuse the rescue                                                                                                         |
+| AFTER cutoff, bags not at bag drop — all forward actions block, clear message, exception raised exactly once, in-flight physical work carved out                      | **as specified** | Exactly-once and the carve-out are both mechanical — see §3.3                                                                                                                                                  |
+| AFTER scheduled departure — same as missed, wording reflects departure                                                                                                | **as specified** |                                                                                                                                                                                                                |
 
 **One entry adjusted, with evidence.** A booking with **no cutoff on record**
 has no `missed_cutoff` phase at all — only `departed`. The instinct is to fall
 back to something strict and it is wrong here: every other "be conservative"
-rule in this codebase moves a *deadline* earlier, which costs the customer
-nothing, whereas this would move a *refusal* earlier, which costs them their
+rule in this codebase moves a _deadline_ earlier, which costs the customer
+nothing, whereas this would move a _refusal_ earlier, which costs them their
 pickup. We do not claim a deadline passed when we do not know the deadline,
 and departure — which we do know — still catches the genuinely missed flight.
 (`Unknown airline cutoff ⇒ refuse to sell` means such a booking should not
@@ -610,14 +610,14 @@ alerts on exactly this case, so no second alert was added.
 
 ### 3.4 Enforcement points
 
-| Function | File | Note |
-|---|---|---|
-| `acceptAgreement` | `services/agreements.ts` | Gate runs BEFORE the status list, so a booking ops already owns says "our team is sorting this out" rather than "this booking is exception" |
-| `recordCustomerUpload` | `services/passport.ts` | |
-| `listCandidateDrivers` | `services/driver-selection.ts` | A shortlist is an offer; offering one past the cutoff asks the customer to pick a driver who cannot make the flight |
-| `selectDriver` | `services/driver-selection.ts` | Checked at submit **as well as** at render — a shortlist drawn before the cutoff is still on screen after it |
-| `arriveAtVisit` | `services/agent-visit.ts` | |
-| `startPickupTravel` | `services/pickup.ts` | After the idempotency check — see §3.3 |
+| Function               | File                           | Note                                                                                                                                        |
+| ---------------------- | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `acceptAgreement`      | `services/agreements.ts`       | Gate runs BEFORE the status list, so a booking ops already owns says "our team is sorting this out" rather than "this booking is exception" |
+| `recordCustomerUpload` | `services/passport.ts`         |                                                                                                                                             |
+| `listCandidateDrivers` | `services/driver-selection.ts` | A shortlist is an offer; offering one past the cutoff asks the customer to pick a driver who cannot make the flight                         |
+| `selectDriver`         | `services/driver-selection.ts` | Checked at submit **as well as** at render — a shortlist drawn before the cutoff is still on screen after it                                |
+| `arriveAtVisit`        | `services/agent-visit.ts`      |                                                                                                                                             |
+| `startPickupTravel`    | `services/pickup.ts`           | After the idempotency check — see §3.3                                                                                                      |
 
 New error: `BookingNotActionableError` (`BOOKING_NOT_ACTIONABLE`), carrying
 `action`, `standing` and `phase`, with a message written for the person who
@@ -629,13 +629,13 @@ hit the wall — because that message is what every surface renders.
 
 ### 3.5 Phase 3 gate
 
-| Gate | Result |
-|---|---|
-| `turbo typecheck` | **6/6 pass** |
-| `turbo lint` | **6/6 pass** |
-| `turbo test` (unit) | **core 441 passed / 1 skipped** (was 423 — 18 new matrix tests) · web 95 · ui 85 · admin 27 · agent 12 |
+| Gate                                          | Result                                                                                                                                                                                                   |
+| --------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `turbo typecheck`                             | **6/6 pass**                                                                                                                                                                                             |
+| `turbo lint`                                  | **6/6 pass**                                                                                                                                                                                             |
+| `turbo test` (unit)                           | **core 441 passed / 1 skipped** (was 423 — 18 new matrix tests) · web 95 · ui 85 · admin 27 · agent 12                                                                                                   |
 | `pnpm --filter @koolee/core test:integration` | **200 passed / 3 skipped, 21 files** (was 183 — 11 in a new `actionability.integration.test.ts`, plus 2 in `pickup`, 2 in `agent-visit`, 2 in `driver-selection`), `koolee_test` only, seed re-run clean |
-| Migrations | **none** |
+| Migrations                                    | **none**                                                                                                                                                                                                 |
 
 ---
 
@@ -643,11 +643,11 @@ hit the wall — because that message is what every surface renders.
 
 Three surfaces made honest. No layout redesign — F2 owns that.
 
-| Surface | What changed | File |
-|---|---|---|
-| **Customer trip page** | `actionability` replaces status-only reasoning for `preVisit` and `canChooseDriver`; the blocked reason and the running-late notice render above the cutoff countdown | `apps/web/src/app/trips/[bookingId]/page.tsx` |
-| **Agent task view** | One `ActionabilityNotice` above both branches (verification visit and pickup run) — amber for "running late" over controls that still work, red for blocked with the reason | `apps/agent/src/app/tasks/[taskId]/page.tsx` |
-| **Admin booking detail** | The same sentence the customer and the agent are reading, above the exception banner — it explains an exception when there is one and warns before there is one | `apps/admin/src/app/bookings/[bookingId]/page.tsx` |
+| Surface                  | What changed                                                                                                                                                                | File                                               |
+| ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------- |
+| **Customer trip page**   | `actionability` replaces status-only reasoning for `preVisit` and `canChooseDriver`; the blocked reason and the running-late notice render above the cutoff countdown       | `apps/web/src/app/trips/[bookingId]/page.tsx`      |
+| **Agent task view**      | One `ActionabilityNotice` above both branches (verification visit and pickup run) — amber for "running late" over controls that still work, red for blocked with the reason | `apps/agent/src/app/tasks/[taskId]/page.tsx`       |
+| **Admin booking detail** | The same sentence the customer and the agent are reading, above the exception banner — it explains an exception when there is one and warns before there is one             | `apps/admin/src/app/bookings/[bookingId]/page.tsx` |
 
 Every surface renders the string core produced rather than composing its own,
 so the customer, the agent and the operator cannot be told three different
@@ -694,13 +694,13 @@ the accumulated cache is not, and `rm -rf .turbo/cache` is the whole cleanup.
 
 ### 4.2 Phase 4 gate
 
-| Gate | Result |
-|---|---|
-| `turbo typecheck` | **6/6 pass** |
-| `turbo lint` | **6/6 pass** |
+| Gate                | Result                                              |
+| ------------------- | --------------------------------------------------- |
+| `turbo typecheck`   | **6/6 pass**                                        |
+| `turbo lint`        | **6/6 pass**                                        |
 | `turbo test` (unit) | **core 441 · web 95 · ui 85 · admin 27 · agent 12** |
-| `turbo build` | **3/3 pass** — web, agent, admin |
-| Migrations | **none** |
+| `turbo build`       | **3/3 pass** — web, agent, admin                    |
+| Migrations          | **none**                                            |
 
 ---
 
@@ -713,17 +713,17 @@ the accumulated cache is not, and `rm -rf .turbo/cache` is the whole cleanup.
 small diff. The customer app is OTP-only and has no password field anywhere,
 confirmed by that grep and by reading `apps/web/src/actions/auth.ts`.
 
-| # | Form | App(s) | Component | What changed |
-|---|---|---|---|---|
-| 1 | Staff sign-in | agent, admin | `StaffLoginForm` | Password → `PasswordField` (show/hide). Email gains `autoCapitalize="off" autoCorrect="off" spellCheck={false}`. **No `minLength` added** — see §5.3 |
-| 2 | Password reset request | agent, admin | `PasswordResetForm` | Email input hardened as above. Unchanged otherwise: it already always reports success |
-| 3 | Set password (invite + recovery landing) | agent, admin | `SetPasswordForm` | Password → `PasswordField`. `minLength` and the hint now read `PASSWORD_MIN_LENGTH` / `PASSWORD_RULE_COPY` instead of a literal `8` and a literal sentence |
-| 4 | Staff invite | admin | `app/staff/` | Unchanged — it already trimmed AND lowercased, and is the standard the other two were brought up to |
-| 5 | Customer profile — save name/email | web | `dashboard/profile` | `email` normalized (**was `.trim()` only** — the one real inconsistency) and the schema field now normalizes before validating |
-| 6 | Customer profile — confirm email code | web | `dashboard/profile` | Normalization moved onto the schema; behaviour unchanged |
-| 7 | Customer OTP send (phone or email) | web | `actions/auth.ts` | `email` field normalizes before validating; the four hand-written `.toLowerCase()` calls at use sites are gone |
-| 8 | Customer magic link | web | `actions/auth.ts` | Same |
-| 9 | Customer post-booking email attach | web | `actions/auth.ts` | Same |
+| #   | Form                                     | App(s)       | Component           | What changed                                                                                                                                               |
+| --- | ---------------------------------------- | ------------ | ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | Staff sign-in                            | agent, admin | `StaffLoginForm`    | Password → `PasswordField` (show/hide). Email gains `autoCapitalize="off" autoCorrect="off" spellCheck={false}`. **No `minLength` added** — see §5.3       |
+| 2   | Password reset request                   | agent, admin | `PasswordResetForm` | Email input hardened as above. Unchanged otherwise: it already always reports success                                                                      |
+| 3   | Set password (invite + recovery landing) | agent, admin | `SetPasswordForm`   | Password → `PasswordField`. `minLength` and the hint now read `PASSWORD_MIN_LENGTH` / `PASSWORD_RULE_COPY` instead of a literal `8` and a literal sentence |
+| 4   | Staff invite                             | admin        | `app/staff/`        | Unchanged — it already trimmed AND lowercased, and is the standard the other two were brought up to                                                        |
+| 5   | Customer profile — save name/email       | web          | `dashboard/profile` | `email` normalized (**was `.trim()` only** — the one real inconsistency) and the schema field now normalizes before validating                             |
+| 6   | Customer profile — confirm email code    | web          | `dashboard/profile` | Normalization moved onto the schema; behaviour unchanged                                                                                                   |
+| 7   | Customer OTP send (phone or email)       | web          | `actions/auth.ts`   | `email` field normalizes before validating; the four hand-written `.toLowerCase()` calls at use sites are gone                                             |
+| 8   | Customer magic link                      | web          | `actions/auth.ts`   | Same                                                                                                                                                       |
+| 9   | Customer post-booking email attach       | web          | `actions/auth.ts`   | Same                                                                                                                                                       |
 
 **Three password inputs, all now `PasswordField`. Nine forms audited; six
 changed.**
@@ -756,12 +756,12 @@ rule is read by a client component (`minLength`) AND a server action (the zod
 schema), and pulling `@koolee/core` into a client bundle drags `@koolee/db` and
 drizzle with it. Same reasoning as `lib/photo`, per §7.
 
-| Rule | Before | After |
-|---|---|---|
-| Password min length | `minLength={8}` in the form, `.min(8)` in the action, `"at least 8 characters"` in two message strings — four literals | `PASSWORD_MIN_LENGTH`, read by all four |
-| Password max | `.max(128)` | `PASSWORD_MAX_LENGTH` |
-| Email normalization | invite: `.trim().toLowerCase()` · staff sign-in: `.trim()` · staff reset: `.trim()` · `saveProfile`: `.trim()` · four sites in `actions/auth.ts`: `.toLowerCase()` after parsing | `normalizeEmail` at every parse boundary; on the schema (`z.preprocess`) where the input is an object |
-| Sign-in failure message | a literal, written twice | `SIGN_IN_FAILED_COPY`, once |
+| Rule                    | Before                                                                                                                                                                           | After                                                                                                 |
+| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| Password min length     | `minLength={8}` in the form, `.min(8)` in the action, `"at least 8 characters"` in two message strings — four literals                                                           | `PASSWORD_MIN_LENGTH`, read by all four                                                               |
+| Password max            | `.max(128)`                                                                                                                                                                      | `PASSWORD_MAX_LENGTH`                                                                                 |
+| Email normalization     | invite: `.trim().toLowerCase()` · staff sign-in: `.trim()` · staff reset: `.trim()` · `saveProfile`: `.trim()` · four sites in `actions/auth.ts`: `.toLowerCase()` after parsing | `normalizeEmail` at every parse boundary; on the schema (`z.preprocess`) where the input is an object |
+| Sign-in failure message | a literal, written twice                                                                                                                                                         | `SIGN_IN_FAILED_COPY`, once                                                                           |
 
 **The email inconsistency was real, not cosmetic.** The admin invite creates
 `alice@koolee.cloud` from `Alice@Koolee.cloud`; staff sign-in only trimmed. Any
@@ -804,15 +804,15 @@ password is legible after the click.
 
 ### 5.5 Phase 5 gate
 
-| Gate | Result |
-|---|---|
-| `turbo typecheck` | **6/6 pass** |
-| `turbo lint` | **6/6 pass** |
-| `turbo test` (unit) | **core 441 · web 95 · ui 92** (was 85 — 6 credential tests) **· admin 27 · agent 12** |
-| `pnpm --filter @koolee/core test:integration` | **200 passed / 3 skipped**, `koolee_test` only |
-| `turbo build` | **3/3 pass** |
-| Browser | agent `/login` driven over CDP, toggle verified |
-| Migrations | **none** |
+| Gate                                          | Result                                                                                |
+| --------------------------------------------- | ------------------------------------------------------------------------------------- |
+| `turbo typecheck`                             | **6/6 pass**                                                                          |
+| `turbo lint`                                  | **6/6 pass**                                                                          |
+| `turbo test` (unit)                           | **core 441 · web 95 · ui 92** (was 85 — 6 credential tests) **· admin 27 · agent 12** |
+| `pnpm --filter @koolee/core test:integration` | **200 passed / 3 skipped**, `koolee_test` only                                        |
+| `turbo build`                                 | **3/3 pass**                                                                          |
+| Browser                                       | agent `/login` driven over CDP, toggle verified                                       |
+| Migrations                                    | **none**                                                                              |
 
 ---
 
@@ -840,17 +840,17 @@ There ARE hosted steps, and they are the fix for two of the three bugs:
 
 ### 6.2 Docs updated
 
-| Doc | Change |
-|---|---|
-| `docs/features/f1-hosted-setup.md` | **New.** The three manual steps, each with why it exists and how to verify it took |
-| `docs/features/README.md` | Indexes it |
-| `docs/ENVIRONMENT.md` §5.2 | **Corrected a claim that was wrong and had cost TD a debugging session** — see §6.3 |
-| `docs/CODEBASE-MAP.md` ch. 5 | The extraction seam row now says the heuristic is dev-only; `read-result.ts` and the shared assembly documented; `actionability` added to the services list with the two-axis reasoning and the carve-out |
-| `docs/CODEBASE-MAP.md` ch. 6 | Which extractor runs and why it used to be invisible; `legs` on the result; the quoted-ZIP rule |
-| `PROJECT-STATUS.md` §3 | New snapshot entry for the slice |
-| `PROJECT-STATUS.md` §4 | Rows **80–84** |
-| `PROJECT-STATUS.md` §7 | **Nine new standing constraints** — the extractor is not a peer of its fallback; same-row date+time; `quotedZip` is required; one actionability service on two axes; late-but-savable allows everything; the in-transit carve-out needs no exemption; Turnstile hostname scoping; one credential rule module; `turbo.json` must exclude `.next/dev/**` |
-| `docs/run-reports/README.md` | Indexes this report |
+| Doc                                | Change                                                                                                                                                                                                                                                                                                                                                 |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `docs/features/f1-hosted-setup.md` | **New.** The three manual steps, each with why it exists and how to verify it took                                                                                                                                                                                                                                                                     |
+| `docs/features/README.md`          | Indexes it                                                                                                                                                                                                                                                                                                                                             |
+| `docs/ENVIRONMENT.md` §5.2         | **Corrected a claim that was wrong and had cost TD a debugging session** — see §6.3                                                                                                                                                                                                                                                                    |
+| `docs/CODEBASE-MAP.md` ch. 5       | The extraction seam row now says the heuristic is dev-only; `read-result.ts` and the shared assembly documented; `actionability` added to the services list with the two-axis reasoning and the carve-out                                                                                                                                              |
+| `docs/CODEBASE-MAP.md` ch. 6       | Which extractor runs and why it used to be invisible; `legs` on the result; the quoted-ZIP rule                                                                                                                                                                                                                                                        |
+| `PROJECT-STATUS.md` §3             | New snapshot entry for the slice                                                                                                                                                                                                                                                                                                                       |
+| `PROJECT-STATUS.md` §4             | Rows **80–84**                                                                                                                                                                                                                                                                                                                                         |
+| `PROJECT-STATUS.md` §7             | **Nine new standing constraints** — the extractor is not a peer of its fallback; same-row date+time; `quotedZip` is required; one actionability service on two axes; late-but-savable allows everything; the in-transit carve-out needs no exemption; Turnstile hostname scoping; one credential rule module; `turbo.json` must exclude `.next/dev/**` |
+| `docs/run-reports/README.md`       | Indexes this report                                                                                                                                                                                                                                                                                                                                    |
 
 ### 6.3 A documented claim that was false
 
@@ -878,13 +878,13 @@ state, in a different file.
 
 ### 6.4 Deferred, with reasons
 
-| Item | Why not now |
-|---|---|
+| Item                                                  | Why not now                                                                                                                                                                                                                                                  |
+| ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | The heuristic extractor reading the real Yatra layout | It returns `unreadable` on that document rather than a wrong answer, which is the correct trade. Making a text-layer parser handle a table whose columns interleave is open-ended work for a path that the Phase 1 boot gate makes unreachable in production |
-| OCR for photographed tickets on the heuristic path | Same reasoning. The Claude adapter reads images natively and is what production uses |
-| `distanceKm` in pricing | Still the hardcoded `20` (`TODO(maps)`), untouched. It is why the ZIP mismatch had no visible price effect **yet** — the trap is dug and the guard is now in front of it |
-| Widening `alternativeSegments` past 2 | No fixture produced a third New York departure. The whole itinerary is now visible through `legs` regardless |
-| Turnstile widget mode (Managed vs Invisible) | The deployed widget renders a visible "Verify you are human" checkbox; the docs say invisible. A dashboard setting, not code, and not the cause of `110200`. Flagged in the setup doc |
+| OCR for photographed tickets on the heuristic path    | Same reasoning. The Claude adapter reads images natively and is what production uses                                                                                                                                                                         |
+| `distanceKm` in pricing                               | Still the hardcoded `20` (`TODO(maps)`), untouched. It is why the ZIP mismatch had no visible price effect **yet** — the trap is dug and the guard is now in front of it                                                                                     |
+| Widening `alternativeSegments` past 2                 | No fixture produced a third New York departure. The whole itinerary is now visible through `legs` regardless                                                                                                                                                 |
+| Turnstile widget mode (Managed vs Invisible)          | The deployed widget renders a visible "Verify you are human" checkbox; the docs say invisible. A dashboard setting, not code, and not the cause of `110200`. Flagged in the setup doc                                                                        |
 
 ### 6.5 Blocked on staging evidence
 
@@ -910,26 +910,26 @@ Everything else in Phase 0 was proven locally and is fixed.
    `cancelled` / `completed` in `BookingStatus`. The code follows the enum.
 2. **One rule adjusted, with reasoning.** A booking with **no cutoff on
    record** has no `missed_cutoff` phase — only `departed`. Every other
-   "be conservative" rule in this codebase moves a *deadline* earlier, which
-   costs the customer nothing; this would move a *refusal* earlier, which
+   "be conservative" rule in this codebase moves a _deadline_ earlier, which
+   costs the customer nothing; this would move a _refusal_ earlier, which
    costs them their pickup. We do not claim a deadline passed when we do not
    know the deadline, and departure still catches the genuinely missed flight.
    Two tests pin it.
 
 ### 6.7 Final gate
 
-| Gate | Result |
-|---|---|
-| `turbo typecheck` | **6/6 pass** |
-| `turbo lint` | **6/6 pass** |
-| `turbo test` (unit) | **core 441 + 1 skipped · web 95 · ui 92 · admin 27 · agent 12 = 667 passing** |
-| `pnpm --filter @koolee/core test:integration` | **200 passed / 3 skipped, 21 files** — `koolee_test` only, seed re-run clean |
-| `turbo build` | **3/3 pass** — web, agent, admin |
-| `pnpm --filter @koolee/db db:status` | **30 of 30, matched by content hash, in sync.** `Target host: 127.0.0.1`, read and confirmed |
-| Migrations added | **none** |
-| New environment variables | **none.** `ANTHROPIC_API_KEY` already existed; it is now REQUIRED in production |
-| Hosted databases contacted | **none** |
-| Commits made | **none** — TD commits after review |
+| Gate                                          | Result                                                                                       |
+| --------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `turbo typecheck`                             | **6/6 pass**                                                                                 |
+| `turbo lint`                                  | **6/6 pass**                                                                                 |
+| `turbo test` (unit)                           | **core 441 + 1 skipped · web 95 · ui 92 · admin 27 · agent 12 = 667 passing**                |
+| `pnpm --filter @koolee/core test:integration` | **200 passed / 3 skipped, 21 files** — `koolee_test` only, seed re-run clean                 |
+| `turbo build`                                 | **3/3 pass** — web, agent, admin                                                             |
+| `pnpm --filter @koolee/db db:status`          | **30 of 30, matched by content hash, in sync.** `Target host: 127.0.0.1`, read and confirmed |
+| Migrations added                              | **none**                                                                                     |
+| New environment variables                     | **none.** `ANTHROPIC_API_KEY` already existed; it is now REQUIRED in production              |
+| Hosted databases contacted                    | **none**                                                                                     |
+| Commits made                                  | **none** — TD commits after review                                                           |
 
 ### 6.8 Test count, start to finish
 

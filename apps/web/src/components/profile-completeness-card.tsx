@@ -1,12 +1,6 @@
 import Link from "next/link";
 import { Camera, Mail, Phone, UserRound } from "lucide-react";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@koolee/ui";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@koolee/ui";
 import type { ProfileGap } from "@koolee/core";
 
 /**

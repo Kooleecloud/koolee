@@ -15,7 +15,12 @@ import {
 
 import type { CoreConfig } from "../config";
 import { emitDriverPoolEmpty, emitDriverSelected } from "../events/booking-events";
-import { ConflictError, InvalidInputError, NotAuthorizedError, NotFoundError } from "../errors";
+import {
+  ConflictError,
+  InvalidInputError,
+  NotAuthorizedError,
+  NotFoundError,
+} from "../errors";
 import { assertActionable } from "./actionability";
 import { touchBookingSignals } from "./booking-signals";
 import { toCoordinates, type Coordinates } from "../geo/coordinates";
@@ -130,10 +135,7 @@ const givenNameOf = (fullName: string | null): string | null =>
  * ZIP twice cannot appear twice, and so the widening fallback is a filter in
  * memory rather than a second round trip.
  */
-async function eligibleShifts(
-  db: Database,
-  zip: string,
-): Promise<EligibleRow[]> {
+async function eligibleShifts(db: Database, zip: string): Promise<EligibleRow[]> {
   const bagsOnBoard = sql<number>`(
     select coalesce(sum(b.bag_count), 0)::int
       from ${pickupTasks} pt
@@ -216,9 +218,7 @@ async function loadSelectionContext(
 }
 
 function assertSelectable(booking: Booking): void {
-  if (
-    !(DRIVER_SELECTABLE_STATUSES as readonly string[]).includes(booking.status)
-  ) {
+  if (!(DRIVER_SELECTABLE_STATUSES as readonly string[]).includes(booking.status)) {
     throw new ConflictError(
       "driver",
       `Booking ${booking.ref} is ${booking.status} — a driver is chosen once the bags are sealed.`,
@@ -243,9 +243,7 @@ export async function listCandidateDrivers(
 
   const rows = await eligibleShifts(db, pickup.zip);
 
-  const withRoom = rows.filter(
-    (r) => r.bagCapacity - r.bagsOnBoard >= booking.bagCount,
-  );
+  const withRoom = rows.filter((r) => r.bagCapacity - r.bagsOnBoard >= booking.bagCount);
 
   const inZone = withRoom.filter((r) => r.inZone);
   // Widen only when the first pass is EMPTY, never to pad a short list: a
@@ -406,7 +404,10 @@ export async function selectDriver(
     if (!task) {
       throw new NotFoundError("Pickup task for booking", booking.id);
     }
-    if (task.startedAt !== null || !(OPEN_TASK_STATUSES as readonly string[]).includes(task.status)) {
+    if (
+      task.startedAt !== null ||
+      !(OPEN_TASK_STATUSES as readonly string[]).includes(task.status)
+    ) {
       throw new ConflictError(
         "driver",
         "Your driver is already on the way — the choice is closed.",
@@ -593,7 +594,10 @@ export async function reportEmptyDriverPool(
       now: config.clock.now(),
     });
   } catch (error) {
-    console.error(`[driver-selection] pool-empty report failed for ${input.bookingId}`, error);
+    console.error(
+      `[driver-selection] pool-empty report failed for ${input.bookingId}`,
+      error,
+    );
   }
 }
 
@@ -661,10 +665,7 @@ export async function getSelectedDriver(
     .innerJoin(driverShifts, eq(driverShifts.id, pickupTasks.driverShiftId))
     .innerJoin(trucks, eq(trucks.id, driverShifts.truckId))
     .innerJoin(users, eq(users.id, driverShifts.staffUserId))
-    .leftJoin(
-      driverPositions,
-      eq(driverPositions.staffUserId, driverShifts.staffUserId),
-    )
+    .leftJoin(driverPositions, eq(driverPositions.staffUserId, driverShifts.staffUserId))
     .where(eq(pickupTasks.bookingId, bookingId))
     .limit(1);
 
@@ -721,7 +722,12 @@ export async function recordDriverPosition(
   const recordedAt = input.recordedAt ?? config.clock.now();
   await db
     .insert(driverPositions)
-    .values({ staffUserId: input.staffUserId, lat: input.lat, lng: input.lng, recordedAt })
+    .values({
+      staffUserId: input.staffUserId,
+      lat: input.lat,
+      lng: input.lng,
+      recordedAt,
+    })
     .onConflictDoUpdate({
       target: driverPositions.staffUserId,
       set: { lat: input.lat, lng: input.lng, recordedAt },
@@ -758,7 +764,6 @@ export async function recordDriverPosition(
     input.staffUserId,
   );
 }
-
 
 /* ------------------------------------------------------------------ */
 /* Admin reassignment                                                  */
@@ -845,7 +850,10 @@ export async function adminReassignPickup(
       .limit(1);
 
     if (!row || !row.staffActive || !row.canDrive) {
-      throw new ConflictError("driver", "That shift is not open, or that driver cannot drive.");
+      throw new ConflictError(
+        "driver",
+        "That shift is not open, or that driver cannot drive.",
+      );
     }
 
     const [zoneRow] = await tx
@@ -888,7 +896,9 @@ export async function adminReassignPickup(
     }
 
     const releasedShiftId =
-      task.driverShiftId && task.driverShiftId !== input.shiftId ? task.driverShiftId : null;
+      task.driverShiftId && task.driverShiftId !== input.shiftId
+        ? task.driverShiftId
+        : null;
 
     await tx
       .update(pickupTasks)

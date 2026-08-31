@@ -70,15 +70,7 @@ const ALL_BEATS = [...DOOR_BEATS, ARRIVAL_BEAT];
 
 export type HeroRouteSceneProps = React.HTMLAttributes<HTMLDivElement>;
 
-function Beat({
-  id,
-  label,
-  isSeal,
-}: {
-  id: string;
-  label: string;
-  isSeal?: boolean;
-}) {
+function Beat({ id, label, isSeal }: { id: string; label: string; isSeal?: boolean }) {
   return (
     <li data-beat={id} className="flex items-center gap-2">
       <span
@@ -107,8 +99,7 @@ function HeroRouteScene({ className, ...props }: HeroRouteSceneProps) {
       const root = ref.current;
       if (!root) return;
 
-      const q = <T extends Element>(selector: string) =>
-        root.querySelector<T>(selector);
+      const q = <T extends Element>(selector: string) => root.querySelector<T>(selector);
 
       const van = q("[data-van]");
       const trail = q<SVGPathElement>("[data-trail]");
@@ -207,7 +198,11 @@ function HeroRouteScene({ className, ...props }: HeroRouteSceneProps) {
           .add(bank("id"), 0.35)
           .add(bank("weighed"), "+=0.6")
           .add(bank("sealed"), "+=0.6")
-          .to(seals, { autoAlpha: 1, scale: 1, duration: 0.35, ease: "back.out(2.4)" }, "<")
+          .to(
+            seals,
+            { autoAlpha: 1, scale: 1, duration: 0.35, ease: "back.out(2.4)" },
+            "<",
+          )
           .add(bank("loaded"), "+=0.6")
 
           /* 2 · Only now does anything move. */
@@ -223,7 +218,11 @@ function HeroRouteScene({ className, ...props }: HeroRouteSceneProps) {
             },
             "drive",
           )
-          .to(trail, { strokeDashoffset: 0, duration: 2.4, ease: "power1.inOut" }, "drive")
+          .to(
+            trail,
+            { strokeDashoffset: 0, duration: 2.4, ease: "power1.inOut" },
+            "drive",
+          )
 
           /* 3 · Arrival at the airline's bag drop. */
           .add(bank("bagdrop"), "-=0.1")
@@ -495,7 +494,14 @@ function HeroRouteScene({ className, ...props }: HeroRouteSceneProps) {
             <circle cx="17" cy="1" r="4.5" fill="#051222" />
             <circle cx="17" cy="1" r="1.7" fill="#FFFFFF" />
             {/* Seal orange, on the van the way it is on the bags inside it. */}
-            <circle cx="-19" cy="-17" r="3.4" fill={TAG} stroke="#FFFFFF" strokeWidth="1.2" />
+            <circle
+              cx="-19"
+              cy="-17"
+              r="3.4"
+              fill={TAG}
+              stroke="#FFFFFF"
+              strokeWidth="1.2"
+            />
           </g>
         </g>
       </svg>

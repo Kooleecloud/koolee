@@ -66,7 +66,8 @@ const ctaButtonVariants = cva(
 );
 
 export interface CTAButtonProps
-  extends React.ButtonHTMLAttributes<HTMLButtonElement>,
+  extends
+    React.ButtonHTMLAttributes<HTMLButtonElement>,
     VariantProps<typeof ctaButtonVariants> {
   /** Render the child element (e.g. a Next.js Link) with tag styling. */
   asChild?: boolean;
@@ -76,7 +77,16 @@ export interface CTAButtonProps
 
 const CTAButton = React.forwardRef<HTMLButtonElement, CTAButtonProps>(
   (
-    { className, variant, size, asChild = false, loading = false, disabled, children, ...props },
+    {
+      className,
+      variant,
+      size,
+      asChild = false,
+      loading = false,
+      disabled,
+      children,
+      ...props
+    },
     ref,
   ) => {
     const Comp = asChild ? Slot : "button";

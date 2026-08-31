@@ -26,7 +26,11 @@ export interface PageSkeletonProps {
  */
 function PageSkeleton({ cards = 2, className }: PageSkeletonProps) {
   return (
-    <div role="status" aria-live="polite" className={cn("flex flex-col gap-6", className)}>
+    <div
+      role="status"
+      aria-live="polite"
+      className={cn("flex flex-col gap-6", className)}
+    >
       <span className="sr-only">Loading…</span>
       <div className="flex flex-col gap-2">
         <Skeleton className="h-8 w-48 max-w-full" />

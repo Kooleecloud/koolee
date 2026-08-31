@@ -68,9 +68,7 @@ const captureDueCron = inngest.createFunction(
     return step.run("capture-due", async () => {
       const result = await captureDueBookings(getCore());
       if (result.captured.length > 0 || result.failed.length > 0) {
-        logger.info(
-          `captured ${result.captured.length}, failed ${result.failed.length}`,
-        );
+        logger.info(`captured ${result.captured.length}, failed ${result.failed.length}`);
       }
       return result;
     });

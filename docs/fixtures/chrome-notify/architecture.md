@@ -12,15 +12,15 @@ the tab closed. The notification has to reach them in all four cases.
 
 There are two ways to raise a browser notification:
 
-| | works while tab open | works while tab closed | Android Chrome |
-|---|---|---|---|
-| `new Notification()` from the page | yes | **no** | **throws** |
-| `registration.showNotification()` from a service worker | yes | **yes** | yes |
+|                                                         | works while tab open | works while tab closed | Android Chrome |
+| ------------------------------------------------------- | -------------------- | ---------------------- | -------------- |
+| `new Notification()` from the page                      | yes                  | **no**                 | **throws**     |
+| `registration.showNotification()` from a service worker | yes                  | **yes**                | yes            |
 
 **This POC uses only the service-worker path.** A push message wakes the service worker whether or
 not any tab exists, so a single code path covers every state with no branching and nothing to
 deduplicate. The page never constructs a notification directly — the "Local only" debug button calls
-`registration.showNotification()` on the service worker's *registration*, so the notification is
+`registration.showNotification()` on the service worker's _registration_, so the notification is
 still SW-owned rather than page-owned.
 
 One asymmetry to know before leaning on that button: it does **not** run `sw.js`'s `push` handler and
@@ -118,20 +118,20 @@ The one piece designed to be lifted elsewhere. No dependencies beyond React.
 
 ```ts
 const {
-  ready,        // service worker registration attempt has finished
-  supported,    // platform can do push at all
-  permission,   // 'default' | 'granted' | 'denied' | 'unsupported'
-  subscribed,   // this browser has a live push subscription
-  busy,         // a subscribe/unsubscribe is in flight
-  error,        // last failure, human-readable
-  diagnostics,  // why it's unsupported, if it is
-  subscribe,        // MUST be called from a user gesture
+  ready, // service worker registration attempt has finished
+  supported, // platform can do push at all
+  permission, // 'default' | 'granted' | 'denied' | 'unsupported'
+  subscribed, // this browser has a live push subscription
+  busy, // a subscribe/unsubscribe is in flight
+  error, // last failure, human-readable
+  diagnostics, // why it's unsupported, if it is
+  subscribe, // MUST be called from a user gesture
   unsubscribe,
-  showLocalNotification,  // debug aid, bypasses the server
+  showLocalNotification, // debug aid, bypasses the server
 } = useWebPush();
 ```
 
-`diagnostics` deliberately reports *why* something is unavailable rather than just failing:
+`diagnostics` deliberately reports _why_ something is unavailable rather than just failing:
 
 ```ts
 {
@@ -183,14 +183,14 @@ hits all of them.
 
 ## HTTP API
 
-| Method | Path | Purpose |
-|---|---|---|
-| `GET` | `/api/vapid` | Returns the VAPID public key. Not a secret — the browser needs it. `503` if keys aren't generated. |
-| `GET` | `/api/subscribe` | Count and labels of registered devices. |
-| `POST` | `/api/subscribe` | Register a subscription. Validates `endpoint`, `keys.p256dh`, `keys.auth`. Upserts by endpoint. |
-| `DELETE` | `/api/subscribe` | Remove by `{ endpoint }`. |
-| `POST` | `/api/notify` | Send. Body: `{ title, body, tag?, url?, requireInteraction?, renotify?, actions?, data?, delaySeconds? }`. `409` when no subscriptions are registered yet. |
-| `GET` | `/api/notify?since=` | Recent send outcomes — **immediate and delayed both**. The demo page filters to delayed client-side. |
+| Method   | Path                 | Purpose                                                                                                                                                    |
+| -------- | -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET`    | `/api/vapid`         | Returns the VAPID public key. Not a secret — the browser needs it. `503` if keys aren't generated.                                                         |
+| `GET`    | `/api/subscribe`     | Count and labels of registered devices.                                                                                                                    |
+| `POST`   | `/api/subscribe`     | Register a subscription. Validates `endpoint`, `keys.p256dh`, `keys.auth`. Upserts by endpoint.                                                            |
+| `DELETE` | `/api/subscribe`     | Remove by `{ endpoint }`.                                                                                                                                  |
+| `POST`   | `/api/notify`        | Send. Body: `{ title, body, tag?, url?, requireInteraction?, renotify?, actions?, data?, delaySeconds? }`. `409` when no subscriptions are registered yet. |
+| `GET`    | `/api/notify?since=` | Recent send outcomes — **immediate and delayed both**. The demo page filters to delayed client-side.                                                       |
 
 `delaySeconds` (max 300) schedules the send with `setTimeout` and returns immediately. **This is the
 POC's most important test affordance** — it gives you time to switch tabs, switch apps, or close the

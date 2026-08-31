@@ -41,7 +41,7 @@ describe("describeCustodyEvent", () => {
         metadata: { taskId: "t-1", sealId: "KL-88213", weightKg: 12.4 },
       }),
       NY,
-      );
+    );
     expect(headline).toBe("Bag sealed.");
     expect(details).toEqual(["seal KL-88213", "12.4 kg"]);
   });
@@ -53,7 +53,7 @@ describe("describeCustodyEvent", () => {
         metadata: { provider: "stripe", amountCents: 8900, captureRef: "pi_123" },
       }),
       NY,
-      );
+    );
     expect(details).toEqual(["$89.00", "via stripe", "ref pi_123"]);
   });
 
@@ -64,7 +64,7 @@ describe("describeCustodyEvent", () => {
         metadata: { reason: "customer_not_home", note: "Buzzer broken; no answer." },
       }),
       NY,
-      );
+    );
     expect(details).toEqual([
       "reason: customer not home",
       "note: Buzzer broken; no answer.",
@@ -78,7 +78,7 @@ describe("describeCustodyEvent", () => {
         metadata: { source: "admin_manual_override", note: "driver confirmed by phone" },
       }),
       NY,
-      );
+    );
     expect(headline).toContain("Applied as a manual override from the ops console.");
   });
 
@@ -93,7 +93,7 @@ describe("describeCustodyEvent", () => {
         metadata: { source: "admin_exception_resolution", reason: typed },
       }),
       NY,
-      );
+    );
     expect(details).toContain(`reason: ${typed}`);
   });
 
@@ -104,7 +104,7 @@ describe("describeCustodyEvent", () => {
         metadata: { reason: "payment_capture_failed" },
       }),
       NY,
-      );
+    );
     expect(details).toContain("reason: payment capture failed");
   });
 
@@ -121,7 +121,7 @@ describe("describeCustodyEvent", () => {
         },
       }),
       NY,
-      );
+    );
     expect(details).toEqual(["via fake", "ref auth_000002", "draft → paid"]);
     // The three transition keys must not also appear as leftovers.
     expect(details.join(" ")).not.toMatch(/Event:|From:|To:/);
@@ -130,7 +130,7 @@ describe("describeCustodyEvent", () => {
   it("renders an unknown event type readably instead of as a dotted token", () => {
     const { headline } = describeCustodyEvent(
       event({ eventType: "visit.bag_refused" }),
-    NY,
+      NY,
     );
     expect(headline).toBe("Visit bag refused.");
   });
@@ -138,7 +138,7 @@ describe("describeCustodyEvent", () => {
   it("still surfaces metadata keys it has no phrasing for", () => {
     const { details } = describeCustodyEvent(
       event({ eventType: "booking.created", metadata: { cutoffMinutes: 90 } }),
-    NY,
+      NY,
     );
     expect(details).toContain("Cutoff minutes: 90");
   });
@@ -150,14 +150,14 @@ describe("describeCustodyEvent", () => {
         metadata: { bagCount: 2, breakdown: { totalCents: 8900 } },
       }),
       NY,
-      );
+    );
     expect(details).toEqual(["2 bags"]);
   });
 
   it("omits facts that are absent rather than guessing them", () => {
     const { headline, details } = describeCustodyEvent(
       event({ eventType: "booking.created", metadata: {} }),
-    NY,
+      NY,
     );
     expect(headline).toBe("Booking created.");
     expect(details).toEqual([]);

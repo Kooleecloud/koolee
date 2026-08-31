@@ -26,16 +26,16 @@ Run everything from the **repo root** unless noted.
 
 ### Database
 
-| Command                                    |    Connects?    | Does                                                       |
-| ------------------------------------------ | :-------------: | ---------------------------------------------------------- |
-| `pnpm db:generate`                         |     **no**      | Diff the schema, write a new migration file                |
-| `pnpm db:status`                           | yes (read-only) | Drift report. **Safe against production**                  |
-| `pnpm db:migrate`                          |       yes       | Apply pending migrations over `DIRECT_DATABASE_URL`        |
-| `pnpm db:studio`                           |       yes       | drizzle-kit Studio                                         |
-| `pnpm seed`                                | **local only**  | Reference data. REFUSES a non-local host — see §3.6        |
-| `pnpm seed:local`                          |       yes       | Same seed, **pinned to the local stack**                   |
-| `pnpm --filter @koolee/db bootstrap:staff` |       yes       | Mint the **first** staff account on a DB that has none     |
-| `pnpm --filter @koolee/db create:staff`    |       yes       | Create a whole dev staff roster (2 admins + 5 agents)      |
+| Command                                    |    Connects?    | Does                                                   |
+| ------------------------------------------ | :-------------: | ------------------------------------------------------ |
+| `pnpm db:generate`                         |     **no**      | Diff the schema, write a new migration file            |
+| `pnpm db:status`                           | yes (read-only) | Drift report. **Safe against production**              |
+| `pnpm db:migrate`                          |       yes       | Apply pending migrations over `DIRECT_DATABASE_URL`    |
+| `pnpm db:studio`                           |       yes       | drizzle-kit Studio                                     |
+| `pnpm seed`                                | **local only**  | Reference data. REFUSES a non-local host — see §3.6    |
+| `pnpm seed:local`                          |       yes       | Same seed, **pinned to the local stack**               |
+| `pnpm --filter @koolee/db bootstrap:staff` |       yes       | Mint the **first** staff account on a DB that has none |
+| `pnpm --filter @koolee/db create:staff`    |       yes       | Create a whole dev staff roster (2 admins + 5 agents)  |
 
 ⚠️ Everything above except `db:generate` reads `packages/db/.env`, which points
 at the **hosted** project. See [ENVIRONMENT.md §6](ENVIRONMENT.md#6-packagesdbenv-points-at-local--hosted-only-by-explicit-override).
@@ -54,13 +54,13 @@ at the **hosted** project. See [ENVIRONMENT.md §6](ENVIRONMENT.md#6-packagesdbe
 
 ### Other
 
-| Command                                       | Does                                                    |
-| --------------------------------------------- | ------------------------------------------------------- |
-| `pnpm dev:inngest`                            | Inngest dev server against `localhost:3000/api/inngest` |
-| `pnpm --filter @koolee/ui storybook`          | Storybook on `:6006`                                    |
-| `pnpm --filter @koolee/core test:integration` | Integration suites (see §4)                             |
-| `pnpm env:verify`                             | Does an environment have the variables its apps refuse to boot without? Reads NAMES, never values — see §8 |
-| `pnpm check:sw-headers`                       | Asserts `/sw.js` still gets `no-cache` + `Service-Worker-Allowed` after `withSentryConfig` composes the Next config. Both failure modes are silent |
+| Command                                       | Does                                                                                                                                                                                                                                                           |
+| --------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm dev:inngest`                            | Inngest dev server against `localhost:3000/api/inngest`                                                                                                                                                                                                        |
+| `pnpm --filter @koolee/ui storybook`          | Storybook on `:6006`                                                                                                                                                                                                                                           |
+| `pnpm --filter @koolee/core test:integration` | Integration suites (see §4)                                                                                                                                                                                                                                    |
+| `pnpm env:verify`                             | Does an environment have the variables its apps refuse to boot without? Reads NAMES, never values — see §8                                                                                                                                                     |
+| `pnpm check:sw-headers`                       | Asserts `/sw.js` still gets `no-cache` + `Service-Worker-Allowed` after `withSentryConfig` composes the Next config. Both failure modes are silent                                                                                                             |
 | `pnpm push:vapid`                             | Generate the VAPID keypair for Web Push. Prints four values; paste **the same four into all three apps**. Regenerating invalidates every stored subscription — see [ENVIRONMENT §4.5](ENVIRONMENT.md#45--web-push-all-four-vapid-vars-or-none--all-three-apps) |
 
 ### `pnpm clean:cache` — the one to run periodically
@@ -260,10 +260,10 @@ GoTrue reports "invalid login credentials" for every one of them.
 
 Two independent refusals live in the seed, and they protect different things.
 
-| Refusal | Protects | Bypass |
-| --- | --- | --- |
-| The **staff/customer roster** skips any non-local *Supabase* host (§3.3) | Known passwords becoming a standing backdoor | **None.** Use `bootstrap:staff` (§3.4) |
-| The **whole seed** refuses any non-local *database* host ([seed-guard.ts](../packages/db/src/seed-guard.ts)) | Verified airline cutoffs and tuned launch prices | `SEED_ALLOW_HOSTED=1`, brand-new projects only |
+| Refusal                                                                                                      | Protects                                         | Bypass                                         |
+| ------------------------------------------------------------------------------------------------------------ | ------------------------------------------------ | ---------------------------------------------- |
+| The **staff/customer roster** skips any non-local _Supabase_ host (§3.3)                                     | Known passwords becoming a standing backdoor     | **None.** Use `bootstrap:staff` (§3.4)         |
+| The **whole seed** refuses any non-local _database_ host ([seed-guard.ts](../packages/db/src/seed-guard.ts)) | Verified airline cutoffs and tuned launch prices | `SEED_ALLOW_HOSTED=1`, brand-new projects only |
 
 The second one is newer and less obvious. `pnpm seed` is idempotent with
 respect to **itself**, not with respect to a human's work: it resets all 128
@@ -276,13 +276,13 @@ silent, undiffable and safety-critical.
 
 Launch data therefore has one home, and it is not this script:
 
-| Data | Where it is entered |
-| --- | --- |
-| Airline cutoffs | admin `/cutoffs` |
-| Pricing rule | admin `/pricing` |
-| Booking agreement | admin `/agreements` |
-| Fleet, staff, zones, `can_drive` | admin `/trucks`, `/staff`, `/zones`, `/shifts` |
-| Coverage ZIPs | `packages/db/src/coverage-zips.ts` — code, so a deploy |
+| Data                             | Where it is entered                                    |
+| -------------------------------- | ------------------------------------------------------ |
+| Airline cutoffs                  | admin `/cutoffs`                                       |
+| Pricing rule                     | admin `/pricing`                                       |
+| Booking agreement                | admin `/agreements`                                    |
+| Fleet, staff, zones, `can_drive` | admin `/trucks`, `/staff`, `/zones`, `/shifts`         |
+| Coverage ZIPs                    | `packages/db/src/coverage-zips.ts` — code, so a deploy |
 
 The refusal names the host it refused and what it would have destroyed. If the
 target really is a project with nothing to lose, say so out loud:
@@ -324,15 +324,15 @@ vitest run integration.test; rc=$?; pnpm --filter @koolee/db seed:local; exit $r
 
 ## 5. Per-package scripts
 
-| Package           | Scripts                                                                                                   |
-| ----------------- | --------------------------------------------------------------------------------------------------------- |
-| `apps/web`        | `dev` (`:3000`), `build`, `start`, `lint`, `typecheck`, `test`, `clean`                                   |
-| `apps/agent`      | same, `:3001`                                                                                             |
-| `apps/admin`      | same, `:3002`                                                                                             |
-| `packages/core`   | `lint`, `typecheck`, `test` (excludes integration), `test:watch`, `test:integration`, `push:vapid`, `clean` |
+| Package           | Scripts                                                                                                                                              |
+| ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `apps/web`        | `dev` (`:3000`), `build`, `start`, `lint`, `typecheck`, `test`, `clean`                                                                              |
+| `apps/agent`      | same, `:3001`                                                                                                                                        |
+| `apps/admin`      | same, `:3002`                                                                                                                                        |
+| `packages/core`   | `lint`, `typecheck`, `test` (excludes integration), `test:watch`, `test:integration`, `push:vapid`, `clean`                                          |
 | `packages/db`     | `db:generate`, `db:migrate`, `db:status`, `db:studio`, `seed`, `seed:local`, `bootstrap:staff`, `create:staff`, `test`, `lint`, `typecheck`, `clean` |
-| `packages/ui`     | `lint`, `typecheck`, `test`, `storybook` (`:6006`), `build-storybook`, `clean`                            |
-| `packages/config` | none — config-only package                                                                                |
+| `packages/ui`     | `lint`, `typecheck`, `test`, `storybook` (`:6006`), `build-storybook`, `clean`                                                                       |
+| `packages/config` | none — config-only package                                                                                                                           |
 
 Target one with `pnpm --filter <name> <script>`, e.g.
 `pnpm --filter @koolee/core test:watch`.
@@ -384,12 +384,12 @@ vercel env ls production | pnpm env:verify --stdin  # a Vercel scope
 pnpm env:verify                                     # the current process env
 ```
 
-| Flag | Does |
-| --- | --- |
-| `--app web\|admin\|agent\|all` | Which app's requirements. Default `all` |
-| `--live` | Arm the launch-mode gates — **rehearse the flip before making it** |
-| `--push` | Arm the VAPID requirements |
-| `--strict` | Fail on `recommended` too, not just required |
+| Flag                           | Does                                                               |
+| ------------------------------ | ------------------------------------------------------------------ |
+| `--app web\|admin\|agent\|all` | Which app's requirements. Default `all`                            |
+| `--live`                       | Arm the launch-mode gates — **rehearse the flip before making it** |
+| `--push`                       | Arm the VAPID requirements                                         |
+| `--strict`                     | Fail on `recommended` too, not just required                       |
 
 **It reads NAMES, never values.** Nothing is printed but a variable name and
 why it matters, so the output is safe to paste anywhere — and it proves a row

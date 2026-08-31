@@ -35,7 +35,6 @@ const supabaseApiUrl = z
   .optional()
   .catch(undefined);
 
-
 const schema = z.object({
   NODE_ENV: z
     .enum(["development", "test", "production"])
@@ -285,7 +284,12 @@ export function assertProductionBootConfig(): void {
    * this does not block the product; it blocks the SILENT version of it.
    */
   const push = (
-    ["VAPID_PUBLIC_KEY", "VAPID_PRIVATE_KEY", "VAPID_SUBJECT", "NEXT_PUBLIC_VAPID_PUBLIC_KEY"] as const
+    [
+      "VAPID_PUBLIC_KEY",
+      "VAPID_PRIVATE_KEY",
+      "VAPID_SUBJECT",
+      "NEXT_PUBLIC_VAPID_PUBLIC_KEY",
+    ] as const
   ).filter((key) => !optionalEnv(key));
   // Waived while push is off (the default): a console sender is the correct
   // answer when the channel is deliberately disabled.

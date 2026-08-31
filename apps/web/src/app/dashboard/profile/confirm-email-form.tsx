@@ -4,11 +4,7 @@ import * as React from "react";
 import { useActionState } from "react";
 import { Button, FormMessage, Input, Label, usePreservedFormValues } from "@koolee/ui";
 
-import {
-  confirmEmailCode,
-  resendEmailCode,
-  type ProfileActionState,
-} from "./actions";
+import { confirmEmailCode, resendEmailCode, type ProfileActionState } from "./actions";
 
 /** Same countdown and cap the booking funnel's verification screen uses. */
 const RESEND_SECONDS = 30;

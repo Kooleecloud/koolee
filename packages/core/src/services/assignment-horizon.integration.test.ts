@@ -24,7 +24,11 @@ import { TEST_AIRPORTS } from "../test-utils/airport-fixtures";
 
 import { createCoreConfig, fixedClock, type CoreConfig } from "../config";
 import { FakePaymentProvider } from "../payments/fake";
-import { assignEnteringHorizon, autoAssignBooking, autoAssignOnPaid } from "./auto-assign";
+import {
+  assignEnteringHorizon,
+  autoAssignBooking,
+  autoAssignOnPaid,
+} from "./auto-assign";
 import { ensureAddress } from "./customers";
 import { getOpsDashboard, listBookingsBoard } from "./dispatch";
 import {
@@ -88,7 +92,9 @@ describeIntegration("assignment horizon (integration)", () => {
       db,
       payments: provider,
       clock: fixedClock(at),
-      ...(horizonHours === undefined ? {} : { defaults: { assignmentHorizonHours: horizonHours } }),
+      ...(horizonHours === undefined
+        ? {}
+        : { defaults: { assignmentHorizonHours: horizonHours } }),
     });
   }
 
@@ -156,7 +162,9 @@ describeIntegration("assignment horizon (integration)", () => {
       .values({ email: "horizon.agent@koolee-test.example", role: "agent" })
       .returning();
     agentId = agent!.id;
-    await db.insert(staffMembers).values({ userId: agentId, role: "agent", active: true });
+    await db
+      .insert(staffMembers)
+      .values({ userId: agentId, role: "agent", active: true });
     await db.insert(agentZones).values({ agentUserId: agentId, zip: "10001" });
 
     const address = await ensureAddress(db, userId, {
@@ -193,7 +201,8 @@ describeIntegration("assignment horizon (integration)", () => {
   /** Takes a booking all the way to `paid`, firing the real on-paid hook. */
   async function payFor(config: CoreConfig, departureAt: Date): Promise<string> {
     const intent = await ensureBookingPaymentIntent(config, baseInput(departureAt));
-    if (intent.kind !== "ready") throw new Error(`expected ready intent, got ${intent.kind}`);
+    if (intent.kind !== "ready")
+      throw new Error(`expected ready intent, got ${intent.kind}`);
     provider.simulateClientConfirmation(intent.providerRef, "success");
     const recheck = await reconcileBookingPayment(config, {
       bookingId: intent.bookingId,
@@ -206,7 +215,10 @@ describeIntegration("assignment horizon (integration)", () => {
   async function stateOf(bookingId: string) {
     const [booking, vTasks, pTasks, events] = await Promise.all([
       db.query.bookings.findFirst({ where: eq(bookings.id, bookingId) }),
-      db.select().from(verificationTasks).where(eq(verificationTasks.bookingId, bookingId)),
+      db
+        .select()
+        .from(verificationTasks)
+        .where(eq(verificationTasks.bookingId, bookingId)),
       db.select().from(pickupTasks).where(eq(pickupTasks.bookingId, bookingId)),
       db.select().from(custodyEvents).where(eq(custodyEvents.bookingId, bookingId)),
     ]);
@@ -455,7 +467,8 @@ describeIntegration("assignment horizon (integration)", () => {
   });
 
   it("the on-paid hook never throws, whatever the horizon", async () => {
-    await expect(autoAssignOnPaid(configAt(now), "00000000-0000-0000-0000-000000000000"))
-      .resolves.toBeUndefined();
+    await expect(
+      autoAssignOnPaid(configAt(now), "00000000-0000-0000-0000-000000000000"),
+    ).resolves.toBeUndefined();
   });
 });

@@ -2,11 +2,7 @@ import { NextResponse } from "next/server";
 import { getBookingDraft } from "@koolee/core";
 
 import { getAuthUser } from "@/lib/auth";
-import {
-  DRAFT_COOKIE_NAME,
-  draftCookieOptions,
-  readDraft,
-} from "@/lib/booking-draft";
+import { DRAFT_COOKIE_NAME, draftCookieOptions, readDraft } from "@/lib/booking-draft";
 import { bookingDraftSchema } from "@/lib/booking-draft-schema";
 import { draftHasProgress, nextIncompleteStep } from "@/lib/booking-steps";
 import { tryGetCore } from "@/lib/core";

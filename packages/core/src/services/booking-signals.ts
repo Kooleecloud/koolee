@@ -92,7 +92,9 @@ export async function touchBookingSignals(
   try {
     await db
       .insert(bookingSignals)
-      .values(unique.map((bookingId) => ({ bookingId, updatedAt: new Date(), touchedBy })))
+      .values(
+        unique.map((bookingId) => ({ bookingId, updatedAt: new Date(), touchedBy })),
+      )
       .onConflictDoUpdate({
         target: bookingSignals.bookingId,
         set: { updatedAt: sql`excluded.updated_at`, touchedBy: sql`excluded.touched_by` },

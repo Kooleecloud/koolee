@@ -90,7 +90,10 @@ export async function checkAndRecordOtpSend(
     .select({ count: sql<number>`count(*)::int` })
     .from(otpSendLog)
     .where(
-      and(eq(otpSendLog.userId, input.userId), gte(otpSendLog.createdAt, userWindowStart)),
+      and(
+        eq(otpSendLog.userId, input.userId),
+        gte(otpSendLog.createdAt, userWindowStart),
+      ),
     );
   if ((byUser?.count ?? 0) >= OTP_MAX_SENDS_PER_USER) {
     return { allowed: false, reason: "user_capped" as const };

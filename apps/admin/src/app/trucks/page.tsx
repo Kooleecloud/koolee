@@ -122,8 +122,8 @@ export default async function TrucksPage() {
             <CardTitle className="text-base">Add a truck</CardTitle>
             <CardDescription>
               Bag capacity is what decides who a customer can pick. Reserved spaces are
-              recorded but <strong>not yet enforced</strong> — nothing subtracts them
-              from the space offered.
+              recorded but <strong>not yet enforced</strong> — nothing subtracts them from
+              the space offered.
             </CardDescription>
           </CardHeader>
           <CardContent>

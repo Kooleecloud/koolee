@@ -15,8 +15,7 @@ import { ResendNotifier } from "./resend";
  * this is safe to call at module scope.
  */
 export type NotifierConfig =
-  | { kind: "console" }
-  | { kind: "resend"; apiKey: string; from: string };
+  { kind: "console" } | { kind: "resend"; apiKey: string; from: string };
 
 export function createNotifier(config: NotifierConfig): Notifier {
   if (config.kind === "resend") {

@@ -89,23 +89,23 @@ function remediationFor(
   if (arrived) {
     return (
       <>
-        <strong>The notification reached this browser</strong> — the service
-        worker received it and raised it, so delivery is working and something
-        on this device is hiding it:
+        <strong>The notification reached this browser</strong> — the service worker
+        received it and raised it, so delivery is working and something on this device is
+        hiding it:
         <ol className="mt-2 ml-4 flex list-decimal flex-col gap-1">
           <li>
             <strong>Your Mac or PC is blocking {browser}.</strong> On macOS:
-            System&nbsp;Settings → Notifications → {browser} → Allow
-            notifications. Quit {browser} completely and reopen it afterwards.
+            System&nbsp;Settings → Notifications → {browser} → Allow notifications. Quit{" "}
+            {browser} completely and reopen it afterwards.
           </li>
           <li>
-            <strong>Focus or Do Not Disturb is on</strong>, so it was held
-            rather than shown.
+            <strong>Focus or Do Not Disturb is on</strong>, so it was held rather than
+            shown.
           </li>
           <li>
-            <strong>The alert style is &ldquo;None&rdquo;.</strong> Open
-            Notification Centre — if it is sitting in there, everything works
-            and only the on-screen banner was suppressed.
+            <strong>The alert style is &ldquo;None&rdquo;.</strong> Open Notification
+            Centre — if it is sitting in there, everything works and only the on-screen
+            banner was suppressed.
           </li>
         </ol>
       </>
@@ -116,42 +116,39 @@ function remediationFor(
     return (
       <>
         On iPhone and iPad, notifications only work from the Home Screen app. Tap{" "}
-        <strong>Share</strong>, then <strong>Add to Home Screen</strong>, open Koolee
-        from the new icon, and turn notifications on there.
+        <strong>Share</strong>, then <strong>Add to Home Screen</strong>, open Koolee from
+        the new icon, and turn notifications on there.
       </>
     );
   }
 
   return (
     <>
-      The server sent it, but <strong>it never reached this browser</strong> —
-      so this is a delivery problem, not a System Settings one. In order of
-      likelihood:
+      The server sent it, but <strong>it never reached this browser</strong> — so this is
+      a delivery problem, not a System Settings one. In order of likelihood:
       <ol className="mt-2 ml-4 flex list-decimal flex-col gap-1">
         <li>
-          <strong>This browser lost its connection to the push service.</strong>{" "}
-          Turn notifications off and on again here — that re-registers the
-          device.
+          <strong>This browser lost its connection to the push service.</strong> Turn
+          notifications off and on again here — that re-registers the device.
         </li>
         <li>
-          <strong>{browser} was fully quit.</strong> On macOS a quit browser
-          receives nothing; Safari and iOS still do, via Apple&apos;s service.
+          <strong>{browser} was fully quit.</strong> On macOS a quit browser receives
+          nothing; Safari and iOS still do, via Apple&apos;s service.
         </li>
         <li>
-          <strong>A firewall or VPN is blocking the push service.</strong>{" "}
-          Chrome and Edge need a long-lived connection to Google&apos;s
-          servers.
+          <strong>A firewall or VPN is blocking the push service.</strong> Chrome and Edge
+          need a long-lived connection to Google&apos;s servers.
         </li>
         {isApple ? null : (
           <li>
-            <strong>A work profile is blocking them.</strong> A managed browser
-            can switch notifications off outright.
+            <strong>A work profile is blocking them.</strong> A managed browser can switch
+            notifications off outright.
           </li>
         )}
       </ol>
       <p className="mt-2">
-        It is also worth checking Notification Centre — if it is sitting in
-        there, it did arrive and only the banner was suppressed.
+        It is also worth checking Notification Centre — if it is sitting in there, it did
+        arrive and only the banner was suppressed.
       </p>
     </>
   );
@@ -220,8 +217,8 @@ function PushEnableCard({
           {push.permission === "denied" ? (
             <FormMessage variant="info">
               {push.diagnostics.browser} is blocking notifications for Koolee and
-              won&apos;t ask again. Turn them back on in its site settings for this
-              page, then try again.
+              won&apos;t ask again. Turn them back on in its site settings for this page,
+              then try again.
             </FormMessage>
           ) : null}
           {push.error ? <FormMessage variant="error">{push.error}</FormMessage> : null}
@@ -246,14 +243,13 @@ function PushEnableCard({
           <div className="flex flex-col gap-2 rounded-md border border-border p-3">
             <p className="text-sm font-medium">Did a notification just appear?</p>
             <p className="text-sm text-muted-foreground">
-              We sent one to this device. If nothing showed up, notifications
-              won&apos;t reach you and we need to fix it now rather than during a
-              pickup.
+              We sent one to this device. If nothing showed up, notifications won&apos;t
+              reach you and we need to fix it now rather than during a pickup.
             </p>
             {arrivedSinceAsking ? (
               <p className="text-sm text-muted-foreground">
-                (It did reach this browser — so if you saw nothing, the fix is
-                on this device rather than in Koolee.)
+                (It did reach this browser — so if you saw nothing, the fix is on this
+                device rather than in Koolee.)
               </p>
             ) : null}
             <div className="flex gap-2">
@@ -266,11 +262,7 @@ function PushEnableCard({
               >
                 Yes, I saw it
               </Button>
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={() => setVerifyState("failed")}
-              >
+              <Button size="sm" variant="ghost" onClick={() => setVerifyState("failed")}>
                 No, nothing appeared
               </Button>
             </div>
@@ -285,16 +277,16 @@ function PushEnableCard({
 
         {verifyState === "not_configured" ? (
           <FormMessage variant="error">
-            Nothing was sent — notifications aren&apos;t set up on this
-            environment yet, so there is nothing wrong with your device. This
-            one is for whoever deploys Koolee, not for you.
+            Nothing was sent — notifications aren&apos;t set up on this environment yet,
+            so there is nothing wrong with your device. This one is for whoever deploys
+            Koolee, not for you.
           </FormMessage>
         ) : null}
 
         {verifyState === "no_subscription" ? (
           <FormMessage variant="error">
-            This device isn&apos;t registered any more. Turn notifications off
-            and on again.
+            This device isn&apos;t registered any more. Turn notifications off and on
+            again.
           </FormMessage>
         ) : null}
 

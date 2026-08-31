@@ -101,12 +101,7 @@ export function JourneyList({
                   startsPickupTaskId={startablePickupTaskId(job)}
                 />
               ) : (
-                <CompactStop
-                  job={job}
-                  dimmed={isPast}
-                  late={late}
-                  dayLabel={dayLabel}
-                />
+                <CompactStop job={job} dimmed={isPast} late={late} dayLabel={dayLabel} />
               )}
             </div>
           </li>
@@ -146,7 +141,10 @@ function StopDot({
         done && "border-success bg-success text-success-foreground",
         problem && "border-destructive bg-destructive text-destructive-foreground",
         !done && !problem && isCurrent && "border-navy-800 bg-navy-800 text-white",
-        !done && !problem && !isCurrent && "border-border bg-background text-muted-foreground",
+        !done &&
+          !problem &&
+          !isCurrent &&
+          "border-border bg-background text-muted-foreground",
         isPast && !done && "opacity-60",
       )}
     >
@@ -216,7 +214,10 @@ function CompactStop({
           warning, never a refusal. */}
       {late && job.state !== "problem" && <Badge variant="warning">Late</Badge>}
       {job.state === "done" && <Badge variant="success">Done</Badge>}
-      <ChevronRight aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />
+      <ChevronRight
+        aria-hidden="true"
+        className="size-4 shrink-0 text-muted-foreground"
+      />
     </Link>
   );
 }

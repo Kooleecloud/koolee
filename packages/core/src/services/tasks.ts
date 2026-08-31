@@ -42,8 +42,7 @@ export const OPEN_TASK_STATUSES = [
 ] as const satisfies readonly TaskStatus[];
 
 export type AssignedTask =
-  | { kind: "verification"; task: VerificationTask }
-  | { kind: "pickup"; task: PickupTask };
+  { kind: "verification"; task: VerificationTask } | { kind: "pickup"; task: PickupTask };
 
 export async function getAssignedTask(
   db: Database,

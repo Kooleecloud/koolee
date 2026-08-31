@@ -119,7 +119,10 @@ export function DevPanelClient({ envSection }: { envSection: React.ReactNode }) 
                     Supabase not configured — no session data.
                   </p>
                 ) : !session || !user ? (
-                  <Row label="Status" value={<Badge variant="outline">signed out</Badge>} />
+                  <Row
+                    label="Status"
+                    value={<Badge variant="outline">signed out</Badge>}
+                  />
                 ) : (
                   <>
                     <Row
@@ -147,7 +150,10 @@ export function DevPanelClient({ envSection }: { envSection: React.ReactNode }) 
                           // eslint-disable-next-line no-restricted-syntax
                           value={new Date(signedInAtMs).toLocaleTimeString()}
                         />
-                        <Row label="Active for" value={formatDuration(now - signedInAtMs)} />
+                        <Row
+                          label="Active for"
+                          value={formatDuration(now - signedInAtMs)}
+                        />
                       </>
                     )}
                     {expiresAtMs !== null && (

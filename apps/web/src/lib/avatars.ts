@@ -1,6 +1,11 @@
 import "server-only";
 
-import { avatarPathsForViewer, BUCKETS, type CoreConfig, type Session } from "@koolee/core";
+import {
+  avatarPathsForViewer,
+  BUCKETS,
+  type CoreConfig,
+  type Session,
+} from "@koolee/core";
 
 import { getSupabaseAdminClient } from "@/lib/supabase/admin";
 import { getSupabaseServerClient } from "@/lib/supabase/server";

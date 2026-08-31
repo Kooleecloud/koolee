@@ -28,7 +28,7 @@ describe("push kill switch — default OFF", () => {
     return pushNotificationsEnabled();
   };
 
-  it("is OFF when unset, and OFF for anything but exactly \"true\"", async () => {
+  it('is OFF when unset, and OFF for anything but exactly "true"', async () => {
     expect(await flagIs(undefined)).toBe(false);
     expect(await flagIs("false")).toBe(false);
     // A typo must fail CLOSED.
@@ -36,7 +36,7 @@ describe("push kill switch — default OFF", () => {
     expect(await flagIs("TRUE")).toBe(false);
   });
 
-  it("is ON only for exactly \"true\"", async () => {
+  it('is ON only for exactly "true"', async () => {
     expect(await flagIs("true")).toBe(true);
   });
 
@@ -45,8 +45,6 @@ describe("push kill switch — default OFF", () => {
     expect(source).toContain("pushNotificationsEnabled()");
     // The flag is the FIRST term, so nothing else has to be evaluated to know
     // the card is off.
-    expect(source).toMatch(
-      /\{pushNotificationsEnabled\(\) &&\s*\n\s*isActive &&/,
-    );
+    expect(source).toMatch(/\{pushNotificationsEnabled\(\) &&\s*\n\s*isActive &&/);
   });
 });

@@ -72,7 +72,10 @@ export default async function SchedulePage({
 
   return (
     <AgentMain>
-      <LiveTasks bookingIds={jobs.map((job) => job.bookingId)} stage={`jobs:${jobs.length}`} />
+      <LiveTasks
+        bookingIds={jobs.map((job) => job.bookingId)}
+        stage={`jobs:${jobs.length}`}
+      />
 
       <header className="flex flex-col gap-3">
         <h1 className="font-display text-3xl font-semibold text-navy-800">
@@ -120,7 +123,10 @@ function ViewToggle({
         href="/tasks"
         role="tab"
         aria-selected={!history}
-        className={cn(base, history ? "text-muted-foreground" : "bg-card text-navy-800 shadow-lift")}
+        className={cn(
+          base,
+          history ? "text-muted-foreground" : "bg-card text-navy-800 shadow-lift",
+        )}
       >
         To do · {openCount}
       </Link>
@@ -128,7 +134,10 @@ function ViewToggle({
         href="/tasks?view=history"
         role="tab"
         aria-selected={history}
-        className={cn(base, history ? "bg-card text-navy-800 shadow-lift" : "text-muted-foreground")}
+        className={cn(
+          base,
+          history ? "bg-card text-navy-800 shadow-lift" : "text-muted-foreground",
+        )}
       >
         History · {doneCount}
       </Link>

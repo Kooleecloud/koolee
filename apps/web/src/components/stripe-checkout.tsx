@@ -22,10 +22,7 @@ import {
   Label,
 } from "@koolee/ui";
 
-import {
-  preparePayment,
-  saveCheckoutContactPhone,
-} from "@/app/book/pay/actions";
+import { preparePayment, saveCheckoutContactPhone } from "@/app/book/pay/actions";
 
 /**
  * The Stripe Payment Element checkout card.
@@ -124,7 +121,11 @@ export function StripeCheckout({ needsContactPhone }: { needsContactPhone: boole
           <CardDescription>{state.message}</CardDescription>
         </CardHeader>
         <CardContent>
-          <Button type="button" variant="outline" onClick={() => window.location.reload()}>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => window.location.reload()}
+          >
             Try again
           </Button>
         </CardContent>

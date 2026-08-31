@@ -3,8 +3,10 @@ import { ChevronRight } from "lucide-react";
 
 import { cn } from "../lib/utils";
 
-export interface MilestoneTrackProps
-  extends Omit<React.HTMLAttributes<HTMLElement>, "children"> {
+export interface MilestoneTrackProps extends Omit<
+  React.HTMLAttributes<HTMLElement>,
+  "children"
+> {
   /** In order, earliest first. The last stop is rendered as the destination. */
   items: string[];
   /** Overline above the track. */

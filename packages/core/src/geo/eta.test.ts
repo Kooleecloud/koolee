@@ -175,7 +175,9 @@ describe("HaversineEtaEstimator — the async seam", () => {
 
 describe("createEtaEstimator", () => {
   it("builds the haversine estimator", () => {
-    expect(createEtaEstimator({ kind: "haversine" })).toBeInstanceOf(HaversineEtaEstimator);
+    expect(createEtaEstimator({ kind: "haversine" })).toBeInstanceOf(
+      HaversineEtaEstimator,
+    );
   });
 
   it("builds the Routes estimator when a key is supplied", () => {

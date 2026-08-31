@@ -63,9 +63,7 @@ export default async function FlightStepPage({
   // Only the legs we can actually collect for — see `describeEligibleLegs`.
   // Legs out of an airport we do not serve are counted, not listed: they are
   // not choices, and an apology beside each one buried the leg that is.
-  const eligible = fromTicket
-    ? describeEligibleLegs(prefill)
-    : { legs: [], skipped: 0 };
+  const eligible = fromTicket ? describeEligibleLegs(prefill) : { legs: [], skipped: 0 };
 
   // Extracted fields get an attention ring (sky, matching the info banner —
   // Tag Orange stays reserved for CTAs per the brand system).

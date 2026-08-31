@@ -188,7 +188,10 @@ export const bookingDraftSchema = z.object({
 
 export type BookingDraft = z.infer<typeof bookingDraftSchema>;
 
-export interface TypedBookingDraft extends Omit<BookingDraft, "departureAirport" | "scope"> {
+export interface TypedBookingDraft extends Omit<
+  BookingDraft,
+  "departureAirport" | "scope"
+> {
   departureAirport?: AirportCode;
   scope?: CutoffScope;
 }

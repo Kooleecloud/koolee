@@ -93,7 +93,9 @@ export default async function PayStepPage({
   const authUser = await getAuthUser();
   const verified = Boolean(authUser && !authUser.isAnonymous);
   const userRow =
-    verified && authUser ? await getCustomerById(core.db, authUser.id).catch(() => null) : null;
+    verified && authUser
+      ? await getCustomerById(core.db, authUser.id).catch(() => null)
+      : null;
   const verifiedPhone = userRow?.phone ?? authUser?.phone ?? null;
   // Email-only customers: the driver still needs a number for pickup day.
   const needsContactPhone = verified && !verifiedPhone;
@@ -133,8 +135,8 @@ export default async function PayStepPage({
                 : "Your payment wasn't completed"}
             </CardTitle>
             <CardDescription>
-              You have not been charged. Your booking details are saved — try again
-              below, or use a different card.
+              You have not been charged. Your booking details are saved — try again below,
+              or use a different card.
             </CardDescription>
           </CardHeader>
         </Card>
@@ -234,8 +236,8 @@ export default async function PayStepPage({
             ))}
           </dl>
           <p className="mt-4 text-xs text-muted-foreground">
-            Authorized now, charged only when an agent has collected and sealed your
-            bags. Delivered to your airline&apos;s bag drop.
+            Authorized now, charged only when an agent has collected and sealed your bags.
+            Delivered to your airline&apos;s bag drop.
           </p>
         </CardContent>
       </Card>
@@ -262,10 +264,10 @@ export default async function PayStepPage({
             <CardTitle className="text-base">Payment is misconfigured</CardTitle>
             <CardDescription>
               <code>STRIPE_SECRET_KEY</code> is set but{" "}
-              <code>NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY</code> is not, so the browser
-              could never confirm a card. Set both keys for real checkout, or unset the
-              secret key to use the development provider. No bookings can be taken
-              until this is fixed.
+              <code>NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY</code> is not, so the browser could
+              never confirm a card. Set both keys for real checkout, or unset the secret
+              key to use the development provider. No bookings can be taken until this is
+              fixed.
             </CardDescription>
           </CardHeader>
         </Card>
@@ -276,10 +278,10 @@ export default async function PayStepPage({
               <CardTitle className="text-base">Development payment</CardTitle>
               <CardDescription>
                 No Stripe keys are configured, so this booking uses{" "}
-                <code>FakePaymentProvider</code>. No card is collected and no money
-                moves. Set <code>STRIPE_SECRET_KEY</code> and{" "}
-                <code>NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY</code> to switch to real
-                Stripe Elements.
+                <code>FakePaymentProvider</code>. No card is collected and no money moves.
+                Set <code>STRIPE_SECRET_KEY</code> and{" "}
+                <code>NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY</code> to switch to real Stripe
+                Elements.
               </CardDescription>
             </CardHeader>
           </Card>

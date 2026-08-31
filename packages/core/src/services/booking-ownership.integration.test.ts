@@ -23,10 +23,7 @@ import type { CustomerSession } from "../auth/types";
 import { createCoreConfig, fixedClock, type CoreConfig } from "../config";
 import { NotAuthorizedError, NotFoundError } from "../errors";
 import { FakePaymentProvider } from "../payments/fake";
-import {
-  getBookingForSession,
-  listBookingsForSession,
-} from "./bookings";
+import { getBookingForSession, listBookingsForSession } from "./bookings";
 import { createBooking } from "./create-booking";
 import {
   attachVerifiedPhone,
@@ -114,53 +111,55 @@ function windowFor(departureAt: Date, leadHours = 20) {
   return { pickupWindowStart: new Date(end.getTime() - HOUR), pickupWindowEnd: end };
 }
 
-describeIntegration("booking ownership through the customer session (integration)", () => {
-  let sqlClient: ReturnType<typeof postgres>;
-  let db: Database;
-  let config: CoreConfig;
-  let admin: SupabaseClient;
-  let createdAuthUserIds: string[];
+describeIntegration(
+  "booking ownership through the customer session (integration)",
+  () => {
+    let sqlClient: ReturnType<typeof postgres>;
+    let db: Database;
+    let config: CoreConfig;
+    let admin: SupabaseClient;
+    let createdAuthUserIds: string[];
 
-  // A fixed "now" keeps window bookability deterministic.
-  const now = new Date("2025-06-10T10:00:00Z");
-  const departureAt = new Date("2025-06-12T22:00:00Z");
+    // A fixed "now" keeps window bookability deterministic.
+    const now = new Date("2025-06-10T10:00:00Z");
+    const departureAt = new Date("2025-06-12T22:00:00Z");
 
-  beforeAll(async () => {
-    if (!AUTH_SCHEMA_AVAILABLE) {
-      throw new Error(
-        'AUTH_SCHEMA_AVAILABLE must be "true" to run this suite — the upgrade test ' +
-          "exercises real GoTrue in-place upgrade behavior. Run `pnpm test:env:up`.",
-      );
-    }
-    if (!SUPABASE_URL || !SUPABASE_ANON_KEY || !SUPABASE_SERVICE_ROLE_KEY) {
-      throw new Error(
-        "SUPABASE_URL / SUPABASE_ANON_KEY / SUPABASE_SERVICE_ROLE_KEY must be set. " +
-          "Run `pnpm test:env:up`.",
-      );
-    }
+    beforeAll(async () => {
+      if (!AUTH_SCHEMA_AVAILABLE) {
+        throw new Error(
+          'AUTH_SCHEMA_AVAILABLE must be "true" to run this suite — the upgrade test ' +
+            "exercises real GoTrue in-place upgrade behavior. Run `pnpm test:env:up`.",
+        );
+      }
+      if (!SUPABASE_URL || !SUPABASE_ANON_KEY || !SUPABASE_SERVICE_ROLE_KEY) {
+        throw new Error(
+          "SUPABASE_URL / SUPABASE_ANON_KEY / SUPABASE_SERVICE_ROLE_KEY must be set. " +
+            "Run `pnpm test:env:up`.",
+        );
+      }
 
-    sqlClient = postgres(GOTRUE_TEST_DATABASE_URL!, { max: 1, prepare: false });
-    await migrate(drizzle(sqlClient), { migrationsFolder });
-    db = createDb({ url: GOTRUE_TEST_DATABASE_URL!, max: 5 });
-    config = createCoreConfig({
-      db,
-      payments: new FakePaymentProvider(),
-      clock: fixedClock(now),
+      sqlClient = postgres(GOTRUE_TEST_DATABASE_URL!, { max: 1, prepare: false });
+      await migrate(drizzle(sqlClient), { migrationsFolder });
+      db = createDb({ url: GOTRUE_TEST_DATABASE_URL!, max: 5 });
+      config = createCoreConfig({
+        db,
+        payments: new FakePaymentProvider(),
+        clock: fixedClock(now),
+      });
+      admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+        auth: { autoRefreshToken: false, persistSession: false },
+      });
     });
-    admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
-      auth: { autoRefreshToken: false, persistSession: false },
+
+    afterAll(async () => {
+      await sqlClient?.end();
     });
-  });
 
-  afterAll(async () => {
-    await sqlClient?.end();
-  });
-
-  beforeEach(async () => {
-    createdAuthUserIds = [];
-    // Blanket wipe, guarded by ALLOW_DEV_DB_WIPE above. Deliberate: this suite
-    // asserts against an empty world and seeds its own reference data.
-    await sqlClient.unsafe(`
+    beforeEach(async () => {
+      createdAuthUserIds = [];
+      // Blanket wipe, guarded by ALLOW_DEV_DB_WIPE above. Deliberate: this suite
+      // asserts against an empty world and seeds its own reference data.
+      await sqlClient.unsafe(`
       SET session_replication_role = replica;
       DELETE FROM custody_events;
       DELETE FROM payments;
@@ -178,177 +177,179 @@ describeIntegration("booking ownership through the customer session (integration
       SET session_replication_role = DEFAULT;
     `);
 
-    // Best-effort: remove GoTrue users left at the fixed test number by a
-    // previous crashed run.
-    const bare = UPGRADE_PHONE.phone.replace(/^\+/, "");
-    const rows = (await db.execute(
-      sql`select id::text as id from auth.users
+      // Best-effort: remove GoTrue users left at the fixed test number by a
+      // previous crashed run.
+      const bare = UPGRADE_PHONE.phone.replace(/^\+/, "");
+      const rows = (await db.execute(
+        sql`select id::text as id from auth.users
           where phone in (${UPGRADE_PHONE.phone}, ${bare})
              or phone_change in (${UPGRADE_PHONE.phone}, ${bare})`,
-    )) as unknown as Array<{ id: string }>;
-    for (const row of rows) await deleteAuthUser(row.id);
+      )) as unknown as Array<{ id: string }>;
+      for (const row of rows) await deleteAuthUser(row.id);
 
-    await db.insert(airports).values(TEST_AIRPORTS.JFK);
-    await db.insert(airlineCutoffs).values({
-      airlineIata: "DL",
-      airportCode: "JFK",
-      scope: "domestic",
-      cutoffMinutesBeforeDeparture: 45,
-      effectiveFrom: new Date("2024-01-01T00:00:00Z"),
+      await db.insert(airports).values(TEST_AIRPORTS.JFK);
+      await db.insert(airlineCutoffs).values({
+        airlineIata: "DL",
+        airportCode: "JFK",
+        scope: "domestic",
+        cutoffMinutesBeforeDeparture: 45,
+        effectiveFrom: new Date("2024-01-01T00:00:00Z"),
+      });
+      await db.insert(pricingRules).values({
+        name: "test",
+        baseFeeCents: 2900,
+        perBagCents: 1500,
+        distanceMultiplier: "45.0000",
+        leadTimeMultipliers: [],
+        discountRules: [],
+        active: true,
+      });
     });
-    await db.insert(pricingRules).values({
-      name: "test",
-      baseFeeCents: 2900,
-      perBagCents: 1500,
-      distanceMultiplier: "45.0000",
-      leadTimeMultipliers: [],
-      discountRules: [],
-      active: true,
+
+    afterEach(async () => {
+      for (const id of createdAuthUserIds) await deleteAuthUser(id);
     });
-  });
 
-  afterEach(async () => {
-    for (const id of createdAuthUserIds) await deleteAuthUser(id);
-  });
-
-  async function deleteAuthUser(userId: string): Promise<void> {
-    const { error } = await admin.auth.admin.deleteUser(userId);
-    if (error && error.status !== 404 && !/not.?found/i.test(error.message)) {
-      throw new Error(`admin.deleteUser(${userId}): ${error.message}`);
+    async function deleteAuthUser(userId: string): Promise<void> {
+      const { error } = await admin.auth.admin.deleteUser(userId);
+      if (error && error.status !== 404 && !/not.?found/i.test(error.message)) {
+        throw new Error(`admin.deleteUser(${userId}): ${error.message}`);
+      }
     }
-  }
 
-  async function signInAnon(): Promise<{ client: SupabaseClient; userId: string }> {
-    const client = createClient(SUPABASE_URL!, SUPABASE_ANON_KEY!, {
-      auth: { autoRefreshToken: false, persistSession: false },
+    async function signInAnon(): Promise<{ client: SupabaseClient; userId: string }> {
+      const client = createClient(SUPABASE_URL!, SUPABASE_ANON_KEY!, {
+        auth: { autoRefreshToken: false, persistSession: false },
+      });
+      const { data, error } = await client.auth.signInAnonymously();
+      if (error || !data.user)
+        throw new Error(`signInAnonymously failed: ${error?.message}`);
+      createdAuthUserIds.push(data.user.id);
+      return { client, userId: data.user.id };
+    }
+
+    async function bookFor(userId: string) {
+      const address = await ensureAddress(db, userId, {
+        line1: "1 Test St",
+        city: "New York",
+        state: "NY",
+        zip: "10001",
+      });
+      return createBooking(config, {
+        userId,
+        pickupAddressId: address.id,
+        quotedZip: address.zip,
+        ...windowFor(departureAt),
+        flightNumber: "DL123",
+        airlineIata: "DL",
+        departureAirport: "JFK",
+        departureAt,
+        scope: "domestic",
+        paxName: "Test Customer",
+        bagCount: 1,
+        distanceKm: 20,
+      });
+    }
+
+    it("a booking created under an anonymous session ends up owned by the verified identity after the guarded in-place upgrade", async () => {
+      const { phone: PHONE, code: CODE } = UPGRADE_PHONE;
+
+      // 1. Anonymous funnel user — a valid customer at draft time.
+      const anon = await signInAnon();
+      await ensureCustomerFromAuth(db, { authUserId: anon.userId, isAnonymous: true });
+
+      // 2. Booking created while the session is still anonymous (core-level:
+      //    the app's pay gate normally forces verification first, but the row
+      //    must survive either way).
+      const { booking } = await bookFor(anon.userId);
+      expect(booking.userId).toBe(anon.userId);
+
+      // 3. Upgrade via the production guard sequence: guarded send → updateUser
+      //    → verifyOtp(phone_change).
+      const guard = await guardUpgradeOtpSend(db, {
+        userId: anon.userId,
+        destination: PHONE,
+        kind: "phone",
+        deleteAuthUser,
+        log: () => {},
+      });
+      expect(guard.allowed).toBe(true);
+      expect(guard.conflict).toBe(false);
+
+      const { error: updateErr } = await anon.client.auth.updateUser({ phone: PHONE });
+      expect(updateErr).toBeNull();
+
+      const { data: verified, error: verifyErr } = await anon.client.auth.verifyOtp({
+        phone: PHONE,
+        token: CODE,
+        type: "phone_change",
+      });
+      expect(verifyErr).toBeNull();
+
+      // THE in-place fact this suite pins: GoTrue upgraded the same auth row —
+      // the uid did not change.
+      expect(verified?.user?.id).toBe(anon.userId);
+      expect(verified?.user?.is_anonymous ?? false).toBe(false);
+
+      await attachVerifiedPhone(db, { authUserId: anon.userId, phone: PHONE });
+
+      // 4. The booking's customer resolves to the verified user...
+      const [row] = await db.select().from(bookings).where(eq(bookings.id, booking.id));
+      expect(row!.userId).toBe(anon.userId);
+      const owner = await db.query.users.findFirst({ where: eq(users.id, anon.userId) });
+      expect(owner?.isAnonymous).toBe(false);
+      expect(owner?.phone).toBe(PHONE);
+
+      // ...and the /trips query (session-scoped list) returns it.
+      const trips = await listBookingsForSession(db, customerSession(anon.userId), {
+        limit: 50,
+      });
+      expect(trips.map((b) => b.id)).toEqual([booking.id]);
     });
-    const { data, error } = await client.auth.signInAnonymously();
-    if (error || !data.user) throw new Error(`signInAnonymously failed: ${error?.message}`);
-    createdAuthUserIds.push(data.user.id);
-    return { client, userId: data.user.id };
-  }
 
-  async function bookFor(userId: string) {
-    const address = await ensureAddress(db, userId, {
-      line1: "1 Test St",
-      city: "New York",
-      state: "NY",
-      zip: "10001",
+    it("customer A cannot fetch customer B's booking through the core read path", async () => {
+      const [a] = await db
+        .insert(users)
+        .values({ phone: "+15551110001", role: "customer" })
+        .returning();
+      const [b] = await db
+        .insert(users)
+        .values({ phone: "+15551110002", role: "customer" })
+        .returning();
+
+      const { booking: bBooking } = await bookFor(b!.id);
+
+      // Single read: 404-shaped, never a disclosure.
+      await expect(
+        getBookingForSession(db, customerSession(a!.id), bBooking.id),
+      ).rejects.toThrow(NotFoundError);
+
+      // The owner still reads it fine.
+      await expect(
+        getBookingForSession(db, customerSession(b!.id), bBooking.id),
+      ).resolves.toMatchObject({ booking: { id: bBooking.id } });
+
+      // List: a customer session is pinned to its own userId...
+      const asA = await listBookingsForSession(db, customerSession(a!.id));
+      expect(asA).toEqual([]);
+
+      // ...and asking for someone else's id throws rather than narrowing.
+      await expect(
+        listBookingsForSession(db, customerSession(a!.id), { userId: b!.id }),
+      ).rejects.toThrow(NotAuthorizedError);
     });
-    return createBooking(config, {
-      userId,
-      pickupAddressId: address.id,
-      quotedZip: address.zip,
-      ...windowFor(departureAt),
-      flightNumber: "DL123",
-      airlineIata: "DL",
-      departureAirport: "JFK",
-      departureAt,
-      scope: "domestic",
-      paxName: "Test Customer",
-      bagCount: 1,
-      distanceKm: 20,
+
+    it("deleteAnonymousCustomer refuses a row that owns bookings", async () => {
+      const [anonRow] = await db
+        .insert(users)
+        .values({ isAnonymous: true, role: "customer" })
+        .returning();
+      await bookFor(anonRow!.id);
+
+      await expect(deleteAnonymousCustomer(db, anonRow!.id)).resolves.toBe(false);
+      expect(
+        await db.query.users.findFirst({ where: eq(users.id, anonRow!.id) }),
+      ).toBeDefined();
     });
-  }
-
-  it("a booking created under an anonymous session ends up owned by the verified identity after the guarded in-place upgrade", async () => {
-    const { phone: PHONE, code: CODE } = UPGRADE_PHONE;
-
-    // 1. Anonymous funnel user — a valid customer at draft time.
-    const anon = await signInAnon();
-    await ensureCustomerFromAuth(db, { authUserId: anon.userId, isAnonymous: true });
-
-    // 2. Booking created while the session is still anonymous (core-level:
-    //    the app's pay gate normally forces verification first, but the row
-    //    must survive either way).
-    const { booking } = await bookFor(anon.userId);
-    expect(booking.userId).toBe(anon.userId);
-
-    // 3. Upgrade via the production guard sequence: guarded send → updateUser
-    //    → verifyOtp(phone_change).
-    const guard = await guardUpgradeOtpSend(db, {
-      userId: anon.userId,
-      destination: PHONE,
-      kind: "phone",
-      deleteAuthUser,
-      log: () => {},
-    });
-    expect(guard.allowed).toBe(true);
-    expect(guard.conflict).toBe(false);
-
-    const { error: updateErr } = await anon.client.auth.updateUser({ phone: PHONE });
-    expect(updateErr).toBeNull();
-
-    const { data: verified, error: verifyErr } = await anon.client.auth.verifyOtp({
-      phone: PHONE,
-      token: CODE,
-      type: "phone_change",
-    });
-    expect(verifyErr).toBeNull();
-
-    // THE in-place fact this suite pins: GoTrue upgraded the same auth row —
-    // the uid did not change.
-    expect(verified?.user?.id).toBe(anon.userId);
-    expect(verified?.user?.is_anonymous ?? false).toBe(false);
-
-    await attachVerifiedPhone(db, { authUserId: anon.userId, phone: PHONE });
-
-    // 4. The booking's customer resolves to the verified user...
-    const [row] = await db.select().from(bookings).where(eq(bookings.id, booking.id));
-    expect(row!.userId).toBe(anon.userId);
-    const owner = await db.query.users.findFirst({ where: eq(users.id, anon.userId) });
-    expect(owner?.isAnonymous).toBe(false);
-    expect(owner?.phone).toBe(PHONE);
-
-    // ...and the /trips query (session-scoped list) returns it.
-    const trips = await listBookingsForSession(db, customerSession(anon.userId), {
-      limit: 50,
-    });
-    expect(trips.map((b) => b.id)).toEqual([booking.id]);
-  });
-
-  it("customer A cannot fetch customer B's booking through the core read path", async () => {
-    const [a] = await db
-      .insert(users)
-      .values({ phone: "+15551110001", role: "customer" })
-      .returning();
-    const [b] = await db
-      .insert(users)
-      .values({ phone: "+15551110002", role: "customer" })
-      .returning();
-
-    const { booking: bBooking } = await bookFor(b!.id);
-
-    // Single read: 404-shaped, never a disclosure.
-    await expect(
-      getBookingForSession(db, customerSession(a!.id), bBooking.id),
-    ).rejects.toThrow(NotFoundError);
-
-    // The owner still reads it fine.
-    await expect(
-      getBookingForSession(db, customerSession(b!.id), bBooking.id),
-    ).resolves.toMatchObject({ booking: { id: bBooking.id } });
-
-    // List: a customer session is pinned to its own userId...
-    const asA = await listBookingsForSession(db, customerSession(a!.id));
-    expect(asA).toEqual([]);
-
-    // ...and asking for someone else's id throws rather than narrowing.
-    await expect(
-      listBookingsForSession(db, customerSession(a!.id), { userId: b!.id }),
-    ).rejects.toThrow(NotAuthorizedError);
-  });
-
-  it("deleteAnonymousCustomer refuses a row that owns bookings", async () => {
-    const [anonRow] = await db
-      .insert(users)
-      .values({ isAnonymous: true, role: "customer" })
-      .returning();
-    await bookFor(anonRow!.id);
-
-    await expect(deleteAnonymousCustomer(db, anonRow!.id)).resolves.toBe(false);
-    expect(
-      await db.query.users.findFirst({ where: eq(users.id, anonRow!.id) }),
-    ).toBeDefined();
-  });
-});
+  },
+);

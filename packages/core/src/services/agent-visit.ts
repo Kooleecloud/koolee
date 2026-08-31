@@ -182,54 +182,47 @@ export async function getVisitContext(
   });
   if (!booking) throw new NotFoundError("Booking", task.bookingId);
 
-  const [
-    bagRows,
-    timeline,
-    paymentRows,
-    tz,
-    agreement,
-    passport,
-    customerRows,
-  ] = await Promise.all([
-    // By ordinal, never createdAt — see the note on `bags.ordinal`. This is the
-    // list the agent seals down, so a shuffling order was visible in the UI.
-    db
-      .select()
-      .from(bags)
-      .where(eq(bags.bookingId, booking.id))
-      .orderBy(asc(bags.ordinal)),
-    db
-      .select()
-      .from(custodyEvents)
-      .where(eq(custodyEvents.bookingId, booking.id))
-      .orderBy(asc(custodyEvents.createdAt)),
-    // Status column only — no provider call, no credentials.
-    db
-      .select({ status: payments.status })
-      .from(payments)
-      .where(eq(payments.bookingId, booking.id))
-      .orderBy(desc(payments.createdAt))
-      .limit(1),
-    resolveDisplayTz(db, booking.departureAirport),
-    // Both halves of the gate, fetched with everything else rather than on
-    // demand: the agent screen renders them on every load, and a gate the UI
-    // has to ask for separately is a gate that can be rendered as passed
-    // before the answer arrives.
-    getBookingAgreementState(db, booking.id, now),
-    getPassportVerification(db, booking.id),
-    // Name, face and the door number. Email and the verification timestamps
-    // stay unselected — see `doorContact` for why the phone stopped being on
-    // that list, and what is still withheld.
-    db
-      .select({
-        fullName: users.fullName,
-        avatarStoragePath: users.avatarStoragePath,
-        phone: users.phone,
-      })
-      .from(users)
-      .where(eq(users.id, booking.userId))
-      .limit(1),
-  ]);
+  const [bagRows, timeline, paymentRows, tz, agreement, passport, customerRows] =
+    await Promise.all([
+      // By ordinal, never createdAt — see the note on `bags.ordinal`. This is the
+      // list the agent seals down, so a shuffling order was visible in the UI.
+      db
+        .select()
+        .from(bags)
+        .where(eq(bags.bookingId, booking.id))
+        .orderBy(asc(bags.ordinal)),
+      db
+        .select()
+        .from(custodyEvents)
+        .where(eq(custodyEvents.bookingId, booking.id))
+        .orderBy(asc(custodyEvents.createdAt)),
+      // Status column only — no provider call, no credentials.
+      db
+        .select({ status: payments.status })
+        .from(payments)
+        .where(eq(payments.bookingId, booking.id))
+        .orderBy(desc(payments.createdAt))
+        .limit(1),
+      resolveDisplayTz(db, booking.departureAirport),
+      // Both halves of the gate, fetched with everything else rather than on
+      // demand: the agent screen renders them on every load, and a gate the UI
+      // has to ask for separately is a gate that can be rendered as passed
+      // before the answer arrives.
+      getBookingAgreementState(db, booking.id, now),
+      getPassportVerification(db, booking.id),
+      // Name, face and the door number. Email and the verification timestamps
+      // stay unselected — see `doorContact` for why the phone stopped being on
+      // that list, and what is still withheld.
+      db
+        .select({
+          fullName: users.fullName,
+          avatarStoragePath: users.avatarStoragePath,
+          phone: users.phone,
+        })
+        .from(users)
+        .where(eq(users.id, booking.userId))
+        .limit(1),
+    ]);
 
   return {
     task,

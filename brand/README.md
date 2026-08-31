@@ -8,12 +8,12 @@ the K of "koolee". Selected 2026-08-02 from a field of four candidates;
 - **In app code:** use the `KooleeLogo` component from `@koolee/ui`, not raw
   files.
 
-| Asset | Variants |
-| --- | --- |
-| `logo-full.svg` | `-inverse` (navy grounds), `-mono` (single color) |
-| `logo-icon.svg` | `-inverse`, `-mono` |
-| `logo-wordmark.svg` | `-inverse` |
-| `app-tile.svg` | source artwork for favicons / PWA icons |
+| Asset               | Variants                                          |
+| ------------------- | ------------------------------------------------- |
+| `logo-full.svg`     | `-inverse` (navy grounds), `-mono` (single color) |
+| `logo-icon.svg`     | `-inverse`, `-mono`                               |
+| `logo-wordmark.svg` | `-inverse`                                        |
+| `app-tile.svg`      | source artwork for favicons / PWA icons           |
 
 Generated assets; the wordmark is Sora SemiBold baked to outlines (SIL OFL —
 logo use of outlines is permitted).

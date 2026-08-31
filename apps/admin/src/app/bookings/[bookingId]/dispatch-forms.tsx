@@ -114,7 +114,12 @@ export function ResolveExceptionForm({ bookingId }: { bookingId: string }) {
       <input type="hidden" name="bookingId" value={bookingId} />
       <div className="grid gap-2">
         <Label htmlFor="resolution">Resolution</Label>
-        <Select id="resolution" name="resolution" required defaultValue="cancel_and_refund">
+        <Select
+          id="resolution"
+          name="resolution"
+          required
+          defaultValue="cancel_and_refund"
+        >
           <option value="cancel_and_refund">Cancel + refund the customer</option>
           <option value="resume_transit">Resolved — bags moving again</option>
           <option value="force_complete">Close out as completed</option>
@@ -133,13 +138,17 @@ export function ResolveExceptionForm({ bookingId }: { bookingId: string }) {
       </div>
       {state.error && <FormMessage>{state.error}</FormMessage>}
       {state.ok && <FormMessage variant="success">{state.ok}</FormMessage>}
-      <Button type="submit" variant="destructive" loading={pending} className="self-start">
+      <Button
+        type="submit"
+        variant="destructive"
+        loading={pending}
+        className="self-start"
+      >
         Resolve exception
       </Button>
     </form>
   );
 }
-
 
 export interface ReassignOptionView {
   shiftId: string;

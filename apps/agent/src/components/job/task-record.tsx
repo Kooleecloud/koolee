@@ -99,9 +99,7 @@ export function TaskRecord({
       {sealed.length > 0 && (
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">
-              Seals · {bookingRef}
-            </CardTitle>
+            <CardTitle className="text-base">Seals · {bookingRef}</CardTitle>
             <CardDescription>
               The numbers you put on. A seal is single-use stock, so each one identifies
               exactly one bag operation-wide.

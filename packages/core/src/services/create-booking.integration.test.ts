@@ -87,7 +87,9 @@ function alignToHour(instant: Date): Date {
 /** Clock-aligned 1h window ending ~`leadHours` before departure — mid-band
  * and notice-safe at the default of 20h. */
 function windowFor(departureAt: Date, leadHours = 20) {
-  const end = new Date(Math.floor((departureAt.getTime() - leadHours * HOUR) / HOUR) * HOUR);
+  const end = new Date(
+    Math.floor((departureAt.getTime() - leadHours * HOUR) / HOUR) * HOUR,
+  );
   return { pickupWindowStart: new Date(end.getTime() - HOUR), pickupWindowEnd: end };
 }
 
@@ -598,9 +600,7 @@ describeIntegration("custody_events append-only trigger", () => {
       SET session_replication_role = DEFAULT;
     `);
 
-    await db
-      .insert(airports)
-      .values(TEST_AIRPORTS.JFK);
+    await db.insert(airports).values(TEST_AIRPORTS.JFK);
     const [user] = await db.insert(users).values({ phone: "+15551110000" }).returning();
     const [address] = await db
       .insert(addresses)
@@ -648,7 +648,10 @@ describeIntegration("custody_events append-only trigger", () => {
       .update(custodyEvents)
       .set({ eventType: "tampered" })
       .where(eq(custodyEvents.id, event!.id))
-      .then(() => null, (e: unknown) => e);
+      .then(
+        () => null,
+        (e: unknown) => e,
+      );
     expect(updateError).toBeInstanceOf(Error);
     expect(errorChainMessage(updateError)).toMatch(/append-only/);
     expect(pgErrorCode(updateError)).toBe("23001");
@@ -656,15 +659,19 @@ describeIntegration("custody_events append-only trigger", () => {
     const deleteError = await db
       .delete(custodyEvents)
       .where(eq(custodyEvents.id, event!.id))
-      .then(() => null, (e: unknown) => e);
+      .then(
+        () => null,
+        (e: unknown) => e,
+      );
     expect(deleteError).toBeInstanceOf(Error);
     expect(errorChainMessage(deleteError)).toMatch(/append-only/);
     expect(pgErrorCode(deleteError)).toBe("23001");
 
     // Raw postgres.js is not wrapped, but the helpers handle a chain of one.
-    const truncateError = await sqlClient
-      .unsafe(`TRUNCATE custody_events`)
-      .then(() => null, (e: unknown) => e);
+    const truncateError = await sqlClient.unsafe(`TRUNCATE custody_events`).then(
+      () => null,
+      (e: unknown) => e,
+    );
     expect(truncateError).toBeInstanceOf(Error);
     expect(errorChainMessage(truncateError)).toMatch(/append-only/);
     expect(pgErrorCode(truncateError)).toBe("23001");

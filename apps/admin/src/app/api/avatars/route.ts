@@ -49,7 +49,10 @@ const NOT_PERMITTED = "You can only change a photo for a member of staff.";
 /** The subject of this request: the operator, or a staff member they may edit. */
 async function resolveSubject(request: Request, viewerUserId: string) {
   const requested = new URL(request.url).searchParams.get("userId");
-  return { subjectUserId: requested?.trim() || viewerUserId, onBehalf: Boolean(requested) };
+  return {
+    subjectUserId: requested?.trim() || viewerUserId,
+    onBehalf: Boolean(requested),
+  };
 }
 
 export async function POST(request: Request) {

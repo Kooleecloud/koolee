@@ -70,8 +70,7 @@ export default function TermsPage() {
           ))}
         </div>
         <p className="mt-10 text-sm text-muted-foreground">
-          Questions about these terms:{" "}
-          <ContactEmailLink />
+          Questions about these terms: <ContactEmailLink />
         </p>
       </Reveal>
     </Section>

@@ -38,10 +38,10 @@ check:
 
 Two, applied in one pass:
 
-| Migration                        | What                                                                                                |
-| -------------------------------- | ---------------------------------------------------------------------------------------------------- |
-| `0028_geo_zip_centroids`         | `zip_centroids` + 837 rows, `airports.lat/lng` (NOT NULL), and a backfill of `addresses.lat/lng`     |
-| `0029_driver_fleet_and_shifts`   | `trucks`, `driver_shifts`, `driver_positions`, `staff_members.can_drive`, `pickup_tasks.driver_shift_id` — **and DROPs `drivers`, `routes`, `agents`** |
+| Migration                      | What                                                                                                                                                   |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `0028_geo_zip_centroids`       | `zip_centroids` + 837 rows, `airports.lat/lng` (NOT NULL), and a backfill of `addresses.lat/lng`                                                       |
+| `0029_driver_fleet_and_shifts` | `trucks`, `driver_shifts`, `driver_positions`, `staff_members.can_drive`, `pickup_tasks.driver_shift_id` — **and DROPs `drivers`, `routes`, `agents`** |
 
 **Read this before merging: 0029 drops three tables.** `drivers`, `routes` and
 `agents` shipped in `0000_init` and were never used — zero rows in every

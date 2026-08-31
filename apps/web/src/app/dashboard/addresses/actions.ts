@@ -71,7 +71,9 @@ function parseAddress(form: FormData) {
     line1: String(form.get("line1") ?? "").trim(),
     line2: String(form.get("line2") ?? "").trim(),
     city: String(form.get("city") ?? "").trim(),
-    state: String(form.get("state") ?? "").trim().toUpperCase(),
+    state: String(form.get("state") ?? "")
+      .trim()
+      .toUpperCase(),
     zip: String(form.get("zip") ?? "").trim(),
     lat: optional(form, "lat"),
     lng: optional(form, "lng"),
@@ -88,7 +90,9 @@ export async function createAddress(
 
   const parsed = parseAddress(form);
   if (!parsed.success) {
-    return { error: parsed.error.issues[0]?.message ?? "Check the fields and try again." };
+    return {
+      error: parsed.error.issues[0]?.message ?? "Check the fields and try again.",
+    };
   }
 
   const core = tryGetCore();
@@ -130,7 +134,9 @@ export async function updateAddress(
 
   const parsed = parseAddress(form);
   if (!parsed.success) {
-    return { error: parsed.error.issues[0]?.message ?? "Check the fields and try again." };
+    return {
+      error: parsed.error.issues[0]?.message ?? "Check the fields and try again.",
+    };
   }
 
   const core = tryGetCore();

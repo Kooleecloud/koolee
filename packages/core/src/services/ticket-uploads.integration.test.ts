@@ -207,7 +207,10 @@ describeIntegration("ticket uploads (integration)", () => {
 
     // 6. HARD RULE: the extractor's original wrong value appears nowhere —
     //    not on the booking, and not anywhere else in the database.
-    const [bookingRow] = await db.select().from(bookings).where(eq(bookings.id, booking.id));
+    const [bookingRow] = await db
+      .select()
+      .from(bookings)
+      .where(eq(bookings.id, booking.id));
     expect(bookingRow!.paxName).not.toBe("Wrong Name From Extraction");
 
     const tables = ["bookings", "users", "ticket_uploads", "custody_events", "bags"];

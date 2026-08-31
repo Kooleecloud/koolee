@@ -32,10 +32,10 @@ That is almost certainly what TD was seeing on staging.
 
 Vercel → the `apps/web` project → Settings → Environment Variables:
 
-| Scope | Variable | Value |
-| ----- | -------- | ----- |
+| Scope                        | Variable            | Value                |
+| ---------------------------- | ------------------- | -------------------- |
 | Preview (`dev.koolee.cloud`) | `ANTHROPIC_API_KEY` | an Anthropic API key |
-| Production (`koolee.cloud`) | `ANTHROPIC_API_KEY` | an Anthropic API key |
+| Production (`koolee.cloud`)  | `ANTHROPIC_API_KEY` | an Anthropic API key |
 
 Then **redeploy with the build cache UNCHECKED** — Vercel bakes env vars at
 build time, so an existing deployment does not pick this up.

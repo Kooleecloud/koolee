@@ -118,7 +118,13 @@ export function TransitionControls({
       )}
 
       {/* Submitter for the confirmed cancel — same form, same action. */}
-      <button ref={confirmSubmitRef} type="submit" className="hidden" tabIndex={-1} aria-hidden="true" />
+      <button
+        ref={confirmSubmitRef}
+        type="submit"
+        className="hidden"
+        tabIndex={-1}
+        aria-hidden="true"
+      />
 
       {state.error && (
         <FormMessage variant="error">

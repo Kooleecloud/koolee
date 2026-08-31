@@ -8,24 +8,24 @@ lift across cleanly.
 
 ## Documentation
 
-| | |
-|---|---|
+|                                              |                                                                                           |
+| -------------------------------------------- | ----------------------------------------------------------------------------------------- |
 | [docs/architecture.md](docs/architecture.md) | How it works — the two flows, every component, the HTTP API, and why each choice was made |
-| [docs/limitations.md](docs/limitations.md) | What this technology cannot do, and how to build something dependable on top of it |
-| [docs/debugging.md](docs/debugging.md) | Symptom-first playbook. **Start here when notifications don't appear.** |
+| [docs/limitations.md](docs/limitations.md)   | What this technology cannot do, and how to build something dependable on top of it        |
+| [docs/debugging.md](docs/debugging.md)       | Symptom-first playbook. **Start here when notifications don't appear.**                   |
 
-If you read only one thing: `showNotification()` resolving means the notification was *created*, not
-*displayed*, and not *seen*. No web API can tell you the difference. Everything in
+If you read only one thing: `showNotification()` resolving means the notification was _created_, not
+_displayed_, and not _seen_. No web API can tell you the difference. Everything in
 [limitations.md](docs/limitations.md) follows from that.
 
 ## The one design decision that matters
 
 There are two ways to raise a notification, and it is tempting to use both:
 
-| | works while tab open | works while tab closed | Android Chrome |
-|---|---|---|---|
-| `new Notification(...)` from the page | yes | **no** | **throws** |
-| `registration.showNotification(...)` from the service worker | yes | **yes** | yes |
+|                                                              | works while tab open | works while tab closed | Android Chrome |
+| ------------------------------------------------------------ | -------------------- | ---------------------- | -------------- |
+| `new Notification(...)` from the page                        | yes                  | **no**                 | **throws**     |
+| `registration.showNotification(...)` from the service worker | yes                  | **yes**                | yes            |
 
 This POC uses **only the service-worker path**. A push message wakes the service worker regardless
 of whether any tab is open, so one code path covers every state with no branching and nothing to
@@ -51,15 +51,15 @@ The **"Notify in 10s"** button is the point. It gives you ten seconds to put the
 state you want to test before the push is sent. Testing by clicking "Notify now" while staring at
 the tab only ever proves the easy case.
 
-| # | State | Expected |
-|---|---|---|
-| 1 | Tab visible | Notification appears over the page |
-| 2 | Different tab, same window | Appears |
-| 3 | Browser behind another app (`Cmd+Tab` away) | Appears |
-| 4 | App tab closed, browser still open | Appears; clicking it reopens the app |
-| 5 | Browser fully quit | Safari yes; **Chrome on macOS no** — see below |
+| #   | State                                       | Expected                                       |
+| --- | ------------------------------------------- | ---------------------------------------------- |
+| 1   | Tab visible                                 | Notification appears over the page             |
+| 2   | Different tab, same window                  | Appears                                        |
+| 3   | Browser behind another app (`Cmd+Tab` away) | Appears                                        |
+| 4   | App tab closed, browser still open          | Appears; clicking it reopens the app           |
+| 5   | Browser fully quit                          | Safari yes; **Chrome on macOS no** — see below |
 
-**"Simulate incoming call in 10s"** sends the realistic payload: a *stable* tag (`call-4821`) plus
+**"Simulate incoming call in 10s"** sends the realistic payload: a _stable_ tag (`call-4821`) plus
 `renotify` and `requireInteraction`. That is the collapse-rather-than-stack behaviour a real call
 alert wants — click it twice and the repeat replaces the existing alert instead of piling up a
 second one.
@@ -74,7 +74,7 @@ event-log line** — that is expected, not a failure.
 **1. macOS silently swallows notifications.** If Google Chrome is off in System Settings →
 Notifications, `showNotification()` still resolves successfully and the notification object is
 genuinely created — macOS just never draws it. No web API can detect this. When notifications
-"don't work", check that switch *first*, and confirm with a native test:
+"don't work", check that switch _first_, and confirm with a native test:
 
 ```bash
 osascript -e 'display notification "test" with title "test"'
@@ -84,7 +84,7 @@ If that shows and Chrome's don't, it's the per-app switch. Chrome may need a ful
 relaunch after you toggle it.
 
 **2. Reusing a `tag` suppresses the alert.** A notification whose tag matches one already showing
-**replaces** it, and without `renotify: true` the replacement does *not* re-alert — no banner, no
+**replaces** it, and without `renotify: true` the replacement does _not_ re-alert — no banner, no
 sound. A second push looks like total silence even though delivery succeeded and the log confirms
 it. Use a unique tag when notifications should stack, and a stable tag plus `renotify` when a repeat
 should collapse into the existing one (a call ringing again). `renotify` is Chromium-only; Safari
@@ -92,14 +92,14 @@ replaces silently regardless.
 
 ## Browser reality
 
-| | Chrome / Edge | Firefox | Safari macOS | Safari iOS |
-|---|---|---|---|---|
-| States 1–4 above | ✅ | ✅ | ✅ | ✅ |
-| Browser fully quit | ❌ on macOS | ❌ | ✅ (delivered via APNs) | ✅ |
-| Works on `localhost` | ✅ | ✅ | ⚠️ unreliable | ❌ needs real HTTPS |
-| `actions` (inline buttons) | ✅ | ✅ | ❌ ignored | ❌ ignored |
-| `requireInteraction` | ✅ | ❌ | ❌ | ❌ |
-| `renotify` | ✅ | ❌ | ❌ | ❌ |
+|                            | Chrome / Edge | Firefox | Safari macOS            | Safari iOS          |
+| -------------------------- | ------------- | ------- | ----------------------- | ------------------- |
+| States 1–4 above           | ✅            | ✅      | ✅                      | ✅                  |
+| Browser fully quit         | ❌ on macOS   | ❌      | ✅ (delivered via APNs) | ✅                  |
+| Works on `localhost`       | ✅            | ✅      | ⚠️ unreliable           | ❌ needs real HTTPS |
+| `actions` (inline buttons) | ✅            | ✅      | ❌ ignored              | ❌ ignored          |
+| `requireInteraction`       | ✅            | ❌      | ❌                      | ❌                  |
+| `renotify`                 | ✅            | ❌      | ❌                      | ❌                  |
 
 Consequences that are baked into the code:
 
@@ -124,7 +124,7 @@ cloudflared tunnel --url http://localhost:3100     # no account needed
 ```
 
 Then on iOS: open the tunnel URL in Safari → Share → **Add to Home Screen** → open it from the Home
-Screen icon → *then* tap Enable. Push does **not** work in a normal iOS Safari tab, only in the
+Screen icon → _then_ tap Enable. Push does **not** work in a normal iOS Safari tab, only in the
 installed PWA (iOS 16.4+). The diagnostics panel will tell you if you've missed this step.
 
 `next dev --experimental-https` is not a substitute — a self-signed cert would need a trust profile
@@ -169,7 +169,7 @@ Two ways to handle it:
   than stacking. Cheap, no server coordination, and it degrades safely. The cost is that the push
   still gets sent.
 - **Server-side suppression** — skip the push if that user has a live socket connected. Saves the
-  round trip but needs the socket layer to publish connection state, and it fails toward *no*
+  round trip but needs the socket layer to publish connection state, and it fails toward _no_
   notification if that state is stale, which is the worse direction to fail for a call alert.
 
 Recommendation: start with `tag`. Only add suppression if push volume actually becomes a problem.

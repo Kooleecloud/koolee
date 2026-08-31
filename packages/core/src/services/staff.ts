@@ -77,9 +77,7 @@ export interface StaffMemberWithIdentity extends StaffMember {
 }
 
 /** All staff rows (active and deactivated), newest first, with identity. */
-export async function listStaffMembers(
-  db: Database,
-): Promise<StaffMemberWithIdentity[]> {
+export async function listStaffMembers(db: Database): Promise<StaffMemberWithIdentity[]> {
   const rows = await db
     .select({
       member: staffMembers,

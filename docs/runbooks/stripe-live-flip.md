@@ -41,12 +41,12 @@ It is unaffected by the mode.
 All in Vercel, **Production scope only**. Preview stays on test keys — a
 preview deployment that can charge a real card is a preview nobody can use.
 
-| Variable | App | New value |
-| --- | --- | --- |
-| `STRIPE_SECRET_KEY` | web **and admin** | `sk_live_…` |
-| `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` | web | `pk_live_…` |
-| `STRIPE_WEBHOOK_SECRET` | web | the NEW live endpoint's `whsec_…` (§3) |
-| — | agent | **nothing.** The agent app holds no Stripe credential by design, and `pnpm env:verify` fails if one appears |
+| Variable                             | App               | New value                                                                                                   |
+| ------------------------------------ | ----------------- | ----------------------------------------------------------------------------------------------------------- |
+| `STRIPE_SECRET_KEY`                  | web **and admin** | `sk_live_…`                                                                                                 |
+| `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` | web               | `pk_live_…`                                                                                                 |
+| `STRIPE_WEBHOOK_SECRET`              | web               | the NEW live endpoint's `whsec_…` (§3)                                                                      |
+| —                                    | agent             | **nothing.** The agent app holds no Stripe credential by design, and `pnpm env:verify` fails if one appears |
 
 ⚠️ **The two web keys move in the SAME deploy.** A live secret with a test
 publishable key puts the pay step into `"misconfigured"`: the server would

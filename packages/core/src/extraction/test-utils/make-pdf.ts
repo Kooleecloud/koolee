@@ -4,7 +4,8 @@
  * page with NO text layer (the scanned-ticket case).
  */
 export function makePdf(lines: string[]): Uint8Array {
-  const escape = (s: string) => s.replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)");
+  const escape = (s: string) =>
+    s.replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)");
 
   const content =
     lines.length === 0

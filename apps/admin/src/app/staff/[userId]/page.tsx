@@ -142,10 +142,10 @@ export default async function StaffMemberPage({
         <CardHeader>
           <CardTitle className="text-base">Work</CardTitle>
           <CardDescription>
-            Counted from task rows — nothing here is bookkept, so nothing here can
-            drift from what actually happened. Anything that is not a task row (emails
-            sent, distance driven) is not in this database at all and is therefore
-            absent rather than zero.
+            Counted from task rows — nothing here is bookkept, so nothing here can drift
+            from what actually happened. Anything that is not a task row (emails sent,
+            distance driven) is not in this database at all and is therefore absent rather
+            than zero.
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-5">
@@ -242,9 +242,7 @@ function TaskRow({ row }: { row: StaffTaskRow }) {
         </span>
         <span className="text-xs text-muted-foreground">
           <span className="font-mono">{row.bookingRef}</span> · {row.departureAirport} ·{" "}
-          {row.at
-            ? formatInstantInAirportTz(row.at, OPS_CONSOLE_TZ)
-            : "no time recorded"}
+          {row.at ? formatInstantInAirportTz(row.at, OPS_CONSOLE_TZ) : "no time recorded"}
         </span>
       </span>
       <Badge

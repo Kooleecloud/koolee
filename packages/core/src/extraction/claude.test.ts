@@ -103,7 +103,9 @@ describe("ClaudeTicketExtractor", () => {
       return toolResponse(ONE_WAY);
     });
 
-    const outcome = await extractorWith(fetchMock as unknown as typeof fetch).extract(input);
+    const outcome = await extractorWith(fetchMock as unknown as typeof fetch).extract(
+      input,
+    );
     // No escalation: an unambiguous read costs exactly one call.
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(outcome.status).toBe("extracted");
@@ -148,7 +150,9 @@ describe("ClaudeTicketExtractor", () => {
       }),
     );
 
-    const outcome = await extractorWith(fetchMock as unknown as typeof fetch).extract(input);
+    const outcome = await extractorWith(fetchMock as unknown as typeof fetch).extract(
+      input,
+    );
     expect(outcome.status).toBe("extracted");
     if (outcome.status !== "extracted") return;
     expect(outcome.result).toMatchObject({
@@ -182,7 +186,9 @@ describe("ClaudeTicketExtractor", () => {
       }),
     );
 
-    const outcome = await extractorWith(fetchMock as unknown as typeof fetch).extract(input);
+    const outcome = await extractorWith(fetchMock as unknown as typeof fetch).extract(
+      input,
+    );
     expect(outcome.status).toBe("extracted");
     if (outcome.status !== "extracted") return;
     expect(outcome.result.departureAirport).toBeUndefined();
@@ -219,9 +225,10 @@ describe("ClaudeTicketExtractor", () => {
       }),
     );
 
-    const outcome = await extractorWith(fetchMock as unknown as typeof fetch, null).extract(
-      input,
-    );
+    const outcome = await extractorWith(
+      fetchMock as unknown as typeof fetch,
+      null,
+    ).extract(input);
     expect(outcome.status).toBe("extracted");
     if (outcome.status !== "extracted") return;
     expect(outcome.result.departureAirport).toBe("JFK");
@@ -248,7 +255,9 @@ describe("ClaudeTicketExtractor", () => {
       }),
     );
 
-    const outcome = await extractorWith(fetchMock as unknown as typeof fetch).extract(input);
+    const outcome = await extractorWith(fetchMock as unknown as typeof fetch).extract(
+      input,
+    );
     expect(outcome.status).toBe("extracted");
     if (outcome.status !== "extracted") return;
     expect(outcome.result.flightNumber).toBe("UA1189");
@@ -262,7 +271,10 @@ describe("ClaudeTicketExtractor", () => {
   it("escalates once to the stronger model when the cheap pass finds nothing", async () => {
     const calls: string[] = [];
     const fetchMock = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
-      const body = JSON.parse(String(init?.body)) as { model: string; thinking?: unknown };
+      const body = JSON.parse(String(init?.body)) as {
+        model: string;
+        thinking?: unknown;
+      };
       calls.push(body.model);
       if (body.model === CLAUDE_EXTRACTION_MODEL) {
         return toolResponse({ documentKind: "unclear", segments: [] });
@@ -272,7 +284,9 @@ describe("ClaudeTicketExtractor", () => {
       return toolResponse(ONE_WAY, CLAUDE_ESCALATION_MODEL);
     });
 
-    const outcome = await extractorWith(fetchMock as unknown as typeof fetch).extract(input);
+    const outcome = await extractorWith(fetchMock as unknown as typeof fetch).extract(
+      input,
+    );
     expect(calls).toEqual([CLAUDE_EXTRACTION_MODEL, CLAUDE_ESCALATION_MODEL]);
     expect(outcome.status).toBe("extracted");
     if (outcome.status !== "extracted") return;
@@ -289,14 +303,27 @@ describe("ClaudeTicketExtractor", () => {
             paxName: "Jordan Alvarez",
             documentKind: "multi_city",
             segments: [
-              { originAirport: "JFK", destinationAirport: "MIA", departureAtLocal: "2026-09-05T09:00" },
-              { originAirport: "EWR", destinationAirport: "AUS", departureAtLocal: "2026-09-19T09:00" },
+              {
+                originAirport: "JFK",
+                destinationAirport: "MIA",
+                departureAtLocal: "2026-09-05T09:00",
+              },
+              {
+                originAirport: "EWR",
+                destinationAirport: "AUS",
+                departureAtLocal: "2026-09-19T09:00",
+              },
             ],
           })
-        : toolResponse({ documentKind: "unclear", segments: [] }, CLAUDE_ESCALATION_MODEL);
+        : toolResponse(
+            { documentKind: "unclear", segments: [] },
+            CLAUDE_ESCALATION_MODEL,
+          );
     });
 
-    const outcome = await extractorWith(fetchMock as unknown as typeof fetch).extract(input);
+    const outcome = await extractorWith(fetchMock as unknown as typeof fetch).extract(
+      input,
+    );
     expect(outcome.status).toBe("extracted");
     if (outcome.status !== "extracted") return;
     expect(outcome.result.departureAirport).toBe("JFK");
@@ -305,7 +332,9 @@ describe("ClaudeTicketExtractor", () => {
   it("sends a photographed ticket as an image block", async () => {
     const fetchMock = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
       const body = JSON.parse(String(init?.body)) as {
-        messages: Array<{ content: Array<{ type: string; source?: { media_type: string } }> }>;
+        messages: Array<{
+          content: Array<{ type: string; source?: { media_type: string } }>;
+        }>;
       };
       expect(body.messages[0]?.content[0]?.type).toBe("image");
       expect(body.messages[0]?.content[0]?.source?.media_type).toBe("image/jpeg");
@@ -320,10 +349,13 @@ describe("ClaudeTicketExtractor", () => {
   });
 
   it("degrades to unreadable when the model answers with prose", async () => {
-    const fetchMock = vi.fn(async () => textResponse("Sure! It looks like UA1189 out of JFK."));
-    const outcome = await extractorWith(fetchMock as unknown as typeof fetch, null).extract(
-      input,
+    const fetchMock = vi.fn(async () =>
+      textResponse("Sure! It looks like UA1189 out of JFK."),
     );
+    const outcome = await extractorWith(
+      fetchMock as unknown as typeof fetch,
+      null,
+    ).extract(input);
     expect(outcome.status).toBe("unreadable");
     if (outcome.status !== "unreadable") return;
     expect(outcome.diagnostics?.attempts[0]?.rawText).toContain("UA1189");
@@ -337,9 +369,10 @@ describe("ClaudeTicketExtractor", () => {
           headers: { "content-type": "application/json" },
         }),
     );
-    const outcome = await extractorWith(fetchMock as unknown as typeof fetch, null).extract(
-      input,
-    );
+    const outcome = await extractorWith(
+      fetchMock as unknown as typeof fetch,
+      null,
+    ).extract(input);
     expect(outcome.status).toBe("unreadable");
     if (outcome.status !== "unreadable") return;
     expect(outcome.diagnostics?.attempts[0]?.error).toBeTruthy();

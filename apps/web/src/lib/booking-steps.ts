@@ -28,10 +28,10 @@ export function stepCompletion(draft: TypedBookingDraft): boolean[] {
   return [
     Boolean(
       draft.zip &&
-        draft.flightNumber &&
-        draft.departureAirport &&
-        draft.departureAt &&
-        draft.paxName,
+      draft.flightNumber &&
+      draft.departureAirport &&
+      draft.departureAt &&
+      draft.paxName,
     ),
     Boolean(draft.line1 && draft.city && draft.state && draft.bagCount),
     Boolean(draft.windowStart && draft.windowEnd),
@@ -40,10 +40,7 @@ export function stepCompletion(draft: TypedBookingDraft): boolean[] {
 }
 
 /** A step is unlocked when every step before it is complete. */
-export function stepIsUnlocked(
-  draft: TypedBookingDraft,
-  href: BookingStepHref,
-): boolean {
+export function stepIsUnlocked(draft: TypedBookingDraft, href: BookingStepHref): boolean {
   const index = BOOKING_STEPS.findIndex((step) => step.href === href);
   return stepCompletion(draft).slice(0, index).every(Boolean);
 }

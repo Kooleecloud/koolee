@@ -79,7 +79,7 @@
 | Understand a schema decision     | [MIGRATIONS §7 conventions](MIGRATIONS.md#7-schema-conventions-worth-knowing-before-you-generate) · [../packages/db/README.md](../packages/db/README.md) |
 | Deploy a migration safely        | [MIGRATIONS §9](MIGRATIONS.md#9-deploying-a-migration)                                                                                                   |
 | Stand up production from nothing | [runbooks/prod-bringup.md](runbooks/prod-bringup.md)                                                                                                     |
-| Check an environment's variables | `pnpm env:verify` — [scripts/env-manifest.json](../scripts/env-manifest.json) is the checklist                                                            |
+| Check an environment's variables | `pnpm env:verify` — [scripts/env-manifest.json](../scripts/env-manifest.json) is the checklist                                                           |
 | Fix a migration mess             | [MIGRATIONS §10 recovery playbook](MIGRATIONS.md#10-recovery-playbook)                                                                                   |
 
 ### Debug
@@ -89,7 +89,7 @@
 | App boots but a feature is silently missing    | [ENVIRONMENT §1 the contract](ENVIRONMENT.md#1-the-contract--read-this-first) · [§8](ENVIRONMENT.md#8-diagnosing-env-problems) |
 | Production refuses to boot with a list of vars | [ENVIRONMENT §4 boot gates](ENVIRONMENT.md#4-fail-closed-boot-gates) — **working as intended**                                 |
 | `prepared statement "s1" does not exist`       | [MIGRATIONS §3 two-connection rule](MIGRATIONS.md#3-the-two-connection-rule)                                                   |
-| Migration hit the wrong database               | [ENVIRONMENT §6](ENVIRONMENT.md#6-packagesdbenv-points-at-local--hosted-only-by-explicit-override)                                           |
+| Migration hit the wrong database               | [ENVIRONMENT §6](ENVIRONMENT.md#6-packagesdbenv-points-at-local--hosted-only-by-explicit-override)                             |
 | A migration is never applied, with no error    | [MIGRATIONS §5 STRANDED](MIGRATIONS.md#5-pnpm-dbstatus--the-drift-report)                                                      |
 | Env var set but not visible in the browser     | [ENVIRONMENT §8](ENVIRONMENT.md#8-diagnosing-env-problems)                                                                     |
 | Local database in an unknown state             | [SCRIPTS §3](SCRIPTS.md#3-scriptstest-envsh--the-local-stack) (`pnpm local:reset`)                                             |
@@ -110,8 +110,8 @@
 
 ## 2 — By document
 
-| Doc                                | Answers                                                                         | Size        |
-| ---------------------------------- | ------------------------------------------------------------------------------- | ----------- |
+| Doc                                        | Answers                                                                         | Size        |
+| ------------------------------------------ | ------------------------------------------------------------------------------- | ----------- |
 | [learning/](learning/)                     | **Teaching track.** Nine numbered chapters, bottom-up, written to be re-entered | Ch.1 of 9   |
 | [ARCHITECTURE.md](ARCHITECTURE.md)         | What is the system shape? Where does my change belong?                          | 9 sections  |
 | [features/](features/)                     | How does capability X work, end to end?                                         | 15 docs     |
@@ -128,18 +128,18 @@
 These sit next to the code they describe, and each goes deeper than the
 feature doc that links to it.
 
-| Doc                                                                          | Covers                                                             |
-| ---------------------------------------------------------------------------- | ------------------------------------------------------------------ |
-| [apps/web/docs/setup-auth.md](../apps/web/docs/setup-auth.md)                 | Which auth credential lives where, CAPTCHA, OTP-send safety        |
-| [apps/web/docs/payments-lifecycle.md](../apps/web/docs/payments-lifecycle.md) | Webhook → capture at pickup → refund on cancellation               |
-| [apps/web/docs/ticket-extraction.md](../apps/web/docs/ticket-extraction.md)   | Upload → review form → confirm, and the quarantined prefill rule   |
-| [apps/web/docs/pre-launch-security.md](../apps/web/docs/pre-launch-security.md) | The hardening items, which are closed and which are still open   |
-| [apps/agent/docs/verification-visit.md](../apps/agent/docs/verification-visit.md) | The visit flow, screen by screen                               |
-| [apps/admin/docs/ops-console.md](../apps/admin/docs/ops-console.md)           | The console's IA, every page, and the rails they run on            |
-| [apps/admin/docs/staff-auth.md](../apps/admin/docs/staff-auth.md)             | Invite-only staff sign-in for the agent and admin apps             |
-| [packages/db/README.md](../packages/db/README.md)                             | The two connections, the schema layout, the seed scripts           |
-| [packages/ui/DESIGN.md](../packages/ui/DESIGN.md)                             | The design contract — layering, tokens, when a pattern is promoted |
-| [packages/core/docs/local-test-env.md](../packages/core/docs/local-test-env.md) | One command up, one command down                                 |
+| Doc                                                                               | Covers                                                             |
+| --------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| [apps/web/docs/setup-auth.md](../apps/web/docs/setup-auth.md)                     | Which auth credential lives where, CAPTCHA, OTP-send safety        |
+| [apps/web/docs/payments-lifecycle.md](../apps/web/docs/payments-lifecycle.md)     | Webhook → capture at pickup → refund on cancellation               |
+| [apps/web/docs/ticket-extraction.md](../apps/web/docs/ticket-extraction.md)       | Upload → review form → confirm, and the quarantined prefill rule   |
+| [apps/web/docs/pre-launch-security.md](../apps/web/docs/pre-launch-security.md)   | The hardening items, which are closed and which are still open     |
+| [apps/agent/docs/verification-visit.md](../apps/agent/docs/verification-visit.md) | The visit flow, screen by screen                                   |
+| [apps/admin/docs/ops-console.md](../apps/admin/docs/ops-console.md)               | The console's IA, every page, and the rails they run on            |
+| [apps/admin/docs/staff-auth.md](../apps/admin/docs/staff-auth.md)                 | Invite-only staff sign-in for the agent and admin apps             |
+| [packages/db/README.md](../packages/db/README.md)                                 | The two connections, the schema layout, the seed scripts           |
+| [packages/ui/DESIGN.md](../packages/ui/DESIGN.md)                                 | The design contract — layering, tokens, when a pattern is promoted |
+| [packages/core/docs/local-test-env.md](../packages/core/docs/local-test-env.md)   | One command up, one command down                                   |
 
 **Elsewhere:** [../README.md](../README.md) (entry point) · [../PROJECT-STATUS.md](../PROJECT-STATUS.md) (**what shipped / what's next**) · [run-reports/](run-reports/) (build logs, validation + migration notes — **historical, not maintained**) · [launch/](launch/) — [agreement-v2-draft.md](launch/agreement-v2-draft.md) (the body ops pastes at `/agreements`; **awaiting legal review**) and `env-sample-production.env` · [../brand/BRAND.md](../brand/BRAND.md)
 
@@ -332,11 +332,11 @@ feature doc that links to it.
 
 ### Also in [features/](features/) — not outlined here
 
-| Doc                                                                                    | Covers                                                                                            |
-| -------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
-| [realtime-signals.md](features/realtime-signals.md)                                     | The doorbell table, its one RLS policy, `useBookingSignal`, and why a payload is never rendered   |
-| [agreements-and-passport.md](features/agreements-and-passport.md)                       | Versioned booking agreements, manual passport verification, the visit identity gate               |
-| [notifications.md](features/notifications.md)                                           | The living notification matrix — in-app, email, push, and the parked SMS column                   |
+| Doc                                                               | Covers                                                                                          |
+| ----------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| [realtime-signals.md](features/realtime-signals.md)               | The doorbell table, its one RLS policy, `useBookingSignal`, and why a payload is never rendered |
+| [agreements-and-passport.md](features/agreements-and-passport.md) | Versioned booking agreements, manual passport verification, the visit identity gate             |
+| [notifications.md](features/notifications.md)                     | The living notification matrix — in-app, email, push, and the parked SMS column                 |
 
 **Hosted-setup docs** are point-in-time ops runbooks: what a slice needed done
 by hand on the hosted project, in order, once. Kept as the record of what was

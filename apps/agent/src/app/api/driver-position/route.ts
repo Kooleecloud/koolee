@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { InvalidInputError, NotAuthorizedError, recordDriverPosition } from "@koolee/core";
+import {
+  InvalidInputError,
+  NotAuthorizedError,
+  recordDriverPosition,
+} from "@koolee/core";
 
 import { getCore } from "@/lib/core";
 import { requireAgentSession } from "@/lib/session";
@@ -47,9 +51,7 @@ export async function POST(request: Request): Promise<NextResponse> {
       staffUserId: session.userId,
       lat: parsed.data.lat,
       lng: parsed.data.lng,
-      ...(parsed.data.recordedAt
-        ? { recordedAt: new Date(parsed.data.recordedAt) }
-        : {}),
+      ...(parsed.data.recordedAt ? { recordedAt: new Date(parsed.data.recordedAt) } : {}),
     });
   } catch (error) {
     // Off shift is the expected failure — a tab left open after clock-off.

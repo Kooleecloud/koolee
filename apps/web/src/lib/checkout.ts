@@ -53,22 +53,20 @@ export type PayableDraft = TypedBookingDraft &
     >
   >;
 
-export function isDraftReadyForPayment(
-  draft: TypedBookingDraft,
-): draft is PayableDraft {
+export function isDraftReadyForPayment(draft: TypedBookingDraft): draft is PayableDraft {
   return Boolean(
     draft.flightNumber &&
-      draft.airlineIata &&
-      draft.departureAirport &&
-      draft.departureAt &&
-      draft.paxName &&
-      draft.zip &&
-      draft.line1 &&
-      draft.city &&
-      draft.state &&
-      draft.bagCount &&
-      draft.windowStart &&
-      draft.windowEnd,
+    draft.airlineIata &&
+    draft.departureAirport &&
+    draft.departureAt &&
+    draft.paxName &&
+    draft.zip &&
+    draft.line1 &&
+    draft.city &&
+    draft.state &&
+    draft.bagCount &&
+    draft.windowStart &&
+    draft.windowEnd,
   );
 }
 

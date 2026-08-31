@@ -129,7 +129,10 @@ function PriceEstimator({
 
         {/* Bags */}
         <div>
-          <p id="estimator-bags-label" className="mb-2.5 text-sm font-semibold text-navy-800">
+          <p
+            id="estimator-bags-label"
+            className="mb-2.5 text-sm font-semibold text-navy-800"
+          >
             Bags
           </p>
           <div className="inline-flex items-center gap-4">
@@ -198,7 +201,9 @@ function PriceEstimator({
                 >
                   <span className="text-sm font-medium text-navy-900">{tier.label}</span>
                   {tier.description ? (
-                    <span className="text-xs text-muted-foreground">{tier.description}</span>
+                    <span className="text-xs text-muted-foreground">
+                      {tier.description}
+                    </span>
                   ) : null}
                 </span>
               </label>
@@ -239,7 +244,9 @@ function PriceEstimator({
           </dl>
         ) : null}
 
-        {disclaimer ? <p className="text-xs leading-relaxed text-navy-300">{disclaimer}</p> : null}
+        {disclaimer ? (
+          <p className="text-xs leading-relaxed text-navy-300">{disclaimer}</p>
+        ) : null}
       </div>
     </div>
   );

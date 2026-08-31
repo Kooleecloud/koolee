@@ -56,7 +56,9 @@ const TEST_DATABASE_URL = process.env.TEST_DATABASE_URL;
 const describeIntegration = TEST_DATABASE_URL ? describe : describe.skip;
 
 if (!TEST_DATABASE_URL) {
-  console.log("[integration] TEST_DATABASE_URL not set — skipping driver-selection tests.");
+  console.log(
+    "[integration] TEST_DATABASE_URL not set — skipping driver-selection tests.",
+  );
 }
 
 const migrationsFolder = path.join(
@@ -160,7 +162,10 @@ describeIntegration("driver selection (integration)", () => {
   }
 
   async function makeTruck(name: string, bagCapacity: number, active = true) {
-    const [row] = await db.insert(trucks).values({ name, bagCapacity, active }).returning();
+    const [row] = await db
+      .insert(trucks)
+      .values({ name, bagCapacity, active })
+      .returning();
     return row!;
   }
 
@@ -459,7 +464,10 @@ describeIntegration("driver selection (integration)", () => {
     expect(again.releasedShiftId).toBe(shiftA.shift.id);
 
     const task = await taskFor(booking.id);
-    expect(task).toMatchObject({ driverShiftId: shiftB.shift.id, assigneeUserId: second });
+    expect(task).toMatchObject({
+      driverShiftId: shiftB.shift.id,
+      assigneeUserId: second,
+    });
 
     const events = await eventsFor(booking.id);
     expect(

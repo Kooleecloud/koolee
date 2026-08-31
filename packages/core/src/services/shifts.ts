@@ -13,7 +13,12 @@ import {
 } from "@koolee/db";
 
 import type { CoreConfig } from "../config";
-import { ConflictError, InvalidInputError, NotAuthorizedError, NotFoundError } from "../errors";
+import {
+  ConflictError,
+  InvalidInputError,
+  NotAuthorizedError,
+  NotFoundError,
+} from "../errors";
 import { applyTransition } from "./bookings";
 import { PICKUP_EVENT_TYPES } from "./pickup-events";
 import { OPEN_TASK_STATUSES } from "./tasks";
@@ -69,9 +74,7 @@ export async function getActiveShift(
     .select({ shift: driverShifts, truck: trucks })
     .from(driverShifts)
     .innerJoin(trucks, eq(trucks.id, driverShifts.truckId))
-    .where(
-      and(eq(driverShifts.staffUserId, staffUserId), isNull(driverShifts.endedAt)),
-    )
+    .where(and(eq(driverShifts.staffUserId, staffUserId), isNull(driverShifts.endedAt)))
     .limit(1);
 
   if (!row) return null;
@@ -276,10 +279,7 @@ export interface CreateTruckInput {
   reservedSpaces?: number;
 }
 
-export async function createTruck(
-  db: Database,
-  input: CreateTruckInput,
-): Promise<Truck> {
+export async function createTruck(db: Database, input: CreateTruckInput): Promise<Truck> {
   const name = input.name.trim();
   if (!name) throw new InvalidInputError("name", "Give the truck a name.");
   if (!Number.isInteger(input.bagCapacity) || input.bagCapacity < 1) {
@@ -328,10 +328,7 @@ export interface UpdateTruckInput {
  * the van. Selection recomputes from the new figure and simply offers no more
  * space.
  */
-export async function updateTruck(
-  db: Database,
-  input: UpdateTruckInput,
-): Promise<Truck> {
+export async function updateTruck(db: Database, input: UpdateTruckInput): Promise<Truck> {
   const existing = await db.query.trucks.findFirst({ where: eq(trucks.id, input.id) });
   if (!existing) throw new NotFoundError("Truck", input.id);
 

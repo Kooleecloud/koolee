@@ -15,8 +15,10 @@ import { formatUsPhone, normalizeUsPhone } from "../lib/phone";
  * holds bare national digits; `toE164` normalizes for the auth API.
  */
 
-export interface PhoneInputProps
-  extends Omit<React.InputHTMLAttributes<HTMLInputElement>, "value" | "onChange" | "type"> {
+export interface PhoneInputProps extends Omit<
+  React.InputHTMLAttributes<HTMLInputElement>,
+  "value" | "onChange" | "type"
+> {
   /** Bare national digits, e.g. "2125550100". */
   value: string;
   onValueChange: (digits: string) => void;

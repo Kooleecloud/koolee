@@ -135,9 +135,7 @@ export default async function TripsPage() {
       ) : (
         <>
           <section className="flex flex-col gap-3">
-            <h2 className="font-display text-lg font-semibold text-navy-800">
-              Upcoming
-            </h2>
+            <h2 className="font-display text-lg font-semibold text-navy-800">Upcoming</h2>
             {trips.upcoming.length === 0 ? (
               /* Not apologetic: somebody with only past trips is a returning
                  customer, and the right thing to say to them is "book the

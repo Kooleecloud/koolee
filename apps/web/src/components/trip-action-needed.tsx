@@ -217,9 +217,9 @@ function AgreementStep({
           {/* Version pinning: this is the document the booking is bound by,
               and it stays this one however many versions publish later. */}
           You accepted version {agreement.version}
-          {agreement.acceptedAtLabel ? ` on ${agreement.acceptedAtLabel}` : ""}. These
-          are the terms for this trip — a later update won&apos;t change them or ask
-          you again.
+          {agreement.acceptedAtLabel ? ` on ${agreement.acceptedAtLabel}` : ""}. These are
+          the terms for this trip — a later update won&apos;t change them or ask you
+          again.
         </p>
         <AgreementLinks
           bookingId={bookingId}

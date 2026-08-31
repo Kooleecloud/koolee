@@ -28,24 +28,24 @@ in production, console in dev). **Push** is the `PushSender` seam, and it is
 screen, because a `201` from a push service means accepted, not delivered.
 **SMS** is parked.
 
-| Moment | Customer in-app | Customer email | Push *(off by default)* | Agent / driver in-app | SMS |
-|---|---|---|---|---|---|
-| Booking confirmed (paid) | live | `booking-confirmation-email` | — | verification task appears | parked |
-| Agent assigned | live | `agent-assigned-email` — "Nina is on your pickup" | **customer** (collapse) + **the assigned agent** (stack) | — | parked |
-| Agreement accepted | live card | — | — | gate unlocks ✱ | parked |
-| Passport uploaded / confirmed | live card | — | — | gate unlocks ✱ | parked |
-| Visit started (agent arrived) | live timeline | — | — | — | parked |
-| Bags sealed → `verified_sealed` | live timeline + shortlist ✱ | `bags-sealed-email` — seal numbers + "choose your driver" | **customer** (collapse) | — | parked |
-| Driver selectable | (same moment — see below) | (same email) | (same push) | — | parked |
-| Driver selected | live | `driver-selected-email` | **customer** (collapse) + **the shift's driver** (stack) | pickup task is theirs ✱ | parked |
-| Picked up / in transit | live timeline + moving ETA ✱ | — | — | — | parked |
-| Delivered to bag drop | live ✱ | `bagdrop-delivered-email` | **customer** (collapse) | — | parked |
-| Exception raised | live status ✱ | `exception-customer-email` — generic | — | live notice | parked |
-| Exception raised (ops) | — | `exception-ops-alert-email` — full reason | **every active admin** (stack) | — | — |
-| No driver could be offered (ops) | — | `driver-pool-empty-ops-alert` | **every active admin** (collapse) | — | — |
-| Running late / missed cutoff | live notice | — | — | live notice | parked |
-| Pre-window reminder (T−2h) | — | `booking-pickup-reminder` | — | — | console until Twilio |
-| Waitlist ZIP enters coverage | — | `zone-opened-email` — **the only waitlist email we send** | — | — | — |
+| Moment                           | Customer in-app              | Customer email                                            | Push _(off by default)_                                  | Agent / driver in-app     | SMS                  |
+| -------------------------------- | ---------------------------- | --------------------------------------------------------- | -------------------------------------------------------- | ------------------------- | -------------------- |
+| Booking confirmed (paid)         | live                         | `booking-confirmation-email`                              | —                                                        | verification task appears | parked               |
+| Agent assigned                   | live                         | `agent-assigned-email` — "Nina is on your pickup"         | **customer** (collapse) + **the assigned agent** (stack) | —                         | parked               |
+| Agreement accepted               | live card                    | —                                                         | —                                                        | gate unlocks ✱            | parked               |
+| Passport uploaded / confirmed    | live card                    | —                                                         | —                                                        | gate unlocks ✱            | parked               |
+| Visit started (agent arrived)    | live timeline                | —                                                         | —                                                        | —                         | parked               |
+| Bags sealed → `verified_sealed`  | live timeline + shortlist ✱  | `bags-sealed-email` — seal numbers + "choose your driver" | **customer** (collapse)                                  | —                         | parked               |
+| Driver selectable                | (same moment — see below)    | (same email)                                              | (same push)                                              | —                         | parked               |
+| Driver selected                  | live                         | `driver-selected-email`                                   | **customer** (collapse) + **the shift's driver** (stack) | pickup task is theirs ✱   | parked               |
+| Picked up / in transit           | live timeline + moving ETA ✱ | —                                                         | —                                                        | —                         | parked               |
+| Delivered to bag drop            | live ✱                       | `bagdrop-delivered-email`                                 | **customer** (collapse)                                  | —                         | parked               |
+| Exception raised                 | live status ✱                | `exception-customer-email` — generic                      | —                                                        | live notice               | parked               |
+| Exception raised (ops)           | —                            | `exception-ops-alert-email` — full reason                 | **every active admin** (stack)                           | —                         | —                    |
+| No driver could be offered (ops) | —                            | `driver-pool-empty-ops-alert`                             | **every active admin** (collapse)                        | —                         | —                    |
+| Running late / missed cutoff     | live notice                  | —                                                         | —                                                        | live notice               | parked               |
+| Pre-window reminder (T−2h)       | —                            | `booking-pickup-reminder`                                 | —                                                        | —                         | console until Twilio |
+| Waitlist ZIP enters coverage     | —                            | `zone-opened-email` — **the only waitlist email we send** | —                                                        | —                         | —                    |
 
 **Bold** entries in the Push column are new in F3, and all of them are
 currently inert — the switch is off.
@@ -82,7 +82,7 @@ Three reasons the internal reason must not travel:
 3. It is frequently **wrong in the first minute**, because an exception is
    raised before anybody has looked.
 
-Two functions rather than one because Inngest retries a *function*: a combined
+Two functions rather than one because Inngest retries a _function_: a combined
 handler whose ops send failed would re-send the customer half on retry.
 
 If no support address is configured the customer email is **skipped**, not sent
@@ -168,15 +168,15 @@ reminder's `NotificationDispatcher` call, which logs.
 Every emit uses the established event-id pattern, and Inngest drops a repeated
 id. The keys, and why each is shaped the way it is:
 
-| Event | Id | Why |
-|---|---|---|
-| `booking/confirmed` | `booking-confirmed:<bookingId>` | Three paths reach `paid` and two of them race |
-| `booking/agent_assigned` | `booking-agent-assigned:<bookingId>:<agentUserId>` | Coarser than the write ON PURPOSE: ops re-picking the same agent is not news, a different agent is |
-| `booking/bags_sealed` | `booking-bags-sealed:<bookingId>:<custodyEventId>` | One custody row per sealing, ever |
-| `booking/exception_raised` | `booking-exception:<bookingId>:<custodyEventId>` | One row per raise; a retried caller that moved nothing emits nothing |
-| `booking/driver_selected` | `booking-driver-selected:<bookingId>:<custodyEventId>` | Re-choosing IS news, so it keys on the new event |
-| `booking/delivered_to_bagdrop` | `booking-delivered:<bookingId>:<custodyEventId>` | One delivery |
-| `booking/driver_pool_empty` | `booking-driver-pool-empty:<bookingId>:<utcHour>` | Raised from a render; the hour bucket IS the rate limit |
+| Event                          | Id                                                     | Why                                                                                                |
+| ------------------------------ | ------------------------------------------------------ | -------------------------------------------------------------------------------------------------- |
+| `booking/confirmed`            | `booking-confirmed:<bookingId>`                        | Three paths reach `paid` and two of them race                                                      |
+| `booking/agent_assigned`       | `booking-agent-assigned:<bookingId>:<agentUserId>`     | Coarser than the write ON PURPOSE: ops re-picking the same agent is not news, a different agent is |
+| `booking/bags_sealed`          | `booking-bags-sealed:<bookingId>:<custodyEventId>`     | One custody row per sealing, ever                                                                  |
+| `booking/exception_raised`     | `booking-exception:<bookingId>:<custodyEventId>`       | One row per raise; a retried caller that moved nothing emits nothing                               |
+| `booking/driver_selected`      | `booking-driver-selected:<bookingId>:<custodyEventId>` | Re-choosing IS news, so it keys on the new event                                                   |
+| `booking/delivered_to_bagdrop` | `booking-delivered:<bookingId>:<custodyEventId>`       | One delivery                                                                                       |
+| `booking/driver_pool_empty`    | `booking-driver-pool-empty:<bookingId>:<utcHour>`      | Raised from a render; the hour bucket IS the rate limit                                            |
 
 ---
 
@@ -185,15 +185,15 @@ id. The keys, and why each is shaped the way it is:
 Emission lives beside the fact, never at a route handler — the rule the
 exception alert had to learn when six of seven paths went silent for a slice.
 
-| Event | Raised by |
-|---|---|
-| `booking/confirmed` | `apps/web/src/lib/booking-events.ts`, from every path to `paid` |
-| `booking/agent_assigned` | `assignAgentToBooking` (dispatch.ts) — the one write path shared by the manual assign and `autoAssignBooking` |
-| `booking/bags_sealed` | `applyTransition` on arrival at `verified_sealed` |
-| `booking/exception_raised` | `applyTransition` and the webhook's `moveBooking` |
-| `booking/driver_selected` | `selectDriver` (driver-selection.ts) |
-| `booking/delivered_to_bagdrop` | `deliverToBagdrop` (pickup.ts) |
-| `booking/driver_pool_empty` | the trip page render, via `reportEmptyDriverPool` |
+| Event                          | Raised by                                                                                                     |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------- |
+| `booking/confirmed`            | `apps/web/src/lib/booking-events.ts`, from every path to `paid`                                               |
+| `booking/agent_assigned`       | `assignAgentToBooking` (dispatch.ts) — the one write path shared by the manual assign and `autoAssignBooking` |
+| `booking/bags_sealed`          | `applyTransition` on arrival at `verified_sealed`                                                             |
+| `booking/exception_raised`     | `applyTransition` and the webhook's `moveBooking`                                                             |
+| `booking/driver_selected`      | `selectDriver` (driver-selection.ts)                                                                          |
+| `booking/delivered_to_bagdrop` | `deliverToBagdrop` (pickup.ts)                                                                                |
+| `booking/driver_pool_empty`    | the trip page render, via `reportEmptyDriverPool`                                                             |
 
 `booking/agent_no_show_check` is still never sent — the one catalogued event
 with no producer.

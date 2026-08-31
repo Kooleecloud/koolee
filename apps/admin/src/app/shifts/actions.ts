@@ -79,7 +79,9 @@ export async function forceEndShiftAction(
         released === 0
           ? "Shift ended."
           : `Shift ended. ${released} pickup${released === 1 ? "" : "s"} back in the pool${
-              raised > 0 ? `, ${raised} raised as an exception (bags already in transit)` : ""
+              raised > 0
+                ? `, ${raised} raised as an exception (bags already in transit)`
+                : ""
             }.`,
     };
   } catch (error) {
@@ -87,7 +89,10 @@ export async function forceEndShiftAction(
   }
 }
 
-const canDriveSchema = z.object({ userId: z.uuid(), canDrive: z.enum(["true", "false"]) });
+const canDriveSchema = z.object({
+  userId: z.uuid(),
+  canDrive: z.enum(["true", "false"]),
+});
 
 /** Grants or revokes the driving capability. Takes effect on their next request. */
 export async function setCanDriveAction(

@@ -49,7 +49,6 @@ const AT_RISK_LABEL = {
   no_driver: "needs a driver",
 } as const;
 
-
 const STATUSES: BookingStatus[] = [
   "draft",
   "paid",
@@ -147,10 +146,20 @@ function TimeCell({
 }
 
 /** `?status=paid,exception` → the valid members of that list, deduped. */
-function parseList<T extends string>(raw: string | undefined, allowed: readonly T[]): T[] {
+function parseList<T extends string>(
+  raw: string | undefined,
+  allowed: readonly T[],
+): T[] {
   if (!raw) return [];
   const valid = new Set<string>(allowed);
-  return [...new Set(raw.split(",").map((s) => s.trim()).filter((s) => valid.has(s)))] as T[];
+  return [
+    ...new Set(
+      raw
+        .split(",")
+        .map((s) => s.trim())
+        .filter((s) => valid.has(s)),
+    ),
+  ] as T[];
 }
 
 /**
@@ -220,8 +229,7 @@ export default async function BookingsPage({
 
   const atRiskCount = rows.filter((r) => r.atRisk).length;
   const noDriverCount = rows.filter((r) => r.atRiskReason === "no_driver").length;
-  const filtered =
-    statuses.length > 0 || airports.length > 0 || today || search !== "";
+  const filtered = statuses.length > 0 || airports.length > 0 || today || search !== "";
 
   /** Sort links keep every other filter — the URL stays the whole board state. */
   const sortHref = (key: BoardSortKey) => {
@@ -346,135 +354,141 @@ export default async function BookingsPage({
               </tr>
             </thead>
             <tbody className="divide-y">
-              {rows.map(({
-                booking,
-                slotStart,
-                assigneeEmail,
-                assigneeName,
-                atRisk,
-                atRiskReason,
-                driverName,
-                truckName,
-                tz,
-              }) => {
-                const windowEnd = booking.pickupWindowEnd;
-                // "Today" is evaluated in THIS booking's zone, which stays
-                // well-defined even when the board spans several — unlike a
-                // single console-wide "today", which has no meaning on a
-                // mixed-zone list.
-                const isToday =
-                  slotStart !== null &&
-                  airportLocalDay(slotStart, tz) === airportLocalDay(now, tz);
-                return (
-                  <LinkedTableRow
-                    key={booking.id}
-                    className={atRisk ? "bg-warning/10" : "hover:bg-accent/5"}
-                  >
-                    <td className="px-4 py-2 whitespace-nowrap">
-                      <RowLink
-                        href={`/bookings/${booking.id}`}
-                        linkComponent={Link}
-                        className="font-mono text-xs"
-                      >
-                        {booking.ref}
-                      </RowLink>
-                    </td>
-                    <td className="px-4 py-2">
-                      {slotStart ? (
-                        <TimeCell
-                          time={
-                            windowEnd
-                              ? formatHourRangeInAirportTz(slotStart, windowEnd, tz)
-                              : /* Legacy slot rows carry a start with no end. */
-                                formatTimeInAirportTz(slotStart, tz)
-                          }
-                          date={formatDayInAirportTz(slotStart, tz)}
+              {rows.map(
+                ({
+                  booking,
+                  slotStart,
+                  assigneeEmail,
+                  assigneeName,
+                  atRisk,
+                  atRiskReason,
+                  driverName,
+                  truckName,
+                  tz,
+                }) => {
+                  const windowEnd = booking.pickupWindowEnd;
+                  // "Today" is evaluated in THIS booking's zone, which stays
+                  // well-defined even when the board spans several — unlike a
+                  // single console-wide "today", which has no meaning on a
+                  // mixed-zone list.
+                  const isToday =
+                    slotStart !== null &&
+                    airportLocalDay(slotStart, tz) === airportLocalDay(now, tz);
+                  return (
+                    <LinkedTableRow
+                      key={booking.id}
+                      className={atRisk ? "bg-warning/10" : "hover:bg-accent/5"}
+                    >
+                      <td className="px-4 py-2 whitespace-nowrap">
+                        <RowLink
+                          href={`/bookings/${booking.id}`}
+                          linkComponent={Link}
+                          className="font-mono text-xs"
                         >
-                          {isToday && <Badge variant="outline">today</Badge>}
-                          {atRisk && (
-                            <Badge variant="warning">{AT_RISK_LABEL[atRiskReason!]}</Badge>
-                          )}
-                        </TimeCell>
-                      ) : (
-                        <span className="flex items-center gap-2 text-muted-foreground">
-                          —
-                          {atRisk && (
-                            <Badge variant="warning">{AT_RISK_LABEL[atRiskReason!]}</Badge>
-                          )}
-                        </span>
-                      )}
-                    </td>
-                    {/* When the booking came in — not when it happens. An
+                          {booking.ref}
+                        </RowLink>
+                      </td>
+                      <td className="px-4 py-2">
+                        {slotStart ? (
+                          <TimeCell
+                            time={
+                              windowEnd
+                                ? formatHourRangeInAirportTz(slotStart, windowEnd, tz)
+                                : /* Legacy slot rows carry a start with no end. */
+                                  formatTimeInAirportTz(slotStart, tz)
+                            }
+                            date={formatDayInAirportTz(slotStart, tz)}
+                          >
+                            {isToday && <Badge variant="outline">today</Badge>}
+                            {atRisk && (
+                              <Badge variant="warning">
+                                {AT_RISK_LABEL[atRiskReason!]}
+                              </Badge>
+                            )}
+                          </TimeCell>
+                        ) : (
+                          <span className="flex items-center gap-2 text-muted-foreground">
+                            —
+                            {atRisk && (
+                              <Badge variant="warning">
+                                {AT_RISK_LABEL[atRiskReason!]}
+                              </Badge>
+                            )}
+                          </span>
+                        )}
+                      </td>
+                      {/* When the booking came in — not when it happens. An
                         operator triaging a board needs to tell a booking made
                         an hour ago from one made last week. */}
-                    <td className="px-4 py-2">
-                      <TimeCell
-                        time={formatTimeInAirportTz(booking.createdAt, tz)}
-                        date={formatDayInAirportTz(booking.createdAt, tz)}
-                      />
-                    </td>
-                    <td className="px-4 py-2">
-                      <TimeCell
-                        time={formatTimeInAirportTz(booking.departureAt, tz)}
-                        date={formatDayInAirportTz(booking.departureAt, tz)}
-                      />
-                    </td>
-                    <td className="px-4 py-2 whitespace-nowrap">
-                      <span className="font-medium">{booking.flightNumber}</span>
-                      <span className="ml-2 text-muted-foreground">
-                        {booking.departureAirport}
-                      </span>
-                    </td>
-                    <td className="px-4 py-2 whitespace-nowrap">{booking.paxName}</td>
-                    <td className="px-4 py-2 whitespace-nowrap">{booking.bagCount}</td>
-                    {/* Name first: ops talk about "Leo", not about
+                      <td className="px-4 py-2">
+                        <TimeCell
+                          time={formatTimeInAirportTz(booking.createdAt, tz)}
+                          date={formatDayInAirportTz(booking.createdAt, tz)}
+                        />
+                      </td>
+                      <td className="px-4 py-2">
+                        <TimeCell
+                          time={formatTimeInAirportTz(booking.departureAt, tz)}
+                          date={formatDayInAirportTz(booking.departureAt, tz)}
+                        />
+                      </td>
+                      <td className="px-4 py-2 whitespace-nowrap">
+                        <span className="font-medium">{booking.flightNumber}</span>
+                        <span className="ml-2 text-muted-foreground">
+                          {booking.departureAirport}
+                        </span>
+                      </td>
+                      <td className="px-4 py-2 whitespace-nowrap">{booking.paxName}</td>
+                      <td className="px-4 py-2 whitespace-nowrap">{booking.bagCount}</td>
+                      {/* Name first: ops talk about "Leo", not about
                         agent@koolee.local. The email stays because it is the
                         unambiguous identifier when two agents share a first
                         name, and it is what the assignment panel lists. */}
-                    <td className="px-4 py-2">
-                      {assigneeEmail ? (
-                        <div className="flex flex-col leading-tight">
-                          <span className="whitespace-nowrap">
-                            {assigneeName ?? assigneeEmail}
-                          </span>
-                          {assigneeName && (
-                            <span className="text-xs whitespace-nowrap text-muted-foreground">
-                              {assigneeEmail}
+                      <td className="px-4 py-2">
+                        {assigneeEmail ? (
+                          <div className="flex flex-col leading-tight">
+                            <span className="whitespace-nowrap">
+                              {assigneeName ?? assigneeEmail}
                             </span>
-                          )}
-                        </div>
-                      ) : (
-                        <span className="text-muted-foreground">unassigned</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-2">
-                      {driverName || truckName ? (
-                        <div className="flex flex-col leading-tight">
-                          <span className="whitespace-nowrap">
-                            {driverName ?? "Driver"}
-                          </span>
-                          {truckName && (
-                            <span className="text-xs whitespace-nowrap text-muted-foreground">
-                              {truckName}
+                            {assigneeName && (
+                              <span className="text-xs whitespace-nowrap text-muted-foreground">
+                                {assigneeEmail}
+                              </span>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-muted-foreground">unassigned</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-2">
+                        {driverName || truckName ? (
+                          <div className="flex flex-col leading-tight">
+                            <span className="whitespace-nowrap">
+                              {driverName ?? "Driver"}
                             </span>
-                          )}
-                        </div>
-                      ) : (
-                        <span className="text-muted-foreground">
-                          {atRiskReason === "no_driver" ? "none yet" : "—"}
-                        </span>
-                      )}
-                    </td>
-                    {/* Opaque on purpose: a translucent pinned cell shows the
+                            {truckName && (
+                              <span className="text-xs whitespace-nowrap text-muted-foreground">
+                                {truckName}
+                              </span>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-muted-foreground">
+                            {atRiskReason === "no_driver" ? "none yet" : "—"}
+                          </span>
+                        )}
+                      </td>
+                      {/* Opaque on purpose: a translucent pinned cell shows the
                         columns scrolling underneath it. The at-risk tint stays
                         on the rest of the row, and the at-risk badge rides
                         the pickup-window cell, so no signal is lost. */}
-                    <td className="sticky right-0 z-10 border-l border-border bg-card shadow-[-6px_0_8px_-6px_rgba(11,37,69,0.12)] px-4 py-2 whitespace-nowrap">
-                      <BookingStatusBadge status={booking.status} />
-                    </td>
-                  </LinkedTableRow>
-                );
-              })}
+                      <td className="sticky right-0 z-10 border-l border-border bg-card shadow-[-6px_0_8px_-6px_rgba(11,37,69,0.12)] px-4 py-2 whitespace-nowrap">
+                        <BookingStatusBadge status={booking.status} />
+                      </td>
+                    </LinkedTableRow>
+                  );
+                },
+              )}
             </tbody>
           </table>
         </div>

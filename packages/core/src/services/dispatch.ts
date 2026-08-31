@@ -355,7 +355,8 @@ export async function resolveExceptionBooking(
     return result.ok ? { ok: true } : { ok: false, error: result.error };
   }
 
-  const event = input.resolution === "resume_transit" ? "resume_transit" : "force_complete";
+  const event =
+    input.resolution === "resume_transit" ? "resume_transit" : "force_complete";
   const moved = await applyTransition(config, {
     bookingId: input.bookingId,
     event,
@@ -656,7 +657,10 @@ function orderFor(sort: BoardSort | undefined): SQL[] {
       // Unassigned rows sort last either way — they are the ones an operator
       // is looking for, and burying them under a page of assigned work is the
       // opposite of useful.
-      return [sql`${users.email} ${nulls}`, sql`${bookings.pickupWindowStart} asc nulls last`];
+      return [
+        sql`${users.email} ${nulls}`,
+        sql`${bookings.pickupWindowStart} asc nulls last`,
+      ];
     case "window":
     default:
       return [sql`${bookings.pickupWindowStart} ${nulls}`, asc(bookings.id)];

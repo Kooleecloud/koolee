@@ -110,7 +110,9 @@ function AppHeader({
               </li>
             ))}
             {actions ? (
-              <li className="mt-3 flex flex-col gap-3 border-t border-border pt-4">{actions}</li>
+              <li className="mt-3 flex flex-col gap-3 border-t border-border pt-4">
+                {actions}
+              </li>
             ) : null}
           </ul>
         ) : null

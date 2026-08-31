@@ -10,10 +10,7 @@ import {
 
 import type { Session } from "../auth/types";
 import { computeBagDropCutoffAt } from "../slots/cutoff";
-import {
-  bookingActionability,
-  type BookingActionability,
-} from "./actionability";
+import { bookingActionability, type BookingActionability } from "./actionability";
 import { listBookingsForSession } from "./bookings";
 import { getDisplayZones, zoneFor } from "./display-tz";
 import { DRIVER_SELECTABLE_STATUSES } from "./driver-selection";
@@ -93,7 +90,10 @@ async function cutoffMinutesByRoute(
   for (const row of rows) {
     const key = `${row.airline.toUpperCase()}:${row.airport}`;
     const existing = byRoute.get(key);
-    byRoute.set(key, existing === undefined ? row.minutes : Math.max(existing, row.minutes));
+    byRoute.set(
+      key,
+      existing === undefined ? row.minutes : Math.max(existing, row.minutes),
+    );
   }
   return byRoute;
 }
@@ -137,7 +137,9 @@ export async function listCustomerTrips(
     db
       .select({ bookingId: pickupTasks.bookingId })
       .from(pickupTasks)
-      .where(and(inArray(pickupTasks.bookingId, ids), eq(pickupTasks.status, "assigned"))),
+      .where(
+        and(inArray(pickupTasks.bookingId, ids), eq(pickupTasks.status, "assigned")),
+      ),
   ]);
 
   const hasAccepted = new Set(accepted.map((row) => row.bookingId));

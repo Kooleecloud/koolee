@@ -102,7 +102,8 @@ export default async function ShiftsPage() {
                       <CardDescription>
                         {shift.truckName} · {shift.bagsOnBoard} of {shift.bagCapacity} bag
                         {shift.bagCapacity === 1 ? "" : "s"} used ({remaining} free) ·
-                        started {formatInstantInAirportTz(shift.startedAt, OPS_CONSOLE_TZ)}
+                        started{" "}
+                        {formatInstantInAirportTz(shift.startedAt, OPS_CONSOLE_TZ)}
                       </CardDescription>
                     </div>
                   </CardHeader>
@@ -129,7 +130,10 @@ export default async function ShiftsPage() {
               <CardContent>
                 <ul className="flex flex-col gap-2 text-sm">
                   {recent.map((shift) => (
-                    <li key={shift.shiftId} className="flex flex-wrap gap-x-2 text-muted-foreground">
+                    <li
+                      key={shift.shiftId}
+                      className="flex flex-wrap gap-x-2 text-muted-foreground"
+                    >
                       <span className="font-medium text-navy-800">{nameOf(shift)}</span>
                       <span>{shift.truckName}</span>
                       <span>
@@ -150,9 +154,9 @@ export default async function ShiftsPage() {
           <CardHeader>
             <CardTitle className="text-base">Who may drive</CardTitle>
             <CardDescription>
-              Driving is a capability, not a role — the same person can verify at the
-              door and drive the van. A revoked grant takes effect on their next
-              request; it does not end a shift already under way.
+              Driving is a capability, not a role — the same person can verify at the door
+              and drive the van. A revoked grant takes effect on their next request; it
+              does not end a shift already under way.
             </CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col gap-3">

@@ -210,7 +210,6 @@ export async function resolveException(
   return { ok: "Resolved — the custody trail carries the reason." };
 }
 
-
 const reassignPickupSchema = z.object({
   bookingId: z.uuid(),
   shiftId: z.uuid(),

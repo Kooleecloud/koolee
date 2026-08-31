@@ -120,7 +120,9 @@ export const pricingRules = pgTable(
     // the same index key (true), so a second `active = true` violates
     // uniqueness. The pricing engine reads "the" active rule; two of them is
     // the #41/#51 fixture-leakage class this closes for good.
-    uniqueIndex("pricing_rules_one_active_key").on(t.active).where(sql`${t.active}`),
+    uniqueIndex("pricing_rules_one_active_key")
+      .on(t.active)
+      .where(sql`${t.active}`),
     check("pricing_rules_base_fee_nonneg_check", sql`${t.baseFeeCents} >= 0`),
     check("pricing_rules_per_bag_nonneg_check", sql`${t.perBagCents} >= 0`),
   ],
@@ -145,7 +147,9 @@ export const paymentWebhookEvents = pgTable(
     eventType: text("event_type").notNull(),
     receivedAt: createdAt(),
   },
-  (t) => [uniqueIndex("payment_webhook_events_provider_event_key").on(t.provider, t.eventId)],
+  (t) => [
+    uniqueIndex("payment_webhook_events_provider_event_key").on(t.provider, t.eventId),
+  ],
 );
 
 export type Payment = typeof payments.$inferSelect;

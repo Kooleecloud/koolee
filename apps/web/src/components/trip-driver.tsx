@@ -177,8 +177,8 @@ export function DriverChoice({
               }`}
             />
             <p className="text-xs text-muted-foreground">
-              Tap a van to see who it is. You choose below — nothing is booked from
-              the map.
+              Tap a van to see who it is. You choose below — nothing is booked from the
+              map.
             </p>
           </>
         )}
@@ -262,8 +262,8 @@ function NoDriverYet() {
           We&rsquo;re assigning your driver
         </CardTitle>
         <CardDescription>
-          Your bags are sealed and ready to go. We&rsquo;re matching you with a driver
-          now — you&rsquo;ll get a confirmation as soon as they&rsquo;re on it.
+          Your bags are sealed and ready to go. We&rsquo;re matching you with a driver now
+          — you&rsquo;ll get a confirmation as soon as they&rsquo;re on it.
         </CardDescription>
       </CardHeader>
     </Card>

@@ -119,4 +119,4 @@ describe("formatMiles", () => {
   it("does not render a driver at the door as zero", () => {
     expect(formatMiles(0.05)).toBe("less than 0.1 miles");
   });
-})
+});

@@ -55,15 +55,15 @@ describe("client directive", () => {
   it.each(sourceFiles.map((f) => [f.label, f.path]))(
     "%s declares 'use client' if it uses hooks",
     (name, filePath) => {
-    const source = readFileSync(filePath, "utf8");
-    if (!HOOK.test(source)) return;
+      const source = readFileSync(filePath, "utf8");
+      if (!HOOK.test(source)) return;
 
-    // The directive must be the very first statement — a comment above it is
-    // fine, but any import before it and the bundler ignores it entirely.
-    const firstCode = source
-      .split("\n")
-      .map((line) => line.trim())
-      .find((line) => line.length > 0 && !line.startsWith("//"));
+      // The directive must be the very first statement — a comment above it is
+      // fine, but any import before it and the bundler ignores it entirely.
+      const firstCode = source
+        .split("\n")
+        .map((line) => line.trim())
+        .find((line) => line.length > 0 && !line.startsWith("//"));
 
       expect(firstCode, `${name} calls a React hook`).toBe('"use client";');
     },

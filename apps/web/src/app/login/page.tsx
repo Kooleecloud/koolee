@@ -45,13 +45,19 @@ export default async function LoginPage({
           <LoginFlow returnTo={returnTo} />
 
           <p className="text-xs leading-relaxed text-muted-foreground">
-            We use your number for sign-in and trip updates only. By continuing you
-            agree to our{" "}
-            <Link href="/terms" className="underline underline-offset-4 hover:text-navy-700">
+            We use your number for sign-in and trip updates only. By continuing you agree
+            to our{" "}
+            <Link
+              href="/terms"
+              className="underline underline-offset-4 hover:text-navy-700"
+            >
               Terms of Service
             </Link>{" "}
             and{" "}
-            <Link href="/privacy" className="underline underline-offset-4 hover:text-navy-700">
+            <Link
+              href="/privacy"
+              className="underline underline-offset-4 hover:text-navy-700"
+            >
               Privacy Policy
             </Link>
             .

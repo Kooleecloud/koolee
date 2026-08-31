@@ -12,12 +12,12 @@
 
 ## 0. The short version
 
-| # | Step | Who | Blocking? |
-|---|---|---|---|
-| 1 | Apply migrations `0030` + `0031` | **CI on merge** | **yes** |
-| 2 | Add `booking_signals` to the `supabase_realtime` publication | **CI** — the migration does it | no — degrades to polling |
-| 3 | Verify the four things in §1 | human, once, read-only | no |
-| 4 | Smoke-test §3 — especially the two-window check | human, two browser tabs | no |
+| #   | Step                                                         | Who                            | Blocking?                |
+| --- | ------------------------------------------------------------ | ------------------------------ | ------------------------ |
+| 1   | Apply migrations `0030` + `0031`                             | **CI on merge**                | **yes**                  |
+| 2   | Add `booking_signals` to the `supabase_realtime` publication | **CI** — the migration does it | no — degrades to polling |
+| 3   | Verify the four things in §1                                 | human, once, read-only         | no                       |
+| 4   | Smoke-test §3 — especially the two-window check              | human, two browser tabs        | no                       |
 
 **There is no manual SQL and no dashboard step.** `0030` contains the
 `ALTER PUBLICATION supabase_realtime ADD TABLE public.booking_signals`, and
@@ -119,7 +119,7 @@ an outage, and the intended shape of that failure — but worth not shipping.
    (arrive, or seal a bag). The customer's chain of custody must grow within a
    few seconds with nobody touching that window. Locally this measured **3.0 s**
    against a 30 s fallback.
-   *Quick check without acting:* the page carries
+   _Quick check without acting:_ the page carries
    `<span data-live-signal="live|connecting|polling">`. `live` means the socket
    is connected; `polling` means it is not, and everything still works.
 2. **The new emails.** Assign an agent to a paid booking → "…is on your
@@ -144,7 +144,7 @@ an outage, and the intended shape of that failure — but worth not shipping.
 - **Web push.** Out of scope by decision; the coverage is in-app realtime plus
   email. Backlogged as its own item for the agent PWA.
 - **SMS.** Parked on A2P registration. The notification matrix carries an SMS
-  column marked *parked* so the seam's future is explicit; there is no code.
+  column marked _parked_ so the seam's future is explicit; there is no code.
 - **A notifications table.** Email sends live in Inngest, so the admin trip
   history says so rather than implying that no line means no email. Adding
   bookkeeping on the send path to make it queryable was explicitly not done.

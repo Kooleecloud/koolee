@@ -1,12 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import {
-  CTAButton,
-  PriceEstimator,
-  Reveal,
-  Section,
-  SectionHeader,
-} from "@koolee/ui";
+import { CTAButton, PriceEstimator, Reveal, Section, SectionHeader } from "@koolee/ui";
 
 import { estimatePrice } from "./actions";
 

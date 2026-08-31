@@ -23,8 +23,7 @@ const Checkbox = React.forwardRef<
 ));
 Checkbox.displayName = "Checkbox";
 
-export interface CheckboxFieldProps
-  extends Omit<React.ComponentProps<"input">, "type"> {
+export interface CheckboxFieldProps extends Omit<React.ComponentProps<"input">, "type"> {
   label: React.ReactNode;
   /** Secondary line under the label. */
   hint?: React.ReactNode;

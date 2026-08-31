@@ -38,9 +38,7 @@ export function StepForm({
       {children}
 
       {custom ??
-        (state.error ? (
-          <FormMessage variant="error">{state.error}</FormMessage>
-        ) : null)}
+        (state.error ? <FormMessage variant="error">{state.error}</FormMessage> : null)}
 
       <Button type="submit" size="lg" loading={pending}>
         {pending ? "Working…" : submitLabel}

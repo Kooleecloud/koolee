@@ -48,7 +48,11 @@ export function draftHasFlight(input: FlightEntryInput["draft"]): boolean {
   );
 }
 
-export function flightEntryMode({ from, entry, draft }: FlightEntryInput): FlightEntryMode {
+export function flightEntryMode({
+  from,
+  entry,
+  draft,
+}: FlightEntryInput): FlightEntryMode {
   // A reading only counts when the prefill is actually there. `?from=ticket`
   // on its own — a shared link, a back button after the cookie expired — must
   // not render a "here's what we read" page with nothing in it.

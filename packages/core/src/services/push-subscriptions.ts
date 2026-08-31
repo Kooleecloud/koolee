@@ -1,10 +1,5 @@
 import { and, eq, inArray } from "drizzle-orm";
-import {
-  pushSubscriptions,
-  staffMembers,
-  type Database,
-  type PushApp,
-} from "@koolee/db";
+import { pushSubscriptions, staffMembers, type Database, type PushApp } from "@koolee/db";
 
 import type { CoreConfig } from "../config";
 import type { PushPayload, PushTarget, PushUrgency } from "../notifications/push";

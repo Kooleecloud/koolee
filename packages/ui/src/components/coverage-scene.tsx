@@ -78,11 +78,25 @@ function CoverageScene({ airports, caption, className, ...props }: CoverageScene
             <path d="M8 -13h7l4 5H8Z" fill={SKY_SOFT} />
             <circle cx="-10" cy="1" r="4" fill="#051222" />
             <circle cx="15" cy="1" r="4" fill="#051222" />
-            <circle cx="-17" cy="-15" r="3" fill={TAG} stroke="#FFFFFF" strokeWidth="1.1" />
+            <circle
+              cx="-17"
+              cy="-15"
+              r="3"
+              fill={TAG}
+              stroke="#FFFFFF"
+              strokeWidth="1.1"
+            />
           </g>
 
           {/* Your door */}
-          <circle cx="112" cy="170" r="36" fill="#FFFFFF" stroke={NAVY} strokeWidth="2.5" />
+          <circle
+            cx="112"
+            cy="170"
+            r="36"
+            fill="#FFFFFF"
+            stroke={NAVY}
+            strokeWidth="2.5"
+          />
           <rect x="101" y="170" width="22" height="16" rx="1.5" fill={NAVY} />
           <path
             d="M96 170 112 156 128 170"

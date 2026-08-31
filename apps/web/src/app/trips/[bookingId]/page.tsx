@@ -381,10 +381,9 @@ export default async function TripPage({
         title={flightRouteLabel(booking)}
         subtitle={
           <>
-            {booking.flightNumber} ·{" "}
-            {formatInstantInAirportTz(booking.departureAt, tz)} · {booking.bagCount}{" "}
-            {booking.bagCount === 1 ? "bag" : "bags"} · {booking.paxName} ·{" "}
-            <span className="font-mono">{booking.ref}</span>
+            {booking.flightNumber} · {formatInstantInAirportTz(booking.departureAt, tz)} ·{" "}
+            {booking.bagCount} {booking.bagCount === 1 ? "bag" : "bags"} ·{" "}
+            {booking.paxName} · <span className="font-mono">{booking.ref}</span>
           </>
         }
         actions={<BookingStatusBadge status={booking.status} />}

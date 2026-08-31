@@ -172,7 +172,10 @@ describeIntegration("booking signals (integration)", () => {
 
   const rowCount = async (bookingId: string) =>
     (
-      await db.select().from(bookingSignals).where(eq(bookingSignals.bookingId, bookingId))
+      await db
+        .select()
+        .from(bookingSignals)
+        .where(eq(bookingSignals.bookingId, bookingId))
     ).length;
 
   /* ---------------------------------------------------------------- */
@@ -251,7 +254,7 @@ describeIntegration("booking signals (integration)", () => {
 
   it("rings for the bookings a driver is carrying when they ping their position", async () => {
     const booking = await newBooking();
-    
+
     const [driver] = await db
       .insert(users)
       .values({ email: "driver-signal@koolee.test", role: "agent" })

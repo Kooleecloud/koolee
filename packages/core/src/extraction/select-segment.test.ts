@@ -28,8 +28,16 @@ describe("selectSegment", () => {
   it("takes the only leg departing an airport we serve", () => {
     const result = selectSegment(
       [
-        seg({ originAirport: "JFK", destinationAirport: "LAX", departureAtLocal: "2026-09-02T08:00" }),
-        seg({ originAirport: "LAX", destinationAirport: "JFK", departureAtLocal: "2026-09-09T17:00" }),
+        seg({
+          originAirport: "JFK",
+          destinationAirport: "LAX",
+          departureAtLocal: "2026-09-02T08:00",
+        }),
+        seg({
+          originAirport: "LAX",
+          destinationAirport: "JFK",
+          departureAtLocal: "2026-09-09T17:00",
+        }),
       ],
       { today: TODAY },
     );
@@ -44,8 +52,16 @@ describe("selectSegment", () => {
     // is the second leg, and the document lists it last.
     const result = selectSegment(
       [
-        seg({ originAirport: "DEL", destinationAirport: "JFK", departureAtLocal: "2026-09-01T01:35" }),
-        seg({ originAirport: "EWR", destinationAirport: "DEL", departureAtLocal: "2026-09-20T13:15" }),
+        seg({
+          originAirport: "DEL",
+          destinationAirport: "JFK",
+          departureAtLocal: "2026-09-01T01:35",
+        }),
+        seg({
+          originAirport: "EWR",
+          destinationAirport: "DEL",
+          departureAtLocal: "2026-09-20T13:15",
+        }),
       ],
       { today: TODAY },
     );
@@ -57,8 +73,16 @@ describe("selectSegment", () => {
   it("skips a serviced leg that has already flown", () => {
     const result = selectSegment(
       [
-        seg({ originAirport: "JFK", destinationAirport: "LHR", departureAtLocal: "2026-08-01T20:00" }),
-        seg({ originAirport: "EWR", destinationAirport: "CDG", departureAtLocal: "2026-09-15T18:00" }),
+        seg({
+          originAirport: "JFK",
+          destinationAirport: "LHR",
+          departureAtLocal: "2026-08-01T20:00",
+        }),
+        seg({
+          originAirport: "EWR",
+          destinationAirport: "CDG",
+          departureAtLocal: "2026-09-15T18:00",
+        }),
       ],
       { today: TODAY },
     );
@@ -71,8 +95,16 @@ describe("selectSegment", () => {
   it("drops to low confidence with two upcoming NYC departures (open-jaw)", () => {
     const result = selectSegment(
       [
-        seg({ originAirport: "JFK", destinationAirport: "MIA", departureAtLocal: "2026-09-05T09:00" }),
-        seg({ originAirport: "EWR", destinationAirport: "AUS", departureAtLocal: "2026-09-19T09:00" }),
+        seg({
+          originAirport: "JFK",
+          destinationAirport: "MIA",
+          departureAtLocal: "2026-09-05T09:00",
+        }),
+        seg({
+          originAirport: "EWR",
+          destinationAirport: "AUS",
+          departureAtLocal: "2026-09-19T09:00",
+        }),
       ],
       { today: TODAY },
     );
@@ -85,7 +117,13 @@ describe("selectSegment", () => {
 
   it("reports the unserviced origin instead of blanking the field silently", () => {
     const result = selectSegment(
-      [seg({ originAirport: "SFO", destinationAirport: "JFK", departureAtLocal: "2026-09-03T08:15" })],
+      [
+        seg({
+          originAirport: "SFO",
+          destinationAirport: "JFK",
+          departureAtLocal: "2026-09-03T08:15",
+        }),
+      ],
       { today: TODAY },
     );
     expect(result.reason).toBe("no_serviced_origin");
@@ -98,8 +136,16 @@ describe("selectSegment", () => {
   it("keeps a connection's first leg, not the onward hop", () => {
     const result = selectSegment(
       [
-        seg({ originAirport: "JFK", destinationAirport: "ORD", departureAtLocal: "2026-09-04T07:00" }),
-        seg({ originAirport: "ORD", destinationAirport: "LAX", departureAtLocal: "2026-09-04T11:30" }),
+        seg({
+          originAirport: "JFK",
+          destinationAirport: "ORD",
+          departureAtLocal: "2026-09-04T07:00",
+        }),
+        seg({
+          originAirport: "ORD",
+          destinationAirport: "LAX",
+          departureAtLocal: "2026-09-04T11:30",
+        }),
       ],
       { today: TODAY },
     );
@@ -110,8 +156,16 @@ describe("selectSegment", () => {
   it("says so when every serviced departure is in the past", () => {
     const result = selectSegment(
       [
-        seg({ originAirport: "EWR", destinationAirport: "DEL", departureAtLocal: "2017-12-12T13:15" }),
-        seg({ originAirport: "JFK", destinationAirport: "BOS", departureAtLocal: "2018-01-06T01:35" }),
+        seg({
+          originAirport: "EWR",
+          destinationAirport: "DEL",
+          departureAtLocal: "2017-12-12T13:15",
+        }),
+        seg({
+          originAirport: "JFK",
+          destinationAirport: "BOS",
+          departureAtLocal: "2018-01-06T01:35",
+        }),
       ],
       { today: TODAY },
     );
@@ -130,7 +184,11 @@ describe("selectSegment", () => {
     const result = selectSegment(
       [
         seg({ originAirport: "JFK", destinationAirport: "SJU" }),
-        seg({ originAirport: "LGA", destinationAirport: "ORD", departureAtLocal: "2026-09-06T06:00" }),
+        seg({
+          originAirport: "LGA",
+          destinationAirport: "ORD",
+          departureAtLocal: "2026-09-06T06:00",
+        }),
       ],
       { today: TODAY },
     );

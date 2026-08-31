@@ -108,7 +108,10 @@ export async function captureOutOfAreaEmail(
     return { error: "Enter a valid email address.", outOfCoverageZip: zip };
   }
   if (!/^\d{5}$/.test(zip)) {
-    return { error: "That ZIP code doesn't look right — go back and re-enter it.", outOfCoverageZip: zip };
+    return {
+      error: "That ZIP code doesn't look right — go back and re-enter it.",
+      outOfCoverageZip: zip,
+    };
   }
 
   const core = tryGetCore();
@@ -126,7 +129,10 @@ export async function captureOutOfAreaEmail(
     await recordWaitlistSignup(core.db, { email, zip, source: "booking_out_of_area" });
   } catch (error) {
     console.error("[waitlist] failed to persist out-of-area signup", error);
-    return { error: "Something went wrong saving your spot — please try again.", outOfCoverageZip: zip };
+    return {
+      error: "Something went wrong saving your spot — please try again.",
+      outOfCoverageZip: zip,
+    };
   }
 
   return { ok: true };
@@ -243,7 +249,9 @@ export async function submitFlight(
    * three letters is simply dropped rather than returned as an error the
    * customer has to clear before they can pay.
    */
-  const destinationRaw = str(form, "destinationAirport").toUpperCase().replace(/[^A-Z]/g, "");
+  const destinationRaw = str(form, "destinationAirport")
+    .toUpperCase()
+    .replace(/[^A-Z]/g, "");
   const destinationAirport = destinationRaw.length === 3 ? destinationRaw : undefined;
 
   if (!/^[A-Z0-9]{2,3}\d{1,4}$/.test(flightNumber)) {

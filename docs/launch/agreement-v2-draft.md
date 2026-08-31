@@ -5,9 +5,9 @@
 repository is. The agreement is the row in `agreement_versions`, and a booking
 is governed by the version it accepted.
 
-**What it is for.** The seeded v1 says so in its own last line — *"Placeholder
+**What it is for.** The seeded v1 says so in its own last line — _"Placeholder
 terms for launch. Replace this version at the admin console's agreements page
-with the legally reviewed text before taking real bookings."* This draft
+with the legally reviewed text before taking real bookings."_ This draft
 carries v1's substance forward and fixes the one thing the Tier 5 pre-flight
 found wrong with it (§3.4): the product PINS a version per booking, and nothing
 in the customer-facing text said so, while the marketing Terms page said the
@@ -95,10 +95,10 @@ you.
 
 ## What changed from v1, and why
 
-| Change | Why |
-| --- | --- |
+| Change                                                                     | Why                                                                                                                                                                                                                                              |
+| -------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | **New section: "Which version of this agreement applies to your booking"** | The product pins a version per booking and nothing in the customer-facing text said so. The rule is in the code (`UNIQUE (booking_id)` on `agreement_acceptances`, migration 0025) and in `PROJECT-STATUS §7`; a customer had no way to know it. |
-| The closing placeholder paragraph is **gone** | It was v1 telling ops to replace it. Keeping it in v2 would be a live agreement describing itself as a placeholder. |
+| The closing placeholder paragraph is **gone**                              | It was v1 telling ops to replace it. Keeping it in v2 would be a live agreement describing itself as a placeholder.                                                                                                                              |
 
 **What deliberately did NOT change:** every other section is v1's text
 verbatim. This draft exists to close one specific gap the pre-flight found,
@@ -109,8 +109,8 @@ counsel to see what is new.
 
 The pre-flight looked for a "§9.3 re-accept clause" and **it does not exist** —
 not in the agreement body, not in `PROJECT-STATUS`. What DOES contradict the
-pinning model is the public marketing Terms page, which said *"continued use
-after changes take effect constitutes acceptance."* That is a re-acceptance
+pinning model is the public marketing Terms page, which said _"continued use
+after changes take effect constitutes acceptance."_ That is a re-acceptance
 rule, and the booking agreement's rule is the opposite. Tier 5 adds the
 precedence line to that page rather than changing this one, because the
 product's behaviour is the pinning model and has been since migration 0025:

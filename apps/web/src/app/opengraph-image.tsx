@@ -30,12 +30,7 @@ async function loadSora(): Promise<ArrayBuffer | null> {
 /** brand/logo-full-inverse.svg, verbatim paths. viewBox 0 0 253.8 48. */
 function InverseLockup({ width }: { width: number }) {
   return (
-    <svg
-      viewBox="0 0 253.8 48"
-      width={width}
-      height={(width / 253.8) * 48}
-      fill="none"
-    >
+    <svg viewBox="0 0 253.8 48" width={width} height={(width / 253.8) * 48} fill="none">
       <path
         d="M16 27.5 38.5 8.5"
         stroke="#38B6E3"
@@ -72,41 +67,41 @@ export default async function OpenGraphImage() {
   const sora = await loadSora();
 
   return new ImageResponse(
-    (
-      <div
-        style={{
-          width: "100%",
-          height: "100%",
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "center",
-          justifyContent: "center",
-          gap: 48,
-          backgroundColor: "#0B2545",
-        }}
-      >
-        <InverseLockup width={640} />
-        {sora ? (
+    <div
+      style={{
+        width: "100%",
+        height: "100%",
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 48,
+        backgroundColor: "#0B2545",
+      }}
+    >
+      <InverseLockup width={640} />
+      {sora ? (
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            gap: 16,
+            fontFamily: "Sora",
+          }}
+        >
           <div
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              gap: 16,
-              fontFamily: "Sora",
-            }}
+            style={{ display: "flex", fontSize: 52, fontWeight: 600, color: "#F4F7FA" }}
           >
-            <div style={{ display: "flex", fontSize: 52, fontWeight: 600, color: "#F4F7FA" }}>
-              {SITE.tagline}.
-            </div>
-            <div style={{ display: "flex", fontSize: 26, color: "#AEBFD6" }}>
-              Doorstep luggage pickup — delivered to your airline&apos;s bag drop ·{" "}
-              {SITE.airports.join(" · ")}
-            </div>
+            {SITE.tagline}.
           </div>
-        ) : null}
-      </div>
-    ),
+          <div style={{ display: "flex", fontSize: 26, color: "#AEBFD6" }}>
+            Doorstep luggage pickup — delivered to your airline&apos;s bag drop ·{" "}
+            {SITE.airports.join(" · ")}
+          </div>
+        </div>
+      ) : null}
+    </div>,
     {
       ...size,
       fonts: sora

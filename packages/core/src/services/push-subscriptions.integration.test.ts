@@ -15,7 +15,11 @@ import {
 } from "@koolee/db";
 
 import { createCoreConfig, fixedClock, type CoreConfig } from "../config";
-import { RecordingPushSender, type PushSendResult, type PushTarget } from "../notifications/push";
+import {
+  RecordingPushSender,
+  type PushSendResult,
+  type PushTarget,
+} from "../notifications/push";
 import { FakePaymentProvider } from "../payments/fake";
 import {
   deletePushSubscription,
@@ -119,7 +123,9 @@ describeIntegration("push subscriptions (integration)", () => {
     alice = inserted[0]!.id;
     bob = inserted[1]!.id;
     adminId = inserted[2]!.id;
-    await db.insert(staffMembers).values({ userId: adminId, role: "admin", active: true });
+    await db
+      .insert(staffMembers)
+      .values({ userId: adminId, role: "admin", active: true });
   });
 
   const sub = (endpoint: string) => ({

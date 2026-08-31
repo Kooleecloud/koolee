@@ -179,7 +179,9 @@ export default async function BookingDetailPage({
    */
   const actorIds = [
     ...new Set(
-      timeline.map((event) => event.actorUserId).filter((id): id is string => Boolean(id)),
+      timeline
+        .map((event) => event.actorUserId)
+        .filter((id): id is string => Boolean(id)),
     ),
   ];
   const actors = await resolveActors(core.db, session, actorIds);
@@ -245,7 +247,9 @@ export default async function BookingDetailPage({
           }
         >
           <strong>
-            {actionability.blockedReason ? "Customer and crew are blocked" : "Running late"}
+            {actionability.blockedReason
+              ? "Customer and crew are blocked"
+              : "Running late"}
             :
           </strong>{" "}
           {actionability.blockedReason ?? actionability.lateNotice}
