@@ -10,12 +10,15 @@ import {
   formatE164ForDisplay,
 } from "@koolee/ui";
 import {
+  doorContact,
   dstTransitionNote,
   formatHourRangeInAirportTz,
   formatInstantInAirportTz,
   getBookingActionability,
   getPickupContext,
   getVisitContext,
+  pickupCoordinates,
+  staffTravelToDoor,
   VISIT_EVENT_TYPES,
   type BookingActionability,
   type TaskKind,
@@ -74,19 +77,35 @@ interface DoorstepContext {
     zip: string | null;
     placeId: string | null;
   } | null;
-  customer: { fullName: string | null; avatarStoragePath: string | null } | null;
+  customer: {
+    fullName: string | null;
+    avatarStoragePath: string | null;
+    phone?: string | null;
+  } | null;
   tz: string;
 }
 
 function DoorstepCard({
   context,
   customerAvatarUrl,
+  travel,
 }: {
   context: DoorstepContext;
   /** Signed as this agent — staff read any folder under 0027's policy. */
   customerAvatarUrl: string | null;
+  /**
+   * How far the door is from this driver's last GPS ping, preformatted —
+   * "3.2 miles away · about 15 min". Null when either end has no position,
+   * which is ordinary (location off, no fix yet) and says nothing is wrong.
+   */
+  travel: string | null;
 }) {
   const { booking, task, address, customer, tz } = context;
+  // The number to call, resolved once: the booking's own contact when the
+  // customer typed one for this pickup, otherwise their verified account
+  // number. Until this, most jobs showed a disabled "No number" because
+  // `contactPhone` is only ever set for email-only customers.
+  const contact = doorContact(booking, customer);
   const windowNote = task.scheduledStart
     ? dstTransitionNote(task.scheduledStart, tz)
     : null;
@@ -140,7 +159,18 @@ function DoorstepCard({
       {addressLine ? (
         <p className="flex items-start gap-2 text-sm text-muted-foreground">
           <MapPin aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
-          <span>{addressLine}</span>
+          <span>
+            {addressLine}
+            {/* How far and how long, from this driver's own last ping. The
+                card said where the door was and never how far away it was,
+                which is the first thing somebody about to set off asks. */}
+            {travel ? (
+              <>
+                <br />
+                <span className="text-navy-700">{travel}</span>
+              </>
+            ) : null}
+          </span>
         </p>
       ) : (
         <p className="text-sm text-warning-foreground">
@@ -157,9 +187,9 @@ function DoorstepCard({
             </a>
           </Button>
         ) : null}
-        {booking.contactPhone ? (
+        {contact ? (
           <Button asChild variant="outline" size="lg" className="flex-1">
-            <a href={`tel:${booking.contactPhone}`}>
+            <a href={`tel:${contact.phone}`}>
               <Phone aria-hidden="true" />
               Call
             </a>
@@ -171,10 +201,15 @@ function DoorstepCard({
           </Button>
         )}
       </div>
-      {booking.contactPhone ? (
-        <span className="sr-only">
-          Contact number {formatE164ForDisplay(booking.contactPhone)}
-        </span>
+      {contact ? (
+        <>
+          {/* Visible, not only behind the tel: link — a driver on a bad
+              connection reads it out, and a call that does not connect from
+              the app has to be dialable from the phone's own keypad. */}
+          <p className="text-sm text-muted-foreground">
+            {formatE164ForDisplay(contact.phone)}
+          </p>
+        </>
       ) : null}
 
       <p className="border-t border-border pt-3 text-xs text-muted-foreground">
@@ -256,6 +291,12 @@ export default async function TaskDetailPage({
     const pickupAvatarUrl = await signAvatarUrl(
       pickup.customer?.avatarStoragePath ?? null,
     );
+    // How far this driver is from the door, off their own last GPS ping.
+    // Never load-bearing: null renders one line less. See `staffTravelToDoor`.
+    const pickupTravel = await staffTravelToDoor(core, {
+      staffUserId: session.userId,
+      destination: pickupCoordinates(pickup.address),
+    });
     const pickupState = await getBookingActionability(
       core.db,
       pickup.booking,
@@ -297,7 +338,11 @@ export default async function TaskDetailPage({
             flight — because a driver arriving for the pickup needs exactly the
             information a driver arriving for the visit needed. */}
         <ActionabilityNotice state={pickupState} />
-        <DoorstepCard context={pickup} customerAvatarUrl={pickupAvatarUrl} />
+        <DoorstepCard
+          context={pickup}
+          customerAvatarUrl={pickupAvatarUrl}
+          travel={pickupTravel?.label ?? null}
+        />
         {/* ONE VIEW, TWO MODES. A finished or flagged run renders its record
             instead of its controls — same page, same doorstep card above,
             nothing forked. See TaskRecord for why the absence of forms is not
@@ -340,6 +385,10 @@ export default async function TaskDetailPage({
   const customerAvatarUrl = await signAvatarUrl(
     context.customer?.avatarStoragePath ?? null,
   );
+  const visitTravel = await staffTravelToDoor(core, {
+    staffUserId: session.userId,
+    destination: pickupCoordinates(context.address),
+  });
 
   const view: VisitView = {
     taskId: task.id,
@@ -390,7 +439,11 @@ export default async function TaskDetailPage({
 
       <ActionabilityNotice state={visitState} />
 
-      <DoorstepCard context={context} customerAvatarUrl={customerAvatarUrl} />
+      <DoorstepCard
+        context={context}
+        customerAvatarUrl={customerAvatarUrl}
+        travel={visitTravel?.label ?? null}
+      />
 
       {/* A payment that has not cleared is a reason to stop before touching
           anyone's luggage, so it is a banner rather than a chip inside a

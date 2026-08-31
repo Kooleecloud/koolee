@@ -112,6 +112,13 @@ export interface VisitContext {
     fullName: string | null;
     /** Key in the PRIVATE `avatars` bucket. Signed by whoever renders it. */
     avatarStoragePath: string | null;
+    /**
+     * The account's verified number, for the door. See `doorContact` — this
+     * is ONE field, granted by the same relationship that already gives this
+     * agent the address and the traveller's face, and nothing else about the
+     * customer's row travels with it.
+     */
+    phone: string | null;
   } | null;
   /** The two things that must both be true before any bag may be sealed. */
   identityGate: VisitIdentityGate;
@@ -210,10 +217,15 @@ export async function getVisitContext(
     // before the answer arrives.
     getBookingAgreementState(db, booking.id, now),
     getPassportVerification(db, booking.id),
-    // Name and face only. The agent app has no business reading a customer's
-    // phone, email or verification timestamps off this join.
+    // Name, face and the door number. Email and the verification timestamps
+    // stay unselected — see `doorContact` for why the phone stopped being on
+    // that list, and what is still withheld.
     db
-      .select({ fullName: users.fullName, avatarStoragePath: users.avatarStoragePath })
+      .select({
+        fullName: users.fullName,
+        avatarStoragePath: users.avatarStoragePath,
+        phone: users.phone,
+      })
       .from(users)
       .where(eq(users.id, booking.userId))
       .limit(1),

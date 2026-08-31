@@ -66,7 +66,12 @@ export interface PickupContext {
    * is no longer nullable and the "no address on file" branch is gone.
    */
   address: PickupAddress;
-  customer: { fullName: string | null; avatarStoragePath: string | null } | null;
+  customer: {
+    fullName: string | null;
+    avatarStoragePath: string | null;
+    /** The account's verified number, for the door. See `doorContact`. */
+    phone: string | null;
+  } | null;
   /** The shift this pickup belongs to, once a customer has chosen a driver. */
   shift: { id: string; truckName: string } | null;
 }
@@ -113,10 +118,16 @@ export async function getPickupContext(
       .where(eq(custodyEvents.bookingId, booking.id))
       .orderBy(asc(custodyEvents.createdAt)),
     resolveDisplayTz(db, booking.departureAirport),
-    // Name and face only — a driver has no business reading a customer's
-    // phone or email off this join. The door number lives on the booking.
+    // Name, face and the door number. A driver outside a building with no
+    // buzzer answer has exactly one useful action; withholding the number
+    // stranded both of them. Email and the verification timestamps stay
+    // unselected — see `doorContact`.
     db
-      .select({ fullName: users.fullName, avatarStoragePath: users.avatarStoragePath })
+      .select({
+        fullName: users.fullName,
+        avatarStoragePath: users.avatarStoragePath,
+        phone: users.phone,
+      })
       .from(users)
       .where(eq(users.id, booking.userId))
       .limit(1),

@@ -88,6 +88,10 @@ export {
   type SavedAddressInput,
 } from "./addresses";
 
+export { doorContact, type DoorContact } from "./door-contact";
+
+export { staffTravelToDoor, type StaffTravel } from "./staff-travel";
+
 export {
   bookingPickupAddress,
   formatPickupAddressLine,

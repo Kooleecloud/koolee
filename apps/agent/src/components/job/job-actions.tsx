@@ -1,6 +1,6 @@
 import { Navigation, Phone } from "lucide-react";
 import { Button, formatE164ForDisplay } from "@koolee/ui";
-import type { TaskBookingContext } from "@koolee/core";
+import { doorContact, type TaskBookingContext } from "@koolee/core";
 
 import { addressText, mapsUrl } from "@/lib/job";
 
@@ -25,7 +25,12 @@ export function JobActions({
   /** `lg` on the visit screen, where these are the primary controls. */
   size?: "default" | "lg";
 }) {
-  const phone = booking.contactPhone;
+  // Resolved, not read raw: `contactPhone` is only ever set for email-only
+  // customers, which is why most jobs used to show a disabled "No number"
+  // while the customer's verified number sat on their account. See
+  // `doorContact` for what is granted here and what still is not.
+  const contact = doorContact(booking, { phone: booking.customerPhone });
+  const phone = contact?.phone ?? null;
 
   return (
     <div className="flex gap-2">

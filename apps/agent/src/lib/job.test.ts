@@ -27,6 +27,7 @@ const BOOKING = {
   addressLng: null,
   addressPlaceId: null,
   contactPhone: null,
+  customerPhone: null,
 };
 
 const WINDOW_START = new Date("2025-06-12T14:00:00Z");

@@ -3,6 +3,7 @@ import {
   airports,
   bookings,
   pickupTasks,
+  users,
   verificationTasks,
   type Database,
   type PickupTask,
@@ -126,10 +127,12 @@ export interface TaskBookingContext {
    */
   addressPlaceId: string | null;
   /**
-   * The door contact. On the list, not just the visit detail — a driver
-   * running late calls before opening the job.
+   * The number typed FOR this pickup, when there is one. Only email-only
+   * customers have one; read it through `doorContact`, never directly.
    */
   contactPhone: string | null;
+  /** The account's verified number. Also read through `doorContact`. */
+  customerPhone: string | null;
 }
 
 export interface AssignedTasks {
@@ -172,6 +175,14 @@ export async function listAssignedTasks(
     addressLng: bookings.pickupLng,
     addressPlaceId: bookings.pickupPlaceId,
     contactPhone: bookings.contactPhone,
+    /**
+     * The account's verified number, resolved against `contactPhone` by
+     * `doorContact`. On the LIST, not just the visit detail: a driver running
+     * late calls before opening the job, and until now most jobs showed a
+     * disabled "No number" because `contactPhone` is only set for email-only
+     * customers.
+     */
+    customerPhone: users.phone,
   };
 
   const [verification, pickup] = await Promise.all([
@@ -180,6 +191,7 @@ export async function listAssignedTasks(
       .from(verificationTasks)
       .innerJoin(bookings, eq(bookings.id, verificationTasks.bookingId))
       .innerJoin(airports, eq(airports.code, bookings.departureAirport))
+      .innerJoin(users, eq(users.id, bookings.userId))
       .where(eq(verificationTasks.assigneeUserId, assigneeUserId))
       .orderBy(verificationTasks.scheduledStart),
     db
@@ -187,6 +199,7 @@ export async function listAssignedTasks(
       .from(pickupTasks)
       .innerJoin(bookings, eq(bookings.id, pickupTasks.bookingId))
       .innerJoin(airports, eq(airports.code, bookings.departureAirport))
+      .innerJoin(users, eq(users.id, bookings.userId))
       .where(eq(pickupTasks.assigneeUserId, assigneeUserId))
       .orderBy(pickupTasks.scheduledStart),
   ]);
