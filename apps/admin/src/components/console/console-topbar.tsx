@@ -118,8 +118,8 @@ export function ConsoleTopbar({
         <Input
           name="q"
           type="search"
-          placeholder="Ref, phone, or seal"
-          aria-label="Find a booking by ref, phone number, or seal serial"
+          placeholder="Find a booking"
+          aria-label="Find a booking by ref, name, flight number, phone, seal serial, driver, truck or agent"
           className="w-56 pl-8 lg:w-64"
         />
       </form>

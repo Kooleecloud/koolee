@@ -89,9 +89,7 @@ export function BoardFilters({
    * The obvious version holds the text in `useState` and re-seeds it from the
    * URL in an effect. That sets state inside an effect — a cascading render,
    * which the lint rule correctly refuses — and it buys nothing: the input can
-   * hold its own text, and `key={search}` re-seeds it when the URL changes
-   * from elsewhere (a Reset, a pasted link) by remounting it, which is what
-   * `key` is for.
+   * hold its own text.
    *
    * The debounce is therefore a timer in a ref, and every read is
    * `event.target.value` rather than anything closed over. A handler reading a
@@ -99,14 +97,51 @@ export function BoardFilters({
    * bug this codebase has already paid for once.
    */
   const timer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const inputRef = React.useRef<HTMLInputElement>(null);
+
+  /*
+   * THE TERM THIS BAR ITSELF ASKED FOR, so it can tell its own navigation from
+   * somebody else's.
+   *
+   * This box used to carry `key={search}`, which re-seeded it by REMOUNTING it
+   * whenever the URL's term changed. That is correct for a Reset or a pasted
+   * link and wrong for the ordinary case: the search a person is typing also
+   * changes the URL, so the input was destroyed and rebuilt 300ms after they
+   * stopped — taking the focus and the caret with it. Every operator refining
+   * a term had to click back into the box to keep typing.
+   *
+   * A ref instead of state: comparing here decides whether to touch the DOM,
+   * and it must not itself cause a render.
+   */
+  const requested = React.useRef(search);
 
   const runSearch = (next: string) => {
     const trimmed = next.trim();
     // Under the minimum is "no search", not "search for two characters", so
     // backspacing to one letter restores the full board rather than leaving it
     // filtered by a fragment.
-    push({ q: trimmed.length >= SEARCH_MIN_LENGTH ? trimmed : "" });
+    const term = trimmed.length >= SEARCH_MIN_LENGTH ? trimmed : "";
+    requested.current = term;
+    push({ q: term });
   };
+
+  /*
+   * Re-seed the box only when the term arrived from OUTSIDE this bar — Reset,
+   * a pasted link, the browser's back button. Writing to the DOM node keeps
+   * the element alive, which is the whole difference from `key`: focus and
+   * caret survive.
+   *
+   * Note what is deliberately NOT re-seeded. Typing "ce" pushes `q=""`,
+   * because two characters is below the minimum — so the URL says "" while the
+   * box says "ce", and `requested` says "" too. They agree, nothing is
+   * written, and the half-typed term stays where the operator put it.
+   */
+  React.useEffect(() => {
+    if (search === requested.current) return;
+    requested.current = search;
+    const input = inputRef.current;
+    if (input && input.value !== search) input.value = search;
+  }, [search]);
 
   const onSearchChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const value = event.target.value;
@@ -137,14 +172,14 @@ export function BoardFilters({
         }}
       >
         <Input
-          key={search}
+          ref={inputRef}
           name="q"
           type="search"
           defaultValue={search}
           onChange={onSearchChange}
-          placeholder={`Ref, phone, or seal (${SEARCH_MIN_LENGTH}+ characters)`}
-          aria-label={`Search by booking ref, phone number, or seal serial. At least ${SEARCH_MIN_LENGTH} characters.`}
-          className="w-64"
+          placeholder={`Ref, name, flight, phone… (${SEARCH_MIN_LENGTH}+ characters)`}
+          aria-label={`Search bookings by ref, passenger or customer name, email, flight number, phone, seal serial, driver, truck or agent. At least ${SEARCH_MIN_LENGTH} characters.`}
+          className="w-72"
         />
       </form>
       <MultiSelect

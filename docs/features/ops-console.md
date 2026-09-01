@@ -224,6 +224,30 @@ The customer is a LEFT JOIN rather than an `exists` subquery, because search
 reads three of their columns and `matchedOn` re-reads the same three — six
 correlated subqueries per row for data behind one foreign key.
 
+#### The box must not be remounted while somebody is typing in it
+
+The filter bar held the term in the DOM rather than in state — correct, and the
+reason is written in the file — and re-seeded it from the URL with
+`key={search}`. That is right for a Reset or a pasted link and **wrong for the
+ordinary case**: the search a person is typing also changes the URL, so 300 ms
+after they stopped the input was destroyed and rebuilt, and focus went to
+`document.body`. Every refinement of a term meant clicking back into the box.
+
+`key` is replaced by a ref holding **the term this bar itself asked for**. When
+the URL's term matches it the navigation was ours and nothing is touched; when
+it differs the term came from outside — Reset, a pasted link, the back button —
+and the input's `value` is written directly. Writing to the node keeps the
+element alive, which is the whole difference.
+
+What is deliberately NOT re-seeded: typing two characters pushes `q=""`, since
+that is below the minimum, so the URL says `""` while the box says `"ce"`. The
+ref says `""` too, they agree, and the half-typed term stays where it was put.
+
+There are **two** search boxes named `q`. The console top bar's is Enter-only
+by design and navigates to `/bookings?q=`; the filter bar's is the debounced
+one. Worth knowing before diagnosing either — a selector for `input[name="q"]`
+finds the header's first.
+
 ---
 
 ## 4.5 — Every page's form is behind a button
