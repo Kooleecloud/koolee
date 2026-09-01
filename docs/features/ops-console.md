@@ -24,13 +24,13 @@ console configured" are different errands, on different days.**
 
 ### Operations
 
-| Route                   | Does                                                                                                             | Badge                 |
-| ----------------------- | ---------------------------------------------------------------------------------------------------------------- | --------------------- |
-| `/`                     | Dashboard — today's bookings by status, unassigned, sealed-with-no-driver, open exceptions. **All real queries** | —                     |
-| `/bookings`             | Dispatch board — filter by status/airport/day, assign an agent, see at-risk bookings                             | `unassignedToday`     |
-| `/bookings/[bookingId]` | Full booking detail + custody timeline + evidence + payment                                                      | —                     |
-| `/shifts`               | Who is out driving, in what, with how many bags. Force-end with a required reason; grant/revoke `can_drive`      | `awaitingDriverToday` |
-| `/exceptions`           | Bookings in `exception`, with the three legal resolutions                                                        | `exceptionsOpen`      |
+| Route                   | Does                                                                                                             | Badge             |
+| ----------------------- | ---------------------------------------------------------------------------------------------------------------- | ----------------- |
+| `/`                     | Dashboard — today's bookings by status, unassigned, sealed-with-no-driver, open exceptions. **All real queries** | —                 |
+| `/bookings`             | Dispatch board — filter by status/airport/day, assign an agent, see at-risk bookings                             | `unassignedToday` |
+| `/bookings/[bookingId]` | Full booking detail + custody timeline + evidence + payment                                                      | —                 |
+| `/shifts`               | Who is out driving, in what, with how many bags. Force-end with a required reason; grant/revoke `can_drive`      | —                 |
+| `/exceptions`           | Bookings in `exception`, with the three legal resolutions                                                        | `exceptionsOpen`  |
 
 ### Configuration
 
@@ -47,11 +47,24 @@ console configured" are different errands, on different days.**
 
 Plus `/login`, `/login/reset` and `/set-password`, which sit outside the rail.
 
-🧭 **The three badge counts compute nothing new.** All three already existed on
+🧭 **The badge counts compute nothing new.** Both already existed on
 `OpsDashboard`; the rail surfaces numbers an operator previously had to navigate
-to the landing page to see. `unassignedToday` and `awaitingDriverToday` are
-deliberately **separate** — one needs an agent sent to a door, the other needs a
-van, and one badge meaning both would hide whichever is rarer.
+to the landing page to see.
+
+**`awaitingDriverToday` was a third badge, on Shifts, and was removed
+(2026-08-31).** The metric is unchanged and still on the Overview dashboard —
+sealed bookings today with no driver — but it counts BOOKINGS while `/shifts`
+lists SHIFTS, so clicking it never showed the things it counted. It was placed
+by CAUSE (nobody eligible is clocked on, and that page is where you fix it)
+rather than by subject, which made it the odd one of the three:
+`unassignedToday` and `exceptionsOpen` both sit on the page listing what they
+count. It is also the one whose likeliest explanation needs no action at all —
+the customer has simply not chosen yet — so a standing number there trained an
+operator to ignore a badge, which is the opposite of the point.
+
+`unassignedToday` and the retired count were always deliberately **separate** —
+one needs an agent sent to a door, the other needs a van, and one badge meaning
+both would hide whichever is rarer.
 
 `resolveConsoleRoute` matches a pathname by **longest prefix**, so
 `/bookings/<id>` resolves to Bookings rather than to Overview, whose `/`
