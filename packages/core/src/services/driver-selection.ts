@@ -21,7 +21,7 @@ import {
   NotAuthorizedError,
   NotFoundError,
 } from "../errors";
-import { assertActionable } from "./actionability";
+import { assertActionable, assignmentGate } from "./actionability";
 import { touchBookingSignals } from "./booking-signals";
 import { toCoordinates, type Coordinates } from "../geo/coordinates";
 import type { EtaRange } from "../geo/eta";
@@ -155,6 +155,8 @@ interface EligibleRow {
   inZone: boolean;
   driverLat: number | null;
   driverLng: number | null;
+  /** When that fix was taken. Null when the driver has never reported. */
+  driverPositionAt: Date | null;
 }
 
 const givenNameOf = (fullName: string | null): string | null =>
@@ -204,6 +206,7 @@ async function eligibleShifts(db: Database, zip: string): Promise<EligibleRow[]>
           ),
       )}`,
       driverLat: driverPositions.lat,
+      driverPositionAt: driverPositions.recordedAt,
       driverLng: driverPositions.lng,
     })
     .from(driverShifts)
@@ -292,9 +295,65 @@ export async function listCandidateDrivers(
     .sort((a, b) => a.bagsOnBoard - b.bagsOnBoard || a.shiftId.localeCompare(b.shiftId))
     .slice(0, DRIVER_SHORTLIST_SIZE);
 
-  const etas = await shortlistEtas(config, shortlist, pickup.coords);
+  const now = config.clock.now();
+  const etas = await shortlistEtas(config, shortlist, pickup.coords, now);
+  return shortlist.map((row, i) => toCandidate(row, outOfZone, etas[i] ?? null, now));
+}
 
-  return shortlist.map((row, i) => toCandidate(row, outOfZone, etas[i] ?? null));
+/**
+ * The best of a shortlist: nearest by ETA, tie-broken by the emptiest van.
+ *
+ * ONE TAP INSTEAD OF FOUR CARDS. Most customers have no basis for preferring
+ * one stranger's van over another and are being asked to anyway — the
+ * shortlist is a real choice for the person who wants it and a chore for
+ * everybody else. This is the shortcut, and it must be a shortcut rather than
+ * a different system: it picks FROM the same shortlist, by a rule the customer
+ * could have applied themselves looking at the same four cards.
+ *
+ * NEAREST BY ETA, and specifically by `minMinutes`. The seam returns a RANGE
+ * because an estimate built from ZIP centroids and an average speed is not
+ * accurate to the minute; comparing the optimistic ends of two ranges is the
+ * same comparison a person makes reading "about 15 min" against "about 25
+ * min", which is the whole point of matching what the cards show.
+ *
+ * A DRIVER WITH NO ETA IS NEVER "BEST". `eta` is null when they have never
+ * pinged a position — a real state, not an error — and there is no honest way
+ * to rank an unknown against a number. They stay perfectly choosable by hand;
+ * they are simply not what an automatic choice reaches for. If NOBODY has an
+ * ETA the tie-break decides on its own, which is the right answer: with no
+ * distance information, the emptiest van is the only thing left that means
+ * anything.
+ *
+ * TIE-BREAK ON BAG LOAD, then shift id. Two drivers a minute apart are the
+ * same answer to "when", so the second question is which van has more room —
+ * the same ordering `listCandidateDrivers` already sorts the shortlist by, so
+ * a tie resolves to the card nearest the top. The shift id last makes it
+ * deterministic: an unstable "best" would send two identical requests to two
+ * different drivers.
+ *
+ * PURE, and takes candidates rather than a booking id, because the rule is a
+ * claim about a list and ought to be provable without a database. The caller
+ * hands the result to the ORDINARY `selectDriver`, so the transaction, the
+ * advisory lock and the capacity recheck are identical to a manual pick —
+ * there is exactly one way to be assigned a driver.
+ */
+export function bestCandidate(
+  candidates: readonly DriverCandidate[],
+): DriverCandidate | null {
+  if (candidates.length === 0) return null;
+
+  const ranked = [...candidates].sort((a, b) => {
+    const aEta = a.eta?.minMinutes ?? null;
+    const bEta = b.eta?.minMinutes ?? null;
+    if (aEta !== bEta) {
+      if (aEta === null) return 1;
+      if (bEta === null) return -1;
+      return aEta - bEta;
+    }
+    return a.bagsOnBoard - b.bagsOnBoard || a.shiftId.localeCompare(b.shiftId);
+  });
+
+  return ranked[0] ?? null;
 }
 
 /**
@@ -307,14 +366,21 @@ export async function listCandidateDrivers(
  * a route-matrix API answers all four in one request.
  *
  * Drivers with no position yet are left out of the call and get `null`, which
- * the card renders as "ETA on the way".
+ * the card renders as "Locating…".
+ *
+ * A STALE POSITION COUNTS AS NO POSITION HERE TOO. An estimate computed from
+ * where somebody was yesterday is the same lie as a pin drawn there, and it is
+ * the worse half: the pin is only misleading, whereas "about 15 min" is the
+ * number the shortcut ranks on. `freshPosition` is the one answer to "where is
+ * this driver", so the map and the ETA cannot disagree about it.
  */
 async function shortlistEtas(
   config: CoreConfig,
   rows: readonly EligibleRow[],
   pickupCoords: Coordinates | null,
+  now: Date,
 ): Promise<(EtaRange | null)[]> {
-  const origins = rows.map((r) => toCoordinates(r.driverLat, r.driverLng));
+  const origins = rows.map((r) => freshPosition(r, now));
   if (pickupCoords === null) return origins.map(() => null);
 
   const known = origins.filter((c): c is Coordinates => c !== null);
@@ -330,10 +396,33 @@ async function shortlistEtas(
   return origins.map((coords) => (coords === null ? null : (estimates[next++] ?? null)));
 }
 
+/**
+ * A candidate's position, or null when it is too old to draw.
+ *
+ * THE SHORTLIST DID NOT ASK THIS, and the tracking card always did. Before F5
+ * the pins were a nicety beside a list somebody actually chose from; now the
+ * map IS the chooser, and a pin is a claim about where a van is. A driver who
+ * finished a run yesterday has a `driver_positions` row from yesterday —
+ * `recordDriverPosition` overwrites one mutable row per driver and keeps no
+ * history — so without this the shortlist drew them on a street they left
+ * hours ago, with exactly the confidence of a live one.
+ *
+ * Same window as `getSelectedDriver` (`POSITION_FRESH_MS`), because "is this
+ * where they are" cannot have two answers on one page. A driver with no fresh
+ * fix keeps their CARD and simply has no pin — they are perfectly choosable,
+ * and the list is the view that says so.
+ */
+function freshPosition(row: EligibleRow, now: Date): Coordinates | null {
+  if (row.driverPositionAt === null) return null;
+  if (now.getTime() - row.driverPositionAt.getTime() > POSITION_FRESH_MS) return null;
+  return toCoordinates(row.driverLat, row.driverLng);
+}
+
 function toCandidate(
   row: EligibleRow,
   outOfZone: boolean,
   eta: EtaRange | null,
+  now: Date,
 ): DriverCandidate {
   return {
     shiftId: row.shiftId,
@@ -347,7 +436,7 @@ function toCandidate(
     availableCapacity: bookableSpaces(row, row.bagsOnBoard),
     outOfZone,
     eta,
-    position: toCoordinates(row.driverLat, row.driverLng),
+    position: freshPosition(row, now),
   };
 }
 
@@ -423,8 +512,8 @@ export async function selectDriver(
   // and a network round-trip inside `db.transaction` would hold the shift's
   // advisory lock open for its duration, serialising every other customer
   // choosing that same driver behind a third party's latency. The position it
-  // reads is at most one GPS ping (~45s) older than the one re-read under the
-  // lock; a null either way renders as "ETA on the way".
+  // reads is at most one GPS ping (20–45s) older than the one re-read under the
+  // lock; a null either way renders as "Locating…".
   const eta = await snapshotDriverEta(config, input.shiftId, pickup.coords);
 
   const result = await db.transaction(async (tx) => {
@@ -647,18 +736,27 @@ export async function reportEmptyDriverPool(
  * How old a GPS fix may be and still count as "where the driver is".
  *
  * `driver_positions` holds ONE mutable row per driver with no history, and the
- * agent app pings every 45 seconds while a pickup is under way — but only in
- * the foreground. A phone in a pocket stops reporting, and the row keeps the
- * last fix indefinitely, including one from a JOB THE DRIVER FINISHED
- * YESTERDAY. Rendering that on a map draws a van somewhere it is not, with the
- * same confidence as a live one.
+ * agent app pings only in the FOREGROUND. A phone in a pocket stops reporting,
+ * and the row keeps the last fix indefinitely — including one from a JOB THE
+ * DRIVER FINISHED YESTERDAY. Rendering that on a map draws a van somewhere it
+ * is not, with exactly the confidence of a live one.
  *
- * Four missed pings. Long enough to survive a tunnel, a lock screen or a
- * dropped request; short enough that nobody watches a frozen pin and believes
- * it. Past this, `positionIsFresh` is false and the surfaces fall back to what
- * they said before there was a map: a distance, and "Position updating".
+ * NINETY SECONDS, which is roughly four missed pings at the twenty-second
+ * cadence the agent app uses while a driver is en route to a door
+ * (`PING_INTERVAL_MS`, `components/shift/gps-pinger.tsx`). Long enough to
+ * survive a tunnel, a lock screen or a dropped request; short enough that
+ * nobody watches a frozen pin and believes it.
+ *
+ * It was three minutes, sized against a flat 45-second ping. That is a long
+ * time to be wrong about a moving vehicle: a van in city traffic covers the
+ * better part of a kilometre in it, so the pin could sit a dozen blocks from
+ * the truck while looking perfectly current. The rule of thumb is ~4× the
+ * ACTIVE ping interval, and the active interval is now 20s.
+ *
+ * Past this, `positionIsFresh` is false and every surface falls back to what
+ * it said before there was a map: a distance, and "Position updating".
  */
-export const POSITION_FRESH_MS = 3 * 60_000;
+export const POSITION_FRESH_MS = 90_000;
 
 export interface SelectedDriver {
   shiftId: string;
@@ -685,7 +783,7 @@ export async function getSelectedDriver(
   /**
    * Explicit, and defaulted — the same shape `listCustomerTrips` uses. Only
    * `positionIsFresh` reads it, and a test that wants a stale fix should be
-   * able to say so without waiting three minutes.
+   * able to say so without waiting out the freshness window.
    */
   now: Date = new Date(),
 ): Promise<SelectedDriver | null> {
@@ -859,12 +957,10 @@ export async function adminReassignPickup(
   const { db } = config;
   const { booking, pickup } = await loadSelectionContext(db, input.bookingId);
 
-  if (booking.status === "delivered_to_bagdrop" || booking.status === "completed") {
-    throw new ConflictError(
-      "driver",
-      `Booking ${booking.ref} is ${booking.status} — the bags are already with the airline.`,
-    );
-  }
+  // The shared gate: complete, cancelled, or already with the airline. It
+  // replaces a two-status array here that never mentioned `cancelled`.
+  const reassignGate = assignmentGate("pickup", booking, false);
+  if (!reassignGate.allowed) throw new ConflictError("driver", reassignGate.reason!);
 
   return db.transaction(async (tx) => {
     await tx.execute(
@@ -1027,18 +1123,22 @@ export async function adminUnassignPickup(
     .limit(1);
   if (!booking) throw new NotFoundError("Booking", input.bookingId);
 
-  if (
-    booking.status === "in_transit" ||
-    booking.status === "delivered_to_bagdrop" ||
-    booking.status === "completed"
-  ) {
+  /*
+   * THE IN-TRANSIT REFUSAL STAYS HERE, and only it. Its sentence names
+   * force-end-shift as the honest route, which is a fact about the incident
+   * path rather than about the booking's standing — see the header.
+   */
+  if (booking.status === "in_transit") {
     throw new ConflictError(
       "driver",
-      booking.status === "in_transit"
-        ? `The bags for ${booking.ref} are already in this driver's van. Unassigning would re-list them for collection from a door they have left. Force-end the shift instead — that releases the run AND raises an exception, which pages ops.`
-        : `Booking ${booking.ref} is ${booking.status} — the bags are already with the airline.`,
+      `The bags for ${booking.ref} are already in this driver's van. Unassigning would re-list them for collection from a door they have left. Force-end the shift instead — that releases the run AND raises an exception, which pages ops.`,
     );
   }
+
+  // Everything else — complete, cancelled, already with the airline — is the
+  // shared gate. It is where the `cancelled` case this used to miss lives.
+  const gate = assignmentGate("pickup", booking, false);
+  if (!gate.allowed) throw new ConflictError("driver", gate.reason!);
 
   return db.transaction(async (tx) => {
     const task = await tx.query.pickupTasks.findFirst({

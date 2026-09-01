@@ -14,6 +14,7 @@ import {
   lte,
   or,
   sql,
+  type Column,
   type SQL,
 } from "drizzle-orm";
 import {
@@ -40,6 +41,7 @@ import { airportLocalDayBounds } from "../slots/cutoff";
 import { withinAssignmentHorizon } from "./assignment-horizon";
 import { applyTransition } from "./bookings";
 import { OPEN_TASK_STATUSES } from "./tasks";
+import { assignmentGate } from "./actionability";
 import { cancelBookingWithRefund } from "./payment-lifecycle";
 import { getActiveStaffRole } from "./staff";
 
@@ -149,9 +151,23 @@ export async function assignAgentToBooking(
   const existing = await db.query.verificationTasks.findFirst({
     where: eq(verificationTasks.bookingId, booking.id),
   });
-  if (existing && (existing.status === "done" || existing.completedAt)) {
-    return { ok: false, error: "The visit is already completed — nothing to reassign." };
-  }
+
+  /*
+   * ONE GATE, and it used to be this one line plus a hole.
+   *
+   * The visit-complete check was here and correct; what was missing was the
+   * BOOKING's own standing. A cancelled booking could be assigned an agent —
+   * and worse, a cancelled booking that already HAD one skipped the status
+   * check below entirely, because that branch only runs for a first
+   * assignment. `assignmentGate` answers both, in the same module the rest of
+   * the app asks "can this booking still be acted on".
+   */
+  const gate = assignmentGate(
+    "verification",
+    booking,
+    Boolean(existing && (existing.status === "done" || existing.completedAt)),
+  );
+  if (!gate.allowed) return { ok: false, error: gate.reason! };
 
   // The booking carries its pickup window directly (legacy slot rows were
   // backfilled into these columns by migration 0012).
@@ -595,24 +611,74 @@ const NO_DRIVER_HORIZON_MS = 12 * 60 * 60 * 1000;
 const MIN_PHONE_DIGITS = 3;
 
 /**
- * The three things an operator can be holding when they need a booking.
+ * WHAT SOMEBODY IS HOLDING WHEN THEY NEED TO FIND A BOOKING.
  *
- * Deliberately NOT a general text search: passenger name and address are
- * readable on the board already, and matching them here would turn a lookup
- * into a fishing expedition over customer PII.
+ * This was three things — ref, seal, phone — on the stated argument that
+ * matching a name "turns a lookup into a fishing expedition over customer
+ * PII". TD reversed that after using the board, and the reversal is the more
+ * honest position: the person on the phone knows their own name and their
+ * flight and almost never their booking ref, and an operator who cannot find
+ * them by name just reads the board by eye instead — the same PII, more of it
+ * on screen, and a worse call.
+ *
+ * ADDRESS AND ZIP STAY OUT, and that is a line rather than an omission.
+ * "Who is booked on this street" is a question about a NEIGHBOURHOOD rather
+ * than about a booking anybody is trying to reach: it answers no support call,
+ * and it is the one search here that would be worth misusing.
+ *
+ * EVERY CLAUSE IS `ilike`. Somebody reading a ref off an email, a phone screen
+ * or their own handwriting types it however they type it.
  */
-function searchCondition(db: Database, term: string): SQL | undefined {
+
+/**
+ * The three `users` roles a board row touches. All three are the same table,
+ * so they must arrive as aliases from the query that joined them — building
+ * them here would produce a second, unjoined alias that silently matches
+ * nothing.
+ *
+ * Typed as bare `Column`s rather than as `typeof users`, because `alias()`
+ * bakes the alias NAME into the table type: `board_customer` is not
+ * assignable to `users`, and the two aliases are not assignable to each
+ * other. Naming the columns we actually read is both what the compiler
+ * accepts and the more honest signature.
+ */
+interface SearchScope {
+  /** The customer who owns the booking. */
+  customer: { fullName: Column; email: Column; phone: Column };
+  /** The driver holding the pickup, once one is chosen. */
+  driverUser: { fullName: Column };
+  /** The agent assigned to verify — the board's plain `users` join. */
+  agentUser: { fullName: Column; email: Column };
+}
+
+function searchClauses(db: Database, term: string, scope: SearchScope): SQL[] {
   const trimmed = term.trim();
-  if (!trimmed) return undefined;
+  if (!trimmed) return [];
 
   const like = `%${trimmed}%`;
   const digits = trimmed.replace(/\D/g, "");
   const phoneLike = `%${digits}%`;
-  const customer = alias(users, "search_customer");
 
-  const clauses: (SQL | undefined)[] = [
-    // The short ref is a display convention over the uuid (last six hex),
-    // so it is matched by suffix rather than looked up as an identifier.
+  const clauses: SQL[] = [
+    /*
+     * THE REF ITSELF — and this was missing, which is the bug TD reported as
+     * "search is case-sensitive". It was not: every clause here has always
+     * been `ilike`. The ref column simply was not one of them.
+     *
+     * `bookings.ref` is `KOO-XXXXX` over Crockford base32, stored uppercase.
+     * The only clause resembling a ref lookup matched the last six hex of the
+     * UUID, which is a completely different string — so `CEMBB` and `cembb`
+     * both failed, and would have failed in any casing.
+     *
+     * Searching by ref here is exactly what a ref is FOR — display and
+     * SUPPORT. The standing rule is that no PUBLIC route looks a booking up
+     * by it, because 32^5 is hopeless as a secret; this is the admin console
+     * behind a staff session, which is the supported case rather than the
+     * forbidden one.
+     */
+    ilike(bookings.ref, like),
+    // The uuid's last six hex, kept: an operator pasting a fragment of an id
+    // out of a log or a Sentry issue is a real thing that happens.
     sql`right(${bookings.id}::text, 6) ilike ${like}`,
     exists(
       db
@@ -620,6 +686,31 @@ function searchCondition(db: Database, term: string): SQL | undefined {
         .from(bags)
         .where(and(eq(bags.bookingId, bookings.id), ilike(bags.sealId, like))),
     ),
+    /*
+     * The name ON THE TICKET, which is not always the name on the account —
+     * somebody books for a parent or a partner, and then it is the passenger
+     * who rings up about the bags.
+     */
+    ilike(bookings.paxName, like),
+    /*
+     * Stored as "DL777", so `%term%` accepts the whole thing or just the
+     * digits — nobody says "delta seven seven seven" when the board is on
+     * fire. It is also the one field a caller reads off a boarding pass
+     * verbatim, which makes it the most reliable hook of the lot.
+     */
+    ilike(bookings.flightNumber, like),
+    ilike(scope.customer.fullName, like),
+    ilike(scope.customer.email, like),
+
+    /*
+     * The operational half. "Which booking is Marcus on" and "what did truck
+     * 3 have this morning" are dispatch questions asked out loud, and both
+     * were previously answered by scrolling.
+     */
+    ilike(scope.driverUser.fullName, like),
+    ilike(trucks.name, like),
+    ilike(scope.agentUser.fullName, like),
+    ilike(scope.agentUser.email, like),
   ];
 
   if (digits.length >= MIN_PHONE_DIGITS) {
@@ -627,16 +718,16 @@ function searchCondition(db: Database, term: string): SQL | undefined {
     // typed with dashes or spaces, so phones are matched on digits only.
     clauses.push(
       ilike(bookings.contactPhone, phoneLike),
-      exists(
-        db
-          .select({ one: sql`1` })
-          .from(customer)
-          .where(and(eq(customer.id, bookings.userId), ilike(customer.phone, phoneLike))),
-      ),
+      ilike(scope.customer.phone, phoneLike),
     );
   }
 
-  return or(...clauses.filter((c): c is SQL => c !== undefined));
+  return clauses;
+}
+
+function searchCondition(clauses: SQL[]): SQL | undefined {
+  if (clauses.length === 0) return undefined;
+  return or(...clauses);
 }
 
 /** Column ordering, plus a stable tiebreak so pagination cannot shuffle. */
@@ -675,12 +766,34 @@ export async function listBookingsBoard(
 ): Promise<BoardRow[]> {
   const now = ctx.now ?? new Date();
   const horizonHours = ctx.assignmentHorizonHours ?? DEFAULTS.assignmentHorizonHours;
+
+  // The driver half of the row needs three more joins, all LEFT: a booking
+  // with no pickup task, no shift or no truck must still appear on the board.
+  const driverUser = alias(users, "board_driver");
+  /*
+   * The customer, joined rather than looked up in a subquery — search reads
+   * three of their columns, which as correlated `exists` clauses would be
+   * three subqueries per row for data sitting behind one foreign key. LEFT for
+   * symmetry with the rest of the board; `bookings.user_id` is NOT NULL, so it
+   * never actually widens.
+   */
+  const customerUser = alias(users, "board_customer");
+
+  // Declared before the WHERE because the clauses read these aliases.
+  const clauses = filter.search
+    ? searchClauses(db, filter.search, {
+        customer: customerUser,
+        driverUser,
+        agentUser: users,
+      })
+    : [];
+
   const conditions = [
     filter.statuses?.length ? inArray(bookings.status, filter.statuses) : undefined,
     filter.airports?.length
       ? inArray(bookings.departureAirport, filter.airports)
       : undefined,
-    filter.search ? searchCondition(db, filter.search) : undefined,
+    searchCondition(clauses),
   ].filter((c): c is NonNullable<typeof c> => c !== undefined);
 
   if (filter.day) {
@@ -690,10 +803,6 @@ export async function listBookingsBoard(
       lt(bookings.pickupWindowStart, end),
     );
   }
-
-  // The driver half of the row needs three more joins, all LEFT: a booking
-  // with no pickup task, no shift or no truck must still appear on the board.
-  const driverUser = alias(users, "board_driver");
 
   const rows = await db
     .select({
@@ -716,6 +825,7 @@ export async function listBookingsBoard(
     .leftJoin(driverShifts, eq(driverShifts.id, pickupTasks.driverShiftId))
     .leftJoin(driverUser, eq(driverUser.id, driverShifts.staffUserId))
     .leftJoin(trucks, eq(trucks.id, driverShifts.truckId))
+    .leftJoin(customerUser, eq(customerUser.id, bookings.userId))
     .innerJoin(airports, eq(airports.code, bookings.departureAirport))
     .where(conditions.length > 0 ? and(...conditions) : undefined)
     .orderBy(...orderFor(filter.sort))

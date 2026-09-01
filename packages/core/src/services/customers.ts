@@ -289,7 +289,7 @@ export interface AddressInput {
  * something better to write.
  *
  * A ZIP with no centroid leaves both columns NULL, and the ETA seam renders
- * "ETA on the way" rather than inventing a position.
+ * "Locating…" rather than inventing a position.
  */
 export async function ensureAddress(
   db: Database,

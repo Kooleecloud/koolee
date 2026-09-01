@@ -67,8 +67,19 @@ export interface TaskRecordProps {
   timeline: readonly CustodyEvent[];
   /** The booking's zone. Every time below is rendered in it — docs/TIME.md. */
   tz: string;
-  /** True when this ended in an exception rather than a clean finish. */
-  exception: boolean;
+  /**
+   * How this task ended, which decides the one line at the top.
+   *
+   *  - `clean`     — finished the way it was meant to.
+   *  - `exception` — flagged and handed to ops.
+   *  - `stopped`   — the BOOKING ended underneath it (cancelled, or completed
+   *    without this task being worked). No banner: `TaskStopped` renders
+   *    above this and has already said what happened and who did it. Two
+   *    cards saying "this was cancelled" is one card too many, and the old
+   *    boolean could only have said "Visit complete" here — which on a
+   *    cancelled booking is simply false.
+   */
+  outcome: "clean" | "exception" | "stopped";
 }
 
 export function TaskRecord({
@@ -77,18 +88,19 @@ export function TaskRecord({
   bags,
   timeline,
   tz,
-  exception,
+  outcome,
 }: TaskRecordProps) {
   const sealed = bags.filter((bag) => bag.sealId);
 
   return (
     <div className="flex flex-col gap-4">
-      {exception ? (
+      {outcome === "exception" && (
         <FormMessage variant="info">
           This one was flagged as a problem and handed to ops. Kept here as a record —
           nothing on this screen can be changed.
         </FormMessage>
-      ) : (
+      )}
+      {outcome === "clean" && (
         <FormMessage variant="success">
           {kind === "verification"
             ? "Visit complete. Kept here as a record — nothing on this screen can be changed."

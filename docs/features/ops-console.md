@@ -24,34 +24,47 @@ console configured" are different errands, on different days.**
 
 ### Operations
 
-| Route                   | Does                                                                                                             | Badge                 |
-| ----------------------- | ---------------------------------------------------------------------------------------------------------------- | --------------------- |
-| `/`                     | Dashboard — today's bookings by status, unassigned, sealed-with-no-driver, open exceptions. **All real queries** | —                     |
-| `/bookings`             | Dispatch board — filter by status/airport/day, assign an agent, see at-risk bookings                             | `unassignedToday`     |
-| `/bookings/[bookingId]` | Full booking detail + custody timeline + evidence + payment                                                      | —                     |
-| `/shifts`               | Who is out driving, in what, with how many bags. Force-end with a required reason; grant/revoke `can_drive`      | `awaitingDriverToday` |
-| `/exceptions`           | Bookings in `exception`, with the three legal resolutions                                                        | `exceptionsOpen`      |
+| Route                   | Does                                                                                                        | Badge             |
+| ----------------------- | ----------------------------------------------------------------------------------------------------------- | ----------------- |
+| `/`                     | Overview — what needs a human right now, then launch readiness, then the day's shape. See §9                | —                 |
+| `/bookings`             | Dispatch board — filter by status/airport/day, assign an agent, see at-risk bookings                        | `unassignedToday` |
+| `/bookings/[bookingId]` | Full booking detail + custody timeline + evidence + payment                                                 | —                 |
+| `/shifts`               | Who is out driving, in what, with how many bags. Force-end with a required reason; grant/revoke `can_drive` | —                 |
+| `/exceptions`           | Bookings in `exception`, with the three legal resolutions                                                   | `exceptionsOpen`  |
 
 ### Configuration
 
-| Route             | Does                                                                                                                           |
-| ----------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| `/pricing`        | The active pricing rule and the lead-time curve — **a path to change a price that is not SQL**                                 |
-| `/cutoffs`        | Airline bag-drop cutoffs per airline × airport × domestic/international                                                        |
-| `/blocks`         | Window blackouts — **the only lever over what customers can book** (§3)                                                        |
-| `/zones`          | Agent ZIP coverage, feeding auto-assignment                                                                                    |
-| `/agreements`     | Versioned booking agreements. "Current" is derived, never a flag                                                               |
-| `/trucks`         | The fleet: name, bag capacity, active toggle. `reserved_spaces` is editable and **enforced** — held back from booking capacity |
-| `/staff`          | Invite / list / deactivate agents and admins                                                                                   |
-| `/staff/[userId]` | One staff member — their history, their zones, `can_drive`                                                                     |
+| Route             | Does                                                                                                                                                                                    |
+| ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/pricing`        | The active pricing rule and the lead-time curve — **a path to change a price that is not SQL**                                                                                          |
+| `/cutoffs`        | Airline bag-drop cutoffs per airline × airport × domestic/international                                                                                                                 |
+| `/blocks`         | Window blackouts — **the only lever over what customers can book** (§3)                                                                                                                 |
+| `/zones`          | Agent ZIP coverage, feeding auto-assignment                                                                                                                                             |
+| `/agreements`     | Versioned booking agreements. "Current" is derived, never a flag                                                                                                                        |
+| `/trucks`         | The fleet: name, bag capacity, active toggle. `reserved_spaces` is editable and **enforced** — held back from booking capacity. Editable during an open shift, within the guard in §5.4 |
+| `/staff`          | Agents and admins, **grouped by role**, with active/everyone and can-drive filters in the URL and a per-person workload for today                                                       |
+| `/staff/[userId]` | One staff member — their history, their zones, `can_drive`                                                                                                                              |
 
 Plus `/login`, `/login/reset` and `/set-password`, which sit outside the rail.
 
-🧭 **The three badge counts compute nothing new.** All three already existed on
+🧭 **The badge counts compute nothing new.** Both already existed on
 `OpsDashboard`; the rail surfaces numbers an operator previously had to navigate
-to the landing page to see. `unassignedToday` and `awaitingDriverToday` are
-deliberately **separate** — one needs an agent sent to a door, the other needs a
-van, and one badge meaning both would hide whichever is rarer.
+to the landing page to see.
+
+**`awaitingDriverToday` was a third badge, on Shifts, and was removed
+(2026-08-31).** The metric is unchanged and still on the Overview dashboard —
+sealed bookings today with no driver — but it counts BOOKINGS while `/shifts`
+lists SHIFTS, so clicking it never showed the things it counted. It was placed
+by CAUSE (nobody eligible is clocked on, and that page is where you fix it)
+rather than by subject, which made it the odd one of the three:
+`unassignedToday` and `exceptionsOpen` both sit on the page listing what they
+count. It is also the one whose likeliest explanation needs no action at all —
+the customer has simply not chosen yet — so a standing number there trained an
+operator to ignore a badge, which is the opposite of the point.
+
+`unassignedToday` and the retired count were always deliberately **separate** —
+one needs an agent sent to a door, the other needs a van, and one badge meaning
+both would hide whichever is rarer.
 
 `resolveConsoleRoute` matches a pathname by **longest prefix**, so
 `/bookings/<id>` resolves to Bookings rather than to Overview, whose `/`
@@ -151,14 +164,130 @@ date underneath, via `formatTimeInAirportTz` + `formatDayInAirportTz`. An
 operator scanning the board reads the hour first. Per
 [TIME.md](../TIME.md#how-to-render), the zone label stays on the **time** line.
 
-### 4.3 — Agent identity
+### 4.3 — One column for whoever has the booking
 
-`BoardRow` carries `assigneeName` (`users.full_name`) alongside `assigneeEmail`,
-and the board shows the **name above the email**. `assigneeName` is null for
-staff who never set one — fall back to the email, which is always present for
-staff. Never render a bare name without that fallback.
+Agent and Driver were two columns, spending two of nine to say one thing — who
+has this booking — and leaving both mostly empty, since a booking has a driver
+only in the last stretch before pickup. TD merged them.
+
+**The driver wins when there is one.** They are the later stage, so they are
+what is live; the verification is finished by then, and the agent who did it is
+on the detail page, recorded against the seals they scanned.
+
+The second line is **either the job or what is missing** — "Verify & seal",
+"Pickup · DEV Truck A", or the at-risk badge. A booking with an agent and no
+driver shows the name AND "needs a driver", because "Leo verified it" and
+"nobody is coming for it" are both true and only one of them is urgent. That
+badge used to ride the pickup-window cell, which put a warning nowhere near the
+thing that would resolve it.
+
+`assigneeName` is null for staff who never set one — fall back to the email,
+which is always present for staff. Never render a bare name without that
+fallback. The email itself is now the name's `title` rather than a permanent
+second line: it is still the tie-break when two agents share a first name, but
+the line it occupied says what the person is doing.
+
+Sorting stays on the verifying agent's email. A driver appears too late and on
+too few rows to sort a board by.
 
 ---
+
+### 4.4 — Search reads eleven fields
+
+Reported as "search is case-sensitive". It never was: every clause has always
+been `ilike`. **`bookings.ref` simply was not one of the clauses** — the only
+thing resembling a ref lookup matched the last six hex of the UUID, which is a
+different string entirely, so `KOO-CEMBB` matched nothing in any casing.
+
+The searched set, one predicate per key:
+
+| Key                          | Reads                                             |
+| ---------------------------- | ------------------------------------------------- |
+| `ref`                        | `bookings.ref`, any part, any case                |
+| `id`                         | last six hex of the UUID — for a log or Sentry id |
+| `seal`                       | `bags.seal_id`                                    |
+| `phone`                      | booking contact **or** account, digits only       |
+| `passenger`                  | `bookings.pax_name` — the name on the ticket      |
+| `customer` / `email`         | the account holder                                |
+| `flight`                     | `bookings.flight_number` ("DL777" or "777")       |
+| `driver` / `truck` / `agent` | who is carrying it, in what, who verified it      |
+
+**Address and ZIP are deliberately absent, and a test pins that.** This
+reverses the file's own former comment — matching a name was called "a fishing
+expedition over customer PII" — and TD's reversal is the better position: the
+person on the phone knows their own name and their flight and rarely their
+ref, and an operator who cannot find them by name reads the whole board by eye
+instead, which is the same PII with more of it on screen. "Who is booked on
+this street" is a different question. It answers no support call, and it is
+the one search here that would be worth misusing.
+
+**Passenger and customer are separate clauses because they are separate
+people.** Somebody books for a parent, and both names have to reach the
+booking.
+
+A per-row "why this matched" badge was built and then removed on TD's call: on
+a board this wide it was a second line under the ref earning less than the
+space it cost. Search is wide enough that the answer is usually obvious from
+the row itself, and the shape of the query — `or` over one flat clause list —
+is the same either way.
+
+The customer is a LEFT JOIN rather than an `exists` subquery, because search
+reads three of their columns: three correlated subqueries per row for data
+sitting behind one foreign key.
+
+#### The box must not be remounted while somebody is typing in it
+
+The filter bar held the term in the DOM rather than in state — correct, and the
+reason is written in the file — and re-seeded it from the URL with
+`key={search}`. That is right for a Reset or a pasted link and **wrong for the
+ordinary case**: the search a person is typing also changes the URL, so 300 ms
+after they stopped the input was destroyed and rebuilt, and focus went to
+`document.body`. Every refinement of a term meant clicking back into the box.
+
+`key` is replaced by a ref holding **the term this bar itself asked for**. When
+the URL's term matches it the navigation was ours and nothing is touched; when
+it differs the term came from outside — Reset, a pasted link, the back button —
+and the input's `value` is written directly. Writing to the node keeps the
+element alive, which is the whole difference.
+
+What is deliberately NOT re-seeded: typing two characters pushes `q=""`, since
+that is below the minimum, so the URL says `""` while the box says `"ce"`. The
+ref says `""` too, they agree, and the half-typed term stays where it was put.
+
+There are **two** search boxes named `q`. The console top bar's is Enter-only
+by design and navigates to `/bookings?q=`; the filter bar's is the debounced
+one. Worth knowing before diagnosing either — a selector for `input[name="q"]`
+finds the header's first.
+
+---
+
+## 4.5 — Every page's form is behind a button
+
+Six pages had grown the same layout: a list on the left and a form pinned
+permanently down the right in a `2fr 1fr` grid — invite staff, add a truck,
+assign ZIPs, block windows, add an airline, publish a pricing rule. Every one
+of those forms is used occasionally and read never, and each was taking a third
+of the page from the thing an operator came to look at.
+
+They are now `FormSheet`s behind labelled buttons in the page header. The
+agreement workbench's version history is the same move for the same reason: the
+editor is a rich-text surface for a legal document and wants every pixel, and
+picking a version closes the drawer rather than leaving it open over the editor
+it just loaded into.
+
+**Pricing was rebuilt rather than moved.** The publish form held the wide
+column and the live rule sat second and narrower _below_ it, so "what are we
+charging right now?" was answered after a form nobody came to fill in — and the
+figures existed only in the page subtitle. The live rule now leads with its
+base, per-bag and per-km at a size somebody can read across a desk; the history
+follows, each one click from being live again.
+
+**The booking detail consolidated too:** _Details & payments_ is one card
+(one fact split across a rule is not two facts), _Verify & seal_ is the identity
+gate and the seals together with the assigned agent named at the top, and
+_Assignment_ absorbs the pickup run. Assignment deliberately stays in the ACT
+column — the page is read-left / act-right, and the visit's record is reading
+while reassigning is acting.
 
 ## 5. Assignment
 
@@ -175,6 +304,34 @@ balance by current workload. Managed from `/zones` (`addAgentZones`,
 
 🧭 It is explicitly labelled v1 in the source. Treat it as a placeholder with a
 correct _interface_, not as a solved routing problem.
+
+### 5.0 — When reassignment closes
+
+One function answers it — `assignmentGate` in `services/actionability.ts`, read
+by core to refuse and by the console to hide the control with the same
+sentence. It sits beside the five customer/agent gates and deliberately outside
+them: those are about TIME (a late booking is still savable, which is the whole
+reason `phase` exists), and this is about STANDING alone. A booking twenty
+minutes past its window can still be handed to a driver who can make the
+cutoff — that is exactly when a dispatcher needs it.
+
+**The two kinds close at different moments, and the asymmetry is the point.**
+
+- **Verification closes when the VISIT is done.** The seals, the photos and the
+  passport check are recorded against the agent who did them; reassigning would
+  reattribute somebody's evidence.
+- **Pickup closes when the BOOKING is done**, which is later — a driver can be
+  swapped right up until the bags are in a van, because until then the job is
+  "go to a door" and any driver can do it.
+
+Before F5 this was three separate status lists, one per call site, and **not
+one of them mentioned `cancelled`** — so a cancelled booking could have its
+driver swapped, and one that already had an agent skipped the check entirely
+because that branch only ran for a first assignment.
+
+The **in-transit** refusal stays in `adminUnassignPickup`, where its sentence
+can name force-end-shift as the honest route: that is a fact about the incident
+path rather than about standing.
 
 ### 5.1 — At-risk says WHICH now
 
@@ -213,6 +370,29 @@ they must, force-ends a shift with a required reason.
 
 ---
 
+### 5.4 — A truck's capacity may not strand its own load
+
+Name, capacity and `reserved_spaces` are all editable **during** an open shift;
+only deactivation is refused outright (an inactive truck is filtered out of
+every read in `driver-selection.ts`, so the driver would vanish while still
+holding bags).
+
+The one guard: while a shift is open, `capacity − reserved` may not fall below
+the bags already committed to it. The refusal names the numbers — _"Van Live
+has 4 bags committed on its open shift, and 6 capacity minus 5 reserved leaves
+only 1"_ — and the form says the constraint before it is hit.
+
+**This reversed a documented decision, on purpose.** `updateTruck`'s header
+used to say capacity could be cut below what was aboard, because the number is
+being corrected and refusing would not unload the van. That is true, and
+nothing breaks: `bookableSpaces` floors at zero, so the van simply stops being
+offered. **That silence is the problem.** On a truck with a shift open, the far
+likelier cause of "capacity 5" on a van that holds 15 is a typo, and the
+consequence of accepting it is a driver quietly leaving every customer's
+shortlist for the rest of their shift with nothing anywhere saying why. The
+correction is deferred, not lost: end the shift and the edit goes through, and
+the message says so.
+
 ## 6. Staff management
 
 **Invite-only. No self-signup.** `createStaffMember` issues the invite;
@@ -223,6 +403,23 @@ enforces.
 `NEXT_PUBLIC_AGENT_APP_URL` sits in admin's production boot gate. Missing it,
 invite links go to the wrong app — and that failure is silent, so the gate
 refuses to boot instead.
+
+**The roster is grouped by role**, because agents and admins are two different
+lists that happened to share a table — an agent is somebody you dispatch, an
+admin is somebody with console access, and sorted by `created_at` the two
+interleaved. Two filters live in the URL, in deliberately different shapes:
+active/everyone is a `SegmentedControl` (two views of one list) and "can drive"
+is a checkbox (an additional narrowing). Default is active only, with a
+"Showing 12 of 16" beside it so the default never hides anything silently.
+
+**Workload is counted BY BOOKING, not by task.** In v1 one person holds both
+the verification and the pickup task for the same trip, so counting task rows
+reports six jobs for three addresses — a number beside somebody's name that is
+worse than no number. `listStaffWorkloadToday` derives it on every read: no
+counter column, no `staff_stats` table, per the standing rule that a counter on
+a write path is a thing that has to be kept in step with what it counts. The
+in-progress booking is a link, because "who is on what right now" is always
+followed by "show me".
 
 ---
 
@@ -256,3 +453,68 @@ Worth knowing, because it is asked for:
 - **Cannot cancel an `in_transit` booking directly.** Route it through
   `exception` first — a driver holding bags is not a cancellation.
 - **Cannot invent an exception resolution.** Only the three the matrix allows.
+
+---
+
+## 9. The Overview page
+
+Four stat cards, three of which read `0` on an ordinary day. The page was the
+**same shape whether everything was fine or the fleet was on fire**, and only a
+digit told you which — so an operator signing in read four numbers to learn
+there was nothing to do.
+
+The page now answers three questions in order, and the first one is the point.
+
+### 9.1 — What needs a human (`buildAttention`)
+
+[apps/admin/src/lib/attention.ts](../../apps/admin/src/lib/attention.ts). Lives
+in the app rather than in core: it is a rendering decision about what an
+operator should look at first, not a fact about the domain.
+
+**Ordered by consequence, never by which query ran first:**
+
+| Level     | Means                                                   |
+| --------- | ------------------------------------------------------- |
+| `blocked` | The product cannot sell — no pricing rule, no agreement |
+| `urgent`  | A booking is failing today                              |
+| `soon`    | Real work nobody has picked up yet                      |
+
+**An empty list is the design.** Nothing wrong renders one green line —
+"Nothing needs you right now" plus the day's shape — so the LENGTH of the page
+is the signal. One line means go and do something else; a list you scroll means
+today is busy. You can tell across a room, without reading a digit.
+
+Three rules the tests pin:
+
+- **A zero is not news.** Nine completed bookings is a fine day, not an item.
+- **State the absence, not the checklist phrase.** "Pricing rule active" reads
+  correctly beside a tick and badly as an alarm; the alarm says "No pricing
+  rule is active".
+- **"Nobody on shift" needs sealed bags waiting.** An empty road at 6am is
+  ordinary and so is a sealed booking mid-morning; together they are the one
+  shape where bags sit on a doorstep with literally nobody who could be chosen.
+
+Every item carries a destination and a verb — the whole row is the link, because
+the thing an operator is pointing at is the problem.
+
+### 9.2 — Launch readiness, which deletes itself
+
+`getLaunchReadiness` (core) checks the four conditions under which Koolee stops
+working **with no error anywhere**: no active pricing rule and every quote
+refuses; no published agreement and every agent visit stops at a doorstep; plus
+cutoffs and staff. Before this, the console's only signal was
+`NoAgreementBanner`, covering one of the four.
+
+**The panel is not rendered once all four pass.** A permanent all-green health
+block is a thing nobody reads, so on the day it matters it will not be read
+either. [LAUNCH-CHECKLIST.md](../LAUNCH-CHECKLIST.md) remains the record of the
+whole opening, including everything no query can see.
+
+Blocked items appear in BOTH panels deliberately: the attention panel is what
+somebody does today, this is the progress bar toward opening.
+
+**A trap found in the browser, not by a test:** the first version raised
+unverified cutoffs as a quiet third level, which printed the identical sentence
+twice on one page — once as a note and once in the readiness list three rows
+below. The `note` level is gone; the division is by TIME. This panel is a job
+before opening, that one is today.

@@ -31,8 +31,26 @@ import {
  */
 
 /** Which live count, if any, rides on a nav item. Keys of `ConsoleBadgeCounts`. */
-export type ConsoleBadgeKey =
-  "unassignedToday" | "awaitingDriverToday" | "exceptionsOpen";
+export type ConsoleBadgeKey = "unassignedToday" | "exceptionsOpen";
+
+/**
+ * What each badge's number MEANS, in a phrase that finishes "3 …".
+ *
+ * IT LIVES HERE BECAUSE IT WAS A TERNARY IN THE RAIL, and that ternary knew
+ * about two of the three badges then present: `exceptionsOpen` said "open" and
+ * EVERYTHING ELSE said "needing an agent". So the Shifts badge — which counted
+ * sealed bookings with no DRIVER — was announced to a screen reader as "2
+ * needing an agent", a different problem on a different page. That badge has
+ * since been removed outright; the rule it exposed has not.
+ *
+ * A record keyed by the badge type means a new badge cannot be added without
+ * a phrase: the compiler asks for one. That is the whole reason it is a
+ * `Record` and not a lookup with a fallback.
+ */
+export const CONSOLE_BADGE_MEANING: Record<ConsoleBadgeKey, string> = {
+  unassignedToday: "needing an agent",
+  exceptionsOpen: "stopped and open",
+};
 
 export interface ConsoleNavItem {
   href: string;
@@ -58,15 +76,15 @@ export interface ConsoleNavGroup {
  */
 export interface ConsoleBadgeCounts {
   unassignedToday: number;
-  /**
-   * Sealed bookings with today's window and no driver on them. A SEPARATE
-   * count from `unassignedToday` — one needs an agent sent to a door, the
-   * other needs a van, and one badge meaning both would hide whichever is
-   * rarer.
-   */
-  awaitingDriverToday: number;
   exceptionsOpen: number;
 }
+
+/*
+ * `awaitingDriverToday` is deliberately NOT here any more — sealed bookings
+ * today with no driver. The metric is alive and well on the Overview
+ * dashboard, where it counts something the page it sits on actually lists;
+ * it is only no longer a rail badge. See the note on the Shifts item.
+ */
 
 export const CONSOLE_NAV: readonly ConsoleNavGroup[] = [
   {
@@ -90,7 +108,23 @@ export const CONSOLE_NAV: readonly ConsoleNavGroup[] = [
         label: "Shifts",
         icon: Truck,
         description: "Who is out driving, in what, with how many bags",
-        badge: "awaitingDriverToday",
+        /*
+         * NO BADGE HERE, and it is worth saying why rather than looking like
+         * an omission. `awaitingDriverToday` used to ride on this item. The
+         * count is real and still on the Overview dashboard — sealed bookings
+         * today with no driver — but it counts BOOKINGS while this page lists
+         * SHIFTS, so clicking it never showed the things it counted.
+         *
+         * It was placed here by CAUSE (nobody eligible is clocked on, and this
+         * is where you fix that) rather than by subject, which made it the odd
+         * one of the three: `unassignedToday` and `exceptionsOpen` both sit on
+         * the page that lists what they count.
+         *
+         * It is also the one badge whose likeliest explanation needs no action
+         * at all — the customer simply has not chosen their driver yet — so a
+         * standing number here trained an operator to ignore a badge, which is
+         * the opposite of what a badge is for. TD's call, 2026-08-31.
+         */
       },
       {
         href: "/exceptions",

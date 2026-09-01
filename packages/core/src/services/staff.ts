@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import {
   staffMembers,
   users,
@@ -93,6 +93,108 @@ export async function listStaffMembers(db: Database): Promise<StaffMemberWithIde
     email: r.email,
     fullName: r.fullName,
     avatarStoragePath: r.avatarStoragePath,
+  }));
+}
+
+/* ------------------------------------------------------------------ */
+/* What each person has on today                                        */
+/* ------------------------------------------------------------------ */
+
+export interface StaffWorkloadToday {
+  staffUserId: string;
+  /** Bookings assigned to them today across BOTH task tables, de-duplicated. */
+  assigned: number;
+  /** The one they are on right now, for a link straight into it. Null when idle. */
+  inProgress: { bookingId: string; ref: string } | null;
+}
+
+/**
+ * Who is carrying what today, derived from the task rows themselves.
+ *
+ * NO BOOKKEEPING, which is the standing rule: no counter column, no
+ * `staff_stats` table. A counter on a write path is a thing that has to be
+ * kept in step with what it counts, which is how a number becomes confidently
+ * wrong — and this one would have to be maintained by two task tables, an
+ * auto-assign sweep, a reassignment and a cancellation.
+ *
+ * COUNTED BY BOOKING, NOT BY TASK. One person holds both the verification and
+ * the pickup task for the same booking in v1, so counting tasks would report
+ * two jobs for one trip to one door — and "6 assigned" when they have three
+ * addresses to visit is worse than no number. The union below de-duplicates on
+ * `booking_id`.
+ *
+ * "TODAY" IS THE PICKUP WINDOW'S DAY, taken in UTC against the caller's
+ * boundaries rather than per-booking airport time. That is a deliberate
+ * simplification and the reason the bounds are arguments: this is a
+ * roster-level "how busy is this person", not a schedule, and an operator
+ * reading it is in one place looking at one clock. Anything that decides
+ * whether work HAPPENS uses the booking's own zone (docs/TIME.md); this
+ * decides how a row is sorted.
+ */
+export async function listStaffWorkloadToday(
+  db: Database,
+  dayStart: Date,
+  dayEnd: Date,
+): Promise<StaffWorkloadToday[]> {
+  /*
+   * Bound as ISO strings with an explicit cast. A `Date` handed straight into
+   * a raw `sql` template reaches the driver as an object it cannot serialise
+   * ("Received an instance of Date") — the query builder does that conversion
+   * for column comparisons, and this is not one.
+   */
+  const from = dayStart.toISOString();
+  const to = dayEnd.toISOString();
+
+  const rows = await db.execute<{
+    staff_user_id: string;
+    assigned: number;
+    in_progress_booking_id: string | null;
+    in_progress_ref: string | null;
+  }>(sql`
+    with assignments as (
+      select vt.assignee_user_id as staff_user_id,
+             b.id                as booking_id,
+             b.ref               as ref,
+             vt.status           as status
+        from verification_tasks vt
+        join bookings b on b.id = vt.booking_id
+       where vt.assignee_user_id is not null
+         and b.pickup_window_start >= ${from}::timestamptz
+         and b.pickup_window_start <  ${to}::timestamptz
+         and b.status not in ('cancelled', 'completed')
+      union all
+      select pt.assignee_user_id, b.id, b.ref, pt.status
+        from pickup_tasks pt
+        join bookings b on b.id = pt.booking_id
+       where pt.assignee_user_id is not null
+         and b.pickup_window_start >= ${from}::timestamptz
+         and b.pickup_window_start <  ${to}::timestamptz
+         and b.status not in ('cancelled', 'completed')
+    ),
+    /* One row per person per BOOKING — see the note above. */
+    per_booking as (
+      select staff_user_id,
+             booking_id,
+             max(ref) as ref,
+             bool_or(status = 'in_progress') as active
+        from assignments
+       group by staff_user_id, booking_id
+    )
+    select staff_user_id,
+           count(*)::int as assigned,
+           (array_agg(booking_id) filter (where active))[1] as in_progress_booking_id,
+           (array_agg(ref)        filter (where active))[1] as in_progress_ref
+      from per_booking
+     group by staff_user_id
+  `);
+
+  return [...rows].map((row) => ({
+    staffUserId: row.staff_user_id,
+    assigned: Number(row.assigned),
+    inProgress:
+      row.in_progress_booking_id && row.in_progress_ref
+        ? { bookingId: row.in_progress_booking_id, ref: row.in_progress_ref }
+        : null,
   }));
 }
 

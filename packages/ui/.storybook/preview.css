@@ -4,6 +4,9 @@
    chrome rather than an unpositioned canvas. The apps import this from their
    own globals.css for the same reason — see the note there. */
 @import "maplibre-gl/dist/maplibre-gl.css";
+/* Our own popup chrome on top of it — shared with the apps so the story and
+   the trip page cannot drift. */
+@import "../styles/map.css";
 
 /* Apps set these via next/font; Storybook loads the same faces from Google
    Fonts in preview-head.html. */

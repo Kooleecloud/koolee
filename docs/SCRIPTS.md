@@ -61,6 +61,7 @@ at the **hosted** project. See [ENVIRONMENT.md §6](ENVIRONMENT.md#6-packagesdbe
 | `pnpm --filter @koolee/core test:integration` | Integration suites (see §4)                                                                                                                                                                                                                                    |
 | `pnpm env:verify`                             | Does an environment have the variables its apps refuse to boot without? Reads NAMES, never values — see §8                                                                                                                                                     |
 | `pnpm check:sw-headers`                       | Asserts `/sw.js` still gets `no-cache` + `Service-Worker-Allowed` after `withSentryConfig` composes the Next config. Both failure modes are silent                                                                                                             |
+| `node scripts/copy-maplibre-worker.mjs <dir>` | Copies MapLibre's tile-parsing worker into an app's `public/maplibre/`. **Not run by hand** — it is the first half of `apps/web`'s `dev` and `build`, and of `packages/ui`'s `storybook`. See below                                                            |
 | `pnpm push:vapid`                             | Generate the VAPID keypair for Web Push. Prints four values; paste **the same four into all three apps**. Regenerating invalidates every stored subscription — see [ENVIRONMENT §4.5](ENVIRONMENT.md#45--web-push-all-four-vapid-vars-or-none--all-three-apps) |
 
 ### `pnpm clean:cache` — the one to run periodically
@@ -322,6 +323,31 @@ vitest run integration.test; rc=$?; pnpm --filter @koolee/db seed:local; exit $r
    the active rule is the test fixture.
 
 ---
+
+### `copy-maplibre-worker.mjs`, and why a map needs a build step
+
+`node scripts/copy-maplibre-worker.mjs apps/web` copies two files —
+`maplibre-gl-worker.mjs` **and** the `maplibre-gl-shared.mjs` it imports — out
+of `node_modules` into `apps/web/public/maplibre/`. It runs automatically as
+the first half of that app's `dev` and `build`, and of `packages/ui`'s
+`storybook` and `build-storybook`. The output is gitignored and regenerated
+every time, so it cannot go stale against the installed version.
+
+**Why it has to exist.** maplibre-gl 6 works out where its worker lives from
+`import.meta.url`, and returns the EMPTY STRING when that is not an `http(s):`
+URL — which under Turbopack, Vite, or any other bundler it is not. It then
+calls `new Worker("")`, which resolves against the document, so the browser
+fetches the current PAGE and tries to run the HTML as a module. MapLibre never
+re-raises the Worker's error as a map error.
+
+What that looks like: the style JSON, the TileJSON and the sprites all fetch
+and return 200, the canvas mounts at the right size, the zoom buttons work, and
+**not one tile is ever requested**. No error appears anywhere. Only `LiveMap`'s
+ten-second deadline catches it, as an apology to the customer.
+
+**If a fourth app ever mounts `LiveMap`, add this step to its scripts.**
+Forgetting it produces exactly the silent failure above. `setWorkerUrl` in
+`packages/ui/src/components/live-map.tsx` is the other half.
 
 ## 5. Per-package scripts
 

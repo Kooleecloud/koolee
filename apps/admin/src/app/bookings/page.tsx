@@ -49,6 +49,21 @@ const AT_RISK_LABEL = {
   no_driver: "needs a driver",
 } as const;
 
+/**
+ * What the assigned person is currently doing, for the second line of the
+ * Agent column.
+ *
+ * The board used to carry Agent and Driver as separate columns, which spent
+ * two of nine columns to say one thing — who has this booking — and left both
+ * mostly empty, since a booking has a driver only in the last stretch before
+ * pickup. Merged on TD's call: one column, the person furthest along, and a
+ * line saying which job that is.
+ */
+const TASK_LABEL = {
+  pickup: "Pickup",
+  verify: "Verify & seal",
+} as const;
+
 const STATUSES: BookingStatus[] = [
   "draft",
   "paid",
@@ -131,16 +146,23 @@ function TimeCell({
 }: {
   time: string;
   date: string;
-  /** Badges — "today", "at risk" — pinned beside the time. */
+  /**
+   * Badges — "today" — set beside the DATE, not the time.
+   *
+   * They rode the time line until TD moved them: the time is the value an
+   * operator is actually reading, and a badge parked next to it pushed the
+   * hour out of the column an eye scans straight down. "Today" is a fact about
+   * the date, so it belongs on the date's line.
+   */
   children?: React.ReactNode;
 }) {
   return (
     <div className="flex flex-col leading-tight">
-      <span className="flex items-center gap-2 whitespace-nowrap">
-        {time}
+      <span className="whitespace-nowrap">{time}</span>
+      <span className="flex items-center gap-2 text-xs whitespace-nowrap text-muted-foreground">
+        {date}
         {children}
       </span>
-      <span className="text-xs whitespace-nowrap text-muted-foreground">{date}</span>
     </div>
   );
 }
@@ -273,7 +295,7 @@ export default async function BookingsPage({
           title="No bookings"
           description={
             search
-              ? `Nothing matches "${search}". Refs are the last six characters of the booking id; seals and phone numbers match on any part.`
+              ? `Nothing matches "${search}". Search reads the ref, seal ids, names, email, phone and flight number, plus the driver, truck and agent — any part of any of them.`
               : filtered
                 ? "Nothing matches these filters."
                 : "No bookings yet."
@@ -327,6 +349,10 @@ export default async function BookingsPage({
                 <th className="px-4 py-2 font-medium whitespace-nowrap">Flight</th>
                 <th className="px-4 py-2 font-medium whitespace-nowrap">Passenger</th>
                 <th className="px-4 py-2 font-medium whitespace-nowrap">Bags</th>
+                {/* Sorts on the VERIFYING agent's email, which is what the
+                    column mostly holds — a driver appears only in the last
+                    stretch before pickup, so sorting by driver would sort
+                    mostly-empty against mostly-empty. */}
                 <SortableHeader
                   label="Agent"
                   sortKey="agent"
@@ -334,12 +360,8 @@ export default async function BookingsPage({
                   direction={sortDir}
                   href={sortHref("agent")}
                 />
-                {/* Not sortable, deliberately: a driver is chosen by the
-                    customer minutes before the run, so ordering a whole board
-                    by it would sort mostly-empty against mostly-empty. */}
-                <th className="px-4 py-2 font-medium whitespace-nowrap">Driver</th>
-                {/* Pinned. Nine columns of a dispatch board do not fit a
-                    laptop, and the one that fell off the right edge was the
+                {/* Pinned. A dispatch board this wide does not fit a laptop,
+                    and the column that fell off the right edge was the
                     booking's state — the value an operator scans the board
                     FOR. `z-20` so the corner cell stays above both the sticky
                     header row and the sticky column. */}
@@ -399,22 +421,19 @@ export default async function BookingsPage({
                             }
                             date={formatDayInAirportTz(slotStart, tz)}
                           >
-                            {isToday && <Badge variant="outline">today</Badge>}
-                            {atRisk && (
-                              <Badge variant="warning">
-                                {AT_RISK_LABEL[atRiskReason!]}
+                            {isToday && (
+                              /* Sized to the date line it sits on, so a
+                                 today row is no taller than any other. */
+                              <Badge
+                                variant="outline"
+                                className="px-1.5 py-0 text-[10px] leading-4"
+                              >
+                                today
                               </Badge>
                             )}
                           </TimeCell>
                         ) : (
-                          <span className="flex items-center gap-2 text-muted-foreground">
-                            —
-                            {atRisk && (
-                              <Badge variant="warning">
-                                {AT_RISK_LABEL[atRiskReason!]}
-                              </Badge>
-                            )}
-                          </span>
+                          <span className="text-muted-foreground">—</span>
                         )}
                       </td>
                       {/* When the booking came in — not when it happens. An
@@ -440,48 +459,73 @@ export default async function BookingsPage({
                       </td>
                       <td className="px-4 py-2 whitespace-nowrap">{booking.paxName}</td>
                       <td className="px-4 py-2 whitespace-nowrap">{booking.bagCount}</td>
-                      {/* Name first: ops talk about "Leo", not about
-                        agent@koolee.local. The email stays because it is the
-                        unambiguous identifier when two agents share a first
-                        name, and it is what the assignment panel lists. */}
-                      <td className="px-4 py-2">
-                        {assigneeEmail ? (
-                          <div className="flex flex-col leading-tight">
-                            <span className="whitespace-nowrap">
-                              {assigneeName ?? assigneeEmail}
-                            </span>
-                            {assigneeName && (
-                              <span className="text-xs whitespace-nowrap text-muted-foreground">
-                                {assigneeEmail}
-                              </span>
-                            )}
-                          </div>
-                        ) : (
-                          <span className="text-muted-foreground">unassigned</span>
-                        )}
-                      </td>
+                      {/*
+                        ONE COLUMN FOR WHOEVER HAS THIS BOOKING.
+
+                        The driver wins when there is one: they are the later
+                        stage, so they are what is live. The verification is
+                        finished by then and the agent who did it is on the
+                        detail page, recorded against the seals they scanned.
+
+                        Name first — ops talk about "Leo", not about
+                        agent@koolee.local — and the email moves to `title`. It
+                        is still the tie-break when two agents share a first
+                        name; it is just no longer worth a permanent line, now
+                        that the line says what they are doing.
+
+                        The second line is either the job or what is missing.
+                        An at-risk booking with an agent and no driver shows
+                        BOTH, because "Leo verified it" and "nobody is coming
+                        for it" are both true and only one of them is urgent.
+                      */}
                       <td className="px-4 py-2">
                         {driverName || truckName ? (
                           <div className="flex flex-col leading-tight">
                             <span className="whitespace-nowrap">
                               {driverName ?? "Driver"}
                             </span>
-                            {truckName && (
+                            <span className="text-xs whitespace-nowrap text-muted-foreground">
+                              {TASK_LABEL.pickup}
+                              {truckName ? ` · ${truckName}` : ""}
+                            </span>
+                          </div>
+                        ) : assigneeEmail ? (
+                          <div className="flex flex-col items-start leading-tight">
+                            <span className="whitespace-nowrap" title={assigneeEmail}>
+                              {assigneeName ?? assigneeEmail}
+                            </span>
+                            {atRisk ? (
+                              /* Sized to the muted line it replaces, so an
+                                 at-risk row is the same height as its
+                                 neighbours — the colour is the signal, not
+                                 a taller row. */
+                              <Badge
+                                variant="warning"
+                                className="px-1.5 py-0 text-[10px] leading-4"
+                              >
+                                {AT_RISK_LABEL[atRiskReason!]}
+                              </Badge>
+                            ) : (
                               <span className="text-xs whitespace-nowrap text-muted-foreground">
-                                {truckName}
+                                {TASK_LABEL.verify}
                               </span>
                             )}
                           </div>
+                        ) : atRisk ? (
+                          <Badge
+                            variant="warning"
+                            className="px-1.5 py-0 text-[10px] leading-4"
+                          >
+                            {AT_RISK_LABEL[atRiskReason!]}
+                          </Badge>
                         ) : (
-                          <span className="text-muted-foreground">
-                            {atRiskReason === "no_driver" ? "none yet" : "—"}
-                          </span>
+                          <span className="text-muted-foreground">unassigned</span>
                         )}
                       </td>
                       {/* Opaque on purpose: a translucent pinned cell shows the
                         columns scrolling underneath it. The at-risk tint stays
-                        on the rest of the row, and the at-risk badge rides
-                        the pickup-window cell, so no signal is lost. */}
+                        on the rest of the row and the badge rides the Agent
+                        cell, so no signal is lost. */}
                       <td className="sticky right-0 z-10 border-l border-border bg-card shadow-[-6px_0_8px_-6px_rgba(11,37,69,0.12)] px-4 py-2 whitespace-nowrap">
                         <BookingStatusBadge status={booking.status} />
                       </td>

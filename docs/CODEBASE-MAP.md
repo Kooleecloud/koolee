@@ -56,7 +56,7 @@ enforced across marketing, UI, SMS and email ([README §Copy rules](../README.md
 | Waitlist signup       | `waitlist_signups`                   | One (email, ZIP) pair — "this person wants service in this zone." Unique together; `notified_at` stamps the one promised "you're covered" email.                                                                                                                                                                                                                                                                                                                                                                      |
 | Truck                 | `trucks`                             | A van, and how many bags it holds. `reserved_spaces` is **held back from booking capacity** — `bookableSpaces()` in `driver-selection.ts` is the one formula, and four readers share it.                                                                                                                                                                                                                                                                                                                              |
 | Shift                 | `driver_shifts`                      | One person, in one truck, for one stretch of the day. Two partial unique indexes (`WHERE ended_at IS NULL`) make "one open shift per person, one per truck" true under concurrency.                                                                                                                                                                                                                                                                                                                                   |
-| Driver position       | `driver_positions`                   | One **mutable** row per driver, overwritten every ~45s while a pickup is under way. Explicitly **not** chain of custody — a position is not evidence.                                                                                                                                                                                                                                                                                                                                                                 |
+| Driver position       | `driver_positions`                   | One **mutable** row per driver, overwritten every 20s while a driver is en route to a door and every 45s once the bags are aboard. Explicitly **not** chain of custody — a position is not evidence.                                                                                                                                                                                                                                                                                                                  |
 | Booking signal        | `booking_signals`                    | The realtime **doorbell**: one mutable row per booking, three columns, the only table a browser may read. A change says "something moved"; the payload is never rendered.                                                                                                                                                                                                                                                                                                                                             |
 | Push subscription     | `push_subscriptions`                 | One row per (person, browser install). Unique on `endpoint` **alone**, so a device that changes hands moves to its new owner instead of notifying the old one.                                                                                                                                                                                                                                                                                                                                                        |
 | Agent zone            | `agent_zones`                        | Which ZIPs an agent covers — what auto-assign picks from.                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
@@ -255,7 +255,7 @@ booking_id`, migration `0025`): the version a booking accepts pins for the
   actions from a driver.
 - `driver_positions` is the first HIGH-WRITE, MUTABLE, NON-EVIDENTIARY table in
   the schema, and it looks enough like custody data to be mistaken for it. One
-  row per driver, overwritten every ~45 seconds, no history. `custody_events`
+  row per driver, overwritten every 20–45 seconds, no history. `custody_events`
   is the evidence; this answers "how far away is my driver right now" and
   nothing else. Its header says so — leave that there.
 - `pickup_tasks` has two assignment columns and they must never disagree.
@@ -906,6 +906,102 @@ has no pin and keeps their card.
 
 ---
 
+### Cancelling, and who did it
+
+`packages/core/src/services/cancellation.ts`. `cancelBookingByCustomer` is
+**policy around the existing cancellation, not a second one**: ownership, three
+gates, then the same `cancelBookingWithRefund` the console runs — state
+machine, slot release, custody event, authorization voided through the payment
+seam.
+
+Three gates, and `customerCancelEligibility` is what BOTH the trip page and the
+server action call, so a rendered button and a server refusal cannot disagree:
+
+| Gate    | Rule                                             | Why                                                                                                                                                                                                                                                        |
+| ------- | ------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Status  | `paid` or `agent_assigned`                       | Narrower than the state machine, which also accepts `cancel` from `verified_sealed` and `awaiting_pickup`. Those mean the visit HAPPENED — a passport checked, bags weighed, photographed and sealed with numbered stock. Ops can still cancel from there. |
+| Window  | `now < pickup_window_start`; **no window fails** | Guessing wrong either cancels something in flight or charges somebody who asked in time.                                                                                                                                                                   |
+| Capture | Nothing captured, across ALL providers           | An authorization is released; a capture is money that left an account.                                                                                                                                                                                     |
+
+**Who cancelled it** is `cancellationFromTimeline`, read off a trail the caller
+already has. `by` comes from the actor's ROLE, not from comparing the actor to
+the booking's owner: an admin cancelling their own personal booking is still
+Koolee cancelling it. Four surfaces render it — the customer's trip page, the
+agent's task detail, the console's booking detail banner, and the console's
+custody trail, which always carried it.
+
+### The map
+
+`packages/ui/src/components/live-map.tsx`. MapLibre GL over OpenFreeMap vector
+tiles: **no key, no account, no per-load billing, and no environment variable
+in any environment.** Google stays server-side (Places behind `/api/places`,
+Routes behind the ETA seam) — see Chapter 5.
+
+**Its worker is served by us, and that is not optional.** maplibre-gl 6 derives
+the worker URL from `import.meta.url` and returns the EMPTY STRING when that is
+not an `http(s):` URL — which under any bundler it is not — then constructs
+`new Worker("")`. The style, TileJSON and sprites all fetch 200, no tile is
+ever requested, `load` never fires, and nothing raises an error.
+`scripts/copy-maplibre-worker.mjs` copies the worker **and the shared module it
+imports** into `public/maplibre/` before every dev and build; `setWorkerUrl`
+points at it. **An app that mounts `LiveMap` must run that script** — the
+failure otherwise is completely silent.
+
+The marker ROOT belongs to MapLibre, which rewrites its `transform` every
+frame; every visual effect lives on a child. A `transition` touching `transform`
+on that root is the pin flicker, and Tailwind's `transition-transform` covers
+it.
+
+Controls: recenter-when-panned (which also ends automatic re-framing —
+somebody's pan is theirs to keep), cooperative gestures, fullscreen. **No
+geolocate control**: the pickup address is the anchor, and somebody booking for
+a friend across the city would be shown a dot that is irrelevant and looks
+meaningful.
+
+### Choosing a driver
+
+Map-first, with the list as a full tab rather than a fallback
+(`SegmentedControl`). `bestCandidate` in `driver-selection.ts` is "pick the
+best": nearest by `eta.minMinutes` — the number the card leads with — tie-broken
+on the lowest bag load, then shift id so two identical requests reach the same
+driver. A driver with no ETA never wins and stays choosable by hand. It runs the
+SAME `selectDriverAction`, so there is exactly one way to be assigned a driver
+and one set of races.
+
+**A candidate's position must be FRESH to be drawn.** `freshPosition` applies
+the same `POSITION_FRESH_MS` window `getSelectedDriver` has always used, to the
+pin AND to the ETA — `driver_positions` keeps one mutable row per driver with no
+history, so a driver who finished a run yesterday still has yesterday's
+coordinates. A stale ETA is the worse half: it is the number `bestCandidate`
+ranks on. A driver with no fresh fix keeps their card and has no pin.
+
+**Which is why the driver reports for the WHOLE SHIFT.** `GpsPinger` used to
+run only while a pickup was `in_progress`, and a shortlist candidate is by
+definition a driver who has not started anything — so no candidate ever had a
+fresh fix and the map usually had nothing to draw. TD's call, taking the cost
+knowingly: it now runs at 20 s en route to a door, 45 s carrying, 45 s idle on
+shift. **45 s is a ceiling, not a preference** — two pings must fit inside the
+90 s freshness window, or one dropped request drops that driver off every
+customer's map.
+
+It is mounted in the agent app's LAYOUT ([shift-location.tsx](../apps/agent/src/components/shift/shift-location.tsx)),
+not on the Today page. Mounted on one page, opening a task — the moment a
+driver is most likely to be moving — silently stopped reporting, and nothing
+said so. Position is a fact about the person, not about the screen they are
+looking at.
+
+Off the clock nothing is sent: no shift means `phase` is null, and the pinger
+never touches `navigator.geolocation` — no prompt, no request, nothing stored.
+Still foreground-only; a phone in a pocket with the screen off stops reporting,
+and the customer's page degrades to "Position updating" rather than to a stale
+pin presented as current.
+
+**The shortlist refreshes on a 12-second poll, not on realtime.**
+`recordDriverPosition` signals only bookings already bound to that driver's
+shift, and a booking still choosing has none. Widening that would make one
+ping wake every customer currently choosing, each wake a full trip-page
+re-render with an ETA round-trip per candidate.
+
 ## Chapter 7 — Auth
 
 **Three session kinds**, one Supabase project per environment
@@ -1116,9 +1212,9 @@ booking's pickup window at assignment time. They are a snapshot for the
 agent's list, not a live join.
 
 **GPS** is foreground-only and deliberately disposable: `GpsPinger` posts
-`navigator.geolocation` to `POST /api/driver-position` every ~45 s while a
-pickup is between "set off" and "delivered", and `driver_positions` keeps one
-mutable row per driver. A route handler rather than a server action, because a
+`navigator.geolocation` to `POST /api/driver-position` for as long as the shift
+is open — 20 s while en route to a doorstep, 45 s otherwise — and
+`driver_positions` keeps one mutable row per driver. A route handler rather than a server action, because a
 server action would revalidate the page on every ping. Permission denied is not
 an error — a non-blocking banner says the customer will not see them coming,
 the pings stop, and everything else works. Nothing written here is chain of
@@ -1184,21 +1280,38 @@ trail rather than guessing.
 
 **Pages**, each a server component + an `actions.ts` + a client form file:
 
-| Route             | Group  | What it does                                                                                                                                                                                                                                                                        |
-| ----------------- | ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `/`               | Ops    | Dashboard: today's bookings by status, unassigned count, **sealed-with-no-driver count**, open exceptions — all real queries                                                                                                                                                        |
-| `/bookings`       | Ops    | Dispatch board: filter by status/airport/day, assign an agent, see at-risk bookings. Since 2026-08-23 assignment is automatic on `paid` (`autoAssignOnPaid`); the board's Assign button is the manual override, and an uncovered ZIP still falls through to it via the at-risk flag |
-| `/bookings/[id]`  | Ops    | One booking end to end: custody trail, evidence photos, payment, the transition controls                                                                                                                                                                                            |
-| `/shifts`         | Ops    | Who is out driving, in what, with how many bags; **start a shift on somebody's behalf** (the pair to force-end — same `startShift` guards, the admin stamped in `driver_shifts.started_by_user_id`); force-end with a required reason; grant or revoke `can_drive`                  |
-| `/exceptions`     | Ops    | Bookings in `exception`, with the three legal resolutions                                                                                                                                                                                                                           |
-| `/pricing`        | Config | The active pricing rule and the lead-time curve — **a path to change a price that is not SQL**                                                                                                                                                                                      |
-| `/cutoffs`        | Config | Airline bag-drop cutoffs per airline × airport × domestic/international. Every bookable window derives from these                                                                                                                                                                   |
-| `/blocks`         | Config | Window blackouts — the ops lever over what customers can book                                                                                                                                                                                                                       |
-| `/zones`          | Config | Agent ZIP coverage, which auto-assign picks from                                                                                                                                                                                                                                    |
-| `/agreements`     | Config | Versioned booking agreements. "Current" is derived, never a flag — see Ch.3                                                                                                                                                                                                         |
-| `/trucks`         | Config | The fleet: name, bag capacity, active toggle. `reserved_spaces` is editable and **enforced**; the card shows how many spaces are bookable                                                                                                                                           |
-| `/staff`          | Config | Invite / list / deactivate agents and admins                                                                                                                                                                                                                                        |
-| `/staff/[userId]` | Config | One staff member: their history, their zones, `can_drive`                                                                                                                                                                                                                           |
+| Route             | Group  | What it does                                                                                                                                                                                                                                                                                                  |
+| ----------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/`               | Ops    | Overview: **what needs a human**, ordered by consequence and collapsing to one green line when nothing does; then launch readiness, which deletes itself once it passes; then the day's shape                                                                                                                 |
+| `/bookings`       | Ops    | Dispatch board: filter by status/airport/day, **search eleven fields**, assign an agent, see at-risk bookings. Since 2026-08-23 assignment is automatic on `paid` (`autoAssignOnPaid`); the board's Assign button is the manual override, and an uncovered ZIP still falls through to it via the at-risk flag |
+| `/bookings/[id]`  | Ops    | One booking end to end: custody trail, evidence photos, payment, the transition controls                                                                                                                                                                                                                      |
+| `/shifts`         | Ops    | Who is out driving, in what, with how many bags; **start a shift on somebody's behalf** (the pair to force-end — same `startShift` guards, the admin stamped in `driver_shifts.started_by_user_id`); force-end with a required reason; grant or revoke `can_drive`                                            |
+| `/exceptions`     | Ops    | Bookings in `exception`, with the three legal resolutions                                                                                                                                                                                                                                                     |
+| `/pricing`        | Config | The active pricing rule and the lead-time curve — **a path to change a price that is not SQL**                                                                                                                                                                                                                |
+| `/cutoffs`        | Config | Airline bag-drop cutoffs per airline × airport × domestic/international. Every bookable window derives from these                                                                                                                                                                                             |
+| `/blocks`         | Config | Window blackouts — the ops lever over what customers can book                                                                                                                                                                                                                                                 |
+| `/zones`          | Config | Agent ZIP coverage, which auto-assign picks from                                                                                                                                                                                                                                                              |
+| `/agreements`     | Config | Versioned booking agreements. "Current" is derived, never a flag — see Ch.3                                                                                                                                                                                                                                   |
+| `/trucks`         | Config | The fleet: name, bag capacity, active toggle. `reserved_spaces` is editable and **enforced**; the card shows how many spaces are bookable                                                                                                                                                                     |
+| `/staff`          | Config | Invite / list / deactivate agents and admins                                                                                                                                                                                                                                                                  |
+| `/staff/[userId]` | Config | One staff member: their history, their zones, `can_drive`                                                                                                                                                                                                                                                     |
+
+**The Overview's premise is that a calm system renders almost nothing.**
+`buildAttention` ([apps/admin/src/lib/attention.ts](../apps/admin/src/lib/attention.ts))
+returns items ordered `blocked` → `urgent` → `soon`, and an empty list is the
+normal case. The page it replaced was four stat cards, three reading `0` on an
+ordinary day — the same shape whether the day was fine or on fire. It lives in
+the app rather than core because it is a decision about what to look at first,
+not a fact about the domain. `getLaunchReadiness` (core) covers the four
+conditions under which the product stops working with no error anywhere, and
+its panel is not rendered once all four pass. Details and the traps:
+[features/ops-console.md §9](features/ops-console.md#9-the-overview-page).
+
+**The board's search reads eleven fields**, with **address and ZIP
+deliberately excluded** and a test pinning that. Agent and Driver are ONE
+column: the driver wins when there is one, and the second line is either the
+job or the at-risk badge. See
+[features/ops-console.md §4.3–4.4](features/ops-console.md#43--one-column-for-whoever-has-the-booking).
 
 Plus `/login`, `/login/reset` and `/set-password` — staff auth, outside the rail.
 

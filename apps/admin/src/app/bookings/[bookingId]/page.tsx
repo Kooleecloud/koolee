@@ -21,6 +21,8 @@ import {
   EVENT_TYPES,
   getBookingAgreementState,
   getPassportVerification,
+  assignmentGate,
+  cancellationFromTimeline,
   formatInstantInAirportTz,
   formatWindowInAirportTz,
   getBookingAssignment,
@@ -187,6 +189,41 @@ export default async function BookingDetailPage({
   ];
   const actors = await resolveActors(core.db, session, actorIds);
 
+  /*
+   * WHO CANCELLED IT, said at the top rather than only in the trail.
+   *
+   * The trail below has carried the actor since it was written and still
+   * does — this adds nothing to the record. What it adds is the ANSWER
+   * without a scroll: on a cancelled booking, "was this the customer or was
+   * this us?" is the first question a support call opens with, and finding it
+   * meant reading a twenty-event timeline to the row that happens to say
+   * `booking.cancelled`.
+   *
+   * Read off the timeline already loaded, not a second query.
+   */
+  const cancelledEvent =
+    booking.status === "cancelled"
+      ? timeline.find((event) => event.eventType === "booking.cancelled")
+      : undefined;
+  const cancellation = cancellationFromTimeline(timeline);
+
+  /*
+   * WHETHER OPS MAY STILL MOVE PEOPLE ON THIS BOOKING, from the same function
+   * core refuses with. The two answers differ — the verification closes when
+   * the visit is done, the pickup when the booking is — so both are asked.
+   *
+   * Read here rather than reasoned about in the JSX: a control hidden by one
+   * rule while the server refuses by another is how an operator ends up
+   * looking at a button that cannot work, or at no button when the action was
+   * available all along.
+   */
+  const visitGate = assignmentGate(
+    "verification",
+    booking,
+    assignment.taskStatus === "done",
+  );
+  const pickupGate = assignmentGate("pickup", booking, false);
+
   // The identity gate's two halves, read for display only. Ops cannot satisfy
   // either of them from here by design: the acceptance is the customer's act,
   // and the passport confirmation is the assigned agent's.
@@ -257,6 +294,26 @@ export default async function BookingDetailPage({
         </p>
       )}
 
+      {cancellation && (
+        <p className="rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm">
+          <strong>
+            Cancelled by{" "}
+            {cancellation.by === "customer"
+              ? "the customer"
+              : cancellation.by === "system"
+                ? "the system"
+                : "Koolee"}
+          </strong>
+          {cancelledEvent?.actorUserId
+            ? ` (${actors.get(cancelledEvent.actorUserId)?.name ?? cancelledEvent.actorUserId.slice(0, 8)}${
+                cancelledEvent.actorRole ? `, ${cancelledEvent.actorRole}` : ""
+              })`
+            : ""}{" "}
+          · {formatInstantInAirportTz(cancellation.at, tz)}
+          {cancellation.reason ? ` · ${cancellation.reason}` : ""}
+        </p>
+      )}
+
       {/* The exception banner leads. A booking that has stopped is the only
           thing on this page an operator has to act on before reading
           anything else, and it used to sit below the fold under two cards
@@ -288,11 +345,17 @@ export default async function BookingDetailPage({
        */}
       <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
         <div className="flex min-w-0 flex-col gap-6">
+          {/*
+            DETAILS AND PAYMENTS ARE ONE CARD. They were two, stacked, with a
+            card boundary between "what was bought" and "what was paid for it"
+            — which is one fact split across a rule. An operator checking a
+            refund reads both together and never one without the other.
+          */}
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Details</CardTitle>
+              <CardTitle className="text-base">Details &amp; payments</CardTitle>
             </CardHeader>
-            <CardContent>
+            <CardContent className="flex flex-col gap-6">
               {/* Every instant here is airport-local, matching the board — the
                   same booking must never read as two different times. */}
               <dl className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-2 text-sm">
@@ -372,14 +435,70 @@ export default async function BookingDetailPage({
                 <dt className="text-muted-foreground">Created</dt>
                 <dd>{formatInstantInAirportTz(booking.createdAt, tz)}</dd>
               </dl>
+
+              <div className="flex flex-col gap-2 border-t border-border pt-4">
+                <h3 className="text-sm font-medium text-navy-800">Payments</h3>
+                {payments.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">No payment recorded.</p>
+                ) : (
+                  <ul className="flex flex-col gap-2 text-sm">
+                    {payments.map((payment) => (
+                      <li
+                        key={payment.id}
+                        className="flex items-center justify-between gap-3 rounded-lg border px-3 py-2"
+                      >
+                        <span>
+                          ${(payment.amountCents / 100).toFixed(2)}{" "}
+                          <span className="text-xs uppercase text-muted-foreground">
+                            {payment.provider}
+                          </span>
+                        </span>
+                        <span className="flex items-center gap-2 text-xs">
+                          <Badge
+                            variant={
+                              payment.status === "captured" ||
+                              payment.status === "authorized"
+                                ? "success"
+                                : payment.status === "refunded"
+                                  ? "secondary"
+                                  : "warning"
+                            }
+                          >
+                            {payment.status}
+                          </Badge>
+                          <span className="font-mono text-muted-foreground">
+                            {payment.providerRef}
+                          </span>
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
             </CardContent>
           </Card>
+
+          {/*
+            THE VISIT AS ONE STORY. The identity gate and the seals were two
+            cards with a rule between them, and they are two halves of one
+            event: an agent stood at a door, checked a passport against a face,
+            and put numbered seals on bags. Reading the second without the
+            first is how somebody concludes a bag was sealed properly when the
+            gate that permits sealing had not passed.
+          */}
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Identity gate</CardTitle>
+              <CardTitle className="text-base">Verify &amp; seal</CardTitle>
               <CardDescription>
-                Both must hold before an agent can seal a bag. There is no override — a
-                blocked agent files an exception.
+                {/* WHO DID IT, as a fact rather than a form. The forms stay in
+                    the act column; what the record needs is a name, because
+                    "was the gate satisfied" and "by whom" are the same
+                    question on a dispute. */}
+                {assignment.assigneeEmail
+                  ? `${assignment.assigneeEmail} — ${assignment.taskStatus ?? "assigned"}. `
+                  : "Nobody assigned yet. "}
+                Both halves of the gate must hold before an agent can seal a bag. There is
+                no override — a blocked agent files an exception.
               </CardDescription>
             </CardHeader>
             <CardContent className="flex flex-col gap-3 text-sm">
@@ -439,135 +558,89 @@ export default async function BookingDetailPage({
                     it, and this one earns nothing by having it. The storage path
                     is in the custody trail if an investigation ever needs it. */}
               </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Bags & seals</CardTitle>
-            </CardHeader>
-            <CardContent>
-              {bags.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No bags recorded yet.</p>
-              ) : (
-                /* One card per bag, wrapping — an operator on a dispute is
+
+              <div className="flex flex-col gap-3 border-t border-border pt-4">
+                <h3 className="text-sm font-medium text-navy-800">Bags &amp; seals</h3>
+                {bags.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">No bags recorded yet.</p>
+                ) : (
+                  /* One card per bag, wrapping — an operator on a dispute is
                    comparing bags against each other (which seal, which photo),
                    and a stacked list makes that a scroll instead of a glance. */
-                <ul className="flex flex-wrap gap-3">
-                  {bags.map((bag) => (
-                    <Card asChild key={bag.id}>
-                      <li className="flex w-40 flex-col gap-2 p-3">
-                        <div className="flex items-baseline justify-between gap-2">
-                          <span className="font-display text-sm font-semibold text-navy-800">
-                            Bag {bag.ordinal}
-                          </span>
-                          {bag.weightKg ? (
-                            <span className="text-xs text-muted-foreground">
-                              {bag.weightKg} kg
+                  <ul className="flex flex-wrap gap-3">
+                    {bags.map((bag) => (
+                      <Card asChild key={bag.id}>
+                        <li className="flex w-40 flex-col gap-2 p-3">
+                          <div className="flex items-baseline justify-between gap-2">
+                            <span className="font-display text-sm font-semibold text-navy-800">
+                              Bag {bag.ordinal}
                             </span>
-                          ) : null}
-                        </div>
+                            {bag.weightKg ? (
+                              <span className="text-xs text-muted-foreground">
+                                {bag.weightKg} kg
+                              </span>
+                            ) : null}
+                          </div>
 
-                        {/* The seal id is the identifier a dispute turns on, so it
+                          {/* The seal id is the identifier a dispute turns on, so it
                           gets its own line in mono rather than sharing one. */}
-                        <span className="font-mono text-xs break-all">
-                          {bag.sealId ? (
-                            bag.sealId
-                          ) : (
-                            <span className="text-muted-foreground">not sealed</span>
-                          )}
-                        </span>
+                          <span className="font-mono text-xs break-all">
+                            {bag.sealId ? (
+                              bag.sealId
+                            ) : (
+                              <span className="text-muted-foreground">not sealed</span>
+                            )}
+                          </span>
 
-                        {(() => {
-                          const path = bag.photoUrls.find((p) => signedUrls.has(p));
-                          if (path) {
-                            return (
-                              <ImageLightbox
-                                src={signedUrls.get(path)!}
-                                alt={`Bag ${bag.ordinal} evidence photo`}
-                                title={`Bag ${bag.ordinal}`}
-                                description={
-                                  bag.sealId
-                                    ? `seal ${bag.sealId}${bag.weightKg ? ` · ${bag.weightKg} kg` : ""}`
-                                    : undefined
-                                }
-                                className="h-28 w-full"
-                              />
-                            );
-                          }
-                          return (
-                            <span className="flex h-28 items-center justify-center rounded-md border border-dashed text-center text-xs text-muted-foreground">
-                              {bag.photoUrls.length > 0
-                                ? "photo (signing unavailable)"
-                                : "no photo"}
-                            </span>
-                          );
-                        })()}
-
-                        {/* Extra photos stay reachable without stretching the card. */}
-                        {bag.photoUrls.filter((p) => signedUrls.has(p)).length > 1 && (
-                          <div className="flex flex-wrap gap-1">
-                            {bag.photoUrls
-                              .filter((p) => signedUrls.has(p))
-                              .slice(1)
-                              .map((path) => (
+                          {(() => {
+                            const path = bag.photoUrls.find((p) => signedUrls.has(p));
+                            if (path) {
+                              return (
                                 <ImageLightbox
-                                  key={path}
                                   src={signedUrls.get(path)!}
                                   alt={`Bag ${bag.ordinal} evidence photo`}
                                   title={`Bag ${bag.ordinal}`}
-                                  className="h-10 w-10"
+                                  description={
+                                    bag.sealId
+                                      ? `seal ${bag.sealId}${bag.weightKg ? ` · ${bag.weightKg} kg` : ""}`
+                                      : undefined
+                                  }
+                                  className="h-28 w-full"
                                 />
-                              ))}
-                          </div>
-                        )}
-                      </li>
-                    </Card>
-                  ))}
-                </ul>
-              )}
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Payments</CardTitle>
-            </CardHeader>
-            <CardContent>
-              {payments.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No payment recorded.</p>
-              ) : (
-                <ul className="flex flex-col gap-2 text-sm">
-                  {payments.map((payment) => (
-                    <li
-                      key={payment.id}
-                      className="flex items-center justify-between gap-3 rounded-lg border px-3 py-2"
-                    >
-                      <span>
-                        ${(payment.amountCents / 100).toFixed(2)}{" "}
-                        <span className="text-xs uppercase text-muted-foreground">
-                          {payment.provider}
-                        </span>
-                      </span>
-                      <span className="flex items-center gap-2 text-xs">
-                        <Badge
-                          variant={
-                            payment.status === "captured" ||
-                            payment.status === "authorized"
-                              ? "success"
-                              : payment.status === "refunded"
-                                ? "secondary"
-                                : "warning"
-                          }
-                        >
-                          {payment.status}
-                        </Badge>
-                        <span className="font-mono text-muted-foreground">
-                          {payment.providerRef}
-                        </span>
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              )}
+                              );
+                            }
+                            return (
+                              <span className="flex h-28 items-center justify-center rounded-md border border-dashed text-center text-xs text-muted-foreground">
+                                {bag.photoUrls.length > 0
+                                  ? "photo (signing unavailable)"
+                                  : "no photo"}
+                              </span>
+                            );
+                          })()}
+
+                          {/* Extra photos stay reachable without stretching the card. */}
+                          {bag.photoUrls.filter((p) => signedUrls.has(p)).length > 1 && (
+                            <div className="flex flex-wrap gap-1">
+                              {bag.photoUrls
+                                .filter((p) => signedUrls.has(p))
+                                .slice(1)
+                                .map((path) => (
+                                  <ImageLightbox
+                                    key={path}
+                                    src={signedUrls.get(path)!}
+                                    alt={`Bag ${bag.ordinal} evidence photo`}
+                                    title={`Bag ${bag.ordinal}`}
+                                    className="h-10 w-10"
+                                  />
+                                ))}
+                            </div>
+                          )}
+                        </li>
+                      </Card>
+                    ))}
+                  </ul>
+                )}
+              </div>
             </CardContent>
           </Card>
         </div>
@@ -575,6 +648,19 @@ export default async function BookingDetailPage({
         {/* Sticky: dispatch reassigns while scrolling the custody trail
             looking for what went wrong. */}
         <div className="flex min-w-0 flex-col gap-6 lg:sticky lg:top-20">
+          {/*
+            ONE ASSIGNMENT CARD, TWO HALVES. The agent and the driver were two
+            cards; they are one question asked twice — who is on this booking —
+            and the two gates that answer it close at different moments, which
+            is precisely the thing an operator needs to see side by side.
+
+            IT STAYS IN THE ACT COLUMN, and that is a deliberate deviation from
+            the brief, which asked for assignment to join the visit's record on
+            the left. The page's own arrangement is read-left / act-right, and
+            the visit's RECORD is reading while reassigning is acting. What the
+            left card gained instead is the assigned agent as a FACT, so the
+            visit reads as one story without the forms following it there.
+          */}
           <Card>
             <CardHeader>
               <CardTitle className="text-base">Assignment</CardTitle>
@@ -587,76 +673,90 @@ export default async function BookingDetailPage({
               </CardDescription>
             </CardHeader>
             <CardContent className="flex flex-col gap-4">
-              <AssignAgentForm
-                bookingId={booking.id}
-                agents={agents.map((agent) => {
-                  const name = agent.fullName
-                    ? `${agent.fullName} (${agent.email ?? agent.userId})`
-                    : (agent.email ?? agent.userId);
-                  // Load is on the label, not a second column: the operator is
-                  // choosing inside this list and cannot see anything else.
-                  return {
-                    userId: agent.userId,
-                    label: `${name} — ${agent.openTasks} open`,
-                  };
-                })}
-                currentAssignee={assignment.assigneeUserId}
-              />
-              {!assignment.assigneeUserId && booking.status === "paid" && (
-                <AutoAssignButton bookingId={booking.id} />
+              {/* The gate's own sentence, in place of the control it refuses.
+                  A disabled button with no reason beside it is the same dead
+                  end as one that silently fails. */}
+              {!visitGate.allowed ? (
+                <p className="rounded-md border border-border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
+                  {visitGate.reason}
+                </p>
+              ) : (
+                <AssignAgentForm
+                  bookingId={booking.id}
+                  agents={agents.map((agent) => {
+                    const name = agent.fullName
+                      ? `${agent.fullName} (${agent.email ?? agent.userId})`
+                      : (agent.email ?? agent.userId);
+                    // Load is on the label, not a second column: the operator is
+                    // choosing inside this list and cannot see anything else.
+                    return {
+                      userId: agent.userId,
+                      label: `${name} — ${agent.openTasks} open`,
+                    };
+                  })}
+                  currentAssignee={assignment.assigneeUserId}
+                />
               )}
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Pickup run</CardTitle>
-              <CardDescription>
-                {selectedDriver
-                  ? `${selectedDriver.givenName ?? "A driver"} in ${selectedDriver.truckName} — ${
-                      // `travelStartedAt` stays set after the run finishes, so
-                      // it only means "on the way" while the task is still open.
-                      selectedDriver.taskStatus === "done"
-                        ? "run complete"
-                        : selectedDriver.taskStatus === "failed"
-                          ? "run failed, handed to ops"
-                          : selectedDriver.travelStartedAt
-                            ? "on the way"
-                            : "not set off yet"
-                    }.`
-                  : "No driver on this booking. The customer picks one once the bags are sealed; reassign here if they cannot, or if the one they picked fell through."}
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="flex flex-col gap-4">
-              <ReassignPickupForm
-                bookingId={booking.id}
-                bagCount={booking.bagCount}
-                currentShiftId={selectedDriver?.shiftId ?? null}
-                options={reassignOptions.map((option) => ({
-                  shiftId: option.shiftId,
-                  // The free count is net of the reserve now — the same
-                  // `bookableSpaces` figure the customer's shortlist filters
-                  // on, so the console and the funnel cannot disagree about
-                  // whether a van has room.
-                  label: `${option.driverName ?? "Unnamed driver"} — ${option.truckName} (${Math.max(
-                    0,
-                    option.bagCapacity - option.reservedSpaces - option.bagsOnBoard,
-                  )} free${option.reservedSpaces > 0 ? `, ${option.reservedSpaces} held back` : ""})`,
-                  inZone: option.inZone,
-                  hasRoom: option.hasRoom,
-                }))}
-              />
+              {visitGate.allowed &&
+                !assignment.assigneeUserId &&
+                booking.status === "paid" && <AutoAssignButton bookingId={booking.id} />}
 
-              {/* Only when there IS somebody to remove. Core refuses an
+              <div className="flex flex-col gap-3 border-t border-border pt-4">
+                <h3 className="text-sm font-medium text-navy-800">Pickup run</h3>
+                <p className="text-sm text-muted-foreground">
+                  {selectedDriver
+                    ? `${selectedDriver.givenName ?? "A driver"} in ${selectedDriver.truckName} — ${
+                        // `travelStartedAt` stays set after the run finishes, so
+                        // it only means "on the way" while the task is still open.
+                        selectedDriver.taskStatus === "done"
+                          ? "run complete"
+                          : selectedDriver.taskStatus === "failed"
+                            ? "run failed, handed to ops"
+                            : selectedDriver.travelStartedAt
+                              ? "on the way"
+                              : "not set off yet"
+                      }.`
+                    : "No driver on this booking. The customer picks one once the bags are sealed; reassign here if they cannot, or if the one they picked fell through."}
+                </p>
+                {!pickupGate.allowed ? (
+                  <p className="rounded-md border border-border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
+                    {pickupGate.reason}
+                  </p>
+                ) : (
+                  <>
+                    <ReassignPickupForm
+                      bookingId={booking.id}
+                      bagCount={booking.bagCount}
+                      currentShiftId={selectedDriver?.shiftId ?? null}
+                      options={reassignOptions.map((option) => ({
+                        shiftId: option.shiftId,
+                        // The free count is net of the reserve now — the same
+                        // `bookableSpaces` figure the customer's shortlist filters
+                        // on, so the console and the funnel cannot disagree about
+                        // whether a van has room.
+                        label: `${option.driverName ?? "Unnamed driver"} — ${option.truckName} (${Math.max(
+                          0,
+                          option.bagCapacity - option.reservedSpaces - option.bagsOnBoard,
+                        )} free${option.reservedSpaces > 0 ? `, ${option.reservedSpaces} held back` : ""})`,
+                        inZone: option.inZone,
+                        hasRoom: option.hasRoom,
+                      }))}
+                    />
+
+                    {/* Only when there IS somebody to remove. Core refuses an
                   unassign on an empty task, and an affordance that only ever
                   produces a refusal is noise. */}
-              {selectedDriver && selectedDriver.taskStatus !== "done" && (
-                <div className="border-t border-border pt-3">
-                  <UnassignPickupForm
-                    bookingId={booking.id}
-                    driverLabel={`${selectedDriver.givenName ?? "this driver"} (${selectedDriver.truckName})`}
-                  />
-                </div>
-              )}
+                    {selectedDriver && selectedDriver.taskStatus !== "done" && (
+                      <div className="border-t border-border pt-3">
+                        <UnassignPickupForm
+                          bookingId={booking.id}
+                          driverLabel={`${selectedDriver.givenName ?? "this driver"} (${selectedDriver.truckName})`}
+                        />
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
             </CardContent>
           </Card>
           <Card>

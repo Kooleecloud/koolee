@@ -401,10 +401,30 @@ export interface UpdateTruckInput {
  * every customer's shortlist while still holding bags. End the shift first
  * (`adminForceEndShift` if the driver cannot).
  *
- * Capacity CAN be reduced below what is currently on board. That is deliberate:
- * the number is being corrected, and refusing the correction would not unload
- * the van. Selection recomputes from the new figure and simply offers no more
- * space.
+ * CAPACITY MAY NOT BE CUT BELOW WHAT IS ALREADY ABOARD, while the truck is
+ * out. This REVERSES the note that stood here, and the note was not wrong so
+ * much as answering a different question.
+ *
+ * It said: capacity can be reduced below what is on board, because the number
+ * is being corrected and refusing the correction would not unload the van.
+ * True — and nothing breaks, because `bookableSpaces` floors at zero, so the
+ * van simply stops being offered.
+ *
+ * That silence is the problem. On a truck with a shift open, the overwhelmingly
+ * likelier cause of "capacity 5" on a van that holds 15 is a typo, and the
+ * consequence of accepting it is a driver quietly disappearing from every
+ * customer's shortlist for the rest of their shift with nothing anywhere
+ * saying why. The refusal names the numbers, so a typo is obvious and a real
+ * correction is one sentence away from being understood.
+ *
+ * THE CORRECTION IS NOT LOST, only deferred: end the shift and the edit goes
+ * through, because the rule only applies while a truck is out. That escape is
+ * minutes long and is named in the message.
+ *
+ * DEACTIVATION STAYS BLOCKED outright during an open shift — see above; that
+ * one has no safe degradation at all, because every read in
+ * `driver-selection.ts` filters inactive trucks and the driver would vanish
+ * while still holding bags.
  */
 export async function updateTruck(db: Database, input: UpdateTruckInput): Promise<Truck> {
   const existing = await db.query.trucks.findFirst({ where: eq(trucks.id, input.id) });
@@ -445,10 +465,33 @@ export async function updateTruck(db: Database, input: UpdateTruckInput): Promis
   // Checked against whichever of the two is CHANGING, plus whichever is not.
   // Lowering capacity under an existing reserve is the same mistake as raising
   // the reserve past capacity, and an edit form posts both fields.
-  assertReserveLeavesRoom(
-    input.reservedSpaces ?? existing.reservedSpaces,
-    input.bagCapacity ?? existing.bagCapacity,
-  );
+  const nextReserved = input.reservedSpaces ?? existing.reservedSpaces;
+  const nextCapacity = input.bagCapacity ?? existing.bagCapacity;
+  assertReserveLeavesRoom(nextReserved, nextCapacity);
+
+  /*
+   * The bookable figure must still cover what is in the van. Only asked while
+   * a shift is OPEN — a parked truck has nothing aboard to strand, and the
+   * same edit goes through the moment the shift ends.
+   */
+  if (input.bagCapacity !== undefined || input.reservedSpaces !== undefined) {
+    const [openShift] = await db
+      .select({ id: driverShifts.id })
+      .from(driverShifts)
+      .where(and(eq(driverShifts.truckId, input.id), isNull(driverShifts.endedAt)))
+      .limit(1);
+
+    if (openShift) {
+      const onBoard = await bagsOnShift(db, openShift.id);
+      const bookable = nextCapacity - nextReserved;
+      if (bookable < onBoard) {
+        throw new ConflictError(
+          "shift",
+          `${existing.name} has ${onBoard} ${onBoard === 1 ? "bag" : "bags"} committed on its open shift, and ${nextCapacity} capacity minus ${nextReserved} reserved leaves only ${bookable}. Raise the capacity, lower the reserve, or end the shift first.`,
+        );
+      }
+    }
+  }
 
   try {
     const [row] = await db

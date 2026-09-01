@@ -453,6 +453,91 @@ describeIntegration("driver shifts (integration)", () => {
       ).rejects.toThrow(/nothing bookable/i);
     });
 
+    /*
+     * THE RULE THAT REVERSED A COMMENT. `updateTruck`'s header used to say
+     * capacity could be cut below what was aboard, because the number is
+     * being corrected and refusing would not unload the van — true, and
+     * nothing breaks, since `bookableSpaces` floors at zero.
+     *
+     * That silence is the problem. On a truck with an open shift the likelier
+     * cause of "capacity 5" on a van that holds 15 is a typo, and the
+     * consequence of accepting it is a driver vanishing from every customer's
+     * shortlist for the rest of the day with nothing saying why.
+     */
+    describe("while the truck is out", () => {
+      async function truckOnTheRoadWithBags() {
+        const driver = await makeDriver("Nina Petrov");
+        const truck = await makeTruck("Van Live", 20);
+        const shift = await startShift(config, {
+          staffUserId: driver,
+          truckId: truck.id,
+        });
+        // Two bookings of two bags each: four aboard.
+        await pickupOnShift(shift.shift.id, driver, "assigned");
+        await pickupOnShift(shift.shift.id, driver, "assigned");
+        return truck;
+      }
+
+      it("refuses a capacity that would leave less room than the bags aboard", async () => {
+        const truck = await truckOnTheRoadWithBags();
+        await expect(updateTruck(db, { id: truck.id, bagCapacity: 3 })).rejects.toThrow(
+          /4 bags committed/i,
+        );
+      });
+
+      it("names the numbers, so a typo is obvious", async () => {
+        const truck = await truckOnTheRoadWithBags();
+        await expect(
+          updateTruck(db, { id: truck.id, bagCapacity: 6, reservedSpaces: 5 }),
+        ).rejects.toThrow(/6 capacity minus 5 reserved leaves only 1/i);
+      });
+
+      it("allows a capacity that still covers them", async () => {
+        const truck = await truckOnTheRoadWithBags();
+        const ok = await updateTruck(db, { id: truck.id, bagCapacity: 4 });
+        expect(ok.bagCapacity).toBe(4);
+      });
+
+      /* The name is not a capacity question and was never in doubt. */
+      it("lets the name be corrected mid-shift", async () => {
+        const truck = await truckOnTheRoadWithBags();
+        const ok = await updateTruck(db, { id: truck.id, name: "Van Live II" });
+        expect(ok.name).toBe("Van Live II");
+      });
+
+      /*
+       * THE CORRECTION IS DEFERRED, NOT LOST — the rule only applies while a
+       * shift is open, and that escape is named in the refusal.
+       */
+      it("accepts the same edit once the shift has ended", async () => {
+        const driver = await makeDriver("Sam Okafor");
+        const truck = await makeTruck("Van Parked", 20);
+        const shift = await startShift(config, {
+          staffUserId: driver,
+          truckId: truck.id,
+        });
+        await pickupOnShift(shift.shift.id, driver, "assigned");
+        await expect(updateTruck(db, { id: truck.id, bagCapacity: 1 })).rejects.toThrow(
+          /committed/i,
+        );
+
+        await db
+          .update(driverShifts)
+          .set({ endedAt: now })
+          .where(eq(driverShifts.id, shift.shift.id));
+
+        const ok = await updateTruck(db, { id: truck.id, bagCapacity: 1 });
+        expect(ok.bagCapacity).toBe(1);
+      });
+
+      /* A parked truck has nothing aboard to strand. */
+      it("does not ask the question of a truck with no open shift", async () => {
+        const truck = await makeTruck("Van Idle", 20);
+        const ok = await updateTruck(db, { id: truck.id, bagCapacity: 1 });
+        expect(ok.bagCapacity).toBe(1);
+      });
+    });
+
     it("refuses a reserve above the capacity", async () => {
       await expect(
         createTruck(db, { name: "Van Z", bagCapacity: 10, reservedSpaces: 11 }),

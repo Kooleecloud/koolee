@@ -188,6 +188,13 @@
   --animate-tag-swing: tag-swing 1.6s cubic-bezier(0.45, 0, 0.55, 1) infinite;
   --animate-seal-turn: seal-turn 2.4s linear infinite;
   --animate-seal-pulse: seal-pulse 1.6s ease-in-out infinite;
+  /*
+   * The ring behind a driver's pin on the map. Slow on purpose — a fast pulse
+   * reads as an alert, and nothing here is wrong; this says "these positions
+   * are live", which is the one thing a map of stationary-looking pins cannot
+   * say for itself between updates.
+   */
+  --animate-pin-ping: pin-ping 2.8s cubic-bezier(0, 0, 0.2, 1) infinite;
 
   @keyframes tag-swing {
     0%,
@@ -215,6 +222,23 @@
     50% {
       opacity: 1;
       transform: scale(1);
+    }
+  }
+
+  @keyframes pin-ping {
+    0% {
+      opacity: 0.45;
+      transform: scale(0.75);
+    }
+    /* Fades well before it stops growing, so the ring dissolves outward
+       rather than snapping off at its widest. */
+    70% {
+      opacity: 0;
+      transform: scale(1.9);
+    }
+    100% {
+      opacity: 0;
+      transform: scale(1.9);
     }
   }
 

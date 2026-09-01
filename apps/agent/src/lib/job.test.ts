@@ -5,6 +5,8 @@ import {
   finishedJobs,
   groupIntoSections,
   groupJobs,
+  isFinished,
+  isOutstanding,
   startablePickupTaskId,
   type Job,
 } from "./job";
@@ -384,5 +386,58 @@ describe("a cancelled booking in the agent's day", () => {
     const live = jobs.find((j) => j.bookingId === "b-2");
     expect(live!.state).toBe("upcoming");
     expect(live!.next).not.toBeNull();
+  });
+});
+
+/**
+ * SHOWN, BUT NOT COUNTED — the half F4 left open.
+ *
+ * F4 gave a cancelled booking its own `JobState` and stopped the expanded card
+ * offering Navigate and Call. What it did not do was teach the DAY about it:
+ * `isFinished` is "done" only, so a cancelled stop stayed in every derivation
+ * that used "not done" to mean "work". A driver with two live jobs and one
+ * cancelled one read "3 to do", saw "· 1 late" for a stop nobody was going to,
+ * and got a route headed "3 stops" — three wrong numbers with one cause.
+ *
+ * The two predicates answer different questions and must not be merged:
+ * `isFinished` is "did somebody DO this" (History), `isOutstanding` is "does
+ * this still ask for something" (every count on Today).
+ */
+describe("isOutstanding vs isFinished", () => {
+  const jobIn = (state: Job["state"]): Job => ({
+    bookingId: "b-1",
+    booking: BOOKING,
+    tz: "America/New_York",
+    phases: [],
+    startsAt: null,
+    next: null,
+    state,
+  });
+
+  it.each(["upcoming", "active", "problem"] as const)(
+    "counts a %s stop as work",
+    (state) => {
+      expect(isOutstanding(jobIn(state))).toBe(true);
+    },
+  );
+
+  it("does not count a done stop as work", () => {
+    expect(isOutstanding(jobIn("done"))).toBe(false);
+  });
+
+  /* THE BUG. A cancelled stop is visible and is not work. */
+  it("does not count a cancelled stop as work", () => {
+    expect(isOutstanding(jobIn("cancelled"))).toBe(false);
+  });
+
+  /*
+   * And it is still not "finished": History lists work somebody DID, and
+   * nobody did this one. Merging the two predicates would either put a
+   * cancelled booking in the driver's completed work or put it back in the
+   * to-do count — the two failures this pair exists to keep apart.
+   */
+  it("does not call a cancelled stop finished", () => {
+    expect(isFinished(jobIn("cancelled"))).toBe(false);
+    expect(isFinished(jobIn("done"))).toBe(true);
   });
 });

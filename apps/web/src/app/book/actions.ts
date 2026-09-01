@@ -23,7 +23,13 @@ import {
 import { ensureDraftSession } from "@/actions/auth";
 import { getAuthUser } from "@/lib/auth";
 import { emitBookingConfirmed } from "@/lib/booking-events";
-import { clearDraft, readDraft, writeDraft } from "@/lib/booking-draft";
+import {
+  clearDraft,
+  clearStashedDraft,
+  readDraft,
+  restoreStashedDraft,
+  writeDraft,
+} from "@/lib/booking-draft";
 import type { PrefillAlternative } from "@/lib/booking-draft-schema";
 import { nextIncompleteStep } from "@/lib/booking-steps";
 import { buildCheckoutSetup, isDraftReadyForPayment } from "@/lib/checkout";
@@ -93,6 +99,42 @@ export async function startOverBooking(): Promise<void> {
   }
 
   await clearDraft();
+  redirect("/book/flight");
+}
+
+/* ------------------------------------------------------------------ */
+/* The set-aside draft                                                  */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Puts the set-aside draft back and jumps to where it left off.
+ *
+ * The counterpart to `/book`'s reset: that door starts a clean booking and
+ * moves the old draft to `koolee_draft_prev`; this moves it back and sends the
+ * customer to its first incomplete step, which is exactly where the old
+ * unconditional resume used to land them — the difference being that they
+ * asked for it.
+ *
+ * A no-op redirect when the stash has expired (an hour) or was already used:
+ * the offer that triggered this is rendered from the same cookie, so the only
+ * way to get here without one is a stale tab, and the honest answer to that is
+ * the clean first step they are already looking at.
+ */
+export async function resumeStashedDraft(): Promise<void> {
+  const restored = await restoreStashedDraft();
+  redirect(restored ? nextIncompleteStep(restored) : "/book/flight");
+}
+
+/**
+ * "No thanks" — the offer goes away and the clean booking carries on.
+ *
+ * It drops the stash cookie only. The account holder's `booking_drafts` mirror
+ * row is deliberately untouched: dismissing a prompt is not the same as
+ * discarding a booking, and that row is the seven-day safety net behind a lost
+ * phone. `startOverBooking` is what actually throws work away, and it says so.
+ */
+export async function dismissStashedDraft(): Promise<void> {
+  await clearStashedDraft();
   redirect("/book/flight");
 }
 

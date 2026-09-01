@@ -2,7 +2,12 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { toast, useAnnounceChange, useBookingSignal } from "@koolee/ui";
+import {
+  SIGNAL_POLL_FAST_MS,
+  toast,
+  useAnnounceChange,
+  useBookingSignal,
+} from "@koolee/ui";
 
 import { getSupabaseBrowserClient } from "@/lib/supabase/browser";
 
@@ -59,6 +64,24 @@ export function TripLive({
   active?: boolean;
   stage?: string | null;
 }) {
+  /*
+   * EVERY STAGE WHERE A POSITION IS MOVING, polled at or below the rate the
+   * driver's phone reports at — TD's rule, and the honest one: a page checking
+   * every thirty seconds for a fix written every twenty shows a stale dot for
+   * no reason.
+   *
+   *  - `choose_driver` — the poll is the ONLY transport here. A candidate's
+   *    ping signals nobody by design; see `SIGNAL_POLL_FAST_MS`.
+   *  - `awaiting_pickup` — a driver is chosen and on their way to the door.
+   *    Realtime carries this in about three seconds; the poll is the net, and
+   *    a net slower than the ping is a net with holes in it.
+   *  - `in_transit` — the bags are in the van and still moving.
+   *
+   * Derived from the STAGE the server computed, so it turns itself off the
+   * moment the bags are delivered and nothing is moving any more.
+   */
+  const watchingMovement =
+    stage === "choose_driver" || stage === "awaiting_pickup" || stage === "in_transit";
   const router = useRouter();
   const client = getSupabaseBrowserClient();
   const bookingIds = React.useMemo(() => (bookingId ? [bookingId] : []), [bookingId]);
@@ -68,6 +91,7 @@ export function TripLive({
     bookingIds,
     onSignal: () => router.refresh(),
     enabled: active,
+    pollMs: watchingMovement ? SIGNAL_POLL_FAST_MS : undefined,
   });
 
   useAnnounceChange(stage, (next) => {

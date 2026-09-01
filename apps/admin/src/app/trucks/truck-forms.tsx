@@ -128,6 +128,22 @@ export function TruckRowForms({ truck }: { truck: TruckRowView }) {
         </Button>
       </form>
 
+      {/*
+        THE CONSTRAINT, SAID BEFORE IT IS HIT. A truck that is out keeps its
+        fields editable — correcting a capacity mid-shift is a real need — but
+        the bookable figure may not fall below what is already committed to
+        that shift, or the driver silently leaves every customer's shortlist
+        for the rest of the day. Core refuses with the numbers; this is so an
+        operator does not have to be refused to find out.
+      */}
+      {truck.heldByName && truck.bagsOnBoard > 0 ? (
+        <p className="text-xs text-muted-foreground">
+          Out with {truck.heldByName} and carrying {truck.bagsOnBoard}{" "}
+          {truck.bagsOnBoard === 1 ? "bag" : "bags"} — bags minus reserved has to stay at{" "}
+          {truck.bagsOnBoard} or above until the shift ends.
+        </p>
+      ) : null}
+
       <form action={toggleAction}>
         <input type="hidden" name="id" value={truck.id} />
         <input type="hidden" name="active" value={truck.active ? "false" : "true"} />

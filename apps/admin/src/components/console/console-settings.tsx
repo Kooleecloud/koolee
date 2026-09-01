@@ -23,6 +23,7 @@ import {
 } from "@koolee/ui";
 
 import { signOutStaff } from "@/actions/auth";
+import { NotificationsCard } from "@/app/notifications-card";
 
 import { useConsolePreferences } from "./preferences-context";
 import { CONSOLE_HOME_OPTIONS, type ConsoleDensity } from "./preferences";
@@ -123,6 +124,20 @@ export function ConsoleSettings({
             {/* The console has no account route — this sheet IS the account
                 surface, so the picker lives here rather than behind one more
                 click to a page that would exist only to hold it. */}
+            {/*
+            THE SAME AFFORDANCE THE CUSTOMER GETS. The default `row` layout
+            renders a "Change photo" button and a bare "Remove" link beside the
+            avatar; the customer's profile has used `overlay` — the picker ON
+            the photo — since it was built, so staff and customers were being
+            shown two different controls for one action. Reused rather than
+            restyled: `AvatarUploader` already had the layout, nobody had
+            passed it here.
+
+            `allowRemove={false}` matches too. Removing a photo is not an
+            action either app offers — replacing it is — and a link that only
+            ever appears beside a photo somebody just added invites an undo
+            nobody asked for.
+          */}
             <AvatarUploader
               endpoint="/api/avatars"
               currentUrl={avatarUrl}
@@ -130,7 +145,19 @@ export function ConsoleSettings({
               accept={BUCKETS.avatars.mimeTypes}
               maxBytes={BUCKETS.avatars.maxUploadBytes}
               onUploaded={() => router.refresh()}
+              layout="overlay"
+              allowRemove={false}
             />
+            {/*
+              DESKTOP NOTIFICATIONS MOVED HERE from the Overview page, where
+              they sat below the fold under a bar chart. It is configured once
+              and then never looked at again — its own header says so — which
+              makes it exactly wrong for the page an operator opens twenty
+              times a day and exactly right for the sheet they open when they
+              want to change something about themselves.
+            */}
+            <NotificationsCard />
+
             <form action={signOutStaff}>
               <Button type="submit" variant="outline" className="w-full">
                 <LogOut aria-hidden="true" />

@@ -90,6 +90,11 @@ export const ignores = {
     "**/drizzle/**",
     "**/next-env.d.ts",
     "**/public/sw.js",
+    // MapLibre's worker, copied out of node_modules by
+    // scripts/copy-maplibre-worker.mjs. Minified vendor build output that
+    // happens to land under `public/`, where nothing else is ignored by
+    // extension — 1,228 errors' worth on the first run.
+    "**/public/maplibre/**",
     "**/*.tsbuildinfo",
   ],
 };

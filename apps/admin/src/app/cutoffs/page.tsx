@@ -1,6 +1,8 @@
+import { Plus } from "lucide-react";
 import { redirect } from "next/navigation";
 import {
   Badge,
+  Button,
   Card,
   CardContent,
   CardDescription,
@@ -8,6 +10,7 @@ import {
   CardTitle,
   DatabaseNotConfigured,
   EmptyState,
+  FormSheet,
   PageHeader,
 } from "@koolee/ui";
 import { listAirlineCutoffs, type AirlineCutoffRow } from "@koolee/core";
@@ -97,6 +100,20 @@ export default async function CutoffsPage({
               ? `${total} rows, all verified.`
               : `${placeholders} of ${total} rows are still the seed's placeholder. Every sellable pickup window is derived from these.`
         }
+        actions={
+          <FormSheet
+            trigger={
+              <Button size="sm">
+                <Plus aria-hidden="true" />
+                Add an airline
+              </Button>
+            }
+            title="Add an airline"
+            description="For a carrier the seed never knew about. Without a row, Koolee refuses to sell that airline at that airport at all — which is the right default, and this is how it stops being permanent."
+          >
+            <AddCutoffForm />
+          </FormSheet>
+        }
       />
 
       {unavailable ? null : (
@@ -119,62 +136,46 @@ export default async function CutoffsPage({
           }
         />
       ) : (
-        <div className="grid items-start gap-6 lg:grid-cols-[3fr_2fr]">
-          <section className="flex flex-col gap-6">
-            {[...byAirport.entries()].map(([airport, group]) => {
-              const unverified = group.filter((row) => row.placeholder).length;
-              return (
-                <Card key={airport}>
-                  <CardHeader className="gap-1.5">
-                    <CardTitle className="flex items-center gap-2 text-base">
-                      {airport}
-                      {unverified > 0 ? (
-                        <Badge variant="secondary">{unverified} unverified</Badge>
-                      ) : (
-                        <Badge variant="success">All verified</Badge>
-                      )}
-                    </CardTitle>
-                    <CardDescription>
-                      {group.length} rows. A booking takes the STRICTEST row on record
-                      across scopes — bookings do not store domestic or international, and
-                      a deadline that runs early costs the customer nothing.
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent className="divide-y divide-border">
-                    {group.map((row) => (
-                      <CutoffRowForm
-                        key={row.id}
-                        row={{
-                          id: row.id,
-                          airlineIata: row.airlineIata,
-                          airportCode: row.airportCode,
-                          scope: row.scope,
-                          minutes: row.cutoffMinutesBeforeDeparture,
-                          source: row.source,
-                          placeholder: row.placeholder,
-                        }}
-                      />
-                    ))}
-                  </CardContent>
-                </Card>
-              );
-            })}
-          </section>
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Add an airline</CardTitle>
-              <CardDescription>
-                For a carrier the seed never knew about. Without a row, Koolee refuses to
-                sell that airline at that airport at all — which is the right default, and
-                this is how it stops being permanent.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <AddCutoffForm />
-            </CardContent>
-          </Card>
-        </div>
+        <section className="flex flex-col gap-6">
+          {[...byAirport.entries()].map(([airport, group]) => {
+            const unverified = group.filter((row) => row.placeholder).length;
+            return (
+              <Card key={airport}>
+                <CardHeader className="gap-1.5">
+                  <CardTitle className="flex items-center gap-2 text-base">
+                    {airport}
+                    {unverified > 0 ? (
+                      <Badge variant="secondary">{unverified} unverified</Badge>
+                    ) : (
+                      <Badge variant="success">All verified</Badge>
+                    )}
+                  </CardTitle>
+                  <CardDescription>
+                    {group.length} rows. A booking takes the STRICTEST row on record
+                    across scopes — bookings do not store domestic or international, and a
+                    deadline that runs early costs the customer nothing.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="divide-y divide-border">
+                  {group.map((row) => (
+                    <CutoffRowForm
+                      key={row.id}
+                      row={{
+                        id: row.id,
+                        airlineIata: row.airlineIata,
+                        airportCode: row.airportCode,
+                        scope: row.scope,
+                        minutes: row.cutoffMinutesBeforeDeparture,
+                        source: row.source,
+                        placeholder: row.placeholder,
+                      }}
+                    />
+                  ))}
+                </CardContent>
+              </Card>
+            );
+          })}
+        </section>
       )}
     </ConsoleMain>
   );

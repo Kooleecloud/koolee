@@ -10,3 +10,5 @@
  * rectangle with no error anywhere.
  */
 @import "maplibre-gl/dist/maplibre-gl.css";
+
+@import "@koolee/ui/styles/map.css";

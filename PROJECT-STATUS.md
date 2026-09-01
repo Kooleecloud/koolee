@@ -59,6 +59,61 @@ package-specific in `packages/<pkg>/docs/`. Nothing new accumulates at the root.
 
 ## 3. Snapshot — where we are right now
 
+- **Slice F5 in flight: cancellation, the map, the funnel door, admin UX
+  (2026-08-31, `feat/f5-cancellation-map-ux`, cut from `origin/dev` @
+  `0715d53`).** Rows 121–126. **No migrations. No new environment variables in
+  any app or in core** — including for the map, which needs a build step rather
+  than a secret.
+
+  **(a) The map was never loading its worker, and nothing said so.** Not the
+  style URL the brief suspected: maplibre-gl 6 works the worker's URL out of
+  `import.meta.url`, returns the empty string under any bundler, and then
+  constructs `new Worker("")`. Everything on the main thread succeeds and no
+  tile is ever parsed. Serving the worker ourselves fixes it; the ten-second
+  deadline was the only thing that had ever caught it.
+
+  **(b) The customer can call off their own booking**, and every surface now
+  says who cancelled — a fact `custody_events` has recorded since the state
+  machine was written and nothing had ever rendered. The agent's task detail
+  hard-stops on a terminal booking, and its error handler stopped telling a
+  driver their phone was broken when the answer was "this job no longer
+  exists".
+
+  **(c) Three fixes each found a hole the brief had not asked about:** the
+  agent's day counted cancelled stops as work in four places, three assignment
+  call sites all omitted `cancelled`, and the console's sidebar announced a
+  count of bookings-needing-a-driver as "needing an agent".
+
+  **(d) TD drove the map's design in five rounds** — the pin flicker (a
+  `transition` on the element MapLibre owns), the controls, map-or-list instead
+  of stacked, the Koolee bag as the pickup pin, and dropping the geolocate
+  control because the pickup address is the anchor, not the viewer.
+
+  **(e) The map worked and was still usually empty, for two reasons that are
+  the same reason.** Pins were drawn from a driver's last position of ANY age —
+  a fix from yesterday placed a van on yesterday's street with full confidence,
+  and fed the ETA that "pick the best" ranks on. Adding a 90-second freshness
+  window fixed the lie and emptied the map, because `GpsPinger` only ran during
+  a pickup already in progress: **a shortlist candidate is by definition a
+  driver who has not started anything**, so no candidate ever had a position.
+  It reports for the whole shift now (20s en route · 45s otherwise), from the
+  layout rather than from the Today page — mounting it on one page meant
+  opening a task, the moment a driver is most likely moving, silently stopped
+  reporting. Off the clock nothing is sent and nothing is asked for.
+
+  **(f) The Overview was four stat cards, three of them reading `0`** — the
+  same shape on a calm morning as on a bad one, so an operator read four
+  numbers to learn there was nothing to do. It leads with what needs a human,
+  ordered by consequence, and **collapses to one green line when nothing
+  does**: the LENGTH is the signal now, readable across a room.
+
+  **(g) The board searched three fields and the ref was not one of them.**
+  Reported as "search is case-sensitive"; it never was — every clause was
+  already `ilike`, and `bookings.ref` simply was not a clause. Search now reads
+  eleven fields and each row says which one it matched, because the board shows
+  eight and a row can otherwise appear for a reason nowhere on it. Address and
+  ZIP stay out deliberately.
+
 - **Slice F4 in flight: fixes, latent traps, CI, on-behalf shifts
   (2026-08-31, `fix/f4-fixes-and-ci`, cut from `origin/dev` @ `78d2d5d`).**
   Rows 113–120. Migrations **0034 + 0035, LOCAL ONLY** — hosted gets both from
@@ -611,6 +666,15 @@ the linked row is the current behaviour)
 | 118 | reserved_spaces enforced; custody_events unpublished (2026-08-31) | ✅ | Slice F4, migration **0034**. The checklist called `reserved_spaces` "one subtraction in `listCandidateDrivers`"; it is FOUR readers, each computing capacity independently, so a reserve honoured in three would have been a race no test could see. One `bookableSpaces()` now, plus `reserved < capacity` on write, checked against whichever column is changing AND whichever is not. `custody_events` went the OPPOSITE way to the slice's default: it LEAVES the realtime publication, because nothing subscribes (the doorbell is `booking_signals`) and the coverage was not what the note claimed — ONE policy, not two, with no staff half. A published table with no grant is a trap, not a neutral. |
 | 119 | The console can start a shift, not only end one (2026-08-31) | ✅ | Slice F4, migration **0035**. `adminForceEndShift` shipped in Tier 4 with no pair, so a driver with a dead phone could be taken OFF the road and not put back on. `adminStartShiftOnBehalf` CALLS `startShift` — the same guards, the same 23505 path — because a second implementation is how the two drift. The actor could not go in `custody_events` (`booking_id` is NOT NULL and a shift belongs to no booking), so `driver_shifts.started_by_user_id` holds it; `admin_audit_log` stays deferred. The driver's app needed nothing new: `useBookingSignal`'s fallback already polls with an empty id list. |
 | 120 | One tile error killed the map; the console can now unassign (2026-08-31) | ✅ | Slice F4, TD's own two items. `instance.on("error", () => setFailed(true))` treated every MapLibre error as fatal AND permanent — a single 404 tile or an aborted request replaced a working map with "the map can't load right now", with no way back. Fatal only before `load` now; `data-map-state` on the DOM so the next report is diagnosable. And the console could only MOVE a pickup, so undoing an assignment meant parking the booking on another driver who was not going to do it either — a lie told to the board. `adminUnassignPickup` releases it properly, refused once the bags are in the van. Also fixed: two integration tests depended on another suite's `airline_cutoffs` row and **would have gone red on CI's first fresh container**. |
+| 121 | The map's worker was never loading (2026-08-31) | ✅ | Slice F5, Phase 0. Not the style URL the brief suspected — maplibre-gl 6 derives its worker URL from `import.meta.url`, returns the EMPTY STRING when that is not `http(s):` (which under any bundler it is not), and then calls `new Worker("")`. Style, TileJSON and sprites all 200; no tile ever requested; `load` never fires; **no error anywhere**. The ten-second deadline was the only thing catching it. `scripts/copy-maplibre-worker.mjs` serves the worker — and the shared module it imports, or it 404s just as silently — from `public/maplibre/`, gitignored and regenerated on every dev and build. **No key, no account, no environment variable.** Storybook's `optimizeDeps` workaround was a DIFFERENT, older bug with an identical symptom. |
+| 122 | The customer can cancel, and every screen says who did (2026-08-31) | ✅ | Slice F5, Phase 1. `cancelBookingByCustomer` is policy around the existing `cancelBookingWithRefund`, not a second one — three gates (status, window, nothing captured), then the same transition, slot release, custody event and authorization void the console runs. `custody_events` had recorded the actor since the state machine was written and nothing rendered it; four surfaces do now. The agent's task DETAIL hard-stops on terminal standing (F4 fixed the card, not the page behind it), and the error handler stopped answering a domain refusal with "check your connection" — it matched two subclasses, so `BookingNotActionableError`'s real sentence fell through. Also, from TD: the day was counting cancelled stops as work in four places. |
+| 123 | The map becomes the way you choose a driver (2026-08-31) | ✅ | Slice F5, Phase 2. The pin flicker was `transition-transform` on the element MapLibre rewrites every frame — Tailwind v4's `transition-transform` covers `transform`, so every position write animated. Root is now a positioning shell; everything visual is on a child. Map/list toggle (TD reversed the stacked layout mid-build), pin → anchored card → select, and `bestCandidate` for "pick the best" — nearest by `minMinutes`, tie-broken on bag load, running the SAME selection so there is one set of races. Recenter-when-panned ends automatic re-framing; **no geolocate control**, because the pickup is the anchor and somebody booking for a friend would be shown an irrelevant dot. Shortlist polls at 12s: realtime does nothing there by design. |
+| 124 | The funnel's front door starts a new booking (2026-08-31) | ✅ | Slice F5, Phase 3 (D2). `/book` resumed unconditionally, so "Book a pickup" dropped you into a half-finished booking from days ago with its flight prefilled. Clean now — and nothing is destroyed to achieve it: the old draft is MOVED to `koolee_draft_prev` (one hour) and the first step offers it back in one tap. Only a draft with PROGRESS is offered; the account-holder mirror is offered rather than entered. In-funnel navigation, a rejected ZIP and a mid-funnel reload never come through this door, which is why it can be this decisive. |
+| 125 | One assignment gate, closing the cancelled hole (2026-08-31) | ✅ | Slice F5, Phase 4. Three call sites each carried their own status list and **not one mentioned `cancelled`** — and in `assignAgentToBooking` the check ran only for a FIRST assignment, so a cancelled booking that already had an agent could be reassigned freely. `assignmentGate` sits beside the five customer/agent gates and deliberately outside them: those are about TIME (a late booking is still savable), this is about STANDING. Verification closes when the VISIT is done — the seals and the passport check are recorded against the agent who did them; pickup closes when the BOOKING is, which is later. The in-transit refusal stays where its sentence can name force-end-shift. |
+| 126 | The console stops keeping a form open all day (2026-08-31) | ✅ | Slice F5, Phase 5, most of it TD's own list. Six pages had a form pinned down the right in a `2fr 1fr` grid; `Sheet`/`FormSheet` in `packages/ui` put them behind labelled buttons. Pricing was rebuilt around the live rule (the publish form held the wide column while "what are we charging" sat below it). Staff grouped by role with URL filters and a workload counted BY BOOKING — one person holds both tasks for one trip, so counting tasks reports six jobs for three addresses. `updateTruck` REVERSED its own comment: capacity may no longer fall below the shift's committed load, because the silent version turns a typo into a driver vanishing from every shortlist. `SegmentedControl` lifted on its second use. And the sidebar's badge announced "2 needing an agent" for a count of bookings needing a DRIVER. |
+| 127 | A pin from any time, and a driver with no reason to send one (2026-08-31) | ✅ | Slice F5, TD's items. Two halves of one failure. `listCandidateDrivers` drew a candidate's pin and ETA from their last position **of any age** — a fix from a run yesterday put a van on yesterday's street with full confidence, and that same stale point fed the ETA `bestCandidate` ranks on, so "pick the best" could rank on fiction. `POSITION_FRESH_MS` (90s) now gates both. That fixed the lie and emptied the map, revealing the second half: `GpsPinger` ran only while a pickup task was `in_progress`, and **a shortlist candidate is by definition a driver who has not started anything** — no candidate ever had a position, so the map usually had nothing to draw. It reports for the whole shift now (20s en route · 45s carrying · 45s idle), and 45s is a ceiling rather than a taste: two pings must fit inside the 90s window or one dropped request drops a driver off every customer's map. It also moved from the Today page into the LAYOUT — mounted on one page, opening a task stopped reporting, which is the moment a driver is most likely moving. Off the clock `phase` is null and `navigator.geolocation` is never touched. The customer's page polls at 12s wherever something moves, so the read is never slower than the write. And `formatEtaMinutes(null)` said "ETA on the way" — a phrase that appears BESIDE another driver's "about 15 min" while somebody is choosing, so it reads as worse when the truth is only that we cannot see them yet; "Locating…" for customers, "No position yet" for operators, who want the fact rather than the reassurance. |
+| 128 | The Overview shows what needs a human, and nothing that does not (2026-08-31) | ✅ | Slice F5, TD's ask. The page was four stat cards, three of which read `0` on an ordinary day: identical in shape whether everything was fine or the fleet was on fire, with only a digit to tell you which. `buildAttention` (in the app, not core — it is a rendering decision) returns items ordered by CONSEQUENCE, not by which query ran first: blocked product, then urgent bookings, then work that can wait. **An empty list is the design** — nothing wrong renders one green line, so the length is the signal and it reads across a room. `getLaunchReadiness` adds the four conditions under which Koolee stops working with no error anywhere (pricing, agreement, cutoffs, staff); the panel DELETES ITSELF once all four pass, because a permanent all-green block is one nobody reads on the day it matters. The composite worth having: "nobody on shift" is only raised when sealed bags are actually waiting — an empty road at 6am is ordinary. First version raised unverified cutoffs as a quiet note and printed the identical sentence twice on one page; caught in the browser, not by a test. |
+| 129 | The board searches eleven fields and says which one matched (2026-08-31) | ✅ | Slice F5, TD's ask. Reported as "search is case-sensitive" — it never was; every clause was already `ilike` and `bookings.ref` simply was not one of them, so the ref an operator reads off an email matched nothing in any casing. Widened from three fields to eleven: ref, id fragment, seal, phone, passenger, customer name, email, flight, driver, truck, agent. This REVERSES the file's own comment that matching a name "turns a lookup into a fishing expedition over customer PII" — TD's call, and the better one: the caller knows their name and their flight and rarely their ref, and an operator who cannot search reads the whole board by eye instead. **Address and ZIP stay out, and a test pins it** — "who is booked on this street" answers no support call and is the one search here worth misusing. A per-row "why this matched" badge was built and then removed once TD saw it: on a board this wide it cost a second line under the ref and earned less than the space. Two more from TD: the search box was being REBUILT underneath whoever typed in it — `key={search}` remounted the input 300ms after they stopped, so focus went to `document.body` and refining a term meant clicking back in first. And the board lost a column — Agent and Driver were two, mostly empty, saying one thing; now one, the driver winning when there is one and the second line either the job or the at-risk badge, which used to ride the pickup-window cell where a warning sat nowhere near the thing that resolves it. |
 
 ---
 
