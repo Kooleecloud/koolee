@@ -3,12 +3,29 @@
 import * as React from "react";
 
 /**
- * The driver's position, while there are bags to collect.
+ * The driver's position, for as long as their shift is open.
  *
- * Sends `navigator.geolocation` to `/api/driver-position` from the moment a
- * pickup is under way until the bags are delivered. That is what fills the
- * "3.2 km away · 15–25 min" line and the moving pin on the customer's trip
- * page.
+ * Sends `navigator.geolocation` to `/api/driver-position` from clock-on to
+ * clock-off. That is what fills the "3.2 km away · 15–25 min" line, the moving
+ * pin on the customer's trip page, and every pin on the driver shortlist.
+ *
+ * WHAT STOPS IT, in the order they actually happen:
+ *
+ *  - **The shift ends.** `ShiftLocation` renders nothing without an open
+ *    shift, so this component unmounts and its interval is cleared. Ending a
+ *    shift calls `revalidatePath("/", "layout")`, so the unmount is immediate
+ *    rather than waiting for a navigation.
+ *  - **The tab is closed or backgrounded.** Foreground-only: a browser
+ *    throttles or freezes timers in a hidden tab, and a locked phone reports
+ *    nothing. Accepted for this slice, and honest on the other end — the
+ *    customer sees "Locating…", never a stale pin dressed as current.
+ *  - **Permission is denied.** The banner below appears and nothing reaches
+ *    the server again. The interval itself keeps ticking; each tick fails at
+ *    the permission check without waking the GPS, which costs nothing worth
+ *    the extra state to avoid.
+ *  - **The server refuses.** `recordDriverPosition` rejects a driver who is
+ *    not on shift, so a tab left open through a force-ended shift writes
+ *    nothing even if its timer survives.
  *
  * IT RUNS FOR THE WHOLE SHIFT, not only while a pickup is under way. That is
  * a change TD asked for and it is the difference between a driver-selection
