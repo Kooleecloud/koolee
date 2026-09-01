@@ -24,13 +24,13 @@ console configured" are different errands, on different days.**
 
 ### Operations
 
-| Route                   | Does                                                                                                             | Badge             |
-| ----------------------- | ---------------------------------------------------------------------------------------------------------------- | ----------------- |
-| `/`                     | Dashboard — today's bookings by status, unassigned, sealed-with-no-driver, open exceptions. **All real queries** | —                 |
-| `/bookings`             | Dispatch board — filter by status/airport/day, assign an agent, see at-risk bookings                             | `unassignedToday` |
-| `/bookings/[bookingId]` | Full booking detail + custody timeline + evidence + payment                                                      | —                 |
-| `/shifts`               | Who is out driving, in what, with how many bags. Force-end with a required reason; grant/revoke `can_drive`      | —                 |
-| `/exceptions`           | Bookings in `exception`, with the three legal resolutions                                                        | `exceptionsOpen`  |
+| Route                   | Does                                                                                                        | Badge             |
+| ----------------------- | ----------------------------------------------------------------------------------------------------------- | ----------------- |
+| `/`                     | Overview — what needs a human right now, then launch readiness, then the day's shape. See §9                | —                 |
+| `/bookings`             | Dispatch board — filter by status/airport/day, assign an agent, see at-risk bookings                        | `unassignedToday` |
+| `/bookings/[bookingId]` | Full booking detail + custody timeline + evidence + payment                                                 | —                 |
+| `/shifts`               | Who is out driving, in what, with how many bags. Force-end with a required reason; grant/revoke `can_drive` | —                 |
+| `/exceptions`           | Bookings in `exception`, with the three legal resolutions                                                   | `exceptionsOpen`  |
 
 ### Configuration
 
@@ -170,6 +170,59 @@ operator scanning the board reads the hour first. Per
 and the board shows the **name above the email**. `assigneeName` is null for
 staff who never set one — fall back to the email, which is always present for
 staff. Never render a bare name without that fallback.
+
+---
+
+### 4.4 — Search reads eleven fields, and the row says which one hit
+
+Reported as "search is case-sensitive". It never was: every clause has always
+been `ilike`. **`bookings.ref` simply was not one of the clauses** — the only
+thing resembling a ref lookup matched the last six hex of the UUID, which is a
+different string entirely, so `KOO-CEMBB` matched nothing in any casing.
+
+The searched set, one predicate per key:
+
+| Key                          | Reads                                             |
+| ---------------------------- | ------------------------------------------------- |
+| `ref`                        | `bookings.ref`, any part, any case                |
+| `id`                         | last six hex of the UUID — for a log or Sentry id |
+| `seal`                       | `bags.seal_id`                                    |
+| `phone`                      | booking contact **or** account, digits only       |
+| `passenger`                  | `bookings.pax_name` — the name on the ticket      |
+| `customer` / `email`         | the account holder                                |
+| `flight`                     | `bookings.flight_number` ("DL777" or "777")       |
+| `driver` / `truck` / `agent` | who is carrying it, in what, who verified it      |
+
+**Address and ZIP are deliberately absent, and a test pins that.** This
+reverses the file's own former comment — matching a name was called "a fishing
+expedition over customer PII" — and TD's reversal is the better position: the
+person on the phone knows their own name and their flight and rarely their
+ref, and an operator who cannot find them by name reads the whole board by eye
+instead, which is the same PII with more of it on screen. "Who is booked on
+this street" is a different question. It answers no support call, and it is
+the one search here that would be worth misusing.
+
+**Passenger and customer are separate keys because they are separate people.**
+Somebody books for a parent; both names must be reachable and the badge has to
+say which was hit.
+
+#### `matchedOn` is built from the same list as the WHERE clause
+
+`searchPredicates` returns `{key, where}[]`. That one list builds `or(...)` for
+the filter AND a `CASE`-per-key array expression for `BoardRow.matchedOn`.
+Written twice they would drift, and the failure would be quiet and awful: a row
+badged "Email" that actually matched on something else is worse than no badge,
+because an operator would believe it.
+
+The board shows eight fields and search reads eleven, so **a row can appear for
+a reason nowhere on it** — a seal id, an email. The badges sit under the ref,
+on one line, capped at three plus a `+N` whose tooltip names the rest. Not
+wrapped: two badges made a row twice the height of its neighbours, and a board
+with uneven rows is harder to scan down.
+
+The customer is a LEFT JOIN rather than an `exists` subquery, because search
+reads three of their columns and `matchedOn` re-reads the same three — six
+correlated subqueries per row for data behind one foreign key.
 
 ---
 
@@ -365,3 +418,68 @@ Worth knowing, because it is asked for:
 - **Cannot cancel an `in_transit` booking directly.** Route it through
   `exception` first — a driver holding bags is not a cancellation.
 - **Cannot invent an exception resolution.** Only the three the matrix allows.
+
+---
+
+## 9. The Overview page
+
+Four stat cards, three of which read `0` on an ordinary day. The page was the
+**same shape whether everything was fine or the fleet was on fire**, and only a
+digit told you which — so an operator signing in read four numbers to learn
+there was nothing to do.
+
+The page now answers three questions in order, and the first one is the point.
+
+### 9.1 — What needs a human (`buildAttention`)
+
+[apps/admin/src/lib/attention.ts](../../apps/admin/src/lib/attention.ts). Lives
+in the app rather than in core: it is a rendering decision about what an
+operator should look at first, not a fact about the domain.
+
+**Ordered by consequence, never by which query ran first:**
+
+| Level     | Means                                                   |
+| --------- | ------------------------------------------------------- |
+| `blocked` | The product cannot sell — no pricing rule, no agreement |
+| `urgent`  | A booking is failing today                              |
+| `soon`    | Real work nobody has picked up yet                      |
+
+**An empty list is the design.** Nothing wrong renders one green line —
+"Nothing needs you right now" plus the day's shape — so the LENGTH of the page
+is the signal. One line means go and do something else; a list you scroll means
+today is busy. You can tell across a room, without reading a digit.
+
+Three rules the tests pin:
+
+- **A zero is not news.** Nine completed bookings is a fine day, not an item.
+- **State the absence, not the checklist phrase.** "Pricing rule active" reads
+  correctly beside a tick and badly as an alarm; the alarm says "No pricing
+  rule is active".
+- **"Nobody on shift" needs sealed bags waiting.** An empty road at 6am is
+  ordinary and so is a sealed booking mid-morning; together they are the one
+  shape where bags sit on a doorstep with literally nobody who could be chosen.
+
+Every item carries a destination and a verb — the whole row is the link, because
+the thing an operator is pointing at is the problem.
+
+### 9.2 — Launch readiness, which deletes itself
+
+`getLaunchReadiness` (core) checks the four conditions under which Koolee stops
+working **with no error anywhere**: no active pricing rule and every quote
+refuses; no published agreement and every agent visit stops at a doorstep; plus
+cutoffs and staff. Before this, the console's only signal was
+`NoAgreementBanner`, covering one of the four.
+
+**The panel is not rendered once all four pass.** A permanent all-green health
+block is a thing nobody reads, so on the day it matters it will not be read
+either. [LAUNCH-CHECKLIST.md](../LAUNCH-CHECKLIST.md) remains the record of the
+whole opening, including everything no query can see.
+
+Blocked items appear in BOTH panels deliberately: the attention panel is what
+somebody does today, this is the progress bar toward opening.
+
+**A trap found in the browser, not by a test:** the first version raised
+unverified cutoffs as a quiet third level, which printed the identical sentence
+twice on one page — once as a note and once in the readiness list three rows
+below. The `note` level is gone; the division is by TIME. This panel is a job
+before opening, that one is today.

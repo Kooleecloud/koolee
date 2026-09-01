@@ -975,11 +975,26 @@ history, so a driver who finished a run yesterday still has yesterday's
 coordinates. A stale ETA is the worse half: it is the number `bestCandidate`
 ranks on. A driver with no fresh fix keeps their card and has no pin.
 
-⚠️ **And idle drivers do not report at all.** `GpsPinger` runs only while a
-pickup is `in_progress`, so a driver clocked on and waiting for work pings
-nobody — which means the shortlist map often has no driver pins. Left as a
-product decision (battery and privacy against a populated map); see
-RUN-REPORT-14's close-out for the three options.
+**Which is why the driver reports for the WHOLE SHIFT.** `GpsPinger` used to
+run only while a pickup was `in_progress`, and a shortlist candidate is by
+definition a driver who has not started anything — so no candidate ever had a
+fresh fix and the map usually had nothing to draw. TD's call, taking the cost
+knowingly: it now runs at 20 s en route to a door, 45 s carrying, 45 s idle on
+shift. **45 s is a ceiling, not a preference** — two pings must fit inside the
+90 s freshness window, or one dropped request drops that driver off every
+customer's map.
+
+It is mounted in the agent app's LAYOUT ([shift-location.tsx](../apps/agent/src/components/shift/shift-location.tsx)),
+not on the Today page. Mounted on one page, opening a task — the moment a
+driver is most likely to be moving — silently stopped reporting, and nothing
+said so. Position is a fact about the person, not about the screen they are
+looking at.
+
+Off the clock nothing is sent: no shift means `phase` is null, and the pinger
+never touches `navigator.geolocation` — no prompt, no request, nothing stored.
+Still foreground-only; a phone in a pocket with the screen off stops reporting,
+and the customer's page degrades to "Position updating" rather than to a stale
+pin presented as current.
 
 **The shortlist refreshes on a 12-second poll, not on realtime.**
 `recordDriverPosition` signals only bookings already bound to that driver's
@@ -1197,9 +1212,9 @@ booking's pickup window at assignment time. They are a snapshot for the
 agent's list, not a live join.
 
 **GPS** is foreground-only and deliberately disposable: `GpsPinger` posts
-`navigator.geolocation` to `POST /api/driver-position` every ~45 s while a
-pickup is between "set off" and "delivered", and `driver_positions` keeps one
-mutable row per driver. A route handler rather than a server action, because a
+`navigator.geolocation` to `POST /api/driver-position` for as long as the shift
+is open — 20 s while en route to a doorstep, 45 s otherwise — and
+`driver_positions` keeps one mutable row per driver. A route handler rather than a server action, because a
 server action would revalidate the page on every ping. Permission denied is not
 an error — a non-blocking banner says the customer will not see them coming,
 the pings stop, and everything else works. Nothing written here is chain of
@@ -1265,21 +1280,38 @@ trail rather than guessing.
 
 **Pages**, each a server component + an `actions.ts` + a client form file:
 
-| Route             | Group  | What it does                                                                                                                                                                                                                                                                        |
-| ----------------- | ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `/`               | Ops    | Dashboard: today's bookings by status, unassigned count, **sealed-with-no-driver count**, open exceptions — all real queries                                                                                                                                                        |
-| `/bookings`       | Ops    | Dispatch board: filter by status/airport/day, assign an agent, see at-risk bookings. Since 2026-08-23 assignment is automatic on `paid` (`autoAssignOnPaid`); the board's Assign button is the manual override, and an uncovered ZIP still falls through to it via the at-risk flag |
-| `/bookings/[id]`  | Ops    | One booking end to end: custody trail, evidence photos, payment, the transition controls                                                                                                                                                                                            |
-| `/shifts`         | Ops    | Who is out driving, in what, with how many bags; **start a shift on somebody's behalf** (the pair to force-end — same `startShift` guards, the admin stamped in `driver_shifts.started_by_user_id`); force-end with a required reason; grant or revoke `can_drive`                  |
-| `/exceptions`     | Ops    | Bookings in `exception`, with the three legal resolutions                                                                                                                                                                                                                           |
-| `/pricing`        | Config | The active pricing rule and the lead-time curve — **a path to change a price that is not SQL**                                                                                                                                                                                      |
-| `/cutoffs`        | Config | Airline bag-drop cutoffs per airline × airport × domestic/international. Every bookable window derives from these                                                                                                                                                                   |
-| `/blocks`         | Config | Window blackouts — the ops lever over what customers can book                                                                                                                                                                                                                       |
-| `/zones`          | Config | Agent ZIP coverage, which auto-assign picks from                                                                                                                                                                                                                                    |
-| `/agreements`     | Config | Versioned booking agreements. "Current" is derived, never a flag — see Ch.3                                                                                                                                                                                                         |
-| `/trucks`         | Config | The fleet: name, bag capacity, active toggle. `reserved_spaces` is editable and **enforced**; the card shows how many spaces are bookable                                                                                                                                           |
-| `/staff`          | Config | Invite / list / deactivate agents and admins                                                                                                                                                                                                                                        |
-| `/staff/[userId]` | Config | One staff member: their history, their zones, `can_drive`                                                                                                                                                                                                                           |
+| Route             | Group  | What it does                                                                                                                                                                                                                                                                                                                                    |
+| ----------------- | ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/`               | Ops    | Overview: **what needs a human**, ordered by consequence and collapsing to one green line when nothing does; then launch readiness, which deletes itself once it passes; then the day's shape                                                                                                                                                   |
+| `/bookings`       | Ops    | Dispatch board: filter by status/airport/day, **search eleven fields** with a badge saying which matched, assign an agent, see at-risk bookings. Since 2026-08-23 assignment is automatic on `paid` (`autoAssignOnPaid`); the board's Assign button is the manual override, and an uncovered ZIP still falls through to it via the at-risk flag |
+| `/bookings/[id]`  | Ops    | One booking end to end: custody trail, evidence photos, payment, the transition controls                                                                                                                                                                                                                                                        |
+| `/shifts`         | Ops    | Who is out driving, in what, with how many bags; **start a shift on somebody's behalf** (the pair to force-end — same `startShift` guards, the admin stamped in `driver_shifts.started_by_user_id`); force-end with a required reason; grant or revoke `can_drive`                                                                              |
+| `/exceptions`     | Ops    | Bookings in `exception`, with the three legal resolutions                                                                                                                                                                                                                                                                                       |
+| `/pricing`        | Config | The active pricing rule and the lead-time curve — **a path to change a price that is not SQL**                                                                                                                                                                                                                                                  |
+| `/cutoffs`        | Config | Airline bag-drop cutoffs per airline × airport × domestic/international. Every bookable window derives from these                                                                                                                                                                                                                               |
+| `/blocks`         | Config | Window blackouts — the ops lever over what customers can book                                                                                                                                                                                                                                                                                   |
+| `/zones`          | Config | Agent ZIP coverage, which auto-assign picks from                                                                                                                                                                                                                                                                                                |
+| `/agreements`     | Config | Versioned booking agreements. "Current" is derived, never a flag — see Ch.3                                                                                                                                                                                                                                                                     |
+| `/trucks`         | Config | The fleet: name, bag capacity, active toggle. `reserved_spaces` is editable and **enforced**; the card shows how many spaces are bookable                                                                                                                                                                                                       |
+| `/staff`          | Config | Invite / list / deactivate agents and admins                                                                                                                                                                                                                                                                                                    |
+| `/staff/[userId]` | Config | One staff member: their history, their zones, `can_drive`                                                                                                                                                                                                                                                                                       |
+
+**The Overview's premise is that a calm system renders almost nothing.**
+`buildAttention` ([apps/admin/src/lib/attention.ts](../apps/admin/src/lib/attention.ts))
+returns items ordered `blocked` → `urgent` → `soon`, and an empty list is the
+normal case. The page it replaced was four stat cards, three reading `0` on an
+ordinary day — the same shape whether the day was fine or on fire. It lives in
+the app rather than core because it is a decision about what to look at first,
+not a fact about the domain. `getLaunchReadiness` (core) covers the four
+conditions under which the product stops working with no error anywhere, and
+its panel is not rendered once all four pass. Details and the traps:
+[features/ops-console.md §9](features/ops-console.md#9-the-overview-page).
+
+**The board's search is one predicate list with two jobs.**
+`searchPredicates` builds both the `or(...)` filter and each row's
+`matchedOn`, so a badge cannot name a field the filter did not match. Eleven
+keys; **address and ZIP deliberately excluded**, pinned by a test. See
+[features/ops-console.md §4.4](features/ops-console.md#44--search-reads-eleven-fields-and-the-row-says-which-one-hit).
 
 Plus `/login`, `/login/reset` and `/set-password` — staff auth, outside the rail.
 

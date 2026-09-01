@@ -114,6 +114,13 @@ task and is signalled by nobody. **The driver shortlist therefore runs on the
 poll alone**, and gets the faster one (`SIGNAL_POLL_FAST_MS`, 12s) for that
 reason; the tracking map after selection gets the real signal.
 
+**The fast poll covers every stage where something is moving** — `choose_driver`,
+`awaiting_pickup` and `in_transit` (`watchingMovement` in `trip-live.tsx`).
+Tracking used to sit on the 30-second fallback, which had it backwards: the
+driver's phone was reporting a new position every 20–45 seconds and nobody was
+asking for it. **The rule is that the customer's page never refreshes more
+slowly than the driver's phone sends.**
+
 Widening it is the expensive answer, not an oversight. A driver on shift is a
 candidate for many bookings at once, so an unscoped ping would wake every
 customer currently choosing — and each wake is a **full trip-page re-render**,

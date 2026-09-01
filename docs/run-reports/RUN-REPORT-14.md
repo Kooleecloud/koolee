@@ -1142,3 +1142,99 @@ Three options, if TD wants the shortlist map populated:
 staff-facing sentence about when location is shared — it is the difference
 between a map-first chooser that usually has something on it and one that
 usually does not. But it is TD's call, not mine.
+
+---
+
+## Close-out, part two — what TD chose, and what it exposed
+
+Everything above was written before the last four commits. This section is the
+record of them.
+
+### TD chose option (1), and then widened it
+
+> _"driver app should always be sending the location no matter what — this way
+> it's solid to have and know that it will always be on the map — and user app
+> should have a refresh and refetch or same or less time span that the driver
+> app does send the location"_
+
+Option (2) — pinging only while a shortlist is open on that driver — was
+discarded rather than deferred: it needs a signal from the customer's page back
+to the driver's phone, and no such path exists.
+
+**The idle cadence is 45 s and that is a ceiling, not a taste.**
+`POSITION_FRESH_MS` is 90 s, so two pings must fit inside the window. At 60 s a
+single dropped request drops that driver off every customer's map until the
+next one lands.
+
+**A second bug surfaced while fixing the first.** `GpsPinger` was mounted on
+the Today page alone, so opening a task stopped reporting — the moment a driver
+is most likely to be moving. It is in the layout now
+(`shift-location.tsx`), a server component that reads the shift once and
+derives the phase from the BOOKING rather than the task: `startPickupTravel`
+moves the task to `in_progress` while the booking stays `awaiting_pickup`
+(driver approaching a doorstep, somebody watching a dot), and `scanSealAtPickup`
+moves the booking to `in_transit` (bags aboard, different question).
+
+**The cadence table above is superseded:**
+
+| Hop                       | Was                      | Now                                                    |
+| ------------------------- | ------------------------ | ------------------------------------------------------ |
+| Driver's phone → server   | 45 s, only during pickup | **20 s en route · 45 s carrying · 45 s idle on shift** |
+| Server → customer's page  | signal, else 30 s poll   | **12 s poll** wherever something moves                 |
+| Position considered stale | 3 min                    | **90 s**                                               |
+
+Off the clock nothing is sent: `phase` is null without an open shift and the
+pinger never touches `navigator.geolocation`. Still foreground-only.
+
+### "ETA on the way" meant nothing, and read as worse than nothing
+
+> _"it just says 'ETA on the way' this means nothing to end user"_
+
+Correct, and the failure was sharper than vagueness. The string appears **beside
+another driver's "about 15 min" while somebody is choosing between them**, so a
+phrase the reader cannot parse reads as a worse driver — when the truth is only
+that we cannot see that one yet.
+
+`formatEtaMinutes(null)` → **"Locating…"**: three syllables, understood from
+every map app, and now actually true. `formatEtaRange(null)` → **"No position
+yet"** for operators, who want the fact rather than the reassurance.
+
+### The map was reported broken again, and was not
+
+Worth recording because the answer was "check, do not assume". A throwaway probe
+route reached `data-map-state: "ready"` with the worker and tiles loading and no
+console errors; the `[live-map] no load event in 10000ms` line in the pasted log
+was stale, as was a `ReferenceError: isOutstanding is not defined` for a symbol
+imported correctly on line 23 with a green typecheck. Both were dev-server
+chunks, not defects. **`data-map-state` earned itself here** — it turned "the
+map is broken again" into a one-command answer.
+
+### The Overview, rebuilt
+
+> _"it seems too empty and white spaced right now"_
+
+Four stat cards, three of which read `0` on an ordinary day: the page had the
+same shape whether the day was calm or on fire, and only a digit told you which.
+`buildAttention` orders by consequence and returns an EMPTY LIST when nothing is
+wrong — one green line, so the page's length is the signal. `getLaunchReadiness`
+covers the four conditions under which the product stops working with no error
+anywhere, in a panel that deletes itself once they pass.
+
+**One trap, caught in a browser rather than by a test:** the first version
+raised unverified cutoffs as a quiet third level, printing the identical
+sentence twice on one page. The `note` level is gone; the division is by time —
+attention is today, readiness is before opening.
+
+### Two smaller ones from TD
+
+**The sidebar's Shifts badge** counted bookings needing a DRIVER and announced
+them as "needing an agent" — first corrected, then removed entirely when TD
+said the count did not belong there.
+
+**Search read three fields and the ref was not one of them.** Reported as case
+sensitivity; every clause was already `ilike`. Widened to eleven fields with a
+per-row `matchedOn` badge, built from the same predicate list as the WHERE
+clause so the two cannot drift. **Address and ZIP stay out and a test pins it.**
+This reverses the file's own comment about fishing expeditions over PII — TD's
+call, and the better one: an operator who cannot search by name reads the whole
+board by eye instead.

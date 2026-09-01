@@ -89,6 +89,31 @@ package-specific in `packages/<pkg>/docs/`. Nothing new accumulates at the root.
   of stacked, the Koolee bag as the pickup pin, and dropping the geolocate
   control because the pickup address is the anchor, not the viewer.
 
+  **(e) The map worked and was still usually empty, for two reasons that are
+  the same reason.** Pins were drawn from a driver's last position of ANY age —
+  a fix from yesterday placed a van on yesterday's street with full confidence,
+  and fed the ETA that "pick the best" ranks on. Adding a 90-second freshness
+  window fixed the lie and emptied the map, because `GpsPinger` only ran during
+  a pickup already in progress: **a shortlist candidate is by definition a
+  driver who has not started anything**, so no candidate ever had a position.
+  It reports for the whole shift now (20s en route · 45s otherwise), from the
+  layout rather than from the Today page — mounting it on one page meant
+  opening a task, the moment a driver is most likely moving, silently stopped
+  reporting. Off the clock nothing is sent and nothing is asked for.
+
+  **(f) The Overview was four stat cards, three of them reading `0`** — the
+  same shape on a calm morning as on a bad one, so an operator read four
+  numbers to learn there was nothing to do. It leads with what needs a human,
+  ordered by consequence, and **collapses to one green line when nothing
+  does**: the LENGTH is the signal now, readable across a room.
+
+  **(g) The board searched three fields and the ref was not one of them.**
+  Reported as "search is case-sensitive"; it never was — every clause was
+  already `ilike`, and `bookings.ref` simply was not a clause. Search now reads
+  eleven fields and each row says which one it matched, because the board shows
+  eight and a row can otherwise appear for a reason nowhere on it. Address and
+  ZIP stay out deliberately.
+
 - **Slice F4 in flight: fixes, latent traps, CI, on-behalf shifts
   (2026-08-31, `fix/f4-fixes-and-ci`, cut from `origin/dev` @ `78d2d5d`).**
   Rows 113–120. Migrations **0034 + 0035, LOCAL ONLY** — hosted gets both from
@@ -647,6 +672,9 @@ the linked row is the current behaviour)
 | 124 | The funnel's front door starts a new booking (2026-08-31) | ✅ | Slice F5, Phase 3 (D2). `/book` resumed unconditionally, so "Book a pickup" dropped you into a half-finished booking from days ago with its flight prefilled. Clean now — and nothing is destroyed to achieve it: the old draft is MOVED to `koolee_draft_prev` (one hour) and the first step offers it back in one tap. Only a draft with PROGRESS is offered; the account-holder mirror is offered rather than entered. In-funnel navigation, a rejected ZIP and a mid-funnel reload never come through this door, which is why it can be this decisive. |
 | 125 | One assignment gate, closing the cancelled hole (2026-08-31) | ✅ | Slice F5, Phase 4. Three call sites each carried their own status list and **not one mentioned `cancelled`** — and in `assignAgentToBooking` the check ran only for a FIRST assignment, so a cancelled booking that already had an agent could be reassigned freely. `assignmentGate` sits beside the five customer/agent gates and deliberately outside them: those are about TIME (a late booking is still savable), this is about STANDING. Verification closes when the VISIT is done — the seals and the passport check are recorded against the agent who did them; pickup closes when the BOOKING is, which is later. The in-transit refusal stays where its sentence can name force-end-shift. |
 | 126 | The console stops keeping a form open all day (2026-08-31) | ✅ | Slice F5, Phase 5, most of it TD's own list. Six pages had a form pinned down the right in a `2fr 1fr` grid; `Sheet`/`FormSheet` in `packages/ui` put them behind labelled buttons. Pricing was rebuilt around the live rule (the publish form held the wide column while "what are we charging" sat below it). Staff grouped by role with URL filters and a workload counted BY BOOKING — one person holds both tasks for one trip, so counting tasks reports six jobs for three addresses. `updateTruck` REVERSED its own comment: capacity may no longer fall below the shift's committed load, because the silent version turns a typo into a driver vanishing from every shortlist. `SegmentedControl` lifted on its second use. And the sidebar's badge announced "2 needing an agent" for a count of bookings needing a DRIVER. |
+| 127 | A pin from any time, and a driver with no reason to send one (2026-08-31) | ✅ | Slice F5, TD's items. Two halves of one failure. `listCandidateDrivers` drew a candidate's pin and ETA from their last position **of any age** — a fix from a run yesterday put a van on yesterday's street with full confidence, and that same stale point fed the ETA `bestCandidate` ranks on, so "pick the best" could rank on fiction. `POSITION_FRESH_MS` (90s) now gates both. That fixed the lie and emptied the map, revealing the second half: `GpsPinger` ran only while a pickup task was `in_progress`, and **a shortlist candidate is by definition a driver who has not started anything** — no candidate ever had a position, so the map usually had nothing to draw. It reports for the whole shift now (20s en route · 45s carrying · 45s idle), and 45s is a ceiling rather than a taste: two pings must fit inside the 90s window or one dropped request drops a driver off every customer's map. It also moved from the Today page into the LAYOUT — mounted on one page, opening a task stopped reporting, which is the moment a driver is most likely moving. Off the clock `phase` is null and `navigator.geolocation` is never touched. The customer's page polls at 12s wherever something moves, so the read is never slower than the write. And `formatEtaMinutes(null)` said "ETA on the way" — a phrase that appears BESIDE another driver's "about 15 min" while somebody is choosing, so it reads as worse when the truth is only that we cannot see them yet; "Locating…" for customers, "No position yet" for operators, who want the fact rather than the reassurance. |
+| 128 | The Overview shows what needs a human, and nothing that does not (2026-08-31) | ✅ | Slice F5, TD's ask. The page was four stat cards, three of which read `0` on an ordinary day: identical in shape whether everything was fine or the fleet was on fire, with only a digit to tell you which. `buildAttention` (in the app, not core — it is a rendering decision) returns items ordered by CONSEQUENCE, not by which query ran first: blocked product, then urgent bookings, then work that can wait. **An empty list is the design** — nothing wrong renders one green line, so the length is the signal and it reads across a room. `getLaunchReadiness` adds the four conditions under which Koolee stops working with no error anywhere (pricing, agreement, cutoffs, staff); the panel DELETES ITSELF once all four pass, because a permanent all-green block is one nobody reads on the day it matters. The composite worth having: "nobody on shift" is only raised when sealed bags are actually waiting — an empty road at 6am is ordinary. First version raised unverified cutoffs as a quiet note and printed the identical sentence twice on one page; caught in the browser, not by a test. |
+| 129 | The board searches eleven fields and says which one matched (2026-08-31) | ✅ | Slice F5, TD's ask. Reported as "search is case-sensitive" — it never was; every clause was already `ilike` and `bookings.ref` simply was not one of them, so the ref an operator reads off an email matched nothing in any casing. Widened from three fields to eleven: ref, id fragment, seal, phone, passenger, customer name, email, flight, driver, truck, agent. This REVERSES the file's own comment that matching a name "turns a lookup into a fishing expedition over customer PII" — TD's call, and the better one: the caller knows their name and their flight and rarely their ref, and an operator who cannot search reads the whole board by eye instead. **Address and ZIP stay out, and a test pins it** — "who is booked on this street" answers no support call and is the one search here worth misusing. One predicate per key, defined ONCE, driving both the WHERE clause and each row's `matchedOn`: written twice they would drift and a row would name the wrong field, which is worse than no badge because it would be believed. |
 
 ---
 
