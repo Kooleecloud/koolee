@@ -615,6 +615,9 @@ const MIN_PHONE_DIGITS = 3;
  * Deliberately NOT a general text search: passenger name and address are
  * readable on the board already, and matching them here would turn a lookup
  * into a fishing expedition over customer PII.
+ *
+ * EVERY CLAUSE IS `ilike`. An operator reading a ref off an email, a phone
+ * screen or their own handwriting types it however they type it.
  */
 function searchCondition(db: Database, term: string): SQL | undefined {
   const trimmed = term.trim();
@@ -626,8 +629,29 @@ function searchCondition(db: Database, term: string): SQL | undefined {
   const customer = alias(users, "search_customer");
 
   const clauses: (SQL | undefined)[] = [
-    // The short ref is a display convention over the uuid (last six hex),
-    // so it is matched by suffix rather than looked up as an identifier.
+    /*
+     * THE REF ITSELF — and this was missing, which is the bug TD reported as
+     * "search is case-sensitive". It was not: every clause here has always
+     * been `ilike`. The ref column simply was not one of them.
+     *
+     * `bookings.ref` is `KOO-XXXXX` over Crockford base32, stored uppercase.
+     * The only clause resembling a ref lookup matched the last six hex of the
+     * UUID, which is a completely different string — so `CEMBB` and `cembb`
+     * both failed, and would have failed in any casing.
+     *
+     * `%term%` against the stored ref accepts every way somebody has it to
+     * hand: the payload alone (`cembb`), the whole thing (`KOO-CEMBB`), and
+     * either in any case.
+     *
+     * Searching by ref here is exactly what a ref is FOR — display and
+     * SUPPORT. The standing rule is that no PUBLIC route looks a booking up
+     * by it, because 32^5 is hopeless as a secret; this is the admin console
+     * behind a staff session, which is the supported case rather than the
+     * forbidden one.
+     */
+    ilike(bookings.ref, like),
+    // The uuid's last six hex, kept: an operator pasting a fragment of an id
+    // out of a log or a Sentry issue is a real thing that happens.
     sql`right(${bookings.id}::text, 6) ilike ${like}`,
     exists(
       db

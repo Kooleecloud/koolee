@@ -1,5 +1,3 @@
-"use client";
-
 import * as React from "react";
 
 import { cn } from "../lib/utils";
@@ -25,6 +23,22 @@ import { cn } from "../lib/utils";
  * `role="tablist"` with `aria-selected`, not radios: these switch a view, and
  * a screen reader should announce them as tabs rather than as a form control
  * somebody is expected to submit.
+ *
+ * NO `"use client"` DIRECTIVE, and that is load-bearing rather than an
+ * oversight — `BackLink` is the same for the same reason.
+ *
+ * A component marked `"use client"` is a client boundary, and `linkComponent`
+ * is a FUNCTION. Passing Next's `Link` across that boundary from a Server
+ * Component throws at runtime: *"Functions cannot be passed directly to Client
+ * Components."* The agent's schedule tabs are exactly that call, and typecheck,
+ * lint and the production build were all green over it — only the dev server's
+ * request log said anything.
+ *
+ * Without the directive the component simply inherits its caller: rendered
+ * from `trip-driver.tsx` (which IS `"use client"`) the button variant works
+ * normally, and rendered from the agent's server-side task list the link
+ * variant works normally. One component, both environments, no boundary
+ * crossed.
  */
 
 export interface SegmentedControlItem<T extends string> {

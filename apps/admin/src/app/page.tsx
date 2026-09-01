@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { Truck } from "lucide-react";
 import {
   Badge,
   BookingStatusBadge,
@@ -13,104 +14,78 @@ import {
   PageHeader,
 } from "@koolee/ui";
 import {
-  countAgreementVersions,
   formatHourRangeInAirportTz,
   formatTimeInAirportTz,
-  listAgentWorkload,
+  getLaunchReadiness,
   listBookingsBoard,
-  type AgentWorkload,
+  listShifts,
   type BoardRow,
+  type LaunchReadiness,
+  type ShiftRow,
 } from "@koolee/core";
 
 import { ConsoleMain } from "@/components/console";
-import { NoAgreementBanner } from "@/components/no-agreement-banner";
 import { OPS_CONSOLE_TZ } from "@/lib/airport-tz";
+import { buildAttention } from "@/lib/attention";
 import { getConsoleDashboard } from "@/lib/console-dashboard";
 import { tryGetCore } from "@/lib/core";
 import { getAdminSession } from "@/lib/session";
-import { NotificationsCard } from "./notifications-card";
+import { AttentionPanel } from "./attention-panel";
+import { ReadinessPanel } from "./readiness-panel";
 
 export const dynamic = "force-dynamic";
 
-/** How many upcoming windows the shift strip shows before it stops being a glance. */
+/** How many upcoming windows the strip shows before it stops being a glance. */
 const NEXT_UP_LIMIT = 6;
 
 /**
- * A number and what it counts. The number leads because that is what an
- * operator reads across the row; the caption qualifies it.
- */
-function StatCard({
-  value,
-  caption,
-  action,
-  children,
-  tone,
-}: {
-  value: number;
-  caption: string;
-  action?: React.ReactNode;
-  /** Breakdown or detail under the caption. */
-  children?: React.ReactNode;
-  tone?: "warning" | "destructive";
-}) {
-  return (
-    <Card
-      className={
-        tone === "destructive"
-          ? "border-destructive"
-          : tone === "warning"
-            ? "border-warning"
-            : undefined
-      }
-    >
-      <CardHeader>
-        <CardTitle className="font-display text-3xl font-semibold tabular-nums">
-          {value}
-        </CardTitle>
-        <CardDescription>{caption}</CardDescription>
-      </CardHeader>
-      {children || action ? (
-        <CardContent className="flex flex-col items-start gap-3">
-          {children}
-          {action}
-        </CardContent>
-      ) : null}
-    </Card>
-  );
-}
-
-/**
- * Ops landing: today's real numbers — nothing here is hardcoded.
+ * The console's landing page: what needs a human, then what is happening.
  *
- * Three counts, then the two questions a dispatcher actually opens this page
- * to answer: what is coming up in the next few hours, and who is free to take
- * it. Both were previously only answerable by leaving for the board and
- * reading it by eye.
+ * WHAT IT USED TO BE, and why that failed. Four stat cards — bookings today,
+ * unassigned, awaiting a driver, exceptions — over "Next up" and a per-agent
+ * bar chart. On an ordinary day three of the four read `0`, a fourth card
+ * orphaned itself onto a second row of a three-column grid, "Next up" said
+ * "Nothing left today" inside a full-height card, and the bar chart listed
+ * eight agents of whom seven had an empty bar.
+ *
+ * The result was a page whose SHAPE was identical whether everything was fine
+ * or the fleet was on fire. Only the digits differed, so an operator had to
+ * read four numbers to find out there was nothing to do, and the parts that
+ * were fine took exactly as much room as the parts that were not.
+ *
+ * THE RULE NOW: nothing that is fine takes any space. The attention panel is
+ * the first thing and is usually one green line; when it is not, its LENGTH is
+ * the signal. Below it, only what is actually happening — today's remaining
+ * windows and who is on the road. A readiness block sits between them while
+ * the product cannot yet sell, and removes itself when it can.
+ *
+ * Three things were deliberately cut rather than moved: the per-agent bar
+ * chart (seven empty bars ranked as loudly as the one that mattered), the
+ * desktop-notifications card (configured once, then never looked at — it lives
+ * in the settings sheet now, beside the profile), and the today-by-status
+ * badge row (a fact about the day, not an action; the board has it with
+ * filters).
  */
-export default async function AdminHomePage() {
+export default async function OpsHome() {
   const session = await getAdminSession();
   if (!session) redirect("/login");
 
   const core = tryGetCore();
-  // Shared with the rail's count badges — `cache()` makes this one query.
+  const now = new Date();
+
   const dashboard = await getConsoleDashboard();
 
-  const now = new Date();
-  let upcoming: BoardRow[] = [];
-  let workload: AgentWorkload[] = [];
-  /**
-   * -1 means "we could not ask", which is NOT the same as zero.
-   *
-   * A failed count must not raise the alarm — a database blip would otherwise
-   * put "customers cannot complete check-in" on the Overview page every time
-   * it hiccupped, and an alarm that cries wolf is worse than none.
-   */
-  let agreementCount = -1;
+  let today: BoardRow[] = [];
+  let shifts: ShiftRow[] = [];
+  let readiness: LaunchReadiness | null = null;
 
   if (core) {
-    // Both degrade to their own empty states; neither is worth failing the
-    // landing page over.
-    [upcoming, workload, agreementCount] = await Promise.all([
+    /*
+     * All three degrade to their own empty state. A landing page an operator
+     * opened to deal with an exception must not be taken down by the query
+     * that draws the shift strip.
+     */
+    [today, shifts, readiness] = await Promise.all([
       listBookingsBoard(
         core.db,
         {
@@ -121,14 +96,16 @@ export default async function AdminHomePage() {
         // Beyond the horizon a booking is unassigned by design, not at risk.
         { now, assignmentHorizonHours: core.defaults.assignmentHorizonHours },
       ).catch(() => []),
-      listAgentWorkload(core.db, { on: now, tz: OPS_CONSOLE_TZ }).catch(() => []),
-      countAgreementVersions(core.db).catch(() => -1),
+      listShifts(core.db, { limit: 20 }).catch(() => []),
+      getLaunchReadiness(core.db).catch(() => null),
     ]);
   }
 
-  // "Next up" means still ahead of us: a window that has already closed is
-  // history, and history belongs on the board, not on the shift strip.
-  const nextUp = upcoming
+  const openShifts = shifts.filter((shift) => shift.endedAt === null);
+
+  // "Next up" means still ahead of us: a window that has closed is history,
+  // and history belongs on the board.
+  const nextUp = today
     .filter((row) => {
       const end = row.booking.pickupWindowEnd ?? row.slotStart;
       return end !== null && end.getTime() >= now.getTime();
@@ -137,7 +114,21 @@ export default async function AdminHomePage() {
 
   const todayTotal =
     dashboard?.todayByStatus.reduce((sum, row) => sum + row.count, 0) ?? 0;
-  const busiest = Math.max(1, ...workload.map((agent) => agent.openTasks));
+
+  /*
+   * The calm line's second sentence. Facts, not counters — it exists so
+   * "nothing needs you" is not the only thing on a quiet screen, and so an
+   * operator can confirm the console is actually looking at today.
+   */
+  const summary = [
+    `${todayTotal} ${todayTotal === 1 ? "pickup" : "pickups"} today`,
+    `${openShifts.length} ${openShifts.length === 1 ? "driver" : "drivers"} out`,
+  ].join(" · ");
+
+  const attention =
+    dashboard && readiness
+      ? buildAttention({ dashboard, readiness, today, openShifts })
+      : [];
 
   return (
     <ConsoleMain>
@@ -145,7 +136,7 @@ export default async function AdminHomePage() {
         title="Operations"
         subtitle={
           core
-            ? `Today's pickups, assignments, and anything that needs a human. Day boundary: ${OPS_CONSOLE_TZ.replace("_", " ")}.`
+            ? `Day boundary: ${OPS_CONSOLE_TZ.replace("_", " ")}.`
             : "Today's pickups, assignments, and anything that needs a human."
         }
       />
@@ -154,71 +145,11 @@ export default async function AdminHomePage() {
         <DatabaseNotConfigured />
       ) : (
         <>
-          {/* Ahead of the numbers. Nothing else on this page matters while
-              every visit in the fleet is blocked at the identity step. */}
-          {agreementCount === 0 && <NoAgreementBanner count={0} />}
-          <div className="grid gap-4 sm:grid-cols-3">
-            <StatCard value={todayTotal} caption="bookings with a pickup window today">
-              {dashboard.todayByStatus.length > 0 && (
-                /* Friendly labels via BookingStatusBadge — the same rendering
-                   the board and the customer's trip page use. This card used
-                   to print raw enum keys (`agent_assigned`), which meant the
-                   landing page and the board named the same state two
-                   different ways. */
-                <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
-                  {dashboard.todayByStatus.map((row) => (
-                    <span key={row.status} className="inline-flex items-center gap-1">
-                      <BookingStatusBadge status={row.status} />
-                      <span className="text-xs font-medium tabular-nums text-muted-foreground">
-                        {row.count}
-                      </span>
-                    </span>
-                  ))}
-                </div>
-              )}
-            </StatCard>
+          <AttentionPanel items={attention} summary={summary} />
 
-            <StatCard
-              value={dashboard.unassignedToday}
-              caption="paid today, no agent assigned"
-              tone={dashboard.unassignedToday > 0 ? "warning" : undefined}
-              action={
-                dashboard.unassignedToday > 0 ? (
-                  <Button asChild size="sm" variant="outline">
-                    <Link href="/bookings?status=paid&today=1">Assign now</Link>
-                  </Button>
-                ) : undefined
-              }
-            />
+          {readiness && <ReadinessPanel readiness={readiness} />}
 
-            <StatCard
-              value={dashboard.awaitingDriverToday}
-              caption="sealed today, no driver on it"
-              tone={dashboard.awaitingDriverToday > 0 ? "warning" : undefined}
-              action={
-                dashboard.awaitingDriverToday > 0 ? (
-                  <Button asChild size="sm" variant="outline">
-                    <Link href="/shifts">Shifts</Link>
-                  </Button>
-                ) : undefined
-              }
-            />
-
-            <StatCard
-              value={dashboard.exceptionsOpen}
-              caption="exceptions open"
-              tone={dashboard.exceptionsOpen > 0 ? "destructive" : undefined}
-              action={
-                dashboard.exceptionsOpen > 0 ? (
-                  <Button asChild size="sm" variant="outline">
-                    <Link href="/exceptions">Review</Link>
-                  </Button>
-                ) : undefined
-              }
-            />
-          </div>
-
-          <div className="grid items-start gap-6 lg:grid-cols-[1.6fr_1fr]">
+          <div className="grid items-start gap-6 lg:grid-cols-[1.5fr_1fr]">
             <Card>
               <CardHeader className="flex-row items-start justify-between gap-4 space-y-0">
                 <div className="flex flex-col gap-1.5">
@@ -235,7 +166,9 @@ export default async function AdminHomePage() {
               <CardContent>
                 {nextUp.length === 0 ? (
                   <p className="text-sm text-muted-foreground">
-                    Nothing left today. Tomorrow&apos;s windows are on the board.
+                    {todayTotal === 0
+                      ? "Nothing booked for today."
+                      : "Every window today has passed. Tomorrow's are on the board."}
                   </p>
                 ) : (
                   <ul className="flex flex-col divide-y divide-border">
@@ -286,48 +219,57 @@ export default async function AdminHomePage() {
               </CardContent>
             </Card>
 
+            {/*
+              WHO IS ACTUALLY ON THE ROAD. This existed only on `/shifts`, so
+              the landing page could tell you two bookings were waiting on a
+              driver and not that there was nobody driving — the two halves of
+              one question, on two pages.
+
+              Load, not capacity: "4 of 12" answers "can they take another
+              one", which is what a dispatcher looking at this is deciding.
+            */}
             <Card>
-              <CardHeader>
-                <CardTitle className="text-base">Coverage today</CardTitle>
-                <CardDescription>
-                  Open verification and pickup tasks per active agent. An agent with
-                  nothing on is who dispatch is looking for.
-                </CardDescription>
+              <CardHeader className="flex-row items-start justify-between gap-4 space-y-0">
+                <div className="flex flex-col gap-1.5">
+                  <CardTitle className="text-base">On the road</CardTitle>
+                  <CardDescription>Open shifts, and what is in each van.</CardDescription>
+                </div>
+                <Button asChild size="sm" variant="outline">
+                  <Link href="/shifts">Shifts</Link>
+                </Button>
               </CardHeader>
               <CardContent>
-                {workload.length === 0 ? (
+                {openShifts.length === 0 ? (
                   <p className="text-sm text-muted-foreground">
-                    No active agents.{" "}
+                    Nobody is out right now.{" "}
                     <Link
-                      href="/staff"
+                      href="/shifts"
                       className="text-primary underline-offset-4 hover:underline"
                     >
-                      Invite one
+                      Start a shift
                     </Link>
                     .
                   </p>
                 ) : (
                   <ul className="flex flex-col gap-3">
-                    {workload.map((agent) => (
-                      <li key={agent.userId} className="flex flex-col gap-1.5">
-                        <div className="flex items-baseline justify-between gap-3 text-sm">
-                          <span className="min-w-0 truncate">
-                            {agent.fullName ?? agent.email ?? agent.userId}
+                    {openShifts.map((shift) => (
+                      <li key={shift.shiftId} className="flex items-center gap-3">
+                        <Truck
+                          aria-hidden="true"
+                          className="size-4 shrink-0 text-muted-foreground"
+                        />
+                        <span className="flex min-w-0 flex-col leading-tight">
+                          <span className="truncate text-sm font-medium">
+                            {shift.staffName ?? shift.staffEmail ?? "A driver"}
                           </span>
-                          <span className="shrink-0 tabular-nums text-muted-foreground">
-                            {agent.openTasks} open
+                          <span className="truncate text-xs text-muted-foreground">
+                            {shift.truckName} · since{" "}
+                            {formatTimeInAirportTz(shift.startedAt, OPS_CONSOLE_TZ)}
                           </span>
-                        </div>
-                        <div
-                          className="h-1.5 w-full overflow-hidden rounded-full bg-navy-50"
-                          role="img"
-                          aria-label={`${agent.openTasks} open tasks`}
-                        >
-                          <div
-                            className="h-full rounded-full bg-sky-400"
-                            style={{ width: `${(agent.openTasks / busiest) * 100}%` }}
-                          />
-                        </div>
+                        </span>
+                        <span className="ml-auto shrink-0 text-xs tabular-nums text-muted-foreground">
+                          {shift.bagsOnBoard} / {shift.bagCapacity} bags
+                        </span>
                       </li>
                     ))}
                   </ul>
@@ -335,9 +277,6 @@ export default async function AdminHomePage() {
               </CardContent>
             </Card>
           </div>
-
-          {/* Last: configured once, then never looked at again. */}
-          <NotificationsCard />
         </>
       )}
     </ConsoleMain>

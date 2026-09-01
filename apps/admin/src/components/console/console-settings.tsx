@@ -23,6 +23,7 @@ import {
 } from "@koolee/ui";
 
 import { signOutStaff } from "@/actions/auth";
+import { NotificationsCard } from "@/app/notifications-card";
 
 import { useConsolePreferences } from "./preferences-context";
 import { CONSOLE_HOME_OPTIONS, type ConsoleDensity } from "./preferences";
@@ -147,6 +148,16 @@ export function ConsoleSettings({
               layout="overlay"
               allowRemove={false}
             />
+            {/*
+              DESKTOP NOTIFICATIONS MOVED HERE from the Overview page, where
+              they sat below the fold under a bar chart. It is configured once
+              and then never looked at again — its own header says so — which
+              makes it exactly wrong for the page an operator opens twenty
+              times a day and exactly right for the sheet they open when they
+              want to change something about themselves.
+            */}
+            <NotificationsCard />
+
             <form action={signOutStaff}>
               <Button type="submit" variant="outline" className="w-full">
                 <LogOut aria-hidden="true" />
