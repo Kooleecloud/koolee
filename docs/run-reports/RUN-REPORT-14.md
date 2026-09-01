@@ -1232,9 +1232,35 @@ them as "needing an agent" — first corrected, then removed entirely when TD
 said the count did not belong there.
 
 **Search read three fields and the ref was not one of them.** Reported as case
-sensitivity; every clause was already `ilike`. Widened to eleven fields with a
-per-row `matchedOn` badge, built from the same predicate list as the WHERE
-clause so the two cannot drift. **Address and ZIP stay out and a test pins it.**
-This reverses the file's own comment about fishing expeditions over PII — TD's
-call, and the better one: an operator who cannot search by name reads the whole
-board by eye instead.
+sensitivity; every clause was already `ilike`. Widened to eleven fields.
+**Address and ZIP stay out and a test pins it.** This reverses the file's own
+comment about fishing expeditions over PII — TD's call, and the better one: an
+operator who cannot search by name reads the whole board by eye instead.
+
+A per-row "why this matched" badge shipped with it and came straight back out
+once TD saw it on a real board: it cost a second line under the ref and earned
+less than the space. Worth recording as a shape rather than a mistake — the
+badge answered a question ("why is this row here") that a wide-enough search
+mostly answers by itself.
+
+### Three more from the board, all TD's
+
+**The search box was rebuilt underneath whoever was typing in it.** `key={search}`
+re-seeds an uncontrolled input by REMOUNTING it, which is right for a Reset or a
+pasted link and wrong for the ordinary case: the term somebody is typing also
+changes the URL, so 300 ms after they stopped the input was destroyed and focus
+went to `document.body`. Confirmed both ways in a browser. A ref holding the
+term this bar itself asked for now decides whether the change came from outside;
+when it did, the input's `value` is written directly and the element survives.
+
+**"Today" moved off the time line and onto the date line.** The time is the
+value being read; a badge parked beside it pushed the hour out of the column an
+eye scans straight down. "Today" is a fact about the date.
+
+**Agent and Driver became one column.** Two of nine columns saying one thing —
+who has this booking — both mostly empty, since a booking has a driver only in
+the last stretch before pickup. The driver wins when there is one (later stage,
+so it is what is live); the second line is either the job or the at-risk badge.
+That badge used to ride the pickup-window cell, which put a warning nowhere near
+the thing that would resolve it. The agent's email moved to `title` — still the
+tie-break when two agents share a first name, no longer worth a permanent line.

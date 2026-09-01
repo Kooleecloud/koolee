@@ -224,7 +224,6 @@ export {
 
 export {
   assignAgentToBooking,
-  BOARD_MATCH_KEYS,
   BOARD_SORT_KEYS,
   DRIVER_AWAITED_STATUSES,
   EXCEPTION_RESOLUTIONS,
@@ -239,7 +238,6 @@ export {
   type AssignAgentResult,
   type AtRiskReason,
   type BoardFilter,
-  type BoardMatchKey,
   type BoardSort,
   type BoardSortKey,
   type BoardRow,

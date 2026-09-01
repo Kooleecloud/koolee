@@ -528,14 +528,6 @@ export interface BoardRow {
   truckName: string | null;
   pickupTaskStatus: string | null;
   /**
-   * Which search predicates this row matched, empty when nothing was
-   * searched. The board renders it as badges: search reads eleven fields and
-   * the table shows eight, so without this a row can appear for a reason that
-   * is nowhere on it — a seal id, an email — and the only way to find out why
-   * is to open it.
-   */
-  matchedOn: BoardMatchKey[];
-  /**
    * Simple derived flag, not a scheduling engine. True for either reason
    * below; `atRiskReason` says which.
    */
@@ -636,30 +628,7 @@ const MIN_PHONE_DIGITS = 3;
  *
  * EVERY CLAUSE IS `ilike`. Somebody reading a ref off an email, a phone screen
  * or their own handwriting types it however they type it.
- *
- * ONE PREDICATE PER KEY, DEFINED ONCE, because the same list has two jobs: it
- * builds the WHERE clause AND it builds each row's `matchedOn`. Written twice
- * they would drift, and the failure would be quiet and awful — a row claiming
- * "matched: email" that the filter actually matched on something else. Adding
- * a field here cannot be forgotten in the other place, because there is no
- * other place.
  */
-export const BOARD_MATCH_KEYS = [
-  "ref",
-  "id",
-  "seal",
-  "phone",
-  "passenger",
-  "customer",
-  "email",
-  "flight",
-  "driver",
-  "truck",
-  "agent",
-] as const;
-
-/** Why a row is on the board — see `BoardRow.matchedOn`. */
-export type BoardMatchKey = (typeof BOARD_MATCH_KEYS)[number];
 
 /**
  * The three `users` roles a board row touches. All three are the same table,
@@ -682,16 +651,7 @@ interface SearchScope {
   agentUser: { fullName: Column; email: Column };
 }
 
-interface SearchPredicate {
-  key: BoardMatchKey;
-  where: SQL;
-}
-
-function searchPredicates(
-  db: Database,
-  term: string,
-  scope: SearchScope,
-): SearchPredicate[] {
+function searchClauses(db: Database, term: string, scope: SearchScope): SQL[] {
   const trimmed = term.trim();
   if (!trimmed) return [];
 
@@ -699,7 +659,7 @@ function searchPredicates(
   const digits = trimmed.replace(/\D/g, "");
   const phoneLike = `%${digits}%`;
 
-  const predicates: SearchPredicate[] = [
+  const clauses: SQL[] = [
     /*
      * THE REF ITSELF — and this was missing, which is the bug TD reported as
      * "search is case-sensitive". It was not: every clause here has always
@@ -716,90 +676,58 @@ function searchPredicates(
      * behind a staff session, which is the supported case rather than the
      * forbidden one.
      */
-    { key: "ref", where: ilike(bookings.ref, like) },
+    ilike(bookings.ref, like),
     // The uuid's last six hex, kept: an operator pasting a fragment of an id
     // out of a log or a Sentry issue is a real thing that happens.
-    { key: "id", where: sql`right(${bookings.id}::text, 6) ilike ${like}` },
-    {
-      key: "seal",
-      where: exists(
-        db
-          .select({ one: sql`1` })
-          .from(bags)
-          .where(and(eq(bags.bookingId, bookings.id), ilike(bags.sealId, like))),
-      ),
-    },
+    sql`right(${bookings.id}::text, 6) ilike ${like}`,
+    exists(
+      db
+        .select({ one: sql`1` })
+        .from(bags)
+        .where(and(eq(bags.bookingId, bookings.id), ilike(bags.sealId, like))),
+    ),
     /*
      * The name ON THE TICKET, which is not always the name on the account —
      * somebody books for a parent or a partner, and then it is the passenger
      * who rings up about the bags.
      */
-    { key: "passenger", where: ilike(bookings.paxName, like) },
+    ilike(bookings.paxName, like),
     /*
      * Stored as "DL777", so `%term%` accepts the whole thing or just the
      * digits — nobody says "delta seven seven seven" when the board is on
      * fire. It is also the one field a caller reads off a boarding pass
      * verbatim, which makes it the most reliable hook of the lot.
      */
-    { key: "flight", where: ilike(bookings.flightNumber, like) },
-    { key: "customer", where: ilike(scope.customer.fullName, like) },
-    { key: "email", where: ilike(scope.customer.email, like) },
+    ilike(bookings.flightNumber, like),
+    ilike(scope.customer.fullName, like),
+    ilike(scope.customer.email, like),
+
     /*
      * The operational half. "Which booking is Marcus on" and "what did truck
      * 3 have this morning" are dispatch questions asked out loud, and both
      * were previously answered by scrolling.
      */
-    { key: "driver", where: ilike(scope.driverUser.fullName, like) },
-    { key: "truck", where: ilike(trucks.name, like) },
-    {
-      key: "agent",
-      where: or(
-        ilike(scope.agentUser.fullName, like),
-        ilike(scope.agentUser.email, like),
-      )!,
-    },
+    ilike(scope.driverUser.fullName, like),
+    ilike(trucks.name, like),
+    ilike(scope.agentUser.fullName, like),
+    ilike(scope.agentUser.email, like),
   ];
 
   if (digits.length >= MIN_PHONE_DIGITS) {
     // Stored E.164 ("+13322602829") will not contain a term the operator
     // typed with dashes or spaces, so phones are matched on digits only.
-    // One predicate, not two: the row says "phone" either way, and a
-    // duplicate key would show the badge twice.
-    predicates.push({
-      key: "phone",
-      where: or(
-        ilike(bookings.contactPhone, phoneLike),
-        ilike(scope.customer.phone, phoneLike),
-      )!,
-    });
+    clauses.push(
+      ilike(bookings.contactPhone, phoneLike),
+      ilike(scope.customer.phone, phoneLike),
+    );
   }
 
-  return predicates;
+  return clauses;
 }
 
-function searchCondition(predicates: SearchPredicate[]): SQL | undefined {
-  if (predicates.length === 0) return undefined;
-  return or(...predicates.map((p) => p.where));
-}
-
-/**
- * Which predicates matched, evaluated per row by the database.
- *
- * WHY IT IS WORTH THE COLUMN. The board shows eight fields, and search now
- * reads eleven — so a row can appear for a reason that is nowhere on it. A
- * seal id, an email, a phone number: the operator sees a booking they did not
- * ask for and has to open it to find out why it is there. The badge answers
- * that in place.
- */
-function matchedOnExpr(predicates: SearchPredicate[]): SQL<BoardMatchKey[]> {
-  // No search, no expression — `'{}'` rather than an ARRAY[] of nothing,
-  // which Postgres cannot assign a type to.
-  if (predicates.length === 0) return sql<BoardMatchKey[]>`'{}'::text[]`;
-
-  return sql<BoardMatchKey[]>`array_remove(array[${sql.join(
-    predicates.map((p) => sql`case when ${p.where} then cast(${p.key} as text) end`),
-    sql`, `,
-  )}], null)`;
+function searchCondition(clauses: SQL[]): SQL | undefined {
+  if (clauses.length === 0) return undefined;
+  return or(...clauses);
 }
 
 /** Column ordering, plus a stable tiebreak so pagination cannot shuffle. */
@@ -844,17 +772,16 @@ export async function listBookingsBoard(
   const driverUser = alias(users, "board_driver");
   /*
    * The customer, joined rather than looked up in a subquery — search reads
-   * three of their columns and `matchedOn` re-reads the same three, which as
-   * correlated `exists` clauses would be six subqueries per row for data
-   * sitting behind one foreign key. LEFT for symmetry with the rest of the
-   * board; `bookings.user_id` is NOT NULL, so it never actually widens.
+   * three of their columns, which as correlated `exists` clauses would be
+   * three subqueries per row for data sitting behind one foreign key. LEFT for
+   * symmetry with the rest of the board; `bookings.user_id` is NOT NULL, so it
+   * never actually widens.
    */
   const customerUser = alias(users, "board_customer");
 
-  // Declared before the WHERE because the predicates read these aliases, and
-  // built once because they also drive each row's `matchedOn`.
-  const predicates = filter.search
-    ? searchPredicates(db, filter.search, {
+  // Declared before the WHERE because the clauses read these aliases.
+  const clauses = filter.search
+    ? searchClauses(db, filter.search, {
         customer: customerUser,
         driverUser,
         agentUser: users,
@@ -866,7 +793,7 @@ export async function listBookingsBoard(
     filter.airports?.length
       ? inArray(bookings.departureAirport, filter.airports)
       : undefined,
-    searchCondition(predicates),
+    searchCondition(clauses),
   ].filter((c): c is NonNullable<typeof c> => c !== undefined);
 
   if (filter.day) {
@@ -890,7 +817,6 @@ export async function listBookingsBoard(
       pickupTaskStatus: pickupTasks.status,
       driverName: driverUser.fullName,
       truckName: trucks.name,
-      matchedOn: matchedOnExpr(predicates),
     })
     .from(bookings)
     .leftJoin(verificationTasks, eq(verificationTasks.bookingId, bookings.id))
@@ -943,7 +869,6 @@ export async function listBookingsBoard(
       driverName: row.driverName,
       truckName: row.truckName,
       pickupTaskStatus: row.pickupTaskStatus,
-      matchedOn: row.matchedOn ?? [],
       atRisk: atRiskReason !== null,
       atRiskReason,
     };

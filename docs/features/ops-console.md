@@ -164,16 +164,35 @@ date underneath, via `formatTimeInAirportTz` + `formatDayInAirportTz`. An
 operator scanning the board reads the hour first. Per
 [TIME.md](../TIME.md#how-to-render), the zone label stays on the **time** line.
 
-### 4.3 — Agent identity
+### 4.3 — One column for whoever has the booking
 
-`BoardRow` carries `assigneeName` (`users.full_name`) alongside `assigneeEmail`,
-and the board shows the **name above the email**. `assigneeName` is null for
-staff who never set one — fall back to the email, which is always present for
-staff. Never render a bare name without that fallback.
+Agent and Driver were two columns, spending two of nine to say one thing — who
+has this booking — and leaving both mostly empty, since a booking has a driver
+only in the last stretch before pickup. TD merged them.
+
+**The driver wins when there is one.** They are the later stage, so they are
+what is live; the verification is finished by then, and the agent who did it is
+on the detail page, recorded against the seals they scanned.
+
+The second line is **either the job or what is missing** — "Verify & seal",
+"Pickup · DEV Truck A", or the at-risk badge. A booking with an agent and no
+driver shows the name AND "needs a driver", because "Leo verified it" and
+"nobody is coming for it" are both true and only one of them is urgent. That
+badge used to ride the pickup-window cell, which put a warning nowhere near the
+thing that would resolve it.
+
+`assigneeName` is null for staff who never set one — fall back to the email,
+which is always present for staff. Never render a bare name without that
+fallback. The email itself is now the name's `title` rather than a permanent
+second line: it is still the tie-break when two agents share a first name, but
+the line it occupied says what the person is doing.
+
+Sorting stays on the verifying agent's email. A driver appears too late and on
+too few rows to sort a board by.
 
 ---
 
-### 4.4 — Search reads eleven fields, and the row says which one hit
+### 4.4 — Search reads eleven fields
 
 Reported as "search is case-sensitive". It never was: every clause has always
 been `ilike`. **`bookings.ref` simply was not one of the clauses** — the only
@@ -202,27 +221,19 @@ instead, which is the same PII with more of it on screen. "Who is booked on
 this street" is a different question. It answers no support call, and it is
 the one search here that would be worth misusing.
 
-**Passenger and customer are separate keys because they are separate people.**
-Somebody books for a parent; both names must be reachable and the badge has to
-say which was hit.
+**Passenger and customer are separate clauses because they are separate
+people.** Somebody books for a parent, and both names have to reach the
+booking.
 
-#### `matchedOn` is built from the same list as the WHERE clause
-
-`searchPredicates` returns `{key, where}[]`. That one list builds `or(...)` for
-the filter AND a `CASE`-per-key array expression for `BoardRow.matchedOn`.
-Written twice they would drift, and the failure would be quiet and awful: a row
-badged "Email" that actually matched on something else is worse than no badge,
-because an operator would believe it.
-
-The board shows eight fields and search reads eleven, so **a row can appear for
-a reason nowhere on it** — a seal id, an email. The badges sit under the ref,
-on one line, capped at three plus a `+N` whose tooltip names the rest. Not
-wrapped: two badges made a row twice the height of its neighbours, and a board
-with uneven rows is harder to scan down.
+A per-row "why this matched" badge was built and then removed on TD's call: on
+a board this wide it was a second line under the ref earning less than the
+space it cost. Search is wide enough that the answer is usually obvious from
+the row itself, and the shape of the query — `or` over one flat clause list —
+is the same either way.
 
 The customer is a LEFT JOIN rather than an `exists` subquery, because search
-reads three of their columns and `matchedOn` re-reads the same three — six
-correlated subqueries per row for data behind one foreign key.
+reads three of their columns: three correlated subqueries per row for data
+sitting behind one foreign key.
 
 #### The box must not be remounted while somebody is typing in it
 
