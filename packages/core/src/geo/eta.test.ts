@@ -193,7 +193,7 @@ describe("formatEtaRange", () => {
   });
 
   it("says the ETA is on the way when there is no position to work from", () => {
-    expect(formatEtaRange(null)).toBe("ETA on the way");
+    expect(formatEtaRange(null)).toBe("No position yet");
   });
 });
 
@@ -224,6 +224,6 @@ describe("formatEtaMinutes", () => {
 
   it("says so when there is no estimate at all", () => {
     // A driver who has not pinged is a real state, not a zero.
-    expect(formatEtaMinutes(null)).toBe("ETA on the way");
+    expect(formatEtaMinutes(null)).toBe("Locating…");
   });
 });

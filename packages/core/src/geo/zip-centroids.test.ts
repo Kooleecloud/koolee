@@ -8,7 +8,7 @@ import { COVERAGE_ZIPS } from "../coverage";
  * The contract this file protects: every ZIP Koolee SELLS in has a centroid.
  *
  * A missing centroid is not a crash — the address keeps NULL coordinates and
- * the ETA renders "ETA on the way" — it is a silent downgrade of driver
+ * the ETA renders "Locating…" — it is a silent downgrade of driver
  * selection for everyone in that ZIP. Widening the coverage allowlist without
  * regenerating the dataset is exactly how that would happen, so it fails here
  * instead. (The test lives in core rather than db because db carries no test

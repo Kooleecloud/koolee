@@ -65,19 +65,23 @@ export function TripLive({
   stage?: string | null;
 }) {
   /*
-   * THE ONE SCREEN THE POLL ACTUALLY DRIVES, so it gets the faster one.
+   * EVERY STAGE WHERE A POSITION IS MOVING, polled at or below the rate the
+   * driver's phone reports at — TD's rule, and the honest one: a page checking
+   * every thirty seconds for a fix written every twenty shows a stale dot for
+   * no reason.
    *
-   * Everywhere else the socket is the path: a custody event fires the trigger
-   * and the page refetches in about three seconds, with the 30-second poll as
-   * the net. On the driver shortlist there is no socket traffic at all — a
-   * candidate's position ping signals only bookings already bound to that
-   * driver's shift, and a booking still choosing has none. See
-   * `SIGNAL_POLL_FAST_MS` for why widening that is the expensive answer.
+   *  - `choose_driver` — the poll is the ONLY transport here. A candidate's
+   *    ping signals nobody by design; see `SIGNAL_POLL_FAST_MS`.
+   *  - `awaiting_pickup` — a driver is chosen and on their way to the door.
+   *    Realtime carries this in about three seconds; the poll is the net, and
+   *    a net slower than the ping is a net with holes in it.
+   *  - `in_transit` — the bags are in the van and still moving.
    *
    * Derived from the STAGE the server computed, so it turns itself off the
-   * moment a driver is chosen and the socket takes over.
+   * moment the bags are delivered and nothing is moving any more.
    */
-  const choosing = stage === "choose_driver";
+  const watchingMovement =
+    stage === "choose_driver" || stage === "awaiting_pickup" || stage === "in_transit";
   const router = useRouter();
   const client = getSupabaseBrowserClient();
   const bookingIds = React.useMemo(() => (bookingId ? [bookingId] : []), [bookingId]);
@@ -87,7 +91,7 @@ export function TripLive({
     bookingIds,
     onSignal: () => router.refresh(),
     enabled: active,
-    pollMs: choosing ? SIGNAL_POLL_FAST_MS : undefined,
+    pollMs: watchingMovement ? SIGNAL_POLL_FAST_MS : undefined,
   });
 
   useAnnounceChange(stage, (next) => {

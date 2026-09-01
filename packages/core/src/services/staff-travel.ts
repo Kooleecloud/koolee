@@ -36,7 +36,7 @@ import { formatEtaMinutes } from "../geo/eta";
 export interface StaffTravel {
   /** "3.2 miles away", customer-facing units. */
   distanceLabel: string;
-  /** "about 15 min", or "ETA on the way" when the estimate is unavailable. */
+  /** "about 15 min", or "Locating…" when there is no position to measure from. */
   etaLabel: string;
   /** The two, joined — what the agent card renders. */
   label: string;

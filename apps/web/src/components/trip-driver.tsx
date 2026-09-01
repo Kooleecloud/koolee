@@ -61,7 +61,7 @@ export interface DriverCandidateView {
   /** Room left on that van after this booking's bags. */
   availableCapacity: number;
   outOfZone: boolean;
-  /** Preformatted by `formatEtaMinutes` — "about 25 min" or "ETA on the way". */
+  /** Preformatted by `formatEtaMinutes` — "about 25 min" or "Locating…". */
   etaLabel: string;
   /** True when the ETA is a real estimate rather than the fallback phrase. */
   hasEta: boolean;

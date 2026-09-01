@@ -172,9 +172,14 @@ export class HaversineEtaEstimator implements EtaEstimator {
 /**
  * The range, spelled out. For OPERATORS and logs — the admin console and the
  * cutoff monitor's alert detail, where the width of the band is information.
+ *
+ * Its `null` wording differs from the customer's on purpose. "Locating…" is
+ * reassurance, which is the right note for somebody waiting on their bags; an
+ * operator reading an alert wants the fact, and the fact is that there is no
+ * position on file.
  */
 export function formatEtaRange(eta: EtaRange | null): string {
-  if (eta === null) return "ETA on the way";
+  if (eta === null) return "No position yet";
   return `${eta.minMinutes}–${eta.maxMinutes} min`;
 }
 
@@ -195,11 +200,22 @@ export function formatEtaRange(eta: EtaRange | null): string {
  * they remember. Rounded to 5 so it never claims a precision the estimate
  * does not have.
  *
- * `null` is a real state (no driver position yet) and says so rather than
- * inventing a number.
+ * `null` is a real state — no fresh position for this driver — and says so
+ * rather than inventing a number.
+ *
+ * IT USED TO SAY "ETA on the way", which TD is right to call meaningless: it
+ * reads as though an ETA is being delivered by courier. Worse, the customer it
+ * is shown to is choosing between drivers, and a phrase they cannot parse
+ * beside another driver's "about 15 min" reads as *worse*, when the truth is
+ * only that we cannot see this one yet.
+ *
+ * "Locating…" is what it says now. Three syllables, understood from every map
+ * app anybody has used, and TRUE rather than merely short: the driver's phone
+ * reports every 20–45 seconds while their shift is open, so an absent position
+ * genuinely is one we are in the middle of getting.
  */
 export function formatEtaMinutes(eta: EtaRange | null): string {
-  if (eta === null) return "ETA on the way";
+  if (eta === null) return "Locating…";
   return `about ${etaDisplayMinutes(eta)} min`;
 }
 

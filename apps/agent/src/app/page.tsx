@@ -14,7 +14,6 @@ import { JobCard } from "@/components/job/job-card";
 import { JourneyList } from "@/components/job/journey-list";
 import { LiveTasks } from "@/components/live-tasks";
 import { AgentMain } from "@/components/shell/agent-main";
-import { GpsPinger, type GpsPingerPhase } from "@/components/shift/gps-pinger";
 import {
   ShiftBar,
   type ActiveShiftView,
@@ -88,35 +87,6 @@ export default async function AgentHomePage() {
       trucks = [];
     }
   }
-
-  /*
-   * Pings run while a pickup is genuinely under way, at one of two cadences.
-   *
-   * `in_progress` on a pickup phase means exactly that: `startPickupTravel`
-   * sets it, and `confirmAirlineHandover` closes it.
-   *
-   * WHICH LEG is read off the BOOKING, and the two are cleanly separated by
-   * design: `startPickupTravel` moves the task to `in_progress` and leaves the
-   * booking at `awaiting_pickup` — the driver is on their way to a doorstep
-   * where the bags still are. `scanSealAtPickup` moves the booking to
-   * `in_transit` once every seal is scanned — the bags are aboard.
-   *
-   * That is the line between "a customer is watching a dot come to their
-   * house" and "a van is on a motorway nobody has open", and it is why the
-   * fast cadence is worth its battery in one case and not the other. See
-   * `GpsPinger`.
-   */
-  const runningPickups = jobs.filter((job) =>
-    job.phases.some((phase) => phase.kind === "pickup" && phase.status === "in_progress"),
-  );
-  // Any doorstep still ahead wins: one customer waiting outranks a leg that is
-  // already carrying, and a driver only ever has one phone.
-  const pingPhase: GpsPingerPhase | null =
-    activeShift === null || runningPickups.length === 0
-      ? null
-      : runningPickups.some((job) => job.booking.status === "awaiting_pickup")
-        ? "en_route"
-        : "carrying";
 
   const now = new Date();
   // "Today" is today AT THE AIRPORT, per job. A UTC server would otherwise
@@ -199,7 +169,6 @@ export default async function AgentHomePage() {
       {identity.canDrive && !unavailable ? (
         <>
           <ShiftBar active={activeShift} trucks={trucks} />
-          <GpsPinger phase={pingPhase} />
         </>
       ) : null}
 

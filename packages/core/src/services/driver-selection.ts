@@ -366,7 +366,7 @@ export function bestCandidate(
  * a route-matrix API answers all four in one request.
  *
  * Drivers with no position yet are left out of the call and get `null`, which
- * the card renders as "ETA on the way".
+ * the card renders as "Locating…".
  *
  * A STALE POSITION COUNTS AS NO POSITION HERE TOO. An estimate computed from
  * where somebody was yesterday is the same lie as a pin drawn there, and it is
@@ -513,7 +513,7 @@ export async function selectDriver(
   // advisory lock open for its duration, serialising every other customer
   // choosing that same driver behind a third party's latency. The position it
   // reads is at most one GPS ping (20–45s) older than the one re-read under the
-  // lock; a null either way renders as "ETA on the way".
+  // lock; a null either way renders as "Locating…".
   const eta = await snapshotDriverEta(config, input.shiftId, pickup.coords);
 
   const result = await db.transaction(async (tx) => {

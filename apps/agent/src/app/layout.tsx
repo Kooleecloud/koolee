@@ -7,6 +7,7 @@ import { brandFontClassName } from "@koolee/ui/fonts";
 
 import { ServiceWorkerRegistrar } from "@/components/service-worker-registrar";
 import { AgentTabBar } from "@/components/shell/agent-tab-bar";
+import { ShiftLocation } from "@/components/shift/shift-location";
 import { getAgentSession } from "@/lib/session";
 
 import "./globals.css";
@@ -60,6 +61,15 @@ export default async function RootLayout({
         <AppHeader linkComponent={Link} tag="agent" sticky={false} />
         {children}
         {session ? <AgentTabBar /> : null}
+        {/*
+          POSITION IS A FACT ABOUT THE DRIVER, NOT ABOUT THE SCREEN.
+          `GpsPinger` used to live on the Today page alone, so opening a task —
+          the moment somebody is most likely to be moving — stopped reporting,
+          silently, and the customer's map went quiet. In the shell it runs
+          from every page for as long as the shift is open. Off the clock it
+          renders nothing and touches no geolocation API at all.
+        */}
+        {session ? <ShiftLocation /> : null}
         <ServiceWorkerRegistrar />
         <Toaster position="top-center" />
         <Analytics />

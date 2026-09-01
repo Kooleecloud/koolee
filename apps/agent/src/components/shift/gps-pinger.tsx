@@ -10,7 +10,15 @@ import * as React from "react";
  * "3.2 km away · 15–25 min" line and the moving pin on the customer's trip
  * page.
  *
- * TWO CADENCES, BECAUSE ONLY ONE OF THEM IS BEING WATCHED.
+ * IT RUNS FOR THE WHOLE SHIFT, not only while a pickup is under way. That is
+ * a change TD asked for and it is the difference between a driver-selection
+ * map that works and one that is empty almost always: a customer choosing a
+ * driver is shown pins built from `driver_positions`, and a fix older than
+ * `POSITION_FRESH_MS` (90s) is dropped rather than drawn. A driver clocked on
+ * and waiting for work used to report nothing at all, so there was nothing
+ * fresh to draw and the map simply did not render.
+ *
+ * THREE CADENCES, BECAUSE THEY ARE NOT ALL BEING WATCHED THE SAME WAY.
  *
  * A single flat interval has to be a compromise between a customer staring at
  * a dot creeping toward their front door and a van on a motorway to the bag
@@ -25,6 +33,12 @@ import * as React from "react";
  *    and the booking is `in_transit`. The customer's question has changed from
  *    "where are they" to "did they make it", which the custody trail answers.
  *    Forty-five seconds.
+ *  - **On shift** (`on_shift`): clocked on, nothing running. Somebody may be
+ *    looking at this driver as a pin on a shortlist right now. Forty-five
+ *    seconds, and the number is not free to raise: two pings have to fit
+ *    inside the 90-second freshness window or one missed fix makes the pin
+ *    vanish. Sixty would mean a single dropped request removes a driver from
+ *    every customer's map.
  *
  * Below about fifteen seconds this stops buying anything visible: the phone's
  * own fix is not that fresh, the pin animation already covers the gap, and the
@@ -34,7 +48,7 @@ import * as React from "react";
  * WHAT THIS IS NOT. It is a foreground-only ping: no service worker, no
  * background sync, no `watchPosition`. A phone in a pocket with the screen off
  * stops reporting, and that is accepted for this slice — the customer's page
- * degrades to "ETA on the way", which is honest, rather than to a stale
+ * degrades to "Locating…", which is honest, rather than to a stale
  * position presented as current. Background tracking is a battery, permission
  * and privacy conversation of its own.
  *
@@ -54,6 +68,7 @@ import * as React from "react";
 const PING_INTERVAL_MS: Record<GpsPingerPhase, number> = {
   en_route: 20_000,
   carrying: 45_000,
+  on_shift: 45_000,
 };
 
 /**
@@ -68,15 +83,18 @@ const MAX_FIX_AGE_MS = 60_000;
 
 export type GpsPingerState = "idle" | "sending" | "denied" | "unsupported";
 
-/** What the driver is doing, which is what decides the cadence. */
-export type GpsPingerPhase = "en_route" | "carrying";
+/**
+ * What the driver is doing, which is what decides the cadence — and whether
+ * anything is sent at all. `null` means no open shift: off the clock, Koolee
+ * knows nothing about where anybody is.
+ */
+export type GpsPingerPhase = "en_route" | "carrying" | "on_shift";
 
 export function GpsPinger({
   /**
-   * Null when nothing is under way — no shift, or no pickup between "set off"
-   * and "delivered" — and then nothing is sent at all.
+   * Null when the driver has no open shift, and then nothing is sent at all.
    *
-   * Otherwise which leg: see the two cadences in the header.
+   * Otherwise which leg: see the three cadences in the header.
    */
   phase,
 }: {

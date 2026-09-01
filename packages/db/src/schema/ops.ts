@@ -169,7 +169,7 @@ export const driverShifts = pgTable(
  *
  * One row per driver — a latest-position table, not a track. Deleting the row
  * (or never inserting one) is a supported state: selection then shows the
- * "ETA on the way" fallback rather than inventing a position.
+ * "Locating…" fallback rather than inventing a position.
  */
 export const driverPositions = pgTable(
   "driver_positions",

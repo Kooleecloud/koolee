@@ -273,7 +273,7 @@ describeIntegration("driver selection (integration)", () => {
       bagsOnBoard: 0,
       availableCapacity: 30,
       outOfZone: false,
-      // No position pinged yet — a real state, rendered as "ETA on the way".
+      // No position pinged yet — a real state, rendered as "Locating…".
       eta: null,
     });
     void offShift;
