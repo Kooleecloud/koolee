@@ -567,4 +567,110 @@ describeIntegration("admin dispatch + overrides (integration)", () => {
     const cleared = await listBookingsBoard(db, { statuses: [], airports: [] }, { now });
     expect(cleared).toHaveLength(3);
   });
+
+  /* ------------------------------------------------------------------ */
+  /* Board search                                                         */
+  /* ------------------------------------------------------------------ */
+
+  /**
+   * Search widened from three fields to eleven, so these tests carry two
+   * jobs: that each field is reachable, and that `matchedOn` says WHICH — a
+   * badge naming the wrong field is worse than no badge at all, because an
+   * operator would believe it.
+   */
+  describe("board search", () => {
+    /** Names the customer, so the account's own fields are searchable. */
+    async function namedCustomer() {
+      await db
+        .update(users)
+        .set({ fullName: "Priya Raghunathan", email: "priya.r@koolee-test.example" })
+        .where(eq(users.id, customerId));
+    }
+
+    it("finds a booking by its ref in any casing, and says so", async () => {
+      const booking = await paidBooking();
+      const payload = booking.ref.replace("KOO-", "");
+
+      for (const term of [booking.ref, payload, payload.toLowerCase()]) {
+        const rows = await listBookingsBoard(db, { search: term }, { now });
+        expect(rows.map((r) => r.booking.id)).toEqual([booking.id]);
+        expect(rows[0]!.matchedOn).toContain("ref");
+      }
+    });
+
+    it("finds the passenger on the ticket", async () => {
+      const booking = await paidBooking();
+      const rows = await listBookingsBoard(db, { search: "test custom" }, { now });
+      expect(rows.map((r) => r.booking.id)).toEqual([booking.id]);
+      expect(rows[0]!.matchedOn).toEqual(["passenger"]);
+    });
+
+    it("finds a flight by its digits alone", async () => {
+      const booking = await paidBooking();
+      // Nobody says "delta one two three" when the board is on fire.
+      const rows = await listBookingsBoard(db, { search: "123" }, { now });
+      expect(rows.map((r) => r.booking.id)).toEqual([booking.id]);
+      expect(rows[0]!.matchedOn).toContain("flight");
+    });
+
+    it("finds the account holder by name and by email, and tells them apart", async () => {
+      await namedCustomer();
+      const booking = await paidBooking();
+
+      const byName = await listBookingsBoard(db, { search: "raghunathan" }, { now });
+      expect(byName.map((r) => r.booking.id)).toEqual([booking.id]);
+      expect(byName[0]!.matchedOn).toEqual(["customer"]);
+
+      const byEmail = await listBookingsBoard(db, { search: "priya.r@" }, { now });
+      expect(byEmail.map((r) => r.booking.id)).toEqual([booking.id]);
+      expect(byEmail[0]!.matchedOn).toEqual(["email"]);
+    });
+
+    /*
+     * The account holder and the passenger are DIFFERENT PEOPLE here, which
+     * is the ordinary case for a parent booking for a child. Both have to be
+     * reachable, and the badge has to say which one was hit.
+     */
+    it("keeps the passenger and the account holder apart", async () => {
+      await namedCustomer();
+      await paidBooking();
+
+      const rows = await listBookingsBoard(db, { search: "priya" }, { now });
+      // The email carries the name too, so both hit — what must NOT hit is
+      // the passenger, who is a different person on this booking.
+      expect(rows[0]!.matchedOn).toContain("customer");
+      expect(rows[0]!.matchedOn).not.toContain("passenger");
+    });
+
+    it("reports every field a term hits, not just the first", async () => {
+      await db
+        .update(users)
+        .set({ fullName: "DL123 Person", email: "dl123@koolee-test.example" })
+        .where(eq(users.id, customerId));
+      await paidBooking();
+
+      const rows = await listBookingsBoard(db, { search: "dl123" }, { now });
+      expect(new Set(rows[0]!.matchedOn)).toEqual(
+        new Set(["flight", "customer", "email"]),
+      );
+    });
+
+    /*
+     * THE PII LINE, PINNED. Address and ZIP are deliberately unsearchable:
+     * "who is booked on this street" answers no support call, and it is the
+     * one search here worth misusing. A future widening that adds them will
+     * fail this test, which is the point of writing it down.
+     */
+    it("does not search the pickup address or zip", async () => {
+      await paidBooking();
+      expect(await listBookingsBoard(db, { search: "1 Test St" }, { now })).toEqual([]);
+      expect(await listBookingsBoard(db, { search: "10001" }, { now })).toEqual([]);
+    });
+
+    it("leaves matchedOn empty when nothing was searched", async () => {
+      await paidBooking();
+      const rows = await listBookingsBoard(db, {}, { now });
+      expect(rows[0]!.matchedOn).toEqual([]);
+    });
+  });
 });

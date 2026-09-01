@@ -20,6 +20,7 @@ import {
   getDisplayZones,
   listBookingsBoard,
   zoneFor,
+  type BoardMatchKey,
   type BoardRow,
   type BoardSortKey,
   type BookingStatus,
@@ -48,6 +49,34 @@ const AT_RISK_LABEL = {
   no_agent: "needs an agent",
   no_driver: "needs a driver",
 } as const;
+
+/**
+ * WHY THE ROW MATCHED, in the fewest words that still answer it.
+ *
+ * Search reads eleven fields; the board shows eight. Without this, a row can
+ * appear for a reason that is nowhere on it — a seal id, an email address, a
+ * phone number — and the only way to learn why is to open the booking.
+ *
+ * "Passenger" and "Customer" are separate because they genuinely differ:
+ * somebody books for a parent, and the two names on the record are not the
+ * same person.
+ */
+const MATCH_LABEL: Record<BoardMatchKey, string> = {
+  ref: "Ref",
+  id: "ID",
+  seal: "Seal",
+  phone: "Phone",
+  passenger: "Passenger",
+  customer: "Customer",
+  email: "Email",
+  flight: "Flight",
+  driver: "Driver",
+  truck: "Truck",
+  agent: "Agent",
+};
+
+/** Past this the Ref column starts pushing the board sideways. */
+const MAX_MATCH_BADGES = 3;
 
 const STATUSES: BookingStatus[] = [
   "draft",
@@ -273,7 +302,7 @@ export default async function BookingsPage({
           title="No bookings"
           description={
             search
-              ? `Nothing matches "${search}". Refs are the last six characters of the booking id; seals and phone numbers match on any part.`
+              ? `Nothing matches "${search}". Search reads the ref, seal ids, names, email, phone and flight number, plus the driver, truck and agent — any part of any of them.`
               : filtered
                 ? "Nothing matches these filters."
                 : "No bookings yet."
@@ -364,6 +393,7 @@ export default async function BookingsPage({
                   atRiskReason,
                   driverName,
                   truckName,
+                  matchedOn,
                   tz,
                 }) => {
                   const windowEnd = booking.pickupWindowEnd;
@@ -387,6 +417,39 @@ export default async function BookingsPage({
                         >
                           {booking.ref}
                         </RowLink>
+                        {/* Under the ref rather than in a column of its own:
+                            it exists only while a search is running, and a
+                            column that appears and disappears would move every
+                            other one sideways as an operator types.
+
+                            ONE LINE, NEVER WRAPPED. Wrapping made a row with
+                            two badges twice the height of its neighbours, and
+                            a board whose rows are different heights is
+                            measurably harder to scan down. Three then "+N"
+                            because a lazy term ("1") can hit five fields at
+                            once — the count keeps the column still, and the
+                            tooltip still names them. */}
+                        {matchedOn.length > 0 ? (
+                          <span className="mt-1 flex gap-1 whitespace-nowrap">
+                            {matchedOn.slice(0, MAX_MATCH_BADGES).map((key) => (
+                              <Badge key={key} variant="outline" className="text-[10px]">
+                                {MATCH_LABEL[key]}
+                              </Badge>
+                            ))}
+                            {matchedOn.length > MAX_MATCH_BADGES ? (
+                              <Badge
+                                variant="outline"
+                                className="text-[10px]"
+                                title={matchedOn
+                                  .slice(MAX_MATCH_BADGES)
+                                  .map((key) => MATCH_LABEL[key])
+                                  .join(", ")}
+                              >
+                                +{matchedOn.length - MAX_MATCH_BADGES}
+                              </Badge>
+                            ) : null}
+                          </span>
+                        ) : null}
                       </td>
                       <td className="px-4 py-2">
                         {slotStart ? (
