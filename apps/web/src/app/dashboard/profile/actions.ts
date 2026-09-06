@@ -1,6 +1,8 @@
 "use server";
 
+import { revalidatePath } from "next/cache";
 import { z } from "zod";
+import { normalizeEmail } from "@koolee/ui/lib/credentials";
 import {
   attachEmail,
   completeProfile,
@@ -16,6 +18,15 @@ import { tryGetCore } from "@/lib/core";
 import { deleteAuthUser } from "@/lib/supabase/admin";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
 
+/**
+ * Everything these actions mutate is rendered by `/dashboard/profile` —
+ * saved addresses included, since `/dashboard/addresses` is now a redirect
+ * onto it. Without this the action returns `ok`, the form says "saved", and
+ * the page keeps showing the old value out of the client Router Cache: the
+ * server component never re-ran. Matches what every admin action already does.
+ */
+const PROFILE_PATH = "/dashboard/profile";
+
 export interface ProfileActionState {
   error?: string;
   ok?: boolean;
@@ -24,9 +35,12 @@ export interface ProfileActionState {
 const RATE_LIMIT_COPY = "Too many attempts — try again in a minute.";
 const EMAIL_TAKEN_COPY = "That email already belongs to another account.";
 
+/** See `emailField` in actions/auth.ts — same rule, same reason. */
+const emailField = z.preprocess(normalizeEmail, z.email());
+
 const profileSchema = z.object({
   fullName: z.string().min(1).max(120),
-  email: z.email().optional().or(z.literal("")),
+  email: emailField.optional().or(z.literal("")),
 });
 
 /**
@@ -53,7 +67,7 @@ export async function saveProfile(
 
   const parsed = profileSchema.safeParse({
     fullName: String(form.get("fullName") ?? "").trim(),
-    email: String(form.get("email") ?? "").trim(),
+    email: normalizeEmail(form.get("email")),
   });
   if (!parsed.success) {
     return { error: "Check the highlighted fields and try again." };
@@ -97,6 +111,7 @@ export async function saveProfile(
       await attachEmail(core.db, { authUserId: authUser.id, email, verified: false });
     }
 
+    revalidatePath(PROFILE_PATH);
     return { ok: true };
   } catch (error) {
     if (error instanceof ConflictError) {
@@ -174,11 +189,13 @@ export async function resendEmailCode(): Promise<ProfileActionState> {
     return { error: "We couldn't send the code. Try again in a minute." };
   }
 
+  // No revalidate: a resend changes nothing the page renders. The pending
+  // email was already on screen before the button was pressed.
   return { ok: true };
 }
 
 const confirmCodeSchema = z.object({
-  email: z.email(),
+  email: emailField,
   code: z.string().regex(/^\d{6}$/, "Enter the 6-digit code."),
 });
 
@@ -198,7 +215,7 @@ export async function confirmEmailCode(
   }
 
   const parsed = confirmCodeSchema.safeParse({
-    email: String(form.get("email") ?? "").trim().toLowerCase(),
+    email: normalizeEmail(form.get("email")),
     code: String(form.get("code") ?? "").trim(),
   });
   if (!parsed.success) {
@@ -233,5 +250,6 @@ export async function confirmEmailCode(
     }
   }
 
+  revalidatePath(PROFILE_PATH);
   return { ok: true };
 }

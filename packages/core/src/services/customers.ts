@@ -1,8 +1,9 @@
-import { and, eq, notExists } from "drizzle-orm";
+import { and, eq, inArray, isNull, notExists } from "drizzle-orm";
 import {
   addresses,
   bookings,
   users,
+  zipCentroids,
   type Address,
   type Database,
   type User,
@@ -237,7 +238,10 @@ export async function deleteAnonymousCustomer(
         eq(users.id, authUserId),
         eq(users.isAnonymous, true),
         notExists(
-          db.select({ one: bookings.id }).from(bookings).where(eq(bookings.userId, users.id)),
+          db
+            .select({ one: bookings.id })
+            .from(bookings)
+            .where(eq(bookings.userId, users.id)),
         ),
       ),
     )
@@ -259,9 +263,33 @@ export interface AddressInput {
 /**
  * Finds an identical address for the user, or creates one.
  *
- * Deduplicating on the full address keeps repeat bookings from accumulating a
- * row per booking. Coverage is asserted here so an out-of-area address never
+ * Deduplicating on the address keeps repeat bookings from accumulating a row
+ * per booking. Coverage is asserted here so an out-of-area address never
  * reaches the database.
+ *
+ * THE DEDUPE KEY IS `(user_id, line1, line2, zip)`, and `line2` is in it on
+ * purpose. It used to be `(user_id, line1, zip)`, which collapsed two
+ * apartments at one street address into a single row: a customer who booked
+ * from Apt 4 and later from Apt 9 got Apt 4's row back, and a driver was sent
+ * to the wrong door. `city` stays OUT — it is derivable from the ZIP, and
+ * including it would mint a second row for "NYC" against "New York".
+ *
+ * COORDINATES. When the caller supplies none the ZIP's centroid is used
+ * instead, read from `zip_centroids` rather than from the TS module so a
+ * dataset refresh lands without a deploy. Coarse on purpose: it answers
+ * "roughly how far is the driver", never "which door".
+ *
+ * A caller that DOES supply coordinates always wins — **including on an
+ * address that already exists.** The early return used to happen before the
+ * coordinate branch was ever reached, so once Places autocomplete shipped,
+ * every address a customer had used before would have kept its ZIP centroid
+ * forever and its `place_id` would have stayed null: the driver's map link
+ * would still be a free-text search on the one address most likely to be
+ * repeated. An existing row is now UPGRADED in place, and only when there is
+ * something better to write.
+ *
+ * A ZIP with no centroid leaves both columns NULL, and the ETA seam renders
+ * "Locating…" rather than inventing a position.
  */
 export async function ensureAddress(
   db: Database,
@@ -269,6 +297,7 @@ export async function ensureAddress(
   input: AddressInput,
 ): Promise<Address> {
   const zip = assertInCoverage(input.zip);
+  const line2 = input.line2?.trim() ? input.line2.trim() : null;
 
   const existing = await db
     .select()
@@ -277,25 +306,28 @@ export async function ensureAddress(
       and(
         eq(addresses.userId, userId),
         eq(addresses.line1, input.line1),
+        line2 === null ? isNull(addresses.line2) : eq(addresses.line2, line2),
         eq(addresses.zip, zip),
       ),
     )
     .limit(1);
 
   const found = existing[0];
-  if (found) return found;
+  if (found) return upgradeAddressPrecision(db, found, input);
+
+  const { lat, lng } = await resolveAddressPoint(db, zip, input);
 
   const [created] = await db
     .insert(addresses)
     .values({
       userId,
       line1: input.line1,
-      line2: input.line2 ?? null,
+      line2,
       city: input.city,
       state: input.state.toUpperCase(),
       zip,
-      lat: input.lat ?? null,
-      lng: input.lng ?? null,
+      lat,
+      lng,
       placeId: input.placeId ?? null,
     })
     .returning();
@@ -304,3 +336,109 @@ export async function ensureAddress(
   return created;
 }
 
+/**
+ * The point to store for an address: what Places gave us, else the ZIP's
+ * centroid, else nothing.
+ *
+ * Exported because the account area saves addresses through
+ * `createAddressForSession` rather than through `ensureAddress`, and an
+ * address added on the profile page must not be less precise than the same
+ * address typed in the funnel. Both now resolve the point the same way, which
+ * is the only way "the price and the driver's map link agree" stays true
+ * whichever door the address came in through.
+ *
+ * The centroid is read from `zip_centroids` rather than the TS module so a
+ * dataset refresh lands without a deploy. It is coarse on purpose: it answers
+ * "roughly how far is the driver", never "which door".
+ */
+export async function resolveAddressPoint(
+  db: Database,
+  zip: string,
+  input: { lat?: number | null; lng?: number | null },
+): Promise<{ lat: number | null; lng: number | null }> {
+  // Both halves or neither: half a coordinate is not a point.
+  if (
+    input.lat !== null &&
+    input.lat !== undefined &&
+    input.lng !== null &&
+    input.lng !== undefined
+  ) {
+    return { lat: input.lat, lng: input.lng };
+  }
+
+  const [centroid] = await db
+    .select({ lat: zipCentroids.lat, lng: zipCentroids.lng })
+    .from(zipCentroids)
+    .where(eq(zipCentroids.zip, zip.slice(0, 5)))
+    .limit(1);
+  // A ZIP with no centroid leaves both NULL, and the ETA seam renders "ETA on
+  // the way" rather than inventing a position.
+  return { lat: centroid?.lat ?? null, lng: centroid?.lng ?? null };
+}
+
+/**
+ * Replaces an existing address row's ZIP centroid with the precise point
+ * Places gave us, and fills in `place_id`.
+ *
+ * Only when there is something better to write, and only in the direction of
+ * MORE precision — this never clears a coordinate or a place id, because the
+ * caller that has none is the hand-typed path and it should not undo the
+ * autocomplete path's work. A row with nothing to gain is returned untouched,
+ * so the ordinary repeat booking still costs exactly one SELECT.
+ */
+async function upgradeAddressPrecision(
+  db: Database,
+  found: Address,
+  input: AddressInput,
+): Promise<Address> {
+  const patch: Partial<{ lat: number; lng: number; placeId: string }> = {};
+
+  const lat = input.lat ?? null;
+  const lng = input.lng ?? null;
+  // Both halves or neither: half a coordinate is not a point, and writing one
+  // over a centroid pair would leave the row pointing at the wrong place.
+  if (lat !== null && lng !== null && (found.lat !== lat || found.lng !== lng)) {
+    patch.lat = lat;
+    patch.lng = lng;
+  }
+  if (input.placeId && found.placeId !== input.placeId) {
+    patch.placeId = input.placeId;
+  }
+
+  if (Object.keys(patch).length === 0) return found;
+
+  const [updated] = await db
+    .update(addresses)
+    .set(patch)
+    .where(eq(addresses.id, found.id))
+    .returning();
+
+  return updated ?? found;
+}
+
+/**
+ * Display names for a set of user ids, keyed by id.
+ *
+ * For any surface that renders people it only has ids for — the console's
+ * custody trail is the first, where every actor used to read as eight hex
+ * characters. Users with no name on file are simply absent; the caller falls
+ * back to the id, which is still better than a blank.
+ */
+export async function listUserNames(
+  db: Database,
+  userIds: readonly string[],
+): Promise<Map<string, string>> {
+  const unique = [...new Set(userIds.filter(Boolean))];
+  if (unique.length === 0) return new Map();
+
+  const rows = await db
+    .select({ id: users.id, fullName: users.fullName, email: users.email })
+    .from(users)
+    .where(inArray(users.id, unique));
+
+  return new Map(
+    rows
+      .map((row) => [row.id, row.fullName?.trim() || row.email || ""] as const)
+      .filter(([, name]) => name.length > 0),
+  );
+}

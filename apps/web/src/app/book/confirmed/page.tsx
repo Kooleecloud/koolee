@@ -29,7 +29,9 @@ export default async function ConfirmedPage({
   const authUser = await getAuthUser();
   const core = tryGetCore();
   const userRow =
-    authUser && core ? await getCustomerById(core.db, authUser.id).catch(() => null) : null;
+    authUser && core
+      ? await getCustomerById(core.db, authUser.id).catch(() => null)
+      : null;
   const hasEmail = Boolean(userRow?.email ?? authUser?.email);
 
   return (

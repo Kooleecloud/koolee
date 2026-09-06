@@ -4,22 +4,27 @@
   "private": true,
   "exports": {
     ".": "./src/index.ts",
+    "./web-push": "./src/notifications/web-push.ts",
     "./booking": "./src/booking/index.ts",
     "./slots": "./src/slots/index.ts",
     "./pricing": "./src/pricing/index.ts",
     "./payments": "./src/payments/index.ts",
     "./extraction": "./src/extraction/index.ts",
+    "./uploads": "./src/uploads/index.ts",
     "./auth": "./src/auth/index.ts",
     "./services": "./src/services/index.ts",
     "./jobs": "./src/jobs/index.ts",
-    "./coverage": "./src/coverage/index.ts"
+    "./coverage": "./src/coverage/index.ts",
+    "./observability": "./src/observability/index.ts"
   },
   "scripts": {
     "lint": "eslint .",
+    "push:vapid": "node scripts/generate-vapid.mjs",
     "typecheck": "tsc --noEmit",
     "test": "vitest run --exclude '**/*.integration.test.ts'",
     "test:watch": "vitest",
     "test:integration": "vitest run integration.test; rc=$?; pnpm --filter @koolee/db seed:local; exit $rc",
+    "test:integration:ci": "vitest run integration.test --exclude \"**/auth/upgrade-guard.integration.test.ts\" --exclude \"**/services/staff-auth.integration.test.ts\"",
     "clean": "rm -rf .turbo node_modules coverage *.tsbuildinfo"
   },
   "dependencies": {
@@ -31,12 +36,14 @@
     "inngest": "^4.14.0",
     "stripe": "^22.4.0",
     "unpdf": "^1.8.0",
+    "web-push": "^3.6.7",
     "zod": "^4.4.3"
   },
   "devDependencies": {
     "@koolee/config": "workspace:*",
     "@supabase/supabase-js": "^2.111.0",
     "@types/node": "^24.13.3",
+    "@types/web-push": "^3.6.4",
     "dotenv": "^17.4.2",
     "eslint": "^10.8.0",
     "postgres": "^3.4.5",

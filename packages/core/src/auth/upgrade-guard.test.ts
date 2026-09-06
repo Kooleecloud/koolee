@@ -120,7 +120,11 @@ describe("guardUpgradeOtpSend", () => {
       kind: "phone",
     });
 
-    expect(result).toEqual({ allowed: true, conflict: false, removedAnonymousUserIds: [] });
+    expect(result).toEqual({
+      allowed: true,
+      conflict: false,
+      removedAnonymousUserIds: [],
+    });
     expect(state.transactions).toBe(1);
     expect(state.ops).toEqual([
       `lock(${USER_ID})`,
@@ -159,7 +163,11 @@ describe("guardUpgradeOtpSend", () => {
       reconcile: false,
     });
 
-    expect(result).toEqual({ allowed: true, conflict: false, removedAnonymousUserIds: [] });
+    expect(result).toEqual({
+      allowed: true,
+      conflict: false,
+      removedAnonymousUserIds: [],
+    });
     expect(state.ops).not.toContain("reconcile-read");
     expect(state.inserted).toHaveLength(1);
   });
@@ -175,7 +183,11 @@ describe("guardUpgradeOtpSend", () => {
       kind: "phone",
     });
 
-    expect(result).toEqual({ allowed: true, conflict: true, removedAnonymousUserIds: [] });
+    expect(result).toEqual({
+      allowed: true,
+      conflict: true,
+      removedAnonymousUserIds: [],
+    });
     // Probing a registered number is not a free pass around the caps
     // (acceptance test 16's ordering property, preserved by the merge).
     expect(state.inserted).toHaveLength(1);

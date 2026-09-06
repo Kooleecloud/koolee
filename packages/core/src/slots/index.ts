@@ -1,6 +1,7 @@
 export {
   airportLocalDay,
   airportLocalDayBounds,
+  airportLocalDateTime,
   airportLocalInstant,
   computeBagDropCutoffAt,
   computeLatestPickupStart,
@@ -16,6 +17,7 @@ export {
   formatWindowInAirportTz,
   minutesUntilCutoff,
   resolveCutoffMinutes,
+  resolveStrictestCutoffMinutes,
   zoneAbbrev,
   type CutoffLookup,
   type LatestPickupStartInput,

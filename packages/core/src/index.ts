@@ -4,14 +4,19 @@ export * from "./runtime";
 
 export * from "./booking";
 export * from "./extraction";
+export * from "./uploads";
 export * from "./slots";
 export * from "./pricing";
 export * from "./payments";
+export * from "./passport";
 export * from "./auth";
 export * from "./coverage";
+export * from "./geo";
 export * from "./waitlist";
 export * from "./services";
 export * from "./notifications";
+export * from "./observability";
+export * from "./events";
 
 /**
  * Row types, re-exported so apps get them without importing @koolee/db —
@@ -20,29 +25,36 @@ export * from "./notifications";
  */
 export type {
   Address,
-  Agent,
+  AgreementAcceptance,
+  AgreementVersion,
   Airport,
   AirlineCutoff,
   AirportCode,
   Bag,
   Booking,
   BookingDraft as BookingDraftRow,
+  BookingSignal,
   BookingStatus,
   CustodyEvent,
   CutoffScope,
-  Driver,
+  DiscountRuleJson,
+  DriverPosition,
+  DriverShift,
+  LeadTimeMultiplierJson,
+  PassportVerification,
+  PassportVerificationStatus,
+  PassportValidityCheckStatus,
   Payment,
   PaymentStatus,
   PickupTask,
   PricingRule,
-  Route,
-  RouteStatus,
   Slot,
   SlotBlock,
   SlotTier,
   StaffMember,
   TaskStatus,
   TicketExtractionStatus,
+  Truck,
   TicketUpload,
   User,
   UserRole,

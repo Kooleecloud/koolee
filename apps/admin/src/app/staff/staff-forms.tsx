@@ -6,7 +6,7 @@ import {
   FormMessage,
   Input,
   Label,
-  Spinner,
+  Select,
   usePreservedFormValues,
 } from "@koolee/ui";
 
@@ -38,20 +38,16 @@ export function InviteStaffForm() {
       </div>
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="invite-role">Role</Label>
-        <select
-          id="invite-role"
-          name="role"
-          required
-          defaultValue="agent"
-          className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
-        >
+        <Select id="invite-role" name="role" required defaultValue="agent">
           <option value="agent">Agent</option>
           <option value="admin">Admin</option>
-        </select>
+        </Select>
       </div>
       {state.error ? <FormMessage>{state.error}</FormMessage> : null}
       {state.ok ? <FormMessage variant="success">{state.ok}</FormMessage> : null}
-      <Button type="submit">{pending ? <Spinner /> : "Send invite"}</Button>
+      <Button type="submit" loading={pending}>
+        Send invite
+      </Button>
     </form>
   );
 }
@@ -65,11 +61,11 @@ export function DeactivateStaffButton({ userId }: { userId: string }) {
   return (
     <form action={formAction} className="flex flex-col items-end gap-1">
       <input type="hidden" name="userId" value={userId} />
-      <Button type="submit" variant="outline" size="sm" disabled={pending}>
-        {pending ? <Spinner /> : "Deactivate"}
+      <Button type="submit" variant="outline" size="sm" loading={pending}>
+        Deactivate
       </Button>
       {state.error ? (
-        <span className="text-xs text-destructive">{state.error}</span>
+        <FormMessage className="px-2 py-1 text-xs">{state.error}</FormMessage>
       ) : null}
     </form>
   );

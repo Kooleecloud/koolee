@@ -20,10 +20,10 @@ export const FAQS: FAQItem[] = [
         <p>
           Because you never have to take our word for it. Every Koolee agent is
           identity-verified and background-checked before their first pickup. At your
-          door, the agent confirms the traveler&apos;s ID against the booking, weighs
-          each bag, and closes it with a serialized tamper-evident seal — while you
-          watch. Every hand-off after that is logged with a photo and timestamp on a
-          live timeline you can open at any moment.
+          door, the agent confirms the traveler&apos;s ID against the booking, weighs each
+          bag, and closes it with a serialized tamper-evident seal — while you watch.
+          Every hand-off after that is logged with a photo and timestamp on a live
+          timeline you can open at any moment.
         </p>
         <p className="mt-3">
           If a seal arrives broken or its serial doesn&apos;t match, you&apos;ll know —
@@ -37,11 +37,11 @@ export const FAQS: FAQItem[] = [
     question: "Do you ever open my bags?",
     answer: (
       <p>
-        No. Your bags are sealed at your door, in front of you, and the seal&apos;s
-        serial number is recorded on your booking. From that moment, no one at Koolee
-        opens them. Once we deliver them to your airline&apos;s bag drop, they follow
-        the airline&apos;s normal checked-baggage process — exactly as if you had
-        brought them to the counter yourself.
+        No. Your bags are sealed at your door, in front of you, and the seal&apos;s serial
+        number is recorded on your booking. From that moment, no one at Koolee opens them.
+        Once we deliver them to your airline&apos;s bag drop, they follow the
+        airline&apos;s normal checked-baggage process — exactly as if you had brought them
+        to the counter yourself.
       </p>
     ),
   },
@@ -51,11 +51,10 @@ export const FAQS: FAQItem[] = [
     answer: (
       <p>
         Your pickup window is calculated from your airline&apos;s bag-drop cutoff, with
-        buffer built in. If your flight changes before pickup, update your booking and
-        we recompute the window. If it changes after pickup, our team coordinates the
-        new drop-off time directly. And if a change on our side ever means we
-        can&apos;t make your cutoff, we tell you immediately and you don&apos;t pay for
-        the trip.
+        buffer built in. If your flight changes before pickup, update your booking and we
+        recompute the window. If it changes after pickup, our team coordinates the new
+        drop-off time directly. And if a change on our side ever means we can&apos;t make
+        your cutoff, we tell you immediately and you don&apos;t pay for the trip.
       </p>
     ),
   },
@@ -65,9 +64,9 @@ export const FAQS: FAQItem[] = [
     answer: (
       <p>
         Yes. Koolee handles your checked bags&apos; journey from your door to your
-        airline&apos;s bag-drop counter — everything else with your airline stays
-        exactly as it is today. Complete your airline&apos;s usual steps online or at
-        the airport; then walk past the bag line with your hands free.
+        airline&apos;s bag-drop counter — everything else with your airline stays exactly
+        as it is today. Complete your airline&apos;s usual steps online or at the airport;
+        then walk past the bag line with your hands free.
       </p>
     ),
   },
@@ -76,10 +75,10 @@ export const FAQS: FAQItem[] = [
     question: "Is there a weight or size limit?",
     answer: (
       <p>
-        Your airline&apos;s checked-bag rules apply — we don&apos;t add limits of our
-        own. Your agent weighs each bag at your door, so an overweight bag is caught in
-        your hallway, not at the airport counter. If a bag is over your airline&apos;s
-        limit, you can repack on the spot before it&apos;s sealed.
+        Your airline&apos;s checked-bag rules apply — we don&apos;t add limits of our own.
+        Your agent weighs each bag at your door, so an overweight bag is caught in your
+        hallway, not at the airport counter. If a bag is over your airline&apos;s limit,
+        you can repack on the spot before it&apos;s sealed.
       </p>
     ),
   },
@@ -99,12 +98,12 @@ export const FAQS: FAQItem[] = [
             photographed and timestamped.
           </li>
           <li>
-            <strong>Transit.</strong> The ride to the airport is live-tracked on your
-            trip page.
+            <strong>Transit.</strong> The ride to the airport is live-tracked on your trip
+            page.
           </li>
           <li>
-            <strong>Bag drop.</strong> Delivery to your airline&apos;s bag-drop counter
-            is photographed and confirmed on your timeline.
+            <strong>Bag drop.</strong> Delivery to your airline&apos;s bag-drop counter is
+            photographed and confirmed on your timeline.
           </li>
         </ol>
       </>
@@ -116,8 +115,8 @@ export const FAQS: FAQItem[] = [
     answer: (
       <p>
         If we miss your airline&apos;s bag-drop cutoff for a reason within our control,
-        the trip is free — full refund, no forms. Cancellation windows and the full
-        policy live in our{" "}
+        the trip is free — full refund, no forms. Cancellation windows and the full policy
+        live in our{" "}
         <Link href="/terms" className={faqLink}>
           Terms of Service
         </Link>

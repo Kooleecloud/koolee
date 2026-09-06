@@ -50,10 +50,7 @@ function TripContrast({ before, after, className, ...props }: TripContrastProps)
       </div>
 
       <div className="relative overflow-hidden rounded-2xl border border-border bg-white p-6 shadow-lift sm:p-7">
-        <span
-          aria-hidden="true"
-          className="absolute inset-y-0 left-0 w-1 bg-sky-400"
-        />
+        <span aria-hidden="true" className="absolute inset-y-0 left-0 w-1 bg-sky-400" />
         <p className="text-xs font-semibold tracking-[0.14em] text-sky-600 uppercase">
           {after.label}
         </p>

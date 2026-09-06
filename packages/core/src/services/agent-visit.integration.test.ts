@@ -7,31 +7,36 @@ import { migrate } from "drizzle-orm/postgres-js/migrator";
 import postgres from "postgres";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import {
+  agreementVersions,
   airlineCutoffs,
   airports,
   bags,
   bookings,
   createDb,
   custodyEvents,
+  passportVerifications,
   payments,
   pricingRules,
   users,
   verificationTasks,
   type Database,
 } from "@koolee/db";
+import { TEST_AIRPORTS } from "../test-utils/airport-fixtures";
 
 import type { AgentSession } from "../auth/types";
 import { createCoreConfig, fixedClock, type CoreConfig } from "../config";
-import { NotFoundError } from "../errors";
+import { BookingNotActionableError, NotFoundError } from "../errors";
 import { FakePaymentProvider } from "../payments/fake";
 import {
   arriveAtVisit,
   completeVerificationVisit,
+  confirmVisitIdentity,
   getVisitContext,
   recordBagSealed,
-  recordIdentityVerified,
   reportVisitException,
 } from "./agent-visit";
+import { acceptAgreement } from "./agreements";
+import { recordAgentCapture, recordCustomerUpload } from "./passport";
 import { createBooking } from "./create-booking";
 import { captureDueBookings } from "./payment-lifecycle";
 import { ensureAddress } from "./customers";
@@ -101,6 +106,9 @@ describeIntegration("agent verification visit (integration)", () => {
     await sqlClient.unsafe(`
       SET session_replication_role = replica;
       DELETE FROM custody_events;
+      DELETE FROM agreement_acceptances;
+      DELETE FROM agreement_versions;
+      DELETE FROM passport_verifications;
       DELETE FROM payment_webhook_events;
       DELETE FROM payments;
       DELETE FROM verification_tasks;
@@ -119,17 +127,21 @@ describeIntegration("agent verification visit (integration)", () => {
       SET session_replication_role = DEFAULT;
     `);
 
-    await db.insert(airports).values({
-      code: "JFK",
-      name: "John F. Kennedy International",
-      tz: "America/New_York",
-    });
+    await db.insert(airports).values(TEST_AIRPORTS.JFK);
     await db.insert(airlineCutoffs).values({
       airlineIata: "DL",
       airportCode: "JFK",
       scope: "domestic",
       cutoffMinutesBeforeDeparture: 45,
       effectiveFrom: new Date("2024-01-01T00:00:00Z"),
+    });
+    // The visit gate needs a published agreement to resolve "current" against.
+    // Epoch-dated so the derivation picks it up under the fixed clock.
+    await db.insert(agreementVersions).values({
+      version: 1,
+      title: "Test agreement",
+      bodyMd: "Terms.",
+      effectiveFrom: new Date(0),
     });
     await db.insert(pricingRules).values({
       name: "test",
@@ -156,7 +168,7 @@ describeIntegration("agent verification visit (integration)", () => {
   });
 
   /** Booking in `agent_assigned` with a verification task for our agent. */
-  async function assignedBooking(bagCount = 2) {
+  async function assignedBooking(bagCount = 2, acceptAgreementFirst = true) {
     const address = await ensureAddress(db, customerId, {
       line1: "1 Test St",
       city: "New York",
@@ -166,6 +178,7 @@ describeIntegration("agent verification visit (integration)", () => {
     const { booking } = await createBooking(config, {
       userId: customerId,
       pickupAddressId: address.id,
+      quotedZip: address.zip,
       ...windowFor(departureAt),
       flightNumber: "DL123",
       airlineIata: "DL",
@@ -191,23 +204,35 @@ describeIntegration("agent verification visit (integration)", () => {
         scheduledEnd: new Date("2025-06-12T16:00:00Z"),
       })
       .returning();
+
+    // The customer accepts the current agreement — the normal state of a
+    // booking an agent is dispatched to. `acceptAgreement` is exercised on its
+    // own in agreements.integration.test.ts; here it is fixture setup, and the
+    // test that matters for the gate is the one that SKIPS this.
+    if (acceptAgreementFirst) {
+      await acceptAgreement(config, { bookingId: booking.id, userId: customerId });
+    }
     return { booking, task: task! };
   }
 
   it("full visit: arrive → ID check → seal every bag → complete → capture → booking verified_sealed", async () => {
     const { booking, task } = await assignedBooking(2);
 
-    let context = await arriveAtVisit(config, agentSession, { taskId: task.id, lat: 40.7, lng: -74.0 });
+    let context = await arriveAtVisit(config, agentSession, {
+      taskId: task.id,
+      lat: 40.7,
+      lng: -74.0,
+    });
     expect(context.task.status).toBe("in_progress");
     expect(context.task.startedAt).not.toBeNull();
 
     // Arrival is idempotent — a retry doesn't duplicate the event.
     context = await arriveAtVisit(config, agentSession, { taskId: task.id });
-    expect(
-      context.timeline.filter((e) => e.eventType === "visit.arrived"),
-    ).toHaveLength(1);
+    expect(context.timeline.filter((e) => e.eventType === "visit.arrived")).toHaveLength(
+      1,
+    );
 
-    context = await recordIdentityVerified(config, agentSession, { taskId: task.id });
+    context = await confirmVisitIdentity(config, agentSession, { taskId: task.id });
 
     // Seal by ORDINAL, and re-read the list after each seal: the regression
     // this guards against is the visible one — an agent sealed the bag shown
@@ -231,7 +256,9 @@ describeIntegration("agent verification visit (integration)", () => {
       expect(after.bags.map((b) => b.ordinal)).toEqual(ordinalsBefore);
       expect(after.bags.map((b) => b.id)).toEqual(context.bags.map((b) => b.id));
       // The seal landed on the bag we named, not on a neighbour.
-      expect(after.bags.find((b) => b.id === bag.id)!.sealId).toBe(`SEAL-00${bag.ordinal}`);
+      expect(after.bags.find((b) => b.id === bag.id)!.sealId).toBe(
+        `SEAL-00${bag.ordinal}`,
+      );
     }
 
     const result = await completeVerificationVisit(config, agentSession, {
@@ -245,7 +272,10 @@ describeIntegration("agent verification visit (integration)", () => {
     expect(result).toEqual({ ok: true });
 
     // Booking advanced through the matrix; task closed out.
-    const [bookingRow] = await db.select().from(bookings).where(eq(bookings.id, booking.id));
+    const [bookingRow] = await db
+      .select()
+      .from(bookings)
+      .where(eq(bookings.id, booking.id));
     expect(bookingRow!.status).toBe("verified_sealed");
     const [taskRow] = await db
       .select()
@@ -292,16 +322,19 @@ describeIntegration("agent verification visit (integration)", () => {
       .orderBy(asc(custodyEvents.createdAt));
     const types = events.map((e) => e.eventType);
     expect(types).toContain("visit.arrived");
-    expect(types).toContain("visit.identity_verified");
+    expect(types).toContain("passport.agent_confirmed");
     expect(types.filter((t) => t === "bag.sealed")).toHaveLength(2);
     expect(types).toContain("booking.verified_sealed");
     expect(types).toContain("booking.payment_captured");
 
     // Every step the AGENT performed carries the real agent actor.
     const agentEvents = events.filter((e) =>
-      ["visit.arrived", "visit.identity_verified", "bag.sealed", "booking.verified_sealed"].includes(
-        e.eventType,
-      ),
+      [
+        "visit.arrived",
+        "passport.agent_confirmed",
+        "bag.sealed",
+        "booking.verified_sealed",
+      ].includes(e.eventType),
     );
     for (const event of agentEvents) {
       expect(event.actorUserId, event.eventType).toBe(agentUserId);
@@ -323,14 +356,61 @@ describeIntegration("agent verification visit (integration)", () => {
 
     // Append-only stands: the trail cannot be rewritten.
     await expect(
-      db.update(custodyEvents).set({ eventType: "tampered" }).where(eq(custodyEvents.id, events[0]!.id)),
+      db
+        .update(custodyEvents)
+        .set({ eventType: "tampered" })
+        .where(eq(custodyEvents.id, events[0]!.id)),
     ).rejects.toThrow();
+  });
+
+  /**
+   * `now` is 2025-06-10T10:00Z and the flight leaves 2025-06-12T22:00Z, so
+   * the DL/JFK cutoff (45 minutes) falls at 21:15Z on the 12th. These two
+   * clocks sit either side of it.
+   */
+  const clockedAt = (instant: string) =>
+    createCoreConfig({ db, payments: provider, clock: fixedClock(new Date(instant)) });
+
+  it("still runs a visit that is late but before the airline's bag drop closes", async () => {
+    const { booking, task } = await assignedBooking(1);
+    // Two hours before the cutoff, and long past any pickup window.
+    const late = clockedAt("2025-06-12T19:15:00Z");
+
+    const context = await arriveAtVisit(late, agentSession, { taskId: task.id });
+
+    expect(context.task.status).toBe("in_progress");
+    // Late is a notice, not a refusal — the booking is untouched.
+    expect(
+      (await db.query.bookings.findFirst({ where: eq(bookings.id, booking.id) }))!.status,
+    ).toBe("agent_assigned");
+  });
+
+  it("refuses to start a visit once the airline's bag drop has closed", async () => {
+    const { booking, task } = await assignedBooking(1);
+    const missed = clockedAt("2025-06-12T21:30:00Z");
+
+    const error = await arriveAtVisit(missed, agentSession, { taskId: task.id }).then(
+      () => null,
+      (e: unknown) => e,
+    );
+
+    expect(error).toBeInstanceOf(BookingNotActionableError);
+    expect((error as BookingNotActionableError).phase).toBe("missed_cutoff");
+    // The blocked attempt is what hands it to ops.
+    expect(
+      (await db.query.bookings.findFirst({ where: eq(bookings.id, booking.id) }))!.status,
+    ).toBe("exception");
+    expect(
+      (await db.query.verificationTasks.findFirst({
+        where: eq(verificationTasks.id, task.id),
+      }))!.status,
+    ).toBe("assigned");
   });
 
   it("completion is refused while any bag is unsealed", async () => {
     const { task } = await assignedBooking(2);
     const context = await arriveAtVisit(config, agentSession, { taskId: task.id });
-    await recordIdentityVerified(config, agentSession, { taskId: task.id });
+    await confirmVisitIdentity(config, agentSession, { taskId: task.id });
     await recordBagSealed(config, agentSession, {
       taskId: task.id,
       bagId: context.bags[0]!.id,
@@ -357,7 +437,7 @@ describeIntegration("agent verification visit (integration)", () => {
     async function readyBooking(bagCount = 2) {
       const { task } = await assignedBooking(bagCount);
       const context = await arriveAtVisit(config, agentSession, { taskId: task.id });
-      await recordIdentityVerified(config, agentSession, { taskId: task.id });
+      await confirmVisitIdentity(config, agentSession, { taskId: task.id });
       return { task, bags: context.bags };
     }
 
@@ -407,7 +487,10 @@ describeIntegration("agent verification visit (integration)", () => {
 
     it("the unique index holds even if the pre-check is bypassed", async () => {
       const { bags: bagRows } = await readyBooking(2);
-      await db.update(bags).set({ sealId: "KL-DIRECT" }).where(eq(bags.id, bagRows[0]!.id));
+      await db
+        .update(bags)
+        .set({ sealId: "KL-DIRECT" })
+        .where(eq(bags.id, bagRows[0]!.id));
       await expect(
         db.update(bags).set({ sealId: "KL-DIRECT" }).where(eq(bags.id, bagRows[1]!.id)),
       ).rejects.toThrow();
@@ -465,6 +548,151 @@ describeIntegration("agent verification visit (integration)", () => {
     });
   });
 
+  /**
+   * The identity gate. Both halves must hold before a single bag may be
+   * sealed, and the enforcement is HERE — in core — not in the agent app's
+   * step ordering, because a server action stays reachable as a POST whatever
+   * the UI chooses to render.
+   */
+  describe("the identity gate", () => {
+    it("refuses to seal while the customer has not accepted the current agreement", async () => {
+      const { task } = await assignedBooking(1, /* acceptAgreementFirst */ false);
+      const context = await arriveAtVisit(config, agentSession, { taskId: task.id });
+
+      // Passport confirmed, agreement NOT — one half is not enough.
+      await confirmVisitIdentity(config, agentSession, { taskId: task.id });
+
+      const gated = await getVisitContext(db, agentSession, task.id);
+      expect(gated.identityGate.passed).toBe(false);
+      expect(gated.identityGate.blockers).toEqual(["agreement_not_accepted"]);
+
+      await expect(
+        recordBagSealed(config, agentSession, {
+          taskId: task.id,
+          bagId: context.bags[0]!.id,
+          sealId: "GATE-1",
+          weightKg: 10,
+          photoPath: `bags/${context.bags[0]!.id}/photo.jpg`,
+        }),
+      ).rejects.toThrow(/booking agreement/i);
+
+      // …and completion is refused too, with the same sentence.
+      const result = await completeVerificationVisit(config, agentSession, {
+        taskId: task.id,
+      });
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.error).toMatch(/booking agreement/i);
+    });
+
+    it("refuses to seal while the passport is unconfirmed, and unblocks once it is", async () => {
+      const { booking, task } = await assignedBooking(1);
+      const context = await arriveAtVisit(config, agentSession, { taskId: task.id });
+
+      expect(context.identityGate.passed).toBe(false);
+      expect(context.identityGate.blockers).toEqual(["passport_not_confirmed"]);
+
+      await expect(
+        recordBagSealed(config, agentSession, {
+          taskId: task.id,
+          bagId: context.bags[0]!.id,
+          sealId: "GATE-2",
+          weightKg: 10,
+          photoPath: `bags/${context.bags[0]!.id}/photo.jpg`,
+        }),
+      ).rejects.toThrow(/passport/i);
+
+      // A photo the agent uploaded but nobody confirmed is NOT a check: the
+      // gate stays shut at `customer_uploaded`.
+      await recordAgentCapture(config, agentSession, {
+        taskId: task.id,
+        storagePath: `passports/${booking.id}/at-door.jpg`,
+      });
+      const midway = await getVisitContext(db, agentSession, task.id);
+      expect(midway.identityGate.passport?.status).toBe("customer_uploaded");
+      expect(midway.identityGate.passed).toBe(false);
+
+      // Confirmation is what opens it.
+      const after = await confirmVisitIdentity(config, agentSession, { taskId: task.id });
+      expect(after.identityGate.passed).toBe(true);
+      expect(after.identityGate.blockers).toEqual([]);
+
+      await recordBagSealed(config, agentSession, {
+        taskId: task.id,
+        bagId: context.bags[0]!.id,
+        sealId: "GATE-2",
+        weightKg: 10,
+        photoPath: `bags/${context.bags[0]!.id}/photo.jpg`,
+      });
+      const sealed = await getVisitContext(db, agentSession, task.id);
+      expect(sealed.bags[0]!.sealId).toBe("GATE-2");
+    });
+
+    it("publishing a newer agreement version leaves an in-flight visit alone", async () => {
+      const { task } = await assignedBooking(1);
+      await arriveAtVisit(config, agentSession, { taskId: task.id });
+      await confirmVisitIdentity(config, agentSession, { taskId: task.id });
+      expect((await getVisitContext(db, agentSession, task.id)).identityGate.passed).toBe(
+        true,
+      );
+
+      // v2 goes live while the agent is mid-visit. Under version pinning this
+      // must change NOTHING: the booking is bound by the version it accepted,
+      // and re-asking at a doorstep with the bags packed would be consent
+      // under duress anyway. The re-acceptance model this replaced re-closed
+      // the gate here and blocked the agent.
+      await db.insert(agreementVersions).values({
+        version: 2,
+        title: "Test agreement v2",
+        bodyMd: "Revised terms.",
+        effectiveFrom: new Date(0),
+      });
+
+      const after = await getVisitContext(db, agentSession, task.id);
+      expect(after.identityGate.passed).toBe(true);
+      expect(after.identityGate.blockers).toEqual([]);
+      // Still showing the document this booking is actually bound by.
+      expect(after.identityGate.agreement.acceptedVersion!.version).toBe(1);
+    });
+
+    it("confirms from a customer pre-upload, recording the confirming agent", async () => {
+      const { booking, task } = await assignedBooking(1);
+      await arriveAtVisit(config, agentSession, { taskId: task.id });
+      await recordCustomerUpload(config, {
+        bookingId: booking.id,
+        userId: customerId,
+        storagePath: `passports/${booking.id}/pre-upload.jpg`,
+      });
+
+      await confirmVisitIdentity(config, agentSession, { taskId: task.id });
+
+      const [row] = await db
+        .select()
+        .from(passportVerifications)
+        .where(eq(passportVerifications.bookingId, booking.id));
+      expect(row!.status).toBe("agent_confirmed");
+      expect(row!.confirmedByAgentId).toBe(agentUserId);
+      expect(row!.photoStoragePath).toBe(`passports/${booking.id}/pre-upload.jpg`);
+      // Nothing about the document itself was ever stored.
+      expect(Object.keys(row!)).not.toContain("passportNumber");
+
+      const events = await db
+        .select()
+        .from(custodyEvents)
+        .where(eq(custodyEvents.bookingId, booking.id));
+      const types = events.map((e) => e.eventType);
+      expect(types).toContain("passport.customer_uploaded");
+      expect(types).toContain("passport.agent_confirmed");
+      // The customer's upload is attributed to the CUSTOMER, the confirmation
+      // to the agent — conflating them would lose who produced the evidence.
+      expect(
+        events.find((e) => e.eventType === "passport.customer_uploaded")!.actorUserId,
+      ).toBe(customerId);
+      expect(
+        events.find((e) => e.eventType === "passport.agent_confirmed")!.actorUserId,
+      ).toBe(agentUserId);
+    });
+  });
+
   it("exception path: booking → exception with the reason; task failed; actor recorded", async () => {
     const { booking, task } = await assignedBooking(1);
     await arriveAtVisit(config, agentSession, { taskId: task.id });
@@ -476,7 +704,10 @@ describeIntegration("agent verification visit (integration)", () => {
     });
     expect(result).toEqual({ ok: true });
 
-    const [bookingRow] = await db.select().from(bookings).where(eq(bookings.id, booking.id));
+    const [bookingRow] = await db
+      .select()
+      .from(bookings)
+      .where(eq(bookings.id, booking.id));
     expect(bookingRow!.status).toBe("exception");
     const [taskRow] = await db
       .select()
@@ -503,7 +734,11 @@ describeIntegration("agent verification visit (integration)", () => {
       .insert(users)
       .values({ email: "other.agent@koolee-test.example", role: "agent" })
       .returning();
-    const otherSession: AgentSession = { kind: "agent", role: "agent", userId: other!.id };
+    const otherSession: AgentSession = {
+      kind: "agent",
+      role: "agent",
+      userId: other!.id,
+    };
 
     await expect(
       arriveAtVisit(config, otherSession, { taskId: task.id }),

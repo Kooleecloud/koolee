@@ -3,10 +3,14 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import {
+  adminReassignPickup,
+  adminUnassignPickup,
   applyTransitionForSession,
   assignAgentToBooking,
   autoAssignBooking,
+  ConflictError,
   EXCEPTION_RESOLUTIONS,
+  NotFoundError,
   resolveExceptionBooking,
   type BookingEvent,
 } from "@koolee/core";
@@ -205,4 +209,131 @@ export async function resolveException(
   revalidatePath("/bookings");
   revalidatePath("/exceptions");
   return { ok: "Resolved — the custody trail carries the reason." };
+}
+
+const reassignPickupSchema = z.object({
+  bookingId: z.uuid(),
+  shiftId: z.uuid(),
+  override: z.boolean(),
+});
+
+/**
+ * Move a pickup to a different driver's shift.
+ *
+ * The customer normally chooses; this is for when they cannot, or when the one
+ * they chose fell through. It runs the SAME transaction, lock and capacity
+ * recount as `selectDriver` — the two are the same operation with a different
+ * actor, and letting them drift into two concurrency stories is how a van ends
+ * up overloaded.
+ *
+ * The override waives the zone and capacity rules and is RECORDED on the
+ * custody event with the exact rule it waived, so a van that arrived overloaded
+ * traces back to a decision rather than to a bug.
+ */
+export async function reassignPickup(
+  _prev: DispatchActionState,
+  form: FormData,
+): Promise<DispatchActionState> {
+  const session = await getAdminSession();
+  if (!session) return { error: "Not signed in." };
+
+  const parsed = reassignPickupSchema.safeParse({
+    bookingId: String(form.get("bookingId") ?? ""),
+    shiftId: String(form.get("shiftId") ?? ""),
+    override: form.get("override") === "on",
+  });
+  if (!parsed.success) return { error: "Pick a driver who is on shift." };
+
+  let core;
+  try {
+    core = getCore();
+  } catch {
+    return { error: "Database not configured." };
+  }
+
+  try {
+    const result = await adminReassignPickup(core, {
+      bookingId: parsed.data.bookingId,
+      shiftId: parsed.data.shiftId,
+      adminUserId: session.userId,
+      override: parsed.data.override,
+    });
+    revalidatePath(`/bookings/${parsed.data.bookingId}`);
+    revalidatePath("/bookings");
+    revalidatePath("/shifts");
+    return {
+      ok:
+        result.overrode.length > 0
+          ? `Moved, overriding ${result.overrode.join(" and ")}. The override is on the custody trail.`
+          : "Moved to that driver.",
+    };
+  } catch (error) {
+    if (error instanceof ConflictError || error instanceof NotFoundError) {
+      return { error: error.message };
+    }
+    console.error("[dispatch] pickup reassignment failed", error);
+    return { error: "Couldn't move that pickup." };
+  }
+}
+
+const unassignPickupSchema = z.object({
+  bookingId: z.uuid(),
+  reason: z.string().trim().max(500).optional(),
+});
+
+/**
+ * Take the driver off a pickup and leave it unassigned.
+ *
+ * The console could only ever MOVE a pickup from one shift to another, so an
+ * admin undoing an assignment — a driver called in sick, a van broke down, the
+ * customer picked somebody who then went off shift — had to park the booking
+ * on some other driver who was not going to do it either. Every one of those
+ * is a lie told to the dispatch board, and the board is what decides who gets
+ * chased. An unassigned sealed booking is not a gap in the record; it is
+ * exactly what the at-risk flag exists to surface.
+ *
+ * The reason is OPTIONAL, unlike force-end's. Force-ending a shift touches
+ * every booking on it and strands bags; this touches one booking that has not
+ * been collected yet.
+ */
+export async function unassignPickup(
+  _prev: DispatchActionState,
+  form: FormData,
+): Promise<DispatchActionState> {
+  const session = await getAdminSession();
+  if (!session) return { error: "Not signed in." };
+
+  const raw = String(form.get("reason") ?? "").trim();
+  const parsed = unassignPickupSchema.safeParse({
+    bookingId: String(form.get("bookingId") ?? ""),
+    ...(raw ? { reason: raw } : {}),
+  });
+  if (!parsed.success) return { error: "Couldn't read that request." };
+
+  let core;
+  try {
+    core = getCore();
+  } catch {
+    return { error: "Database not configured." };
+  }
+
+  try {
+    await adminUnassignPickup(core, {
+      bookingId: parsed.data.bookingId,
+      adminUserId: session.userId,
+      ...(parsed.data.reason ? { reason: parsed.data.reason } : {}),
+    });
+    revalidatePath(`/bookings/${parsed.data.bookingId}`);
+    revalidatePath("/bookings");
+    revalidatePath("/shifts");
+    return {
+      ok: "Driver removed. The pickup is back in the pool and shows as awaiting a driver.",
+    };
+  } catch (error) {
+    if (error instanceof ConflictError || error instanceof NotFoundError) {
+      return { error: error.message };
+    }
+    console.error("[dispatch] pickup unassign failed", error);
+    return { error: "Couldn't remove that driver." };
+  }
 }

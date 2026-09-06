@@ -4,7 +4,7 @@ import {
   Badge,
   BookingStatusBadge,
   Button,
-  ContentColumn,
+  cn,
   DatabaseNotConfigured,
   EmptyState,
   LinkedTableRow,
@@ -25,8 +25,8 @@ import {
   type BookingStatus,
 } from "@koolee/core";
 
+import { ConsoleMain } from "@/components/console";
 import { OPS_CONSOLE_TZ } from "@/lib/airport-tz";
-import { bookingRef } from "@/lib/booking-ref";
 import { tryGetCore } from "@/lib/core";
 import { getAdminSession } from "@/lib/session";
 
@@ -35,6 +35,34 @@ import { BoardFilters } from "./board-filters";
 export const metadata = { title: "Bookings" };
 export const dynamic = "force-dynamic";
 
+/**
+ * The two ways a booking is at risk, named rather than merged.
+ *
+ * Before the driver slice there was one flag and one word ("at risk"), and it
+ * only ever meant "paid, nobody assigned to verify". A booking whose bags were
+ * sealed on a doorstep with nobody coming for them was not flagged at all —
+ * every at-risk surface read `verification_tasks` only. Distinct labels because
+ * the fix is different: one needs an agent sent to a door, the other a van.
+ */
+const AT_RISK_LABEL = {
+  no_agent: "needs an agent",
+  no_driver: "needs a driver",
+} as const;
+
+/**
+ * What the assigned person is currently doing, for the second line of the
+ * Agent column.
+ *
+ * The board used to carry Agent and Driver as separate columns, which spent
+ * two of nine columns to say one thing — who has this booking — and left both
+ * mostly empty, since a booking has a driver only in the last stretch before
+ * pickup. Merged on TD's call: one column, the person furthest along, and a
+ * line saying which job that is.
+ */
+const TASK_LABEL = {
+  pickup: "Pickup",
+  verify: "Verify & seal",
+} as const;
 
 const STATUSES: BookingStatus[] = [
   "draft",
@@ -71,17 +99,19 @@ function SortableHeader({
   activeKey,
   direction,
   href,
+  className,
 }: {
   label: string;
   sortKey: BoardSortKey;
   activeKey: BoardSortKey;
   direction: "asc" | "desc";
   href: string;
+  className?: string;
 }) {
   const active = sortKey === activeKey;
   return (
     <th
-      className="px-4 py-2 font-medium whitespace-nowrap"
+      className={cn("px-4 py-2 font-medium whitespace-nowrap", className)}
       aria-sort={active ? (direction === "asc" ? "ascending" : "descending") : "none"}
     >
       <Link
@@ -116,25 +146,42 @@ function TimeCell({
 }: {
   time: string;
   date: string;
-  /** Badges — "today", "at risk" — pinned beside the time. */
+  /**
+   * Badges — "today" — set beside the DATE, not the time.
+   *
+   * They rode the time line until TD moved them: the time is the value an
+   * operator is actually reading, and a badge parked next to it pushed the
+   * hour out of the column an eye scans straight down. "Today" is a fact about
+   * the date, so it belongs on the date's line.
+   */
   children?: React.ReactNode;
 }) {
   return (
     <div className="flex flex-col leading-tight">
-      <span className="flex items-center gap-2 whitespace-nowrap">
-        {time}
+      <span className="whitespace-nowrap">{time}</span>
+      <span className="flex items-center gap-2 text-xs whitespace-nowrap text-muted-foreground">
+        {date}
         {children}
       </span>
-      <span className="text-xs whitespace-nowrap text-muted-foreground">{date}</span>
     </div>
   );
 }
 
 /** `?status=paid,exception` → the valid members of that list, deduped. */
-function parseList<T extends string>(raw: string | undefined, allowed: readonly T[]): T[] {
+function parseList<T extends string>(
+  raw: string | undefined,
+  allowed: readonly T[],
+): T[] {
   if (!raw) return [];
   const valid = new Set<string>(allowed);
-  return [...new Set(raw.split(",").map((s) => s.trim()).filter((s) => valid.has(s)))] as T[];
+  return [
+    ...new Set(
+      raw
+        .split(",")
+        .map((s) => s.trim())
+        .filter((s) => valid.has(s)),
+    ),
+  ] as T[];
 }
 
 /**
@@ -184,22 +231,27 @@ export default async function BookingsPage({
       const filterTz =
         airports.length === 1 ? zoneFor(zones, airports[0]!) : OPS_CONSOLE_TZ;
 
-      rows = await listBookingsBoard(core.db, {
-        ...(statuses.length > 0 ? { statuses } : {}),
-        ...(airports.length > 0 ? { airports } : {}),
-        ...(today ? { day: { on: now, tz: filterTz } } : {}),
-        ...(search ? { search } : {}),
-        sort: { key: sortKey, direction: sortDir },
-        limit: 200,
-      });
+      rows = await listBookingsBoard(
+        core.db,
+        {
+          ...(statuses.length > 0 ? { statuses } : {}),
+          ...(airports.length > 0 ? { airports } : {}),
+          ...(today ? { day: { on: now, tz: filterTz } } : {}),
+          ...(search ? { search } : {}),
+          sort: { key: sortKey, direction: sortDir },
+          limit: 200,
+        },
+        // Beyond the horizon a booking is unassigned by design, not at risk.
+        { now, assignmentHorizonHours: core.defaults.assignmentHorizonHours },
+      );
     } catch {
       unavailable = true;
     }
   }
 
   const atRiskCount = rows.filter((r) => r.atRisk).length;
-  const filtered =
-    statuses.length > 0 || airports.length > 0 || today || search !== "";
+  const noDriverCount = rows.filter((r) => r.atRiskReason === "no_driver").length;
+  const filtered = statuses.length > 0 || airports.length > 0 || today || search !== "";
 
   /** Sort links keep every other filter — the URL stays the whole board state. */
   const sortHref = (key: BoardSortKey) => {
@@ -215,13 +267,15 @@ export default async function BookingsPage({
   };
 
   return (
-    <ContentColumn width="full">
+    <ConsoleMain width="wide">
       <PageHeader
         title="Bookings"
         subtitle={
           unavailable
             ? "Database not configured."
-            : `${rows.length} shown${atRiskCount > 0 ? ` · ${atRiskCount} at risk` : ""}`
+            : `${rows.length} shown${atRiskCount > 0 ? ` · ${atRiskCount} at risk` : ""}${
+                noDriverCount > 0 ? ` (${noDriverCount} with no driver)` : ""
+              }`
         }
       />
 
@@ -241,7 +295,7 @@ export default async function BookingsPage({
           title="No bookings"
           description={
             search
-              ? `Nothing matches "${search}". Refs are the last six characters of the booking id; seals and phone numbers match on any part.`
+              ? `Nothing matches "${search}". Search reads the ref, seal ids, names, email, phone and flight number, plus the driver, truck and agent — any part of any of them.`
               : filtered
                 ? "Nothing matches these filters."
                 : "No bookings yet."
@@ -255,24 +309,35 @@ export default async function BookingsPage({
           }
         />
       ) : (
-        <div className="overflow-x-auto rounded-lg border">
-          <table className="w-full text-sm">
-            <thead className="border-b bg-muted/50 text-left">
+        /* The board scrolls inside its own region rather than with the page,
+           which is what lets `thead` stay put: `overflow-x-auto` alone makes
+           this element the scroll container for BOTH axes, so a sticky header
+           inside it would have nothing to stick against. Ops reads a
+           twenty-row board by column, and a header that scrolls away turns
+           every glance into a re-count of table cells. */
+        <div className="max-h-[calc(100dvh-15rem)] min-h-80 overflow-auto rounded-lg border bg-card">
+          <table className="console-table w-full text-sm">
+            <thead className="sticky top-0 z-10 bg-muted text-left [&_th]:border-b [&_th]:border-border">
               <tr>
                 <th className="px-4 py-2 font-medium whitespace-nowrap">Ref</th>
-                <SortableHeader
-                  label="Booked"
-                  sortKey="booked"
-                  activeKey={sortKey}
-                  direction={sortDir}
-                  href={sortHref("booked")}
-                />
+                {/* Window before Booked, deliberately. It is the column the
+                    board sorts by, and on a narrow viewport only the first
+                    two columns and the pinned Status stay on screen — so
+                    whichever sits here is what an operator sees on a phone.
+                    "When is the pickup" beats "when did this come in". */}
                 <SortableHeader
                   label="Pickup window"
                   sortKey="window"
                   activeKey={sortKey}
                   direction={sortDir}
                   href={sortHref("window")}
+                />
+                <SortableHeader
+                  label="Booked"
+                  sortKey="booked"
+                  activeKey={sortKey}
+                  direction={sortDir}
+                  href={sortHref("booked")}
                 />
                 <SortableHeader
                   label="Departs"
@@ -284,6 +349,10 @@ export default async function BookingsPage({
                 <th className="px-4 py-2 font-medium whitespace-nowrap">Flight</th>
                 <th className="px-4 py-2 font-medium whitespace-nowrap">Passenger</th>
                 <th className="px-4 py-2 font-medium whitespace-nowrap">Bags</th>
+                {/* Sorts on the VERIFYING agent's email, which is what the
+                    column mostly holds — a driver appears only in the last
+                    stretch before pickup, so sorting by driver would sort
+                    mostly-empty against mostly-empty. */}
                 <SortableHeader
                   label="Agent"
                   sortKey="agent"
@@ -291,113 +360,183 @@ export default async function BookingsPage({
                   direction={sortDir}
                   href={sortHref("agent")}
                 />
+                {/* Pinned. A dispatch board this wide does not fit a laptop,
+                    and the column that fell off the right edge was the
+                    booking's state — the value an operator scans the board
+                    FOR. `z-20` so the corner cell stays above both the sticky
+                    header row and the sticky column. */}
                 <SortableHeader
                   label="Status"
                   sortKey="status"
                   activeKey={sortKey}
                   direction={sortDir}
                   href={sortHref("status")}
+                  className="sticky right-0 z-20 border-l border-border bg-muted shadow-[-6px_0_8px_-6px_rgba(11,37,69,0.12)]"
                 />
               </tr>
             </thead>
             <tbody className="divide-y">
-              {rows.map(({ booking, slotStart, assigneeEmail, assigneeName, atRisk, tz }) => {
-                const windowEnd = booking.pickupWindowEnd;
-                // "Today" is evaluated in THIS booking's zone, which stays
-                // well-defined even when the board spans several — unlike a
-                // single console-wide "today", which has no meaning on a
-                // mixed-zone list.
-                const isToday =
-                  slotStart !== null &&
-                  airportLocalDay(slotStart, tz) === airportLocalDay(now, tz);
-                return (
-                  <LinkedTableRow
-                    key={booking.id}
-                    className={atRisk ? "bg-warning/10" : "hover:bg-accent/5"}
-                  >
-                    <td className="px-4 py-2 whitespace-nowrap">
-                      <RowLink
-                        href={`/bookings/${booking.id}`}
-                        linkComponent={Link}
-                        className="font-mono text-xs"
-                      >
-                        {bookingRef(booking.id)}
-                      </RowLink>
-                    </td>
-                    {/* When the booking came in — not when it happens. An
+              {rows.map(
+                ({
+                  booking,
+                  slotStart,
+                  assigneeEmail,
+                  assigneeName,
+                  atRisk,
+                  atRiskReason,
+                  driverName,
+                  truckName,
+                  tz,
+                }) => {
+                  const windowEnd = booking.pickupWindowEnd;
+                  // "Today" is evaluated in THIS booking's zone, which stays
+                  // well-defined even when the board spans several — unlike a
+                  // single console-wide "today", which has no meaning on a
+                  // mixed-zone list.
+                  const isToday =
+                    slotStart !== null &&
+                    airportLocalDay(slotStart, tz) === airportLocalDay(now, tz);
+                  return (
+                    <LinkedTableRow
+                      key={booking.id}
+                      className={atRisk ? "bg-warning/10" : "hover:bg-accent/5"}
+                    >
+                      <td className="px-4 py-2 whitespace-nowrap">
+                        <RowLink
+                          href={`/bookings/${booking.id}`}
+                          linkComponent={Link}
+                          className="font-mono text-xs"
+                        >
+                          {booking.ref}
+                        </RowLink>
+                      </td>
+                      <td className="px-4 py-2">
+                        {slotStart ? (
+                          <TimeCell
+                            time={
+                              windowEnd
+                                ? formatHourRangeInAirportTz(slotStart, windowEnd, tz)
+                                : /* Legacy slot rows carry a start with no end. */
+                                  formatTimeInAirportTz(slotStart, tz)
+                            }
+                            date={formatDayInAirportTz(slotStart, tz)}
+                          >
+                            {isToday && (
+                              /* Sized to the date line it sits on, so a
+                                 today row is no taller than any other. */
+                              <Badge
+                                variant="outline"
+                                className="px-1.5 py-0 text-[10px] leading-4"
+                              >
+                                today
+                              </Badge>
+                            )}
+                          </TimeCell>
+                        ) : (
+                          <span className="text-muted-foreground">—</span>
+                        )}
+                      </td>
+                      {/* When the booking came in — not when it happens. An
                         operator triaging a board needs to tell a booking made
                         an hour ago from one made last week. */}
-                    <td className="px-4 py-2">
-                      <TimeCell
-                        time={formatTimeInAirportTz(booking.createdAt, tz)}
-                        date={formatDayInAirportTz(booking.createdAt, tz)}
-                      />
-                    </td>
-                    <td className="px-4 py-2">
-                      {slotStart ? (
+                      <td className="px-4 py-2">
                         <TimeCell
-                          time={
-                            windowEnd
-                              ? formatHourRangeInAirportTz(slotStart, windowEnd, tz)
-                              : /* Legacy slot rows carry a start with no end. */
-                                formatTimeInAirportTz(slotStart, tz)
-                          }
-                          date={formatDayInAirportTz(slotStart, tz)}
-                        >
-                          {isToday && <Badge variant="outline">today</Badge>}
-                          {atRisk && <Badge variant="warning">at risk</Badge>}
-                        </TimeCell>
-                      ) : (
-                        <span className="flex items-center gap-2 text-muted-foreground">
-                          —
-                          {atRisk && <Badge variant="warning">at risk</Badge>}
+                          time={formatTimeInAirportTz(booking.createdAt, tz)}
+                          date={formatDayInAirportTz(booking.createdAt, tz)}
+                        />
+                      </td>
+                      <td className="px-4 py-2">
+                        <TimeCell
+                          time={formatTimeInAirportTz(booking.departureAt, tz)}
+                          date={formatDayInAirportTz(booking.departureAt, tz)}
+                        />
+                      </td>
+                      <td className="px-4 py-2 whitespace-nowrap">
+                        <span className="font-medium">{booking.flightNumber}</span>
+                        <span className="ml-2 text-muted-foreground">
+                          {booking.departureAirport}
                         </span>
-                      )}
-                    </td>
-                    <td className="px-4 py-2">
-                      <TimeCell
-                        time={formatTimeInAirportTz(booking.departureAt, tz)}
-                        date={formatDayInAirportTz(booking.departureAt, tz)}
-                      />
-                    </td>
-                    <td className="px-4 py-2 whitespace-nowrap">
-                      <span className="font-medium">{booking.flightNumber}</span>
-                      <span className="ml-2 text-muted-foreground">
-                        {booking.departureAirport}
-                      </span>
-                    </td>
-                    <td className="px-4 py-2 whitespace-nowrap">{booking.paxName}</td>
-                    <td className="px-4 py-2 whitespace-nowrap">{booking.bagCount}</td>
-                    {/* Name first: ops talk about "Leo", not about
-                        agent@koolee.local. The email stays because it is the
-                        unambiguous identifier when two agents share a first
-                        name, and it is what the assignment panel lists. */}
-                    <td className="px-4 py-2">
-                      {assigneeEmail ? (
-                        <div className="flex flex-col leading-tight">
-                          <span className="whitespace-nowrap">
-                            {assigneeName ?? assigneeEmail}
-                          </span>
-                          {assigneeName && (
-                            <span className="text-xs whitespace-nowrap text-muted-foreground">
-                              {assigneeEmail}
+                      </td>
+                      <td className="px-4 py-2 whitespace-nowrap">{booking.paxName}</td>
+                      <td className="px-4 py-2 whitespace-nowrap">{booking.bagCount}</td>
+                      {/*
+                        ONE COLUMN FOR WHOEVER HAS THIS BOOKING.
+
+                        The driver wins when there is one: they are the later
+                        stage, so they are what is live. The verification is
+                        finished by then and the agent who did it is on the
+                        detail page, recorded against the seals they scanned.
+
+                        Name first — ops talk about "Leo", not about
+                        agent@koolee.local — and the email moves to `title`. It
+                        is still the tie-break when two agents share a first
+                        name; it is just no longer worth a permanent line, now
+                        that the line says what they are doing.
+
+                        The second line is either the job or what is missing.
+                        An at-risk booking with an agent and no driver shows
+                        BOTH, because "Leo verified it" and "nobody is coming
+                        for it" are both true and only one of them is urgent.
+                      */}
+                      <td className="px-4 py-2">
+                        {driverName || truckName ? (
+                          <div className="flex flex-col leading-tight">
+                            <span className="whitespace-nowrap">
+                              {driverName ?? "Driver"}
                             </span>
-                          )}
-                        </div>
-                      ) : (
-                        <span className="text-muted-foreground">unassigned</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-2 whitespace-nowrap">
-                      <BookingStatusBadge status={booking.status} />
-                    </td>
-                  </LinkedTableRow>
-                );
-              })}
+                            <span className="text-xs whitespace-nowrap text-muted-foreground">
+                              {TASK_LABEL.pickup}
+                              {truckName ? ` · ${truckName}` : ""}
+                            </span>
+                          </div>
+                        ) : assigneeEmail ? (
+                          <div className="flex flex-col items-start leading-tight">
+                            <span className="whitespace-nowrap" title={assigneeEmail}>
+                              {assigneeName ?? assigneeEmail}
+                            </span>
+                            {atRisk ? (
+                              /* Sized to the muted line it replaces, so an
+                                 at-risk row is the same height as its
+                                 neighbours — the colour is the signal, not
+                                 a taller row. */
+                              <Badge
+                                variant="warning"
+                                className="px-1.5 py-0 text-[10px] leading-4"
+                              >
+                                {AT_RISK_LABEL[atRiskReason!]}
+                              </Badge>
+                            ) : (
+                              <span className="text-xs whitespace-nowrap text-muted-foreground">
+                                {TASK_LABEL.verify}
+                              </span>
+                            )}
+                          </div>
+                        ) : atRisk ? (
+                          <Badge
+                            variant="warning"
+                            className="px-1.5 py-0 text-[10px] leading-4"
+                          >
+                            {AT_RISK_LABEL[atRiskReason!]}
+                          </Badge>
+                        ) : (
+                          <span className="text-muted-foreground">unassigned</span>
+                        )}
+                      </td>
+                      {/* Opaque on purpose: a translucent pinned cell shows the
+                        columns scrolling underneath it. The at-risk tint stays
+                        on the rest of the row and the badge rides the Agent
+                        cell, so no signal is lost. */}
+                      <td className="sticky right-0 z-10 border-l border-border bg-card shadow-[-6px_0_8px_-6px_rgba(11,37,69,0.12)] px-4 py-2 whitespace-nowrap">
+                        <BookingStatusBadge status={booking.status} />
+                      </td>
+                    </LinkedTableRow>
+                  );
+                },
+              )}
             </tbody>
           </table>
         </div>
       )}
-    </ContentColumn>
+    </ConsoleMain>
   );
 }

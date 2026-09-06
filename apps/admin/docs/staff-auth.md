@@ -2,6 +2,8 @@
 
 Shipped 2026-08-09 (overnight run 1, Phase 2). Replaces the dev session
 stubs that previously threw outside `NODE_ENV=development`.
+Baseline: `dev` @ `5db21a4`. Feature-level overview:
+[docs/features/auth.md §3](../../../docs/features/auth.md#3-staff-auth).
 
 ## Design (fixed decisions)
 

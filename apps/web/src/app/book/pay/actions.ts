@@ -4,6 +4,7 @@ import {
   ensureBookingPaymentIntent,
   NotFoundError,
   OutOfCoverageError,
+  QuoteZipMismatchError,
   PaymentFailedError,
   setBookingContactPhone,
   SlotNotSellableError,
@@ -30,7 +31,13 @@ import { toE164UsCa } from "@/lib/phone";
 
 export type PreparePaymentResult =
   /** Mount the Payment Element against this client secret. */
-  | { ok: true; kind: "ready"; bookingId: string; clientSecret: string; amountCents: number }
+  | {
+      ok: true;
+      kind: "ready";
+      bookingId: string;
+      clientSecret: string;
+      amountCents: number;
+    }
   /** Payment already confirmed (or settling) — navigate to the return path. */
   | { ok: true; kind: "redirect"; redirectTo: string }
   | { ok: false; error: string; redirectTo?: string };
@@ -108,6 +115,15 @@ export async function preparePayment(): Promise<PreparePaymentResult> {
     if (error instanceof OutOfCoverageError) {
       return { ok: false, error: "That address is outside our service area." };
     }
+    if (error instanceof QuoteZipMismatchError) {
+      // The pickup step reconciles this before it can happen; reaching here
+      // means a POST arrived that did not go through it.
+      return {
+        ok: false,
+        error: `Your pickup address is in ${error.addressZip} but this booking was priced for ${error.quotedZip}. Confirm the address to update your quote.`,
+        redirectTo: "/book/pickup",
+      };
+    }
     if (error instanceof PaymentFailedError) {
       console.error("[pay] preparePayment provider failure", error);
       return {
@@ -160,7 +176,10 @@ export async function saveCheckoutContactPhone(
     return { ok: true };
   } catch (error: unknown) {
     if (error instanceof NotFoundError) {
-      return { ok: false, error: "This booking can no longer be updated. Refresh the page." };
+      return {
+        ok: false,
+        error: "This booking can no longer be updated. Refresh the page.",
+      };
     }
     console.error("[pay] saveCheckoutContactPhone failed", error);
     return { ok: false, error: "We couldn't save that number. Try again." };

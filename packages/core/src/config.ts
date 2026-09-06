@@ -1,16 +1,20 @@
 import type { Database } from "@koolee/db";
 
-import {
-  NoopDispatcher,
-  type NotificationDispatcher,
-} from "./notifications/dispatcher";
+import { NoopEmitter, type EventEmitter } from "./events/emitter";
+import { HaversineEtaEstimator, type EtaEstimator } from "./geo/eta";
+import { NoopDispatcher, type NotificationDispatcher } from "./notifications/dispatcher";
 import {
   ConsoleNotifier,
   ConsoleOpsAlerter,
   type Notifier,
   type OpsAlerter,
 } from "./notifications/notifier";
+import { ConsolePushSender, type PushSender } from "./notifications/push";
 import type { PaymentProvider } from "./payments/types";
+import {
+  NotCheckedValidityChecker,
+  type PassportValidityChecker,
+} from "./passport/checker";
 import { HeuristicTicketExtractor } from "./extraction/heuristic";
 import type { TicketExtractor } from "./extraction/types";
 
@@ -26,7 +30,11 @@ import type { TicketExtractor } from "./extraction/types";
 export interface CoreDefaults {
   /** Operational slack between the drive and the airline cutoff. */
   bufferMinutes: number;
-  /** Fallback when a real drive-time estimate is unavailable. */
+  /**
+   * Fallback when a real drive-time estimate is unavailable — which today
+   * means one of the two endpoints has no coordinate. Where both do, the
+   * `etaEstimator` seam answers instead; see `cutoffRiskMonitor`.
+   */
   driveTimeMinutes: number;
   /**
    * Booking notice: a pickup window may not START sooner than this after
@@ -48,6 +56,22 @@ export interface CoreDefaults {
    * operations reserve begins.
    */
   bandMinutes: number;
+  /**
+   * How far ahead of a pickup window an agent is assigned to it.
+   *
+   * A booking bought in March for a flight in June used to get an agent the
+   * moment the card cleared — three months before anyone could act on it, and
+   * against a roster that will have changed by then. Beyond this horizon a
+   * paid booking rests with NO verification task and NO pickup task, which is
+   * correct rather than a problem: it is what the board's at-risk logic has
+   * to be told, or every advance booking reads as neglected work.
+   *
+   * A number, not a policy — changing it is a config change (env
+   * `ASSIGNMENT_HORIZON_HOURS`, resolved by the app). Raising it assigns
+   * earlier; lowering it assigns later. Both are safe: the five-minute horizon
+   * sweep picks up whatever the on-paid path declined to do.
+   */
+  assignmentHorizonHours: number;
   /** ISO 4217, lowercase. */
   currency: string;
 }
@@ -58,6 +82,7 @@ export const DEFAULTS: CoreDefaults = {
   noticeMinutes: 2 * 60,
   operationsReserveMinutes: 6 * 60,
   bandMinutes: 24 * 60,
+  assignmentHorizonHours: 48,
   currency: "usd",
 };
 
@@ -78,9 +103,32 @@ export interface CoreConfig {
   /** Ticket-PDF extraction seam. Defaults to the free heuristic extractor. */
   ticketExtractor: TicketExtractor;
   notifier: Notifier;
+  /**
+   * Web Push seam. Defaults to `ConsolePushSender`, so a clone with no VAPID
+   * keys logs instead of branching. Push is NEVER load-bearing — a send that
+   * fails is logged and nothing else. See notifications/push.ts.
+   */
+  pushSender: PushSender;
+  /**
+   * Domain event emission (queue seam). Noop unless the app's runtime passes
+   * a real one — see packages/core/src/events/emitter.ts for why the adapter
+   * cannot live here.
+   */
+  emitter: EventEmitter;
   /** Custody-event customer notifications. Noop until the notifications work item. */
   dispatcher: NotificationDispatcher;
   opsAlerter: OpsAlerter;
+  /**
+   * Automated passport validity checking (a paid-vendor seam). Defaults to
+   * `NotCheckedValidityChecker`, which returns `not_checked` and never blocks
+   * — automated checking is deliberately not built.
+   */
+  passportValidityChecker: PassportValidityChecker;
+  /**
+   * Drive-time estimation seam. Defaults to `HaversineEtaEstimator` — ZIP
+   * centroids and an average city speed, no routing provider. See geo/eta.ts.
+   */
+  etaEstimator: EtaEstimator;
   clock: Clock;
   defaults: CoreDefaults;
 }
@@ -90,8 +138,12 @@ export interface CoreConfigInput {
   payments: PaymentProvider;
   ticketExtractor?: TicketExtractor;
   notifier?: Notifier;
+  pushSender?: PushSender;
+  emitter?: EventEmitter;
   dispatcher?: NotificationDispatcher;
   opsAlerter?: OpsAlerter;
+  passportValidityChecker?: PassportValidityChecker;
+  etaEstimator?: EtaEstimator;
   clock?: Clock;
   defaults?: Partial<CoreDefaults>;
 }
@@ -103,8 +155,13 @@ export function createCoreConfig(input: CoreConfigInput): CoreConfig {
     payments: input.payments,
     ticketExtractor: input.ticketExtractor ?? new HeuristicTicketExtractor(),
     notifier: input.notifier ?? new ConsoleNotifier(),
+    pushSender: input.pushSender ?? new ConsolePushSender(),
+    emitter: input.emitter ?? new NoopEmitter(),
     dispatcher: input.dispatcher ?? new NoopDispatcher(),
     opsAlerter: input.opsAlerter ?? new ConsoleOpsAlerter(),
+    passportValidityChecker:
+      input.passportValidityChecker ?? new NotCheckedValidityChecker(),
+    etaEstimator: input.etaEstimator ?? new HaversineEtaEstimator(),
     clock: input.clock ?? systemClock,
     defaults: { ...DEFAULTS, ...input.defaults },
   };

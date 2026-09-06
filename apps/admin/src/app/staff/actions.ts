@@ -48,7 +48,9 @@ export async function inviteStaff(
   }
 
   const parsed = inviteSchema.safeParse({
-    email: String(form.get("email") ?? "").trim().toLowerCase(),
+    email: String(form.get("email") ?? "")
+      .trim()
+      .toLowerCase(),
     role: String(form.get("role") ?? ""),
   });
   if (!parsed.success) {
@@ -80,7 +82,10 @@ export async function inviteStaff(
     redirectTo: `${origin}/auth/callback?next=%2Fset-password`,
   });
   if (error || !data.user) {
-    if (error && (error.code === "email_exists" || /already.*registered/i.test(error.message))) {
+    if (
+      error &&
+      (error.code === "email_exists" || /already.*registered/i.test(error.message))
+    ) {
       return {
         error:
           "That email already has an account. Staff roles can only be attached to invited accounts — use a different address.",

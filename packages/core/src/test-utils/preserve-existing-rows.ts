@@ -34,6 +34,9 @@ import type { Sql } from "postgres";
  */
 const CLEARED_TABLES: ReadonlyArray<readonly [table: string, key: string]> = [
   ["custody_events", "id"],
+  ["agreement_acceptances", "id"],
+  ["agreement_versions", "id"],
+  ["passport_verifications", "id"],
   ["payment_webhook_events", "id"],
   ["payments", "id"],
   ["verification_tasks", "id"],
@@ -66,7 +69,10 @@ export async function snapshotExistingRows(sql: Sql): Promise<PreservedRows> {
     const rows = await sql.unsafe<{ k: string }[]>(
       `select ${quote(key)}::text as k from ${quote(table)}`,
     );
-    snapshot.set(table, rows.map((row) => row.k));
+    snapshot.set(
+      table,
+      rows.map((row) => row.k),
+    );
   }
   return snapshot;
 }

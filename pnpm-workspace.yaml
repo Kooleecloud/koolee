@@ -3,10 +3,15 @@ packages:
   - "packages/*"
 
 # Native/postinstall builds we explicitly trust.
-#   esbuild    — required by tsx, vitest and drizzle-kit
-#   sharp      — Next.js image optimisation
-#   protobufjs — transitive (Inngest telemetry)
+#   esbuild      — required by tsx, vitest and drizzle-kit
+#   sharp        — Next.js image optimisation
+#   protobufjs   — transitive (Inngest telemetry)
+#   @sentry/cli  — downloads the platform binary that uploads source maps at
+#                  build time. Without it a build with SENTRY_AUTH_TOKEN set
+#                  fails at the upload step, and one without it is unaffected —
+#                  which is exactly the shape of a bug that only appears in CI.
 allowBuilds:
+  "@sentry/cli": true
   esbuild: true
   protobufjs: true
   sharp: true

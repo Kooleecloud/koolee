@@ -6,14 +6,11 @@ import {
   FormMessage,
   Input,
   Label,
-  Spinner,
+  Select,
   usePreservedFormValues,
 } from "@koolee/ui";
 
 import { createBlock, removeBlock, type BlockActionState } from "./actions";
-
-const selectClassName =
-  "flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring";
 
 /** 12-hour label for an hour-of-day select option. */
 const hourLabel = (hour: number) =>
@@ -35,17 +32,11 @@ export function CreateBlockForm() {
     >
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="block-airport">Airport</Label>
-        <select
-          id="block-airport"
-          name="airportCode"
-          required
-          defaultValue="JFK"
-          className={selectClassName}
-        >
+        <Select id="block-airport" name="airportCode" required defaultValue="JFK">
           <option value="JFK">JFK</option>
           <option value="LGA">LGA</option>
           <option value="EWR">EWR</option>
-        </select>
+        </Select>
       </div>
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="block-day">Date</Label>
@@ -53,35 +44,23 @@ export function CreateBlockForm() {
       </div>
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="block-start">First blocked hour</Label>
-        <select
-          id="block-start"
-          name="startHour"
-          required
-          defaultValue="9"
-          className={selectClassName}
-        >
+        <Select id="block-start" name="startHour" required defaultValue="9">
           {Array.from({ length: 24 }, (_, hour) => (
             <option key={hour} value={hour}>
               {hourLabel(hour)}
             </option>
           ))}
-        </select>
+        </Select>
       </div>
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="block-hours">Length</Label>
-        <select
-          id="block-hours"
-          name="hours"
-          required
-          defaultValue="1"
-          className={selectClassName}
-        >
+        <Select id="block-hours" name="hours" required defaultValue="1">
           {Array.from({ length: 24 }, (_, i) => i + 1).map((hours) => (
             <option key={hours} value={hours}>
               {hours} {hours === 1 ? "hour" : "hours"}
             </option>
           ))}
-        </select>
+        </Select>
       </div>
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="block-reason">Reason (optional)</Label>
@@ -94,7 +73,9 @@ export function CreateBlockForm() {
       </div>
       {state.error ? <FormMessage>{state.error}</FormMessage> : null}
       {state.ok ? <FormMessage variant="success">{state.ok}</FormMessage> : null}
-      <Button type="submit">{pending ? <Spinner /> : "Block windows"}</Button>
+      <Button type="submit" loading={pending}>
+        Block windows
+      </Button>
     </form>
   );
 }
@@ -108,11 +89,11 @@ export function RemoveBlockButton({ id }: { id: string }) {
   return (
     <form action={formAction} className="flex flex-col items-end gap-1">
       <input type="hidden" name="id" value={id} />
-      <Button type="submit" variant="outline" size="sm" disabled={pending}>
-        {pending ? <Spinner /> : "Remove"}
+      <Button type="submit" variant="outline" size="sm" loading={pending}>
+        Remove
       </Button>
       {state.error ? (
-        <span className="text-xs text-destructive">{state.error}</span>
+        <FormMessage className="px-2 py-1 text-xs">{state.error}</FormMessage>
       ) : null}
     </form>
   );

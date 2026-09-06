@@ -76,7 +76,11 @@ describeIntegration("notifyNewlyCoveredWaitlist (integration)", () => {
     });
   });
 
-  async function insertSignup(email: string, zip: string, notifiedAt: Date | null = null) {
+  async function insertSignup(
+    email: string,
+    zip: string,
+    notifiedAt: Date | null = null,
+  ) {
     const [row] = await db
       .insert(waitlistSignups)
       .values({ email, zip, source: "waitlist_page", notifiedAt })

@@ -1,7 +1,8 @@
 "use client";
 
 import { useActionState, useState } from "react";
-import { Check } from "lucide-react";
+import Link from "next/link";
+import { Check, Plus } from "lucide-react";
 import {
   Button,
   cn,
@@ -17,6 +18,10 @@ import {
 } from "@koolee/ui";
 
 import { submitPickup, type ActionState } from "@/app/book/actions";
+import {
+  AddressAutocomplete,
+  type SelectedPlace,
+} from "@/components/address-autocomplete";
 import { OutOfAreaCapture } from "@/components/out-of-area-capture";
 
 /** The subset of a saved address the quick-fill buttons need. */
@@ -28,6 +33,14 @@ export interface SavedAddressOption {
   city: string;
   state: string;
   zip: string;
+  /**
+   * Carried so a saved address does not LOSE precision when it is re-used. A
+   * row that gained real coordinates from autocomplete once should not be
+   * re-submitted as a bare street line and fall back to a ZIP centroid.
+   */
+  lat: number | null;
+  lng: number | null;
+  placeId: string | null;
 }
 
 interface AddressFields {
@@ -39,7 +52,38 @@ interface AddressFields {
 }
 
 /**
+ * The precise point behind the fields above, when there is one.
+ *
+ * Held separately and posted as hidden inputs, because it is not something
+ * the customer types. It is CLEARED by any hand edit to an address field —
+ * coordinates belonging to a different address are worse than none: the price
+ * and the driver's map link would both point at the wrong door while looking
+ * exactly as confident as a correct one.
+ */
+interface AddressPrecision {
+  lat: number | null;
+  lng: number | null;
+  placeId: string | null;
+}
+
+const NO_PRECISION: AddressPrecision = { lat: null, lng: null, placeId: null };
+
+/**
  * Step 2 — pickup address + bag count, one submit.
+ *
+ * TWO PHASES FOR A RETURNING CUSTOMER, one for everybody else.
+ *
+ * It used to be a single screen: saved addresses in a card at the top, then
+ * the whole empty address form below them, always. Somebody with a saved
+ * address met five blank fields they were not meant to fill in, under a card
+ * whose relationship to them was "one tap fills the form below" — which is a
+ * sentence explaining a layout rather than a layout that explains itself.
+ *
+ * So when there are saved addresses and nothing chosen yet, this asks the
+ * question on its own: pick one, or add a new one. Choosing either answer
+ * opens the form — filled in for a saved address, blank for a new one — with
+ * a way back. A customer with no saved addresses sees exactly what they saw
+ * before, because for them there was never a question to ask.
  *
  * The address inputs are controlled so a saved address can fill them with one
  * tap without a server round-trip (and so values survive a failed submit).
@@ -51,7 +95,7 @@ export function PickupStepForm({
   defaults,
 }: {
   savedAddresses: SavedAddressOption[];
-  defaults: AddressFields & { bagCount: number };
+  defaults: AddressFields & AddressPrecision & { bagCount: number };
 }) {
   const [state, formAction, pending] = useActionState<ActionState, FormData>(
     submitPickup,
@@ -64,88 +108,194 @@ export function PickupStepForm({
     state: defaults.state,
     zip: defaults.zip,
   });
+  const [precision, setPrecision] = useState<AddressPrecision>({
+    lat: defaults.lat,
+    lng: defaults.lng,
+    placeId: defaults.placeId,
+  });
   // Which saved address is currently filling the form. Purely a display
   // concern — the submitted values are the inputs, not this id.
   const [selectedAddressId, setSelectedAddressId] = useState<string | null>(null);
+  /**
+   * Whether the form is open.
+   *
+   * Starts closed ONLY for a returning customer arriving with nothing filled
+   * in — that is the case where "which address?" is a real question. A draft
+   * that already carries an address (somebody stepping back to edit) opens
+   * straight onto their own values; anybody with no saved addresses never
+   * sees the chooser at all.
+   */
+  const [choosing, setChoosing] = useState(
+    savedAddresses.length > 0 && defaults.line1.trim() === "",
+  );
 
   if (state.outOfCoverageZip) {
     return <OutOfAreaCapture zip={state.outOfCoverageZip} retryHref="/book/pickup" />;
   }
 
+  /**
+   * A hand edit to any address field drops the coordinates. `line2` is
+   * included: a buzzer change does not move the building, but it is not worth
+   * a rule nobody can remember, and the ZIP centroid is a fine answer.
+   */
   const set =
-    (key: keyof AddressFields) =>
-    (event: React.ChangeEvent<HTMLInputElement>) =>
+    (key: keyof AddressFields) => (event: React.ChangeEvent<HTMLInputElement>) => {
       setAddress((current) => ({ ...current, [key]: event.target.value }));
+      setPrecision(NO_PRECISION);
+    };
+
+  const onPlaceSelected = (place: SelectedPlace) => {
+    setSelectedAddressId(null);
+    setAddress((current) => ({
+      ...current,
+      line1: place.line1,
+      city: place.city,
+      state: place.state,
+      zip: place.zip,
+      // `line2` is deliberately untouched: Places may know a unit number, but
+      // the customer is the authority on their own buzzer, and clobbering
+      // what they typed would be worse than leaving it.
+    }));
+    setPrecision({ lat: place.lat, lng: place.lng, placeId: place.placeId });
+  };
+
+  /** Fills the form from a saved address and opens it. */
+  const chooseSaved = (saved: SavedAddressOption) => {
+    setSelectedAddressId(saved.id);
+    setAddress({
+      line1: saved.line1,
+      line2: saved.line2 ?? "",
+      city: saved.city,
+      state: saved.state,
+      zip: saved.zip,
+    });
+    setPrecision({ lat: saved.lat, lng: saved.lng, placeId: saved.placeId });
+    setChoosing(false);
+  };
+
+  const savedTile = (saved: SavedAddressOption) => {
+    const street = saved.line2 ? `${saved.line1}, ${saved.line2}` : saved.line1;
+    // A label is optional, and when it is missing the street doubles as the
+    // heading — so the full line must not repeat it back underneath.
+    // Unlabelled addresses showed "22 W 34th St" twice.
+    const heading = saved.label || street;
+    const detail = saved.label
+      ? `${street}, ${saved.city} ${saved.state} ${saved.zip}`
+      : `${saved.city} ${saved.state} ${saved.zip}`;
+    return (
+      <button
+        key={saved.id}
+        type="button"
+        aria-pressed={selectedAddressId === saved.id}
+        onClick={() => chooseSaved(saved)}
+        className={cn(
+          "flex flex-col items-start gap-1 rounded-lg border p-3 text-left transition-colors",
+          "hover:bg-accent/10 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden",
+          selectedAddressId === saved.id
+            ? "border-primary bg-primary/5"
+            : "border-border",
+        )}
+      >
+        <span className="flex w-full items-center justify-between gap-2">
+          <span className="truncate font-medium">{heading}</span>
+          {selectedAddressId === saved.id && (
+            <Check aria-hidden className="size-4 shrink-0 text-primary" />
+          )}
+        </span>
+        <span className="text-xs text-muted-foreground">{detail}</span>
+      </button>
+    );
+  };
+
+  /*
+   * PHASE ONE — the question, on its own.
+   *
+   * Deliberately NOT a <form>: there is nothing to submit yet, and a Continue
+   * button here would be a third way to answer a question with two answers.
+   * Bag count waits for phase two, where it sits with the address it belongs
+   * to in one submit.
+   */
+  if (choosing) {
+    return (
+      <div className="flex flex-col gap-4">
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Where are we collecting from?</CardTitle>
+            <CardDescription>
+              Pick one of your saved addresses, or add a new one.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="grid gap-2 sm:grid-cols-2">
+            {savedAddresses.map(savedTile)}
+
+            {/* The last option, and visually a different KIND of thing — a
+                dashed outline rather than a fifth address that happens to be
+                blank. */}
+            <button
+              type="button"
+              onClick={() => {
+                setSelectedAddressId(null);
+                setAddress({ line1: "", line2: "", city: "", state: "", zip: "" });
+                setPrecision(NO_PRECISION);
+                setChoosing(false);
+              }}
+              className={cn(
+                "flex min-h-[4.5rem] flex-col items-start justify-center gap-1 rounded-lg border border-dashed border-navy-300 p-3 text-left transition-colors",
+                "hover:border-sky-400 hover:bg-sky-50/50 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden",
+              )}
+            >
+              <span className="flex items-center gap-1.5 font-medium text-sky-700">
+                <Plus aria-hidden className="size-4" />
+                Add a new address
+              </span>
+              <span className="text-xs text-muted-foreground">
+                We&apos;ll save it for next time.
+              </span>
+            </button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <form action={formAction} className="flex flex-col gap-6">
+      {/* PHASE TWO — the form, filled in or blank, with a way back. */}
       {savedAddresses.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Your saved addresses</CardTitle>
-            <CardDescription>One tap fills the form below.</CardDescription>
-          </CardHeader>
-          <CardContent className="grid gap-2 sm:grid-cols-2">
-            {savedAddresses.map((saved) => {
-              const street = saved.line2 ? `${saved.line1}, ${saved.line2}` : saved.line1;
-              // A label is optional, and when it is missing the street doubles
-              // as the heading — so the full line must not repeat it back
-              // underneath. Unlabelled addresses showed "22 W 34th St" twice.
-              const heading = saved.label || street;
-              const detail =
-                saved.label ? `${street}, ${saved.city} ${saved.state} ${saved.zip}`
-                : `${saved.city} ${saved.state} ${saved.zip}`;
-              return (
-                <button
-                  key={saved.id}
-                  type="button"
-                  aria-pressed={selectedAddressId === saved.id}
-                  onClick={() => {
-                    setSelectedAddressId(saved.id);
-                    setAddress({
-                      line1: saved.line1,
-                      line2: saved.line2 ?? "",
-                      city: saved.city,
-                      state: saved.state,
-                      zip: saved.zip,
-                    });
-                  }}
-                  className={cn(
-                    "flex flex-col items-start gap-1 rounded-lg border p-3 text-left transition-colors",
-                    "hover:bg-accent/10 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden",
-                    selectedAddressId === saved.id
-                      ? "border-primary bg-primary/5"
-                      : "border-border",
-                  )}
-                >
-                  <span className="flex w-full items-center justify-between gap-2">
-                    <span className="truncate font-medium">{heading}</span>
-                    {/* Confirms which one filled the form — tapping a second
-                        address silently overwrote the first with no feedback. */}
-                    {selectedAddressId === saved.id && (
-                      <Check aria-hidden className="size-4 shrink-0 text-primary" />
-                    )}
-                  </span>
-                  <span className="text-xs text-muted-foreground">{detail}</span>
-                </button>
-              );
-            })}
-          </CardContent>
-        </Card>
+        <button
+          type="button"
+          onClick={() => setChoosing(true)}
+          className="self-start text-sm font-medium text-sky-700 underline underline-offset-4 hover:text-sky-600 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          ← Use a different address
+        </button>
       )}
 
       <div className="grid gap-2">
         <Label htmlFor="line1">Street address</Label>
-        <Input
+        <AddressAutocomplete
           id="line1"
           name="line1"
           value={address.line1}
-          onChange={set("line1")}
-          autoComplete="address-line1"
+          onValueChange={(next) => {
+            setAddress((current) => ({ ...current, line1: next }));
+            setPrecision(NO_PRECISION);
+          }}
+          onPlaceSelected={onPlaceSelected}
           required
         />
-        {/* TODO(maps): Google Places autocomplete, which also gives us the
-            lat/lng and place_id the drive-time estimate needs. */}
+        {/* The point behind the address, when a suggestion supplied one.
+            Hidden inputs rather than state posted separately, so they travel
+            with the same submit as the fields they describe. */}
+        {precision.lat !== null && precision.lng !== null ? (
+          <>
+            <input type="hidden" name="lat" value={precision.lat} />
+            <input type="hidden" name="lng" value={precision.lng} />
+          </>
+        ) : null}
+        {precision.placeId ? (
+          <input type="hidden" name="placeId" value={precision.placeId} />
+        ) : null}
       </div>
 
       <div className="grid gap-2">
@@ -218,6 +368,36 @@ export function PickupStepForm({
       </div>
 
       {state.error && <FormMessage variant="error">{state.error}</FormMessage>}
+
+      {/* The address is in a covered ZIP, just not the one we quoted. Both
+          ways out are one click: re-quote here, or go back for an address in
+          the ZIP the quote was for. Nothing is saved until one is chosen. */}
+      {state.zipMismatch && (
+        <div className="flex flex-col gap-3 rounded-md border border-sky-200 bg-sky-50 p-4 text-sm">
+          <p className="text-slate-700">
+            This address is in {state.zipMismatch.addressZip}, but your quote was for{" "}
+            {state.zipMismatch.quotedZip}.
+          </p>
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <Button
+              type="submit"
+              name="confirmZipChange"
+              value="1"
+              size="sm"
+              loading={pending}
+            >
+              Update quote to {state.zipMismatch.addressZip}
+            </Button>
+            <Button asChild variant="outline" size="sm">
+              <Link href="/book/pickup">Use a different address</Link>
+            </Button>
+          </div>
+          <p className="text-xs text-slate-600">
+            Updating the quote re-checks coverage and pricing for{" "}
+            {state.zipMismatch.addressZip}, and you will pick your pickup window again.
+          </p>
+        </div>
+      )}
 
       <Button type="submit" size="lg" loading={pending}>
         {pending ? "Checking coverage…" : "Continue"}

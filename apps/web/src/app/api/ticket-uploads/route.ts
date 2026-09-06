@@ -1,13 +1,8 @@
 import { NextResponse } from "next/server";
-import {
-  createTicketUpload,
-  MAX_TICKET_UPLOAD_BYTES,
-  setTicketUploadStatus,
-  TICKET_UPLOAD_MIME_TYPES,
-} from "@koolee/core";
+import { createTicketUpload, setTicketUploadStatus } from "@koolee/core";
 
 import { ensureDraftId, writeDraft } from "@/lib/booking-draft";
-import { tryGetCore } from "@/lib/core";
+import { ticketExtractionDebugEnabled, tryGetCore } from "@/lib/core";
 import { getSupabaseAdminClient } from "@/lib/supabase/admin";
 import {
   handleTicketUpload,
@@ -19,6 +14,17 @@ import {
 export const dynamic = "force-dynamic";
 /** Buffer + hash + PDF parsing want Node, not the edge runtime. */
 export const runtime = "nodejs";
+/**
+ * Extraction is synchronous — the customer is on the flight step waiting —
+ * and it can make TWO model calls, the second with thinking on. Measured over
+ * twelve ticket fixtures the escalation path took up to 8.1 s on its own,
+ * before the multipart read, the Storage write and two database round-trips.
+ * The platform default is 10 s, which turns an ordinary ambiguous round trip
+ * into a failed upload on hosted and never on a laptop. 60 s is the SDK's own
+ * per-call timeout; a request that reaches it has already failed inside the
+ * adapter and returns the manual-entry fallback rather than hanging.
+ */
+export const maxDuration = 60;
 
 /**
  * Server-side ticket upload (never client-direct to Storage): multipart in,
@@ -26,6 +32,18 @@ export const runtime = "nodejs";
  * extracted values land ONLY in the quarantined `ticketPrefill` cookie key —
  * the flight review form's editable defaults. See
  * `@/lib/ticket-upload-handler` for the pipeline and its tests.
+ *
+ * The bucket itself is NOT created here any more. It used to be, lazily, on
+ * the first upload an environment ever received — which made a request path
+ * responsible for infrastructure and left the bucket's limits as the only ones
+ * in the product that were set at all. Migration 0026 owns every bucket now,
+ * so a fresh environment that has not migrated fails this upload loudly
+ * instead of quietly building itself something slightly different.
+ *
+ * With TICKET_EXTRACTION_DEBUG set, the response also carries the raw
+ * extraction diagnostics so the upload page can show exactly what the model
+ * returned. That payload never touches the draft cookie and is never included
+ * unless the flag is explicitly on.
  */
 export async function POST(request: Request) {
   const core = tryGetCore();
@@ -53,18 +71,6 @@ export async function POST(request: Request) {
   }
 
   const storage: TicketUploadStorage = {
-    async ensureBucket() {
-      // PRIVATE bucket, idempotently. Reads happen via short-lived signed
-      // URLs only; there is no public URL to a customer's ticket.
-      const { error } = await admin.storage.createBucket(TICKET_BUCKET, {
-        public: false,
-        fileSizeLimit: MAX_TICKET_UPLOAD_BYTES,
-        allowedMimeTypes: [...TICKET_UPLOAD_MIME_TYPES],
-      });
-      if (error && !/already exists/i.test(error.message)) {
-        throw new Error(`createBucket: ${error.message}`);
-      }
-    },
     async upload(path, data, contentType) {
       const { error } = await admin.storage
         .from(TICKET_BUCKET)
@@ -86,8 +92,13 @@ export async function POST(request: Request) {
     file,
   );
 
+  const debug = ticketExtractionDebugEnabled() ? outcome.diagnostics : undefined;
+
   if (!outcome.ok) {
-    return NextResponse.json({ error: outcome.error }, { status: outcome.status });
+    return NextResponse.json(
+      { error: outcome.error, ...(debug ? { debug } : {}) },
+      { status: outcome.status },
+    );
   }
 
   // Quarantined prefill: read only by the flight review form as defaults.
@@ -97,5 +108,6 @@ export async function POST(request: Request) {
     ok: true,
     uploadId: outcome.uploadId,
     confidence: outcome.prefill.confidence,
+    ...(debug ? { debug } : {}),
   });
 }

@@ -158,7 +158,9 @@ describe("sendOtp — proactive conflict detection", () => {
 
   it("fails closed to provider_error when the guard itself throws", async () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
-    h.guardUpgradeOtpSend.mockRejectedValue(new Error("relation auth.users does not exist"));
+    h.guardUpgradeOtpSend.mockRejectedValue(
+      new Error("relation auth.users does not exist"),
+    );
 
     const result = await sendOtp({
       phone: "3322602829",

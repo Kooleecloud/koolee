@@ -1,194 +1,263 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import {
-  Badge,
-  ContentColumn,
-  DatabaseNotConfigured,
-  EmptyState,
-  PageHeader,
-} from "@koolee/ui";
+import { DatabaseNotConfigured, EmptyState, SegmentedControl, cn } from "@koolee/ui";
 import {
   airportLocalDay,
+  airportLocalDayBounds,
   formatDayInAirportTz,
-  formatHourInAirportTz,
   listAssignedTasks,
-  type PickupTask,
-  type TaskBookingContext,
-  type VerificationTask,
 } from "@koolee/core";
 
+import { JobCard } from "@/components/job/job-card";
+import { LiveTasks } from "@/components/live-tasks";
+import { AgentMain } from "@/components/shell/agent-main";
+import { finishedJobs, groupIntoSections, groupJobs, type Job } from "@/lib/job";
 import { tryGetCore } from "@/lib/core";
 import { getAgentSession } from "@/lib/session";
 
-export const metadata = { title: "My tasks" };
+export const metadata = { title: "Schedule" };
 export const dynamic = "force-dynamic";
 
-type Row = {
-  kind: "verification" | "pickup";
-  task: VerificationTask | PickupTask;
-  tz: string;
-  booking: TaskBookingContext;
-};
-
 /**
- * What each kind actually asks of the agent.
+ * The schedule, and its History twin.
  *
- * The two task kinds used to be told apart by their label alone, in otherwise
- * identical tiles — so a queue of six read as six copies of the same thing.
- * The kind now leads the row as a coloured chip with the verb the agent
- * performs, because "am I sealing bags at a door or driving them to a
- * terminal?" is the first question every row has to answer.
+ * TWO VIEWS ON ONE ROUTE, not a fourth bottom tab. The tab bar is capped at
+ * three by an explicit decision (see `shell/nav.ts`: a driver has exactly
+ * three questions, and the bottom third of a phone is the only part a thumb
+ * reaches without regripping). History is not a fourth question — it is the
+ * past tense of "what is coming" — so it lives as a segmented control at the
+ * top of this page and the Schedule tab stays lit for both.
+ *
+ * SCHEDULE IS ORDERED BY ATTENTION, not by time alone: problems, then
+ * overdue, then today, then a group per upcoming day. `groupIntoSections`
+ * owns that and is unit-tested; every day boundary is AIRPORT-local, because
+ * production runs in UTC and a server-local "today" opens at 8 PM the evening
+ * before.
+ *
+ * FINISHED WORK IS NOT ON THE SCHEDULE. It used to sit at the bottom behind a
+ * "12 finished" disclosure, which is still occupying the answer to "what is
+ * left". It is one tap away instead.
  */
-const KIND = {
-  verification: {
-    label: "Verify & seal",
-    hint: "at the door",
-    chip: "bg-tag-100 text-tag-800 ring-1 ring-tag-200",
-  },
-  pickup: {
-    label: "Collect & deliver",
-    hint: "to the bag drop",
-    chip: "bg-sky-100 text-sky-800 ring-1 ring-sky-300",
-  },
-} as const;
-
-/** Status chips: only the states an agent must react to get colour. */
-function statusVariant(status: string) {
-  if (status === "done") return "success" as const;
-  if (status === "failed") return "destructive" as const;
-  if (status === "in_progress") return "warning" as const;
-  return "secondary" as const;
-}
-
-export default async function TasksPage() {
-  // The role gate: only an active `agent` staff session sees a task list —
-  // and only its OWN tasks (listAssignedTasks scopes by assignee).
+export default async function SchedulePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ view?: string }>;
+}) {
   const session = await getAgentSession();
   if (!session) redirect("/login");
 
-  const core = tryGetCore();
+  const { view } = await searchParams;
+  const history = view === "history";
 
-  let rows: Row[] = [];
+  const core = tryGetCore();
+  let jobs: Job[] = [];
   let unavailable = core === null;
 
   if (core) {
     try {
-      const tasks = await listAssignedTasks(core.db, session.userId);
-      rows = [
-        ...tasks.verification.map((row) => ({ kind: "verification" as const, ...row })),
-        ...tasks.pickup.map((row) => ({ kind: "pickup" as const, ...row })),
-        // Sorted by absolute instant, never by rendered local time: with more
-        // than one airport in the list, a 9 AM Pacific visit would otherwise
-        // sort above a 10 AM Eastern one that happens three hours earlier.
-      ].sort(
-        (a, b) =>
-          (a.task.scheduledStart?.getTime() ?? Infinity) -
-          (b.task.scheduledStart?.getTime() ?? Infinity),
-      );
+      jobs = groupJobs(await listAssignedTasks(core.db, session.userId));
     } catch {
       unavailable = true;
     }
   }
 
-  // Grouped into days so the list reads as a shift rather than a pile. The day
-  // is the task's OWN airport-local day — an agent working one airport reads
-  // their own calendar, and a cross-airport day boundary stays honest.
-  const days: { key: string; heading: string; rows: Row[] }[] = [];
-  for (const row of rows) {
-    const key = row.task.scheduledStart
-      ? airportLocalDay(row.task.scheduledStart, row.tz)
-      : "unscheduled";
-    const last = days.at(-1);
-    if (last?.key === key) {
-      last.rows.push(row);
-      continue;
-    }
-    days.push({
-      key,
-      heading: row.task.scheduledStart
-        ? formatDayInAirportTz(row.task.scheduledStart, row.tz)
-        : "Unscheduled",
-      rows: [row],
-    });
+  const now = new Date();
+  const sections = groupIntoSections(jobs, now, airportLocalDayBounds, airportLocalDay);
+  const finished = finishedJobs(jobs);
+  const open =
+    sections.problems.length +
+    sections.overdue.length +
+    sections.today.length +
+    sections.upcoming.reduce((total, day) => total + day.jobs.length, 0);
+
+  return (
+    <AgentMain>
+      <LiveTasks
+        bookingIds={jobs.map((job) => job.bookingId)}
+        stage={`jobs:${jobs.length}`}
+      />
+
+      <header className="flex flex-col gap-3">
+        <h1 className="font-display text-3xl font-semibold text-navy-800">
+          {history ? "History" : "Schedule"}
+        </h1>
+        {/*
+          LINKS, not state: the page is `force-dynamic` and each view needs a
+          different query, so the URL is the state — a schedule you can
+          bookmark and go back to. The shared control renders anchors for any
+          item carrying an `href`; see `SegmentedControl`.
+        */}
+        <SegmentedControl
+          items={[
+            { value: "todo" as const, label: `To do · ${open}`, href: "/tasks" },
+            {
+              value: "history" as const,
+              label: `History · ${finished.length}`,
+              href: "/tasks?view=history",
+            },
+          ]}
+          value={history ? "history" : "todo"}
+          linkComponent={Link}
+          label="Schedule or history"
+        />
+      </header>
+
+      {unavailable ? (
+        <DatabaseNotConfigured />
+      ) : history ? (
+        <HistoryList jobs={finished} />
+      ) : (
+        <ScheduleList sections={sections} empty={jobs.length === 0} />
+      )}
+    </AgentMain>
+  );
+}
+
+function Section({
+  title,
+  tone = "muted",
+  jobs,
+}: {
+  title: string;
+  tone?: "muted" | "alarm" | "now";
+  jobs: readonly Job[];
+}) {
+  if (jobs.length === 0) return null;
+  return (
+    <section className="flex flex-col gap-2">
+      <h2
+        className={cn(
+          "text-xs font-semibold tracking-wider uppercase",
+          tone === "alarm" && "text-destructive",
+          tone === "now" && "text-navy-800",
+          tone === "muted" && "text-muted-foreground",
+        )}
+      >
+        {title}
+      </h2>
+      <ul className="flex flex-col gap-3">
+        {jobs.map((job) => (
+          <li key={job.bookingId}>
+            <JobCard job={job} />
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+function ScheduleList({
+  sections,
+  empty,
+}: {
+  sections: ReturnType<typeof groupIntoSections>;
+  empty: boolean;
+}) {
+  if (empty) {
+    return (
+      <EmptyState
+        title="Nothing assigned"
+        description="Pickups assigned to you show up here as soon as ops schedules them."
+      />
+    );
+  }
+
+  const nothingLeft =
+    sections.problems.length === 0 &&
+    sections.overdue.length === 0 &&
+    sections.today.length === 0 &&
+    sections.upcoming.length === 0;
+
+  if (nothingLeft) {
+    return (
+      <EmptyState
+        title="Nothing left"
+        description="Every stop assigned to you is finished. They're in History."
+      />
+    );
   }
 
   return (
-    <ContentColumn>
-      <PageHeader title="My tasks" />
-      {unavailable ? (
-        <DatabaseNotConfigured />
-      ) : rows.length === 0 ? (
-        <EmptyState
-          title="Nothing assigned"
-          description="Verification and pickup tasks assigned to you will appear here."
+    <>
+      {/* Problems lead. Nothing else on this screen is already going wrong. */}
+      <Section
+        title={`Open problems · ${sections.problems.length}`}
+        tone="alarm"
+        jobs={sections.problems}
+      />
+      <Section
+        title={`Overdue · ${sections.overdue.length}`}
+        tone="alarm"
+        jobs={sections.overdue}
+      />
+      {/* Today is the default focus — first heading a driver reads once
+          nothing is wrong, and the only one that is not a date. */}
+      <Section title="Today" tone="now" jobs={sections.today} />
+      {sections.upcoming.map((day) => (
+        <Section
+          key={day.key}
+          title={
+            day.jobs[0]!.startsAt
+              ? formatDayInAirportTz(day.jobs[0]!.startsAt, day.jobs[0]!.tz)
+              : "No time set"
+          }
+          jobs={day.jobs}
         />
-      ) : (
-        <div className="flex flex-col gap-6">
-          {days.map((day) => (
-            <section key={day.key} className="flex flex-col gap-2">
-              <h2 className="text-sm font-medium text-muted-foreground">
-                {day.heading}
-              </h2>
-              {/* One task per row: these rows carry an address and a name, and
-                  a multi-column grid squeezes both into ellipses on the phone
-                  this app actually runs on. */}
-              <ul className="flex flex-col gap-2">
-                {day.rows.map(({ kind, task, tz, booking }) => {
-                  const meta = KIND[kind];
-                  return (
-                    <li key={`${kind}-${task.id}`}>
-                      <Link
-                        href={`/tasks/${task.id}?kind=${kind}`}
-                        className="flex flex-col gap-2 rounded-lg border bg-white p-4 shadow-lift transition-all duration-300 hover:-translate-y-0.5 hover:border-sky-300 hover:shadow-lift-lg focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:outline-none motion-reduce:transition-none motion-reduce:hover:translate-y-0"
-                      >
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span
-                            className={`rounded-full px-2 py-0.5 text-xs font-medium ${meta.chip}`}
-                          >
-                            {meta.label}
-                          </span>
-                          <span className="text-xs text-muted-foreground">
-                            {meta.hint}
-                          </span>
-                          <Badge
-                            variant={statusVariant(task.status)}
-                            className="ml-auto"
-                          >
-                            {task.status.replace("_", " ")}
-                          </Badge>
-                        </div>
+      ))}
+      {/* Said out loud rather than left as an absence: "no heading called
+          Today" and "nothing today" look identical, and only one of them is
+          information. */}
+      {sections.today.length === 0 &&
+        sections.overdue.length === 0 &&
+        sections.problems.length === 0 && (
+          <p className="text-sm text-muted-foreground">
+            Nothing today — your next stop is above.
+          </p>
+        )}
+    </>
+  );
+}
 
-                        {/* The window leads: an agent plans by clock first,
-                            then decides which of the day's stops this is. */}
-                        <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-                          <span className="font-display text-base font-semibold text-navy-800">
-                            {task.scheduledStart
-                              ? formatHourInAirportTz(task.scheduledStart, tz)
-                              : "Unscheduled"}
-                          </span>
-                          <span className="text-sm font-medium">{booking.paxName}</span>
-                          <span className="text-sm text-muted-foreground">
-                            · {booking.bagCount} bag{booking.bagCount === 1 ? "" : "s"}
-                          </span>
-                        </div>
+/**
+ * Finished work, most recent first.
+ *
+ * READ-ONLY BY CONSTRUCTION, not by hiding buttons: every card links to the
+ * same task detail page, which renders its locked mode for a terminal task —
+ * and every mutation behind it is refused by the state machine and the
+ * actionability gates regardless of what any UI shows. See
+ * `terminal-immutability.integration.test.ts`.
+ */
+function HistoryList({ jobs }: { jobs: readonly Job[] }) {
+  if (jobs.length === 0) {
+    return (
+      <EmptyState
+        title="Nothing finished yet"
+        description="Stops you've completed will be kept here with their seals and timeline."
+      />
+    );
+  }
 
-                        <div className="flex flex-col gap-0.5 text-xs text-muted-foreground">
-                          <span>
-                            {booking.addressLine1}, {booking.addressCity}
-                          </span>
-                          <span>
-                            {booking.flightNumber} · {booking.departureAirport}
-                          </span>
-                        </div>
-                      </Link>
-                    </li>
-                  );
-                })}
-              </ul>
-            </section>
-          ))}
-        </div>
-      )}
-    </ContentColumn>
+  const days: { key: string; jobs: Job[] }[] = [];
+  for (const job of jobs) {
+    const key = job.startsAt ? airportLocalDay(job.startsAt, job.tz) : "unscheduled";
+    const last = days.at(-1);
+    if (last?.key === key) last.jobs.push(job);
+    else days.push({ key, jobs: [job] });
+  }
+
+  return (
+    <>
+      {days.map((day) => (
+        <Section
+          key={day.key}
+          title={
+            day.jobs[0]!.startsAt
+              ? formatDayInAirportTz(day.jobs[0]!.startsAt, day.jobs[0]!.tz)
+              : "No time set"
+          }
+          jobs={day.jobs}
+        />
+      ))}
+    </>
   );
 }

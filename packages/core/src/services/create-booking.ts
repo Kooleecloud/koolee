@@ -15,12 +15,14 @@ import {
 } from "@koolee/db";
 
 import { transitionOrThrow } from "../booking/state-machine";
+import { withBookingRef } from "../booking/ref";
 import type { CoreConfig } from "../config";
 import { assertInCoverage } from "../coverage/nyc-zips";
 import {
   NotFoundError,
   PaymentFailedError,
   PricingRuleInvalidError,
+  QuoteZipMismatchError,
   SlotNotSellableError,
 } from "../errors";
 import type { PaymentAuth } from "../payments/types";
@@ -52,6 +54,11 @@ function sanitizeIanaZone(raw: string | null | undefined): string | null {
   }
 }
 
+/** ZIP+4 and whitespace are the same five-digit ZIP for this comparison. */
+function normalizeZip(zip: string): string {
+  return zip.trim().slice(0, 5);
+}
+
 /**
  * The booking orchestrator.
  *
@@ -79,8 +86,23 @@ function sanitizeIanaZone(raw: string | null | undefined): string | null {
 
 export interface CreateBookingInput {
   userId: string;
-  /** Must already exist and belong to `userId`. */
+  /**
+   * The saved address to snapshot FROM. Must already exist and belong to
+   * `userId` — it is read here, copied onto the booking, and thereafter only
+   * kept as provenance. Deleting it later does not touch the booking.
+   */
   pickupAddressId: string;
+  /**
+   * The ZIP this booking's coverage answer and price were computed for.
+   *
+   * Required, not optional, and checked against the pickup address's own ZIP
+   * before anything is written. The funnel takes a ZIP on the flight step and
+   * a full address two steps later; a caller that cannot say which ZIP it
+   * quoted has not established that the two are the same place, and ZIP is
+   * what selects coverage, the drive-time coordinate and the dispatch zone.
+   * See `QuoteZipMismatchError`.
+   */
+  quotedZip: string;
   /**
    * The clock-aligned one-hour pickup window the customer picked. Validated
    * against the flight's bookable band, the booking notice, and ops
@@ -93,6 +115,12 @@ export interface CreateBookingInput {
   airlineIata: string;
   departureAirport: AirportCode;
   departureAt: Date;
+  /**
+   * Where the flight lands, when the caller knows — off an e-ticket, or
+   * offered by the customer on the flight form. Display only: it makes a trip
+   * recognisable in a history list months later. Absent is ordinary.
+   */
+  destinationAirport?: string | null;
   /** Domestic and international cutoffs differ; the caller must say which. */
   scope: CutoffScope;
   paxName: string;
@@ -153,6 +181,12 @@ export async function createBooking(
     throw new NotFoundError("Address", input.pickupAddressId);
   }
   assertInCoverage(address.zip);
+  // Coverage alone is not enough: two different covered ZIPs are two
+  // different places, with different agents and different drive times. The
+  // booking may only be written against the ZIP it was actually quoted for.
+  if (normalizeZip(address.zip) !== normalizeZip(input.quotedZip)) {
+    throw new QuoteZipMismatchError(input.quotedZip, address.zip);
+  }
 
   const cutoffRows = await db
     .select()
@@ -223,64 +257,98 @@ export async function createBooking(
 
   /* --- 2. One transaction: write the booking ------------------------ */
 
-  const created = await db.transaction(async (tx) => {
-    const [booking] = await tx
-      .insert(bookings)
-      .values({
-        userId: input.userId,
-        status: "draft",
-        flightNumber: input.flightNumber.toUpperCase(),
-        airlineIata: input.airlineIata.toUpperCase(),
-        departureAirport: input.departureAirport,
-        departureAt: input.departureAt,
-        paxName: input.paxName,
-        pickupAddressId: input.pickupAddressId,
-        bagCount: input.bagCount,
-        pickupWindowStart: input.pickupWindowStart,
-        pickupWindowEnd: input.pickupWindowEnd,
-        // Snapshotted once, here, and never updated: this is what makes the
-        // row self-describing for every app that reads it later.
-        displayTz,
-        bookedFromTz: sanitizeIanaZone(input.bookedFromTz),
-        contactPhone: input.contactPhone ?? null,
-        priceCents: breakdown.totalCents,
-        currency: defaults.currency,
-        // The receipt: which lead-time step, distance, and discounts made
-        // this price. Feeds dynamic-pricing analysis with per-window data.
-        priceBreakdown: breakdown,
-      })
-      .returning();
+  /*
+   * The whole write is retried on a ref collision rather than just the insert:
+   * a failed statement aborts its Postgres transaction, so there is nothing to
+   * retry INSIDE one. Nothing has committed when the retry runs, so the second
+   * attempt starts from the same clean slate as the first. In practice this
+   * body runs once — see BOOKING_REF_MAX_ATTEMPTS for why the loop exists at
+   * all.
+   */
+  const created = await withBookingRef((ref) =>
+    db.transaction(async (tx) => {
+      const [booking] = await tx
+        .insert(bookings)
+        .values({
+          ref,
+          userId: input.userId,
+          status: "draft",
+          flightNumber: input.flightNumber.toUpperCase(),
+          airlineIata: input.airlineIata.toUpperCase(),
+          departureAirport: input.departureAirport,
+          departureAt: input.departureAt,
+          paxName: input.paxName,
+          destinationAirport: input.destinationAirport
+            ? input.destinationAirport.toUpperCase()
+            : null,
+          // PROVENANCE, not the address. Nullable and ON DELETE SET NULL: the
+          // customer may delete this saved address tomorrow, and the booking
+          // must survive it intact.
+          pickupAddressId: input.pickupAddressId,
+          /*
+           * The doorstep, snapshotted — same rule as `displayTz` below.
+           *
+           * `address` is the row validated at the top of this function, so
+           * these are the values coverage and the ZIP check were run against.
+           * They are never updated afterwards: an agent standing at a door
+           * next Tuesday and a dispute settled next year read the same
+           * address, whatever has happened to the customer's saved list.
+           */
+          pickupLine1: address.line1,
+          pickupLine2: address.line2,
+          pickupCity: address.city,
+          pickupState: address.state,
+          pickupZip: address.zip,
+          pickupLat: address.lat,
+          pickupLng: address.lng,
+          pickupPlaceId: address.placeId,
+          bagCount: input.bagCount,
+          pickupWindowStart: input.pickupWindowStart,
+          pickupWindowEnd: input.pickupWindowEnd,
+          // Snapshotted once, here, and never updated: this is what makes the
+          // row self-describing for every app that reads it later.
+          displayTz,
+          bookedFromTz: sanitizeIanaZone(input.bookedFromTz),
+          contactPhone: input.contactPhone ?? null,
+          priceCents: breakdown.totalCents,
+          currency: defaults.currency,
+          // The receipt: which lead-time step, distance, and discounts made
+          // this price. Feeds dynamic-pricing analysis with per-window data.
+          priceBreakdown: breakdown,
+        })
+        .returning();
 
-    if (!booking) throw new Error("Insert of booking returned no row");
+      if (!booking) throw new Error("Insert of booking returned no row");
 
-    // `ordinal` is assigned here, once, and is the bag's identity for the rest
-    // of the booking's life — every reader orders by it and every screen labels
-    // from it. Do not derive bag numbers from array position anywhere.
-    await tx.insert(bags).values(
-      Array.from({ length: input.bagCount }, (_, index) => ({
+      // `ordinal` is assigned here, once, and is the bag's identity for the rest
+      // of the booking's life — every reader orders by it and every screen labels
+      // from it. Do not derive bag numbers from array position anywhere.
+      await tx.insert(bags).values(
+        Array.from({ length: input.bagCount }, (_, index) => ({
+          bookingId: booking.id,
+          ordinal: index + 1,
+        })),
+      );
+
+      // The custody log opens with the booking itself, so the chain starts at
+      // creation rather than at the first physical handover.
+      await tx.insert(custodyEvents).values({
         bookingId: booking.id,
-        ordinal: index + 1,
-      })),
-    );
+        actorUserId: input.userId,
+        actorRole: "customer",
+        eventType: "booking.created",
+        metadata: {
+          pickupWindowStart: input.pickupWindowStart.toISOString(),
+          pickupWindowEnd: input.pickupWindowEnd.toISOString(),
+          priceCents: breakdown.totalCents,
+          cutoffMinutes,
+          bagCount: input.bagCount,
+        },
+      });
 
-    // The custody log opens with the booking itself, so the chain starts at
-    // creation rather than at the first physical handover.
-    await tx.insert(custodyEvents).values({
-      bookingId: booking.id,
-      actorUserId: input.userId,
-      actorRole: "customer",
-      eventType: "booking.created",
-      metadata: {
-        pickupWindowStart: input.pickupWindowStart.toISOString(),
-        pickupWindowEnd: input.pickupWindowEnd.toISOString(),
-        priceCents: breakdown.totalCents,
-        cutoffMinutes,
-        bagCount: input.bagCount,
-      },
-    });
-
-    return booking;
-  });
+      return booking;
+    }),
+  );
 
   /* --- 3. Authorize, then record the payment ------------------------ */
 

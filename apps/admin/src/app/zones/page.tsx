@@ -1,13 +1,11 @@
+import { MapPin } from "lucide-react";
 import { redirect } from "next/navigation";
 import {
+  Button,
   Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-  ContentColumn,
   DatabaseNotConfigured,
   EmptyState,
+  FormSheet,
   PageHeader,
 } from "@koolee/ui";
 import {
@@ -17,6 +15,7 @@ import {
   type AgentZoneCoverage,
 } from "@koolee/core";
 
+import { ConsoleMain } from "@/components/console";
 import { tryGetCore } from "@/lib/core";
 import { getAdminSession } from "@/lib/session";
 
@@ -61,7 +60,7 @@ export default async function ZonesPage() {
   const covered = new Set(coverage.flatMap((row) => row.zips));
 
   return (
-    <ContentColumn>
+    <ConsoleMain>
       <PageHeader
         title="Agent zones"
         subtitle={
@@ -69,32 +68,50 @@ export default async function ZonesPage() {
             ? "Database not configured."
             : `${rows.length} active agent${rows.length === 1 ? "" : "s"} · ${covered.size} ZIP${covered.size === 1 ? "" : "s"} covered`
         }
+        actions={
+          unavailable ? null : (
+            <FormSheet
+              trigger={
+                <Button size="sm">
+                  <MapPin aria-hidden="true" />
+                  Assign ZIPs
+                </Button>
+              }
+              title="Assign ZIPs"
+              description="Auto-assign picks the covering agent with the fewest clashing tasks. Coverage changes apply to the next booking, never to one already assigned."
+            >
+              <AddZonesForm
+                agents={rows.map((agent) => ({
+                  userId: agent.userId,
+                  label: agent.fullName
+                    ? `${agent.fullName} (${agent.email ?? agent.userId})`
+                    : (agent.email ?? agent.userId),
+                }))}
+              />
+            </FormSheet>
+          )
+        }
       />
 
-      <div className="grid gap-6 lg:grid-cols-[2fr_1fr]">
-        <section className="flex flex-col gap-3">
-          {unavailable ? (
-            <DatabaseNotConfigured />
-          ) : rows.length === 0 ? (
-            <EmptyState
-              title="No active agents"
-              description="Invite an agent on the Staff page, then give them ZIPs here."
-            />
-          ) : (
-            <ul className="flex flex-col gap-3">
-              {rows.map((agent) => (
-                <li
-                  key={agent.userId}
-                  className="flex flex-col gap-2 rounded-xl border border-border bg-white p-4 shadow-xs"
-                >
+      <section className="flex flex-col gap-3">
+        {unavailable ? (
+          <DatabaseNotConfigured />
+        ) : rows.length === 0 ? (
+          <EmptyState
+            title="No active agents"
+            description="Invite an agent on the Staff page, then give them ZIPs here."
+          />
+        ) : (
+          <ul className="console-rows flex flex-col gap-3">
+            {rows.map((agent) => (
+              <Card asChild key={agent.userId}>
+                <li className="flex flex-col gap-2 p-4">
                   <div className="flex flex-col gap-0.5">
                     <span className="font-medium">
                       {agent.fullName ?? agent.email ?? agent.userId}
                     </span>
                     {agent.fullName && agent.email ? (
-                      <span className="text-xs text-muted-foreground">
-                        {agent.email}
-                      </span>
+                      <span className="text-xs text-muted-foreground">{agent.email}</span>
                     ) : null}
                   </div>
                   {agent.zips.length === 0 ? (
@@ -108,37 +125,17 @@ export default async function ZonesPage() {
                           key={zip}
                           agentUserId={agent.userId}
                           zip={zip}
+                          agentName={agent.fullName ?? agent.email}
                         />
                       ))}
                     </div>
                   )}
                 </li>
-              ))}
-            </ul>
-          )}
-        </section>
-
-        <Card className="h-fit">
-          <CardHeader>
-            <CardTitle className="text-base">Assign ZIPs</CardTitle>
-            <CardDescription>
-              Auto-assign picks the covering agent with the fewest clashing tasks.
-              Coverage changes apply to the next booking, never to one already
-              assigned.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <AddZonesForm
-              agents={rows.map((agent) => ({
-                userId: agent.userId,
-                label: agent.fullName
-                  ? `${agent.fullName} (${agent.email ?? agent.userId})`
-                  : (agent.email ?? agent.userId),
-              }))}
-            />
-          </CardContent>
-        </Card>
-      </div>
-    </ContentColumn>
+              </Card>
+            ))}
+          </ul>
+        )}
+      </section>
+    </ConsoleMain>
   );
 }

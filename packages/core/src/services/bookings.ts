@@ -1,6 +1,5 @@
 import { and, asc, desc, eq, lte, or } from "drizzle-orm";
 import {
-  addresses,
   airlineCutoffs,
   airports,
   bags,
@@ -10,7 +9,6 @@ import {
   pickupTasks,
   users,
   verificationTasks,
-  type Address,
   type Bag,
   type Booking,
   type BookingStatus,
@@ -26,10 +24,12 @@ import {
   type TransitionActor,
 } from "../booking/state-machine";
 import { computeBagDropCutoffAt } from "../slots/cutoff";
+import { bookingPickupAddress, type PickupAddress } from "./pickup-address";
 import type { CoreConfig } from "../config";
 import { NotAuthorizedError, NotFoundError, type Result } from "../errors";
 import { IllegalTransitionError } from "../booking/state-machine";
 import { canActOnBooking, type Session } from "../auth/types";
+import { emitBagsSealed, emitExceptionRaised } from "../events/booking-events";
 import { FALLBACK_DISPLAY_TZ } from "./display-tz";
 
 /**
@@ -79,9 +79,7 @@ export async function listBookingsForSession(
 ): Promise<Booking[]> {
   if (session.kind === "customer") {
     if (filter.userId !== undefined && filter.userId !== session.userId) {
-      throw new NotAuthorizedError(
-        "customer session may only list its own bookings",
-      );
+      throw new NotAuthorizedError("customer session may only list its own bookings");
     }
     return listBookings(db, { ...filter, userId: session.userId });
   }
@@ -191,8 +189,21 @@ export async function getBookingForSession(
  * `getBookingAssignment` instead.
  */
 export interface AssignedAgent {
+  /**
+   * The staff user id. Carried so a caller can ask
+   * `avatarPathsForViewer` for their face by IDENTITY rather than being
+   * handed a storage path — see `services/avatar-visibility.ts`.
+   */
+  userId: string;
   givenName: string | null;
   taskStatus: TaskStatus;
+  /**
+   * Key in the PRIVATE `avatars` bucket, or null. The customer is not staff,
+   * so their session cannot sign this under 0027's read policy — the web app
+   * signs it service-role, which is safe precisely because it only ever
+   * reaches here for an agent this booking is assigned to.
+   */
+  avatarStoragePath: string | null;
 }
 
 export interface BookingDetail {
@@ -202,7 +213,13 @@ export interface BookingDetail {
   bags: Bag[];
   payments: Payment[];
   /** Where the agent is coming. Null only if the address row went missing. */
-  pickupAddress: Address | null;
+  /**
+   * The doorstep as it was when the booking was made — read off the booking,
+   * never joined. See `bookingPickupAddress`: the saved address the customer
+   * booked from may since have been edited or deleted, and neither may change
+   * what this page says happened.
+   */
+  pickupAddress: PickupAddress;
   /** Null until dispatch assigns the visit. */
   assignedAgent: AssignedAgent | null;
   /** Airport-local IANA zone — the only zone a pickup window may be read in. */
@@ -235,42 +252,45 @@ export async function getBookingDetailForSession(
 ): Promise<BookingDetail> {
   const { booking, timeline } = await getBookingForSession(db, session, bookingId);
 
-  const [bagRows, paymentRows, addressRow, agentRow, airportRow, cutoffRows] =
-    await Promise.all([
-      db
-        .select()
-        .from(bags)
-        .where(eq(bags.bookingId, bookingId))
-        // By ordinal, never createdAt: a booking's bags share a timestamp, so
-        // that ordering was a non-deterministic tie (see bags.ordinal).
-        .orderBy(asc(bags.ordinal)),
-      db
-        .select()
-        .from(payments)
-        .where(eq(payments.bookingId, bookingId))
-        .orderBy(asc(payments.createdAt)),
-      db.query.addresses.findFirst({ where: eq(addresses.id, booking.pickupAddressId) }),
-      db
-        .select({ fullName: users.fullName, taskStatus: verificationTasks.status })
-        .from(verificationTasks)
-        .innerJoin(users, eq(users.id, verificationTasks.assigneeUserId))
-        .where(eq(verificationTasks.bookingId, bookingId))
-        .limit(1),
-      db.query.airports.findFirst({
-        where: eq(airports.code, booking.departureAirport),
-        columns: { tz: true },
-      }),
-      db
-        .select({ minutes: airlineCutoffs.cutoffMinutesBeforeDeparture })
-        .from(airlineCutoffs)
-        .where(
-          and(
-            eq(airlineCutoffs.airlineIata, booking.airlineIata.toUpperCase()),
-            eq(airlineCutoffs.airportCode, booking.departureAirport),
-            lte(airlineCutoffs.effectiveFrom, new Date()),
-          ),
+  const [bagRows, paymentRows, agentRow, airportRow, cutoffRows] = await Promise.all([
+    db
+      .select()
+      .from(bags)
+      .where(eq(bags.bookingId, bookingId))
+      // By ordinal, never createdAt: a booking's bags share a timestamp, so
+      // that ordering was a non-deterministic tie (see bags.ordinal).
+      .orderBy(asc(bags.ordinal)),
+    db
+      .select()
+      .from(payments)
+      .where(eq(payments.bookingId, bookingId))
+      .orderBy(asc(payments.createdAt)),
+    db
+      .select({
+        userId: users.id,
+        fullName: users.fullName,
+        avatarStoragePath: users.avatarStoragePath,
+        taskStatus: verificationTasks.status,
+      })
+      .from(verificationTasks)
+      .innerJoin(users, eq(users.id, verificationTasks.assigneeUserId))
+      .where(eq(verificationTasks.bookingId, bookingId))
+      .limit(1),
+    db.query.airports.findFirst({
+      where: eq(airports.code, booking.departureAirport),
+      columns: { tz: true },
+    }),
+    db
+      .select({ minutes: airlineCutoffs.cutoffMinutesBeforeDeparture })
+      .from(airlineCutoffs)
+      .where(
+        and(
+          eq(airlineCutoffs.airlineIata, booking.airlineIata.toUpperCase()),
+          eq(airlineCutoffs.airportCode, booking.departureAirport),
+          lte(airlineCutoffs.effectiveFrom, new Date()),
         ),
-    ]);
+      ),
+  ]);
 
   const assignee = agentRow[0];
 
@@ -279,7 +299,8 @@ export async function getBookingDetailForSession(
   // runs early costs the customer nothing, one that runs late puts bags on
   // the wrong side of the counter.
   const cutoffMinutes = cutoffRows.reduce<number | null>(
-    (strictest, row) => (strictest === null ? row.minutes : Math.max(strictest, row.minutes)),
+    (strictest, row) =>
+      strictest === null ? row.minutes : Math.max(strictest, row.minutes),
     null,
   );
 
@@ -288,11 +309,13 @@ export async function getBookingDetailForSession(
     timeline,
     bags: bagRows,
     payments: paymentRows,
-    pickupAddress: addressRow ?? null,
+    pickupAddress: bookingPickupAddress(booking),
     assignedAgent: assignee
       ? {
+          userId: assignee.userId,
           givenName: assignee.fullName?.trim().split(/\s+/)[0] ?? null,
           taskStatus: assignee.taskStatus,
+          avatarStoragePath: assignee.avatarStoragePath,
         }
       : null,
     // The booking's own snapshot first — that column exists precisely so a
@@ -330,6 +353,43 @@ export interface ApplyTransitionInput {
   lng?: number | null;
   photoUrl?: string | null;
   metadata?: Record<string, unknown> | null;
+  /**
+   * Human-readable reason carried into the `booking/exception_raised` ops
+   * email. Only read when the transition lands on `exception`. Omitted →
+   * derived from `metadata.reason` (+ `note`/`detail`), which is what the
+   * existing call sites already write.
+   */
+  exceptionReason?: string;
+}
+
+/**
+ * The sentence ops reads in the alert email.
+ *
+ * Reads `metadata` rather than demanding a new argument at every call site:
+ * the agent-visit and payment-capture paths already put a `reason` there,
+ * and a path that puts nothing still produces something better than an empty
+ * body.
+ */
+function exceptionReasonFrom(input: ApplyTransitionInput): string {
+  const explicit = input.exceptionReason?.trim();
+  if (explicit) return explicit;
+
+  const metadata = input.metadata ?? {};
+  const text = (key: string): string | null => {
+    const value = metadata[key];
+    return typeof value === "string" && value.trim() ? value.trim() : null;
+  };
+
+  const reason = text("reason");
+  const detail = text("note") ?? text("detail");
+
+  // The admin console's manual override writes `note` and no `reason`
+  // (bookings/actions.ts). Falling through to the generic sentence there
+  // would throw away the one thing the operator actually typed.
+  if (!reason) {
+    return detail ?? `Booking moved to exception by ${input.event}.`;
+  }
+  return detail ? `${reason} — ${detail}` : reason;
 }
 
 /**
@@ -366,7 +426,7 @@ export async function applyTransition(
 
   const { from, to, custodyEvent } = attempted.value;
 
-  const updated = await db.transaction(async (tx) => {
+  const committed = await db.transaction(async (tx) => {
     const [row] = await tx
       .update(bookings)
       .set({ status: to })
@@ -375,11 +435,18 @@ export async function applyTransition(
 
     if (!row) return null;
 
-    await tx.insert(custodyEvents).values(custodyEvent);
-    return row;
+    // The custody event's id is the dedupe key for the emitted domain event:
+    // one row per raise, written in the same transaction as the status
+    // change, so the loser of a concurrent transition emits nothing.
+    const [event] = await tx
+      .insert(custodyEvents)
+      .values(custodyEvent)
+      .returning({ id: custodyEvents.id });
+
+    return { row, custodyEventId: event?.id ?? null };
   });
 
-  if (!updated) {
+  if (!committed) {
     // Someone else moved it between our read and our write.
     const current = await getBooking(db, input.bookingId);
     return {
@@ -388,7 +455,38 @@ export async function applyTransition(
     };
   }
 
-  return { ok: true, value: updated };
+  /*
+   * AFTER the commit, and only when THIS call performed the move.
+   *
+   * Both emits below live here for the same reason: the state a booking
+   * ARRIVES AT is the fact worth telling somebody about, and the arrival is
+   * observable in exactly one place. `raise_exception` is legal from seven
+   * states and reached from three services; `verified_sealed` has one caller
+   * today (`completeVerificationVisit`) and emitting at that caller instead
+   * would leave the second one silent. Never throws — see
+   * events/booking-events.ts.
+   */
+  if (to === "verified_sealed") {
+    await emitBagsSealed(config.emitter, {
+      bookingId: input.bookingId,
+      dedupeKey: committed.custodyEventId ?? `${input.event}:${Date.now()}`,
+    });
+  }
+
+  if (to === "exception") {
+    await emitExceptionRaised(config.emitter, {
+      bookingId: input.bookingId,
+      reason: exceptionReasonFrom(input),
+      dedupeKey: committed.custodyEventId ?? `${input.event}:${Date.now()}`,
+      // Null actor is a system-raised exception (a job, a webhook) — omit
+      // rather than send null; the ops email renders "system".
+      ...(typeof input.actor?.userId === "string"
+        ? { raisedByUserId: input.actor.userId }
+        : {}),
+    });
+  }
+
+  return { ok: true, value: committed.row };
 }
 
 /** Transition guarded by a session's permissions. */

@@ -5,6 +5,8 @@ import {
   ensureAddress,
   ensureCustomerFromAuth,
   getCustomerById,
+  resolveQuoteDistanceKm,
+  toCoordinates,
   type CoreConfig,
   type CreateBookingInput,
 } from "@koolee/core";
@@ -51,22 +53,20 @@ export type PayableDraft = TypedBookingDraft &
     >
   >;
 
-export function isDraftReadyForPayment(
-  draft: TypedBookingDraft,
-): draft is PayableDraft {
+export function isDraftReadyForPayment(draft: TypedBookingDraft): draft is PayableDraft {
   return Boolean(
     draft.flightNumber &&
-      draft.airlineIata &&
-      draft.departureAirport &&
-      draft.departureAt &&
-      draft.paxName &&
-      draft.zip &&
-      draft.line1 &&
-      draft.city &&
-      draft.state &&
-      draft.bagCount &&
-      draft.windowStart &&
-      draft.windowEnd,
+    draft.airlineIata &&
+    draft.departureAirport &&
+    draft.departureAt &&
+    draft.paxName &&
+    draft.zip &&
+    draft.line1 &&
+    draft.city &&
+    draft.state &&
+    draft.bagCount &&
+    draft.windowStart &&
+    draft.windowEnd,
   );
 }
 
@@ -103,6 +103,23 @@ export async function buildCheckoutSetup(
     city: draft.city,
     state: draft.state,
     zip: draft.zip,
+    // From Places, when the address step captured a suggestion. Absent falls
+    // back to the ZIP centroid inside `ensureAddress`; present UPGRADES an
+    // address row the customer has used before, which is the case that used
+    // to keep its centroid forever.
+    ...(draft.lat === undefined ? {} : { lat: draft.lat }),
+    ...(draft.lng === undefined ? {} : { lng: draft.lng }),
+    ...(draft.placeId === undefined ? {} : { placeId: draft.placeId }),
+  });
+
+  // The price the booking is actually written with. It has to be the same
+  // number the review page showed, which is why this asks the same resolver
+  // rather than carrying a value forward on the draft: the address row is the
+  // authority on where the pickup is, and it exists by this line.
+  const distance = await resolveQuoteDistanceKm(core, {
+    airportCode: draft.departureAirport,
+    zip: draft.zip,
+    pickup: toCoordinates(address.lat, address.lng),
   });
 
   return {
@@ -110,17 +127,25 @@ export async function buildCheckoutSetup(
     input: {
       userId: userRow.id,
       pickupAddressId: address.id,
+      // The ZIP the price on screen was computed for. `quotedZip` falls back
+      // to `zip` for a draft cookie minted before the field existed, where
+      // the two were by construction the same value.
+      quotedZip: draft.quotedZip ?? draft.zip,
       pickupWindowStart: new Date(draft.windowStart),
       pickupWindowEnd: new Date(draft.windowEnd),
       flightNumber: draft.flightNumber,
       airlineIata: draft.airlineIata,
       departureAirport: draft.departureAirport,
       departureAt: new Date(draft.departureAt),
+      // Display only, and often absent — a hand-typed booking has no
+      // destination unless the customer offered one.
+      ...(draft.destinationAirport
+        ? { destinationAirport: draft.destinationAirport }
+        : {}),
       scope: draft.scope ?? "domestic",
       paxName: draft.paxName,
       bagCount: draft.bagCount,
-      // TODO(maps): real door-to-airport distance via the Maps API.
-      distanceKm: 20,
+      distanceKm: distance.km,
       ...(draft.promoCode ? { promoCode: draft.promoCode } : {}),
     },
   };

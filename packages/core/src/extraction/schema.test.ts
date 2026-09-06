@@ -27,9 +27,7 @@ describe("ticketExtractionSchema", () => {
   });
 
   it("requires the confidence signal", () => {
-    expect(ticketExtractionSchema.safeParse({ flightNumber: "UA1" }).success).toBe(
-      false,
-    );
+    expect(ticketExtractionSchema.safeParse({ flightNumber: "UA1" }).success).toBe(false);
   });
 
   it("rejects garbage field shapes", () => {

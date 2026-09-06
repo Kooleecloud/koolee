@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
 import { getBooking, handlePaymentEvent, WebhookVerificationError } from "@koolee/core";
 
-import { emitBookingConfirmed, emitExceptionRaised } from "@/lib/booking-events";
+import { emitBookingConfirmed } from "@/lib/booking-events";
 
 import { getCore } from "@/lib/core";
+import { captureHandled, tagBooking } from "@/lib/sentry";
 
 /**
  * Stripe webhook endpoint.
@@ -48,29 +49,36 @@ export async function POST(request: Request): Promise<NextResponse> {
     throw error;
   }
 
+  // Whatever happens below carries the booking, so a failed capture is one
+  // search away from the customer's own errors.
+  if (event.bookingId) tagBooking({ id: event.bookingId });
+
   try {
     const outcome = await handlePaymentEvent(core, event);
 
-    // Side effects keyed on "THIS delivery performed the move" (movedTo), so
+    // Side effect keyed on "THIS delivery performed the move" (movedTo), so
     // Stripe redeliveries — which handlePaymentEvent reports as no-ops —
-    // never re-fire them. Both emitters are no-throw.
+    // never re-fire it. The emitter is no-throw.
+    //
+    // `movedTo === "exception"` is deliberately NOT handled here any more:
+    // core emits `booking/exception_raised` from the transition itself, which
+    // is what gives the other six states that can raise one the same alert.
+    // Adding it back would double-send.
     if (outcome.bookingId && outcome.movedTo === "paid") {
       const booking = await getBooking(core.db, outcome.bookingId);
       if (booking) await emitBookingConfirmed(core, booking);
-    } else if (outcome.bookingId && outcome.movedTo === "exception") {
-      await emitExceptionRaised({
-        bookingId: outcome.bookingId,
-        reason: "Payment authorization cancelled or expired provider-side.",
-        dedupeKey: event.id,
-      });
     }
 
     // Always 200 once the signature is valid: a non-2xx makes Stripe retry, and
     // "we chose not to act on this event" is not a failure worth retrying.
     return NextResponse.json({ received: true, ...outcome });
   } catch (error: unknown) {
-    // A genuine processing failure — let Stripe redeliver.
+    // A genuine processing failure — let Stripe redeliver. Recorded as well as
+    // logged: this is the money path, and a 500 here is a payment event nobody
+    // acted on. The redelivery may well succeed, which is exactly why the
+    // first failure has to leave a trace somewhere a person looks.
     console.error("[stripe-webhook] handler failed", error);
+    captureHandled(error, { route: "stripe-webhook", eventType: event.type });
     return NextResponse.json({ error: "Handler failed" }, { status: 500 });
   }
 }

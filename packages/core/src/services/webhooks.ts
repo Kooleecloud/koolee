@@ -11,6 +11,7 @@ import type { CoreConfig } from "../config";
 import { canTransition, transition } from "../booking/state-machine";
 import type { PaymentEvent } from "../payments/types";
 import { autoAssignOnPaid } from "./auto-assign";
+import { emitExceptionRaised } from "../events/booking-events";
 
 /**
  * Payment webhook handling.
@@ -190,22 +191,44 @@ async function moveBooking(
 
   const { from, to, custodyEvent } = attempted.value;
 
-  await db.transaction(async (tx) => {
+  const custodyEventId = await db.transaction(async (tx) => {
     const [updated] = await tx
       .update(bookings)
       .set({ status: to })
       .where(eq(bookings.id, bookingId))
       .returning();
 
+    let insertedId: string | null = null;
     if (updated && updated.status === to) {
-      await tx.insert(custodyEvents).values(custodyEvent);
+      const [inserted] = await tx
+        .insert(custodyEvents)
+        .values(custodyEvent)
+        .returning({ id: custodyEvents.id });
+      insertedId = inserted?.id ?? null;
     }
 
     await tx
       .update(payments)
       .set({ status: paymentStatus })
       .where(eq(payments.providerRef, paymentEvent.providerRef));
+
+    return insertedId;
   });
+
+  // This path writes its own transaction rather than going through
+  // `applyTransition`, so it needs the same emit — the two are the only ways
+  // a booking reaches `exception`. Gated on the custody event actually being
+  // written, which is the "THIS delivery performed the move" test a Stripe
+  // redelivery fails. Never throws.
+  if (to === "exception" && custodyEventId) {
+    await emitExceptionRaised(config.emitter, {
+      bookingId,
+      reason:
+        "Payment authorization cancelled or expired provider-side while the " +
+        "bags were already in custody.",
+      dedupeKey: custodyEventId,
+    });
+  }
 
   // On-paid dispatch: fires only when THIS call performed the move, so a
   // redelivered webhook (already-in-target no-op above) never re-fires it.

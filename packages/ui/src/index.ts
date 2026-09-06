@@ -3,6 +3,8 @@ export { cn } from "./lib/utils";
 export { Button, buttonVariants, type ButtonProps } from "./components/button";
 export {
   Card,
+  cardVariants,
+  type CardProps,
   CardHeader,
   CardFooter,
   CardTitle,
@@ -10,6 +12,7 @@ export {
   CardContent,
 } from "./components/card";
 export { Input } from "./components/input";
+export { PasswordField, type PasswordFieldProps } from "./components/password-field";
 export {
   Popover,
   PopoverTrigger,
@@ -18,6 +21,13 @@ export {
 } from "./components/popover";
 export { Label } from "./components/label";
 export { Badge, badgeVariants, type BadgeProps } from "./components/badge";
+export {
+  Avatar,
+  avatarVariants,
+  initialsFor,
+  type AvatarProps,
+} from "./components/avatar";
+export { AvatarUploader, type AvatarUploaderProps } from "./components/avatar-uploader";
 export {
   VerifiedIndicator,
   type VerifiedIndicatorProps,
@@ -36,6 +46,18 @@ export {
 } from "./components/dialog";
 export { Toaster, toast } from "./components/sonner";
 export { KooleeLogo, type KooleeLogoProps } from "./components/koolee-logo";
+export {
+  LiveMap,
+  type LiveMapProps,
+  type MapDriver,
+  type MapPoint,
+} from "./components/live-map";
+export {
+  BrandLoader,
+  BrandLoadingOverlay,
+  type BrandLoaderProps,
+  type BrandLoadingOverlayProps,
+} from "./components/brand-loader";
 
 /* Marketing / brand system */
 export {
@@ -67,14 +89,8 @@ export {
   type TripContrastProps,
   type TripContrastColumn,
 } from "./components/trip-contrast";
-export {
-  MilestoneTrack,
-  type MilestoneTrackProps,
-} from "./components/milestone-track";
-export {
-  CoverageScene,
-  type CoverageSceneProps,
-} from "./components/coverage-scene";
+export { MilestoneTrack, type MilestoneTrackProps } from "./components/milestone-track";
+export { CoverageScene, type CoverageSceneProps } from "./components/coverage-scene";
 export {
   JourneyGlyph,
   type JourneyGlyphProps,
@@ -99,25 +115,33 @@ export {
   type CustodyTimelineItem,
   type CustodyItemState,
 } from "./components/custody-timeline";
+/* The stage marker every progression in the product draws — see stage-dot.tsx. */
+export { StageDot, type StageDotProps, type StageState } from "./components/stage-dot";
+export { ProgressTrack, type ProgressTrackProps } from "./components/progress-track";
 
 /* Forms */
+export { PhoneInput, type PhoneInputProps } from "./components/phone-input";
+/*
+ * FROM lib/phone, NOT from the component. Re-exporting them through
+ * `phone-input.tsx` would put them back behind that file's `"use client"`,
+ * and a server component calling one throws at render time — which is exactly
+ * the bug this split fixed. See lib/phone.ts.
+ */
 export {
-  PhoneInput,
+  formatE164ForDisplay,
   formatUsPhone,
   normalizeUsPhone,
   toE164,
-  type PhoneInputProps,
-} from "./components/phone-input";
+} from "./lib/phone";
 export { OTPInput, type OTPInputProps } from "./components/otp-input";
+export {
+  AutocompleteField,
+  type AutocompleteFieldProps,
+  type AutocompleteSuggestion,
+} from "./components/autocomplete-field";
 export { Calendar, type CalendarProps } from "./components/calendar";
-export {
-  DateTimeField,
-  type DateTimeFieldProps,
-} from "./components/date-time-field";
-export {
-  NumberStepper,
-  type NumberStepperProps,
-} from "./components/number-stepper";
+export { DateTimeField, type DateTimeFieldProps } from "./components/date-time-field";
+export { NumberStepper, type NumberStepperProps } from "./components/number-stepper";
 export {
   PriceEstimator,
   type PriceEstimatorProps,
@@ -145,6 +169,22 @@ export {
   type BookingStatusBadgeProps,
 } from "./components/booking-status-badge";
 export { ConfirmDialog, type ConfirmDialogProps } from "./components/confirm-dialog";
+export {
+  FormSheet,
+  Sheet,
+  SheetTrigger,
+  SheetClose,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetDescription,
+  type SheetContentProps,
+} from "./components/sheet";
+export {
+  SegmentedControl,
+  type SegmentedControlItem,
+  type SegmentedControlProps,
+} from "./components/segmented-control";
 export { ImageLightbox, type ImageLightboxProps } from "./components/image-lightbox";
 
 /* Feedback — every async action must show one of these */
@@ -152,6 +192,17 @@ export { Spinner, type SpinnerProps } from "./components/spinner";
 export { FormMessage, type FormMessageProps } from "./components/form-message";
 export { OrDivider, type OrDividerProps } from "./components/or-divider";
 export { usePreservedFormValues } from "./lib/use-preserved-form";
+export { useAnnounceChange } from "./lib/announce-change";
+export {
+  BOOKING_SIGNAL_TABLE,
+  SIGNAL_DEBOUNCE_MS,
+  SIGNAL_POLL_FAST_MS,
+  SIGNAL_POLL_MS,
+  useBookingSignal,
+  type BookingSignalClient,
+  type BookingSignalStatus,
+  type UseBookingSignalOptions,
+} from "./lib/booking-signal";
 export {
   PasswordResetForm,
   SetPasswordForm,
@@ -163,21 +214,18 @@ export {
   DatabaseNotConfigured,
   type EmptyStateProps,
 } from "./components/empty-state";
+export { Skeleton, PageSkeleton, type PageSkeletonProps } from "./components/skeleton";
+export { EnvStatusCard, type EnvStatusCardProps } from "./components/env-status-card";
+export { PushEnableCard, type PushEnableCardProps } from "./components/push-enable-card";
 export {
-  Skeleton,
-  PageSkeleton,
-  type PageSkeletonProps,
-} from "./components/skeleton";
-export {
-  EnvStatusCard,
-  type EnvStatusCardProps,
-} from "./components/env-status-card";
+  useWebPush,
+  type PushDiagnostics,
+  type PushPermission,
+  type UseWebPushOptions,
+  type UseWebPushResult,
+} from "./lib/use-web-push";
 export { Select } from "./components/select";
-export {
-  Checkbox,
-  CheckboxField,
-  type CheckboxFieldProps,
-} from "./components/checkbox";
+export { Checkbox, CheckboxField, type CheckboxFieldProps } from "./components/checkbox";
 export {
   MultiSelect,
   type MultiSelectProps,
@@ -185,10 +233,7 @@ export {
 } from "./components/multi-select";
 
 /* Data tables */
-export {
-  LinkedTableRow,
-  type LinkedTableRowProps,
-} from "./components/linked-table-row";
+export { LinkedTableRow, type LinkedTableRowProps } from "./components/linked-table-row";
 /* Separate module on purpose — see the note in row-link.tsx. */
 export { RowLink, type RowLinkProps } from "./components/row-link";
 export {
@@ -196,9 +241,10 @@ export {
   type RawDataDisclosureProps,
 } from "./components/raw-data-disclosure";
 
+/* Prose */
+export { Markdown, type MarkdownProps } from "./components/markdown";
+export { RichTextEditor, type RichTextEditorProps } from "./components/rich-text-editor";
+
 /* Motion */
 export { Reveal, type RevealProps } from "./components/reveal";
-export {
-  HeroRouteScene,
-  type HeroRouteSceneProps,
-} from "./components/hero-route-scene";
+export { HeroRouteScene, type HeroRouteSceneProps } from "./components/hero-route-scene";

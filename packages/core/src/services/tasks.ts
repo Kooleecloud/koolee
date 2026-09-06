@@ -1,12 +1,13 @@
 import { and, eq } from "drizzle-orm";
 import {
-  addresses,
   airports,
   bookings,
   pickupTasks,
+  users,
   verificationTasks,
   type Database,
   type PickupTask,
+  type TaskStatus,
   type VerificationTask,
 } from "@koolee/db";
 
@@ -21,9 +22,27 @@ import {
 
 export type TaskKind = "verification" | "pickup";
 
+/**
+ * Task statuses that still represent work somebody has to do.
+ *
+ * `done` and `failed` are both finished — a failed visit has already been
+ * handed to the exception flow, and counting it as load would keep a person
+ * artificially busy for the rest of the day.
+ *
+ * Three readers depend on this being ONE list: the admin workload strip
+ * (`listAgentWorkload`), a driver's remaining bag load (`driver-selection.ts`),
+ * and the guard that refuses to end a shift with bags still on the truck
+ * (`shifts.ts`). They must agree on what "open" means or a driver clocks off
+ * mid-run.
+ */
+export const OPEN_TASK_STATUSES = [
+  "pending",
+  "assigned",
+  "in_progress",
+] as const satisfies readonly TaskStatus[];
+
 export type AssignedTask =
-  | { kind: "verification"; task: VerificationTask }
-  | { kind: "pickup"; task: PickupTask };
+  { kind: "verification"; task: VerificationTask } | { kind: "pickup"; task: PickupTask };
 
 export async function getAssignedTask(
   db: Database,
@@ -78,15 +97,41 @@ export interface ScheduledTask<T> {
 /** The booking fields an agent needs to identify and reach a job. */
 export interface TaskBookingContext {
   id: string;
+  /** `KOO-XXXXX` — what the customer quotes and what ops reads back. */
+  ref: string;
   paxName: string;
   flightNumber: string;
   departureAirport: string;
   departureAt: Date;
   bagCount: number;
   status: string;
-  /** Street line, for recognising the stop. Full address is on the detail. */
+  /** Street line, for recognising the stop. */
   addressLine1: string;
+  /** Apartment, floor, buzzer — the half that gets a driver past the door. */
+  addressLine2: string | null;
   addressCity: string;
+  addressState: string | null;
+  addressZip: string | null;
+  /**
+   * The doorstep's precise point, when Places supplied one. Null is ordinary
+   * (hand-typed address) and every consumer degrades to the ZIP centroid.
+   */
+  addressLat: number | null;
+  addressLng: number | null;
+  /**
+   * Google Place ID, when the address was picked from autocomplete. The agent
+   * app prefers it for the "Navigate" link: a place id resolves to the exact
+   * pin the customer chose, where a free-text query can land on the wrong end
+   * of a long street.
+   */
+  addressPlaceId: string | null;
+  /**
+   * The number typed FOR this pickup, when there is one. Only email-only
+   * customers have one; read it through `doorContact`, never directly.
+   */
+  contactPhone: string | null;
+  /** The account's verified number. Also read through `doorContact`. */
+  customerPhone: string | null;
 }
 
 export interface AssignedTasks {
@@ -109,14 +154,34 @@ export async function listAssignedTasks(
   // list can never describe the same booking differently.
   const bookingColumns = {
     id: bookings.id,
+    ref: bookings.ref,
     paxName: bookings.paxName,
     flightNumber: bookings.flightNumber,
     departureAirport: bookings.departureAirport,
     departureAt: bookings.departureAt,
     bagCount: bookings.bagCount,
     status: bookings.status,
-    addressLine1: addresses.line1,
-    addressCity: addresses.city,
+    // The booking's OWN doorstep (0033). These were a join on `addresses`
+    // until the snapshot landed, which meant a customer editing their saved
+    // address could move a stop out from under a driver already holding the
+    // job.
+    addressLine1: bookings.pickupLine1,
+    addressLine2: bookings.pickupLine2,
+    addressCity: bookings.pickupCity,
+    addressState: bookings.pickupState,
+    addressZip: bookings.pickupZip,
+    addressLat: bookings.pickupLat,
+    addressLng: bookings.pickupLng,
+    addressPlaceId: bookings.pickupPlaceId,
+    contactPhone: bookings.contactPhone,
+    /**
+     * The account's verified number, resolved against `contactPhone` by
+     * `doorContact`. On the LIST, not just the visit detail: a driver running
+     * late calls before opening the job, and until now most jobs showed a
+     * disabled "No number" because `contactPhone` is only set for email-only
+     * customers.
+     */
+    customerPhone: users.phone,
   };
 
   const [verification, pickup] = await Promise.all([
@@ -125,7 +190,7 @@ export async function listAssignedTasks(
       .from(verificationTasks)
       .innerJoin(bookings, eq(bookings.id, verificationTasks.bookingId))
       .innerJoin(airports, eq(airports.code, bookings.departureAirport))
-      .innerJoin(addresses, eq(addresses.id, bookings.pickupAddressId))
+      .innerJoin(users, eq(users.id, bookings.userId))
       .where(eq(verificationTasks.assigneeUserId, assigneeUserId))
       .orderBy(verificationTasks.scheduledStart),
     db
@@ -133,7 +198,7 @@ export async function listAssignedTasks(
       .from(pickupTasks)
       .innerJoin(bookings, eq(bookings.id, pickupTasks.bookingId))
       .innerJoin(airports, eq(airports.code, bookings.departureAirport))
-      .innerJoin(addresses, eq(addresses.id, bookings.pickupAddressId))
+      .innerJoin(users, eq(users.id, bookings.userId))
       .where(eq(pickupTasks.assigneeUserId, assigneeUserId))
       .orderBy(pickupTasks.scheduledStart),
   ]);

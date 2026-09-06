@@ -1,7 +1,16 @@
 "use client";
 
 import * as React from "react";
-import { Button, Card, CardContent, CardHeader, CardTitle, FormMessage, Input, Label } from "@koolee/ui";
+import {
+  Button,
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  FormMessage,
+  Input,
+  Label,
+} from "@koolee/ui";
 
 import { attachEmailPostBooking } from "@/actions/auth";
 

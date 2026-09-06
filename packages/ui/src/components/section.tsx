@@ -28,12 +28,15 @@ const sectionVariants = cva("relative", {
 });
 
 export interface SectionProps
-  extends React.HTMLAttributes<HTMLElement>,
-    VariantProps<typeof sectionVariants> {}
+  extends React.HTMLAttributes<HTMLElement>, VariantProps<typeof sectionVariants> {}
 
 const Section = React.forwardRef<HTMLElement, SectionProps>(
   ({ className, tone, space, children, ...props }, ref) => (
-    <section ref={ref} className={cn(sectionVariants({ tone, space }), className)} {...props}>
+    <section
+      ref={ref}
+      className={cn(sectionVariants({ tone, space }), className)}
+      {...props}
+    >
       <div className="container">{children}</div>
     </section>
   ),
@@ -77,7 +80,9 @@ function SectionHeader({
       <Heading className="font-display text-display font-semibold text-navy-800">
         {heading}
       </Heading>
-      {body ? <p className="text-lg leading-relaxed text-muted-foreground">{body}</p> : null}
+      {body ? (
+        <p className="text-lg leading-relaxed text-muted-foreground">{body}</p>
+      ) : null}
     </div>
   );
 }

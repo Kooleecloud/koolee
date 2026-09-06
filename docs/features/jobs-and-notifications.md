@@ -1,7 +1,7 @@
 # Background jobs & notifications
 
 > Inngest functions, the cron-protected manual routes, and the notification
-> seam. Baseline: `dev` @ `ad65272`. ← [Features index](README.md)
+> seam. Baseline: `dev` @ `5db21a4`. ← [Features index](README.md)
 
 ---
 
@@ -10,10 +10,10 @@
 **Eight functions, all served from `apps/web` at `/api/inngest`** — but defined
 in two places, and the split is deliberate:
 
-| Defined in                                                                       | Which                                                                                                                  | Why there                                                                     |
-| -------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| Defined in                                                                       | Which                                                                                                                                  | Why there                                                                     |
+| -------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
 | [packages/core/src/jobs/functions.ts](../../packages/core/src/jobs/functions.ts) | Booking confirmation email, pickup reminder, exception ops-alert email, waitlist zone-opened sweep, cutoff-risk monitor, agent no-show | Pure domain jobs — no app credentials needed (email config is injected)       |
-| [apps/web/src/lib/inngest.ts](../../apps/web/src/lib/inngest.ts)                 | Capture-due sweep, anonymous/draft GC                                                                                    | Need **Stripe** and **service-role** credentials, which only `apps/web` holds |
+| [apps/web/src/lib/inngest.ts](../../apps/web/src/lib/inngest.ts)                 | Capture-due sweep, anonymous/draft GC                                                                                                  | Need **Stripe** and **service-role** credentials, which only `apps/web` holds |
 
 🧭 That split _is_ the credential boundary showing up in the job layer: a job
 that needs a secret is defined in the app that owns the secret, not in core.
@@ -28,8 +28,10 @@ throw.**
 
 **Status (2026-08-23): email side effects are REAL** — Resend when
 `RESEND_API_KEY` is present, console otherwise. SMS remains the console
-fallback (the Twilio adapter is a later work item), and the driver ETA in the
-cutoff monitor is still a fixed estimate.
+fallback (the Twilio adapter is a later work item). The driver ETA in the
+cutoff monitor is **not** a fixed estimate: since Tier 4 the monitor asks the
+`EtaEstimator` seam and takes its pessimistic `maxMinutes` end
+(`packages/core/src/jobs/functions.ts`).
 
 ---
 
@@ -47,9 +49,12 @@ until 2026-08-23. Emission lives in
   webhook, the `/book/return` re-check, and the fake-provider inline path —
   each keyed on "THIS call performed the move" (`WebhookOutcome.movedTo`,
   `movedToPaid`), so redeliveries, refreshes, and lost races never re-fire.
-- `booking/exception_raised` fires from the webhook payment-cancelled path.
-  ⚠️ Admin-raised exceptions do **not** emit yet — apps/admin has no Inngest
-  client (tracked in PROJECT-STATUS #16).
+- `booking/exception_raised` fires from **`applyTransition` in core** and the
+  webhook handler's `moveBooking` — the two choke points a booking row can
+  reach `exception` through. Admin-raised exceptions therefore DO emit:
+  `apps/admin` injects an `inngestEmitter` (`apps/admin/src/lib/core.ts`) for
+  exactly that reason. Never re-add an emit at a call site — six of seven
+  paths went silent for a whole slice that way.
 
 ### 2.1 — Booking confirmation email
 
@@ -211,9 +216,9 @@ claim, Tag Orange on the CTA only.
 
 **Two complementary confirmation paths** — they never double-send:
 
-| Path                                                                                          | When it fires                                                                                          |
-| ---------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
-| `booking-confirmation-email` Inngest fn (§2.1)                                                | Account **has** an email at payment time                                                                |
+| Path                                                                                                                      | When it fires                                                                                             |
+| ------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| `booking-confirmation-email` Inngest fn (§2.1)                                                                            | Account **has** an email at payment time                                                                  |
 | `sendBookingConfirmationEmail` ([services/confirmation-email.ts](../../packages/core/src/services/confirmation-email.ts)) | Customer had **no** email (the Inngest fn skipped) and adds one post-booking via `attachEmailPostBooking` |
 
 Locally, **Resend emails print to the dev-server console** (no key = console
@@ -229,9 +234,10 @@ Honest state, so you can plan against it:
 
 - **SMS side effects are stubbed** — reminder/custody SMS logs to console;
   no Twilio adapter yet. (Email is real as of 2026-08-23.)
-- **Driver ETA is a fixed estimate**, so the cutoff monitor under-alerts.
-- **Admin-raised exceptions don't emit** `booking/exception_raised` — only
-  the webhook payment-cancelled path does.
+- **Driver ETA is an estimate from ZIP centroids and an average speed**, not
+  a routing provider. It is deliberately pessimistic, which makes the cutoff
+  monitor alert EARLY rather than late — see the ETA note in
+  [PROJECT-STATUS §7](../../PROJECT-STATUS.md).
 - **AeroAPI flight lookup is stubbed.**
 
 Tracked in [PROJECT-STATUS.md](../../PROJECT-STATUS.md).

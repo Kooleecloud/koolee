@@ -1,6 +1,8 @@
 import "server-only";
 
+import { cache } from "react";
 import {
+  getStaffIdentity,
   NotAuthorizedError,
   requireStaffRole,
   type AgentSession,
@@ -20,16 +22,40 @@ import { getSupabaseServerClient } from "@/lib/supabase/server";
  * without the role gets nothing here). It is also what makes deactivation
  * immediate: a deactivated agent's live session fails the next request.
  */
-export async function getAgentSession(): Promise<AgentSession | null> {
-  try {
-    return await requireAgentSession();
-  } catch {
-    return null;
-  }
+
+export interface AgentIdentity {
+  session: AgentSession;
+  /**
+   * The agent's email — shown on the Account tab so a driver can tell which
+   * account their custody events are being filed under. Typed nullable only
+   * because Supabase's `User` allows it; staff accounts are created by
+   * email invite.
+   */
+  email: string | null;
+  /** Display name from `public.users`, null until an admin sets one. */
+  fullName: string | null;
+  /** Key in the PRIVATE `avatars` bucket, or null. Signed where it renders. */
+  avatarStoragePath: string | null;
+  /**
+   * Cleared to drive — the shift bar and the pickup flow mount on this.
+   *
+   * A capability, not a role: the same person verifies at the door and drives
+   * the van (see `staff_members`). Re-read per request with the role, so a
+   * revoked grant takes effect on the next navigation.
+   */
+  canDrive: boolean;
 }
 
-/** Throwing variant for server actions and route handlers. */
-export async function requireAgentSession(): Promise<AgentSession> {
+/**
+ * One identity load per request.
+ *
+ * The layout needs it to decide whether to mount the tab bar, and every page
+ * needs it to gate itself — so without `cache()` each navigation paid for two
+ * `auth.getUser()` round-trips and two role lookups. The role check is still
+ * per-request, which is what makes deactivation immediate; it just is not
+ * per-component.
+ */
+const loadAgentIdentity = cache(async (): Promise<AgentIdentity> => {
   const supabase = await getSupabaseServerClient();
   if (!supabase) throw new NotAuthorizedError("Supabase is not configured.");
 
@@ -42,5 +68,36 @@ export async function requireAgentSession(): Promise<AgentSession> {
   if (!core) throw new NotAuthorizedError("Database is not configured.");
 
   await requireStaffRole(core.db, user.id, ["agent"]);
-  return { kind: "agent", role: "agent", userId: user.id };
+
+  // One more read on a request that already does two, and it is the read that
+  // lets every agent surface show a name and a face instead of an email.
+  const identity = await getStaffIdentity(core.db, user.id).catch(() => null);
+
+  return {
+    session: { kind: "agent", role: "agent", userId: user.id },
+    email: user.email ?? identity?.email ?? null,
+    fullName: identity?.fullName ?? null,
+    avatarStoragePath: identity?.avatarStoragePath ?? null,
+    canDrive: identity?.canDrive ?? false,
+  };
+});
+
+/** Session plus display identity, for the Account tab. Null when signed out. */
+export async function getAgentIdentity(): Promise<AgentIdentity | null> {
+  try {
+    return await loadAgentIdentity();
+  } catch {
+    return null;
+  }
+}
+
+export async function getAgentSession(): Promise<AgentSession | null> {
+  const identity = await getAgentIdentity();
+  return identity?.session ?? null;
+}
+
+/** Throwing variant for server actions and route handlers. */
+export async function requireAgentSession(): Promise<AgentSession> {
+  const { session } = await loadAgentIdentity();
+  return session;
 }

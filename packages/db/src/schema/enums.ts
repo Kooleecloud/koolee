@@ -56,14 +56,6 @@ export const paymentStatusEnum = pgEnum("payment_status", [
 ]);
 export type PaymentStatus = (typeof paymentStatusEnum.enumValues)[number];
 
-export const routeStatusEnum = pgEnum("route_status", [
-  "planned",
-  "active",
-  "completed",
-  "cancelled",
-]);
-export type RouteStatus = (typeof routeStatusEnum.enumValues)[number];
-
 export const waitlistSourceEnum = pgEnum("waitlist_source", [
   /** The marketing /waitlist page. */
   "waitlist_page",

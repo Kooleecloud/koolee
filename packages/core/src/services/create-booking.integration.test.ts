@@ -20,12 +20,23 @@ import {
   users,
   type Database,
 } from "@koolee/db";
+import { TEST_AIRPORTS } from "../test-utils/airport-fixtures";
+import { pickupSnapshotOf } from "../test-utils/booking-fixtures";
 
 import { createCoreConfig, type CoreConfig } from "../config";
-import { OutOfCoverageError, SlotNotSellableError } from "../errors";
+import {
+  OutOfCoverageError,
+  QuoteZipMismatchError,
+  SlotNotSellableError,
+} from "../errors";
 import { FakePaymentProvider } from "../payments/fake";
 import { errorChainMessage, pgErrorCode } from "../test-utils/db-errors";
 import { createBooking } from "./create-booking";
+import {
+  BOOKING_REF_PATTERN,
+  generateBookingRef,
+  isBookingRefConflict,
+} from "../booking/ref";
 
 /**
  * Integration tests for the booking orchestrator against a real Postgres.
@@ -76,7 +87,9 @@ function alignToHour(instant: Date): Date {
 /** Clock-aligned 1h window ending ~`leadHours` before departure — mid-band
  * and notice-safe at the default of 20h. */
 function windowFor(departureAt: Date, leadHours = 20) {
-  const end = new Date(Math.floor((departureAt.getTime() - leadHours * HOUR) / HOUR) * HOUR);
+  const end = new Date(
+    Math.floor((departureAt.getTime() - leadHours * HOUR) / HOUR) * HOUR,
+  );
   return { pickupWindowStart: new Date(end.getTime() - HOUR), pickupWindowEnd: end };
 }
 
@@ -132,11 +145,7 @@ describeIntegration("createBooking (integration)", () => {
       SET session_replication_role = DEFAULT;
     `);
 
-    await db.insert(airports).values({
-      code: "JFK",
-      name: "John F. Kennedy International",
-      tz: "America/New_York",
-    });
+    await db.insert(airports).values(TEST_AIRPORTS.JFK);
 
     await db.insert(airlineCutoffs).values({
       airlineIata: "DL",
@@ -181,6 +190,7 @@ describeIntegration("createBooking (integration)", () => {
   const input = (over: Partial<Parameters<typeof createBooking>[1]> = {}) => ({
     userId,
     pickupAddressId: addressId,
+    quotedZip: "10001",
     ...validWindow,
     flightNumber: "dl123",
     airlineIata: "dl",
@@ -261,6 +271,50 @@ describeIntegration("createBooking (integration)", () => {
     expect(paymentRows).toHaveLength(1);
     expect(paymentRows[0]!.status).toBe("authorized");
     expect(paymentRows[0]!.provider).toBe("fake");
+  });
+
+  it("mints a well-formed, unique booking ref", async () => {
+    const first = await createBooking(config, input());
+    const second = await createBooking(config, input());
+
+    expect(first.booking.ref).toMatch(BOOKING_REF_PATTERN);
+    expect(second.booking.ref).toMatch(BOOKING_REF_PATTERN);
+    expect(first.booking.ref).not.toBe(second.booking.ref);
+
+    // Stored, not derived: the row carries it, and it is nothing like the id.
+    const [row] = await db
+      .select({ ref: bookings.ref })
+      .from(bookings)
+      .where(eq(bookings.id, first.booking.id));
+    expect(row?.ref).toBe(first.booking.ref);
+    expect(first.booking.id).not.toContain(first.booking.ref.slice(4));
+  });
+
+  it("the unique index is real — a duplicate ref cannot be inserted", async () => {
+    const { booking } = await createBooking(config, input());
+
+    await expect(
+      db.insert(bookings).values({
+        ref: booking.ref,
+        userId: booking.userId,
+        status: "draft",
+        flightNumber: "DL999",
+        airlineIata: "DL",
+        departureAirport: "JFK",
+        departureAt,
+        paxName: "Ref Collider",
+        // Straight off the booking that already exists — this test is about
+        // the ref index, not the doorstep.
+        pickupAddressId: booking.pickupAddressId,
+        pickupLine1: booking.pickupLine1,
+        pickupCity: booking.pickupCity,
+        pickupState: booking.pickupState,
+        pickupZip: booking.pickupZip,
+        bagCount: 1,
+        displayTz: "America/New_York",
+        priceCents: 1000,
+      }),
+    ).rejects.toSatisfy(isBookingRefConflict);
   });
 
   it("accepts two concurrent bookings of the same window — windows have no capacity", async () => {
@@ -418,6 +472,64 @@ describeIntegration("createBooking (integration)", () => {
     expect(await db.select().from(bookings)).toHaveLength(0);
   });
 
+  /*
+   * The funnel takes a ZIP on the flight step (the quote and the coverage
+   * answer are built from it) and a full address two steps later. Both ZIPs
+   * below are inside the service area — that is the point. Two covered ZIPs
+   * are still two different places, with different `zip_centroids`
+   * coordinates and different `agent_zones` rows, and the booking may only be
+   * written against the ZIP it was priced for. The pickup step reconciles
+   * this in the UI; this is the guarantee behind it.
+   */
+  it("refuses an address in a different ZIP from the one it was quoted for", async () => {
+    const [elsewhere] = await db
+      .insert(addresses)
+      .values({
+        userId,
+        line1: "200 Joralemon St",
+        city: "Brooklyn",
+        state: "NY",
+        zip: "11201",
+      })
+      .returning();
+
+    const error = await rejectionOf(
+      createBooking(config, input({ pickupAddressId: elsewhere!.id })),
+    );
+
+    expect(error).toBeInstanceOf(QuoteZipMismatchError);
+    expect((error as QuoteZipMismatchError).quotedZip).toBe("10001");
+    expect((error as QuoteZipMismatchError).addressZip).toBe("11201");
+    expect(await db.select().from(bookings)).toHaveLength(0);
+  });
+
+  it("accepts the same booking once the quote is updated to the new ZIP", async () => {
+    const [elsewhere] = await db
+      .insert(addresses)
+      .values({
+        userId,
+        line1: "200 Joralemon St",
+        city: "Brooklyn",
+        state: "NY",
+        zip: "11201",
+      })
+      .returning();
+
+    const result = await createBooking(
+      config,
+      input({ pickupAddressId: elsewhere!.id, quotedZip: "11201" }),
+    );
+
+    expect(result.booking.status).toBe("paid");
+  });
+
+  it("treats a ZIP+4 as the same ZIP it was quoted for", async () => {
+    // "10001-2345" and "10001" are one place; a customer whose autofill adds
+    // the +4 must not be told their address moved.
+    const result = await createBooking(config, input({ quotedZip: "10001-2345" }));
+    expect(result.booking.status).toBe("paid");
+  });
+
   it("refuses an address belonging to another user", async () => {
     const [other] = await db.insert(users).values({ phone: "+15559990000" }).returning();
 
@@ -488,9 +600,7 @@ describeIntegration("custody_events append-only trigger", () => {
       SET session_replication_role = DEFAULT;
     `);
 
-    await db
-      .insert(airports)
-      .values({ code: "JFK", name: "JFK", tz: "America/New_York" });
+    await db.insert(airports).values(TEST_AIRPORTS.JFK);
     const [user] = await db.insert(users).values({ phone: "+15551110000" }).returning();
     const [address] = await db
       .insert(addresses)
@@ -509,13 +619,14 @@ describeIntegration("custody_events append-only trigger", () => {
     const [booking] = await db
       .insert(bookings)
       .values({
+        ref: generateBookingRef(),
         userId: user!.id,
         flightNumber: "DL1",
         airlineIata: "DL",
         departureAirport: "JFK",
         departureAt,
         paxName: "Test",
-        pickupAddressId: address!.id,
+        ...pickupSnapshotOf(address!),
         bagCount: 1,
         pickupWindowStart,
         pickupWindowEnd,
@@ -537,7 +648,10 @@ describeIntegration("custody_events append-only trigger", () => {
       .update(custodyEvents)
       .set({ eventType: "tampered" })
       .where(eq(custodyEvents.id, event!.id))
-      .then(() => null, (e: unknown) => e);
+      .then(
+        () => null,
+        (e: unknown) => e,
+      );
     expect(updateError).toBeInstanceOf(Error);
     expect(errorChainMessage(updateError)).toMatch(/append-only/);
     expect(pgErrorCode(updateError)).toBe("23001");
@@ -545,15 +659,19 @@ describeIntegration("custody_events append-only trigger", () => {
     const deleteError = await db
       .delete(custodyEvents)
       .where(eq(custodyEvents.id, event!.id))
-      .then(() => null, (e: unknown) => e);
+      .then(
+        () => null,
+        (e: unknown) => e,
+      );
     expect(deleteError).toBeInstanceOf(Error);
     expect(errorChainMessage(deleteError)).toMatch(/append-only/);
     expect(pgErrorCode(deleteError)).toBe("23001");
 
     // Raw postgres.js is not wrapped, but the helpers handle a chain of one.
-    const truncateError = await sqlClient
-      .unsafe(`TRUNCATE custody_events`)
-      .then(() => null, (e: unknown) => e);
+    const truncateError = await sqlClient.unsafe(`TRUNCATE custody_events`).then(
+      () => null,
+      (e: unknown) => e,
+    );
     expect(truncateError).toBeInstanceOf(Error);
     expect(errorChainMessage(truncateError)).toMatch(/append-only/);
     expect(pgErrorCode(truncateError)).toBe("23001");

@@ -11,8 +11,10 @@ import {
   inArray,
   isNull,
   lt,
+  lte,
   or,
   sql,
+  type Column,
   type SQL,
 } from "drizzle-orm";
 import {
@@ -20,8 +22,10 @@ import {
   bags,
   bookings,
   custodyEvents,
+  driverShifts,
   pickupTasks,
   staffMembers,
+  trucks,
   users,
   verificationTasks,
   type Booking,
@@ -31,9 +35,13 @@ import {
 
 import type { TransitionActor } from "../booking/state-machine";
 import type { AdminSession } from "../auth/types";
-import type { CoreConfig } from "../config";
+import { DEFAULTS, type CoreConfig } from "../config";
+import { emitAgentAssigned } from "../events/booking-events";
 import { airportLocalDayBounds } from "../slots/cutoff";
+import { withinAssignmentHorizon } from "./assignment-horizon";
 import { applyTransition } from "./bookings";
+import { OPEN_TASK_STATUSES } from "./tasks";
+import { assignmentGate } from "./actionability";
 import { cancelBookingWithRefund } from "./payment-lifecycle";
 import { getActiveStaffRole } from "./staff";
 
@@ -68,6 +76,26 @@ export async function listActiveAgents(db: Database): Promise<ActiveAgent[]> {
 export interface AssignAgentInput {
   bookingId: string;
   agentUserId: string;
+  /**
+   * Refuse if somebody else got there first, instead of reassigning.
+   *
+   * For the AUTOMATIC callers (`autoAssignBooking`, and through it the
+   * on-paid hook and the horizon sweep), whose documented rule is that they
+   * never reassign. That rule used to be enforced by a check in
+   * `autoAssignBooking` that ran BEFORE the zone lookup and the load counts —
+   * several round trips before the write — so a second sweep could pass the
+   * check, watch the first one commit, and then take the UPDATE branch here
+   * and move the booking to a different agent. The 0019 unique index does not
+   * referee that, because nobody inserts.
+   *
+   * With this set the decision is re-made INSIDE the transaction, where it
+   * can see a committed winner. Two writers that both read before either
+   * commits still both INSERT, and there the unique index does referee.
+   *
+   * A dispatcher clicking Assign leaves it unset: reassignment is exactly
+   * what they mean.
+   */
+  neverReassign?: boolean;
 }
 
 export type AssignAgentResult =
@@ -123,9 +151,23 @@ export async function assignAgentToBooking(
   const existing = await db.query.verificationTasks.findFirst({
     where: eq(verificationTasks.bookingId, booking.id),
   });
-  if (existing && (existing.status === "done" || existing.completedAt)) {
-    return { ok: false, error: "The visit is already completed — nothing to reassign." };
-  }
+
+  /*
+   * ONE GATE, and it used to be this one line plus a hole.
+   *
+   * The visit-complete check was here and correct; what was missing was the
+   * BOOKING's own standing. A cancelled booking could be assigned an agent —
+   * and worse, a cancelled booking that already HAD one skipped the status
+   * check below entirely, because that branch only runs for a first
+   * assignment. `assignmentGate` answers both, in the same module the rest of
+   * the app asks "can this booking still be acted on".
+   */
+  const gate = assignmentGate(
+    "verification",
+    booking,
+    Boolean(existing && (existing.status === "done" || existing.completedAt)),
+  );
+  if (!gate.allowed) return { ok: false, error: gate.reason! };
 
   // The booking carries its pickup window directly (legacy slot rows were
   // backfilled into these columns by migration 0012).
@@ -143,13 +185,26 @@ export async function assignAgentToBooking(
     };
   }
 
+  /** Thrown inside the transaction; converted to a `conflict` result below. */
+  class ConcurrentAssignment extends Error {}
+
   try {
     await db.transaction(async (tx) => {
-      if (existing) {
+      // Re-read under the transaction. `existing` above was read before the
+      // zone lookup and the load counts, which is several round trips of
+      // opportunity for a concurrent writer to finish.
+      const current = await tx.query.verificationTasks.findFirst({
+        where: eq(verificationTasks.bookingId, booking.id),
+      });
+      if (input.neverReassign && current?.assigneeUserId) {
+        throw new ConcurrentAssignment();
+      }
+
+      if (current) {
         await tx
           .update(verificationTasks)
           .set({ assigneeUserId: input.agentUserId, status: "assigned" })
-          .where(eq(verificationTasks.id, existing.id));
+          .where(eq(verificationTasks.id, current.id));
       } else {
         await tx.insert(verificationTasks).values({
           bookingId: booking.id,
@@ -181,10 +236,19 @@ export async function assignAgentToBooking(
       }
     });
   } catch (error) {
-    // The on-paid race (Stripe webhook vs /book/return re-check): both
-    // callers passed the existence check above, and the 0019 unique index
-    // refused the second insert. The winner owns the assignment — report
-    // "already assigned", never a failure of the payment path.
+    // Lost the race to a writer that had already COMMITTED — seen by the
+    // re-read inside the transaction.
+    if (error instanceof ConcurrentAssignment) {
+      return {
+        ok: false,
+        error: "Already assigned by a concurrent writer.",
+        conflict: true,
+      };
+    }
+    // Lost the race to a writer that had NOT yet committed: both passed the
+    // existence check, both inserted, and the 0019 unique index refused the
+    // second. The winner owns the assignment — report "already assigned",
+    // never a failure of the payment path.
     if (pgErrorCode(error) === "23505") {
       return {
         ok: false,
@@ -214,6 +278,25 @@ export async function assignAgentToBooking(
       metadata: { agentUserId: input.agentUserId },
     });
   }
+
+  /*
+   * "Your agent is <name>" — emitted HERE rather than from `applyTransition`,
+   * because this is the fact and the transition is not.
+   *
+   * Two paths reach this line and only one of them moves the booking: the
+   * on-paid transition above, and a reassignment that changes nothing but who
+   * is coming. A customer told once and then never again when a different
+   * person is sent has been told something false, so the emit sits at the
+   * write that decided WHO — the single write path shared by the manual
+   * assign and `autoAssignBooking`.
+   *
+   * The dedupe key is (booking, agent), so ops re-picking the same agent is
+   * not news and picking a different one is. Never throws.
+   */
+  await emitAgentAssigned(config.emitter, {
+    bookingId: booking.id,
+    agentUserId: input.agentUserId,
+  });
 
   return { ok: true, reassigned };
 }
@@ -288,7 +371,8 @@ export async function resolveExceptionBooking(
     return result.ok ? { ok: true } : { ok: false, error: result.error };
   }
 
-  const event = input.resolution === "resume_transit" ? "resume_transit" : "force_complete";
+  const event =
+    input.resolution === "resume_transit" ? "resume_transit" : "force_complete";
   const moved = await applyTransition(config, {
     bookingId: input.bookingId,
     event,
@@ -302,11 +386,47 @@ export async function resolveExceptionBooking(
 /* Ops dashboard + board                                                */
 /* ------------------------------------------------------------------ */
 
+/**
+ * Everything the console needs to tell "nobody has done this yet" apart from
+ * "the system has correctly not started this yet".
+ *
+ * `assignmentHorizonHours` is passed rather than defaulted for the same reason
+ * `tz` is: a wrong value here is not a crash, it is a badge that quietly lies.
+ * Callers read it from `config.defaults` so the console and the sweep cannot
+ * disagree about where the line is.
+ */
+export interface BoardContext {
+  /** Read as "now". Defaults to the real clock. */
+  now?: Date;
+  /** See `CoreDefaults.assignmentHorizonHours`. Defaults to `DEFAULTS`. */
+  assignmentHorizonHours?: number;
+}
+
 export interface OpsDashboard {
   /** Bookings whose pickup window starts today, by status. */
   todayByStatus: Array<{ status: Booking["status"]; count: number }>;
-  /** Paid bookings with a window today and no assigned verification task. */
+  /**
+   * Paid bookings with a window today, INSIDE the assignment horizon, and no
+   * assigned verification task.
+   *
+   * The horizon clause is not redundant with "today": at the default 48 hours
+   * every window today is inside it, but the horizon is configuration. Set
+   * `ASSIGNMENT_HORIZON_HOURS=6` and tonight's 11 PM pickup is legitimately
+   * unassigned at 9 AM — counting it here would page an operator about work
+   * the sweep is going to do at 5 PM.
+   */
   unassignedToday: number;
+  /**
+   * Sealed bookings with a window today whose bags nobody is coming for —
+   * `verified_sealed` or `awaiting_pickup`, with no pickup task attached to a
+   * driver shift.
+   *
+   * A SEPARATE count from `unassignedToday`, not folded into it. The two are
+   * different failures with different fixes: one needs an agent sent to a
+   * door, the other needs a van. Merging them would make one badge mean two
+   * things and hide whichever is rarer.
+   */
+  awaitingDriverToday: number;
   /** All bookings currently in the exception state. */
   exceptionsOpen: number;
 }
@@ -322,8 +442,11 @@ export interface OpsDashboard {
 export async function getOpsDashboard(
   db: Database,
   tz: string,
-  now: Date = new Date(),
+  ctx: BoardContext = {},
 ): Promise<OpsDashboard> {
+  const now = ctx.now ?? new Date();
+  const horizonHours = ctx.assignmentHorizonHours ?? DEFAULTS.assignmentHorizonHours;
+  const horizonEnd = new Date(now.getTime() + horizonHours * 3_600_000);
   const { start: dayStart, end: dayEnd } = airportLocalDayBounds(now, tz);
 
   const todayByStatus = await db
@@ -346,7 +469,22 @@ export async function getOpsDashboard(
         eq(bookings.status, "paid"),
         gte(bookings.pickupWindowStart, dayStart),
         lt(bookings.pickupWindowStart, dayEnd),
+        // Unassigned BY DESIGN beyond the horizon — not a problem to count.
+        lte(bookings.pickupWindowStart, horizonEnd),
         isNull(verificationTasks.assigneeUserId),
+      ),
+    );
+
+  const [awaitingDriver] = await db
+    .select({ count: count() })
+    .from(bookings)
+    .leftJoin(pickupTasks, eq(pickupTasks.bookingId, bookings.id))
+    .where(
+      and(
+        inArray(bookings.status, [...DRIVER_AWAITED_STATUSES]),
+        gte(bookings.pickupWindowStart, dayStart),
+        lt(bookings.pickupWindowStart, dayEnd),
+        isNull(pickupTasks.driverShiftId),
       ),
     );
 
@@ -361,6 +499,7 @@ export async function getOpsDashboard(
       count: Number(row.count),
     })),
     unassignedToday: Number(unassigned?.count ?? 0),
+    awaitingDriverToday: Number(awaitingDriver?.count ?? 0),
     exceptionsOpen: Number(exceptions?.count ?? 0),
   };
 }
@@ -383,12 +522,34 @@ export interface BoardRow {
    * one is added, and nothing about the code would look wrong.
    */
   tz: string;
+  /** Which shift holds this booking's pickup, once a driver is chosen. */
+  driverShiftId: string | null;
+  driverName: string | null;
+  truckName: string | null;
+  pickupTaskStatus: string | null;
   /**
-   * Simple derived flag, not a scheduling engine: paid, unassigned, and the
-   * pickup window starts within the next 12 hours (or already started).
+   * Simple derived flag, not a scheduling engine. True for either reason
+   * below; `atRiskReason` says which.
    */
   atRisk: boolean;
+  /**
+   * WHY it is at risk, because the two need different actions:
+   *  - `no_agent`  — paid, nobody assigned to verify, window inside 12 hours.
+   *  - `no_driver` — sealed and waiting, no driver chosen, departure inside 12
+   *    hours. This one used to be invisible: every at-risk surface read
+   *    `verification_tasks` only, so a booking with its bags sealed on a
+   *    doorstep and nobody coming for them looked healthy on the board.
+   */
+  atRiskReason: AtRiskReason | null;
 }
+
+export type AtRiskReason = "no_agent" | "no_driver";
+
+/** Statuses where the bags are sealed and a driver is what is missing. */
+export const DRIVER_AWAITED_STATUSES = [
+  "verified_sealed",
+  "awaiting_pickup",
+] as const satisfies readonly Booking["status"][];
 
 export interface BoardFilter {
   /**
@@ -433,28 +594,91 @@ export interface BoardSort {
 
 const AT_RISK_HORIZON_MS = 12 * 60 * 60 * 1000;
 
+/**
+ * How close to DEPARTURE a sealed booking with no driver becomes at-risk.
+ *
+ * Measured against departure rather than the pickup window, because the
+ * deadline that matters once the bags are sealed is the airline's, not the
+ * customer's. It is a deliberately coarse proxy for the real bag-drop cutoff:
+ * resolving the actual cutoff needs the `airline_cutoffs` table and the
+ * strictest-scope rule, and `cutoffRiskMonitor` is where that lives. Putting a
+ * cutoff resolution inside a 200-row board query would move real deadline
+ * arithmetic into a render path for a flag whose whole job is "look at this".
+ */
+const NO_DRIVER_HORIZON_MS = 12 * 60 * 60 * 1000;
+
 /** Minimum digits before a search term is tried against a phone column. */
 const MIN_PHONE_DIGITS = 3;
 
 /**
- * The three things an operator can be holding when they need a booking.
+ * WHAT SOMEBODY IS HOLDING WHEN THEY NEED TO FIND A BOOKING.
  *
- * Deliberately NOT a general text search: passenger name and address are
- * readable on the board already, and matching them here would turn a lookup
- * into a fishing expedition over customer PII.
+ * This was three things — ref, seal, phone — on the stated argument that
+ * matching a name "turns a lookup into a fishing expedition over customer
+ * PII". TD reversed that after using the board, and the reversal is the more
+ * honest position: the person on the phone knows their own name and their
+ * flight and almost never their booking ref, and an operator who cannot find
+ * them by name just reads the board by eye instead — the same PII, more of it
+ * on screen, and a worse call.
+ *
+ * ADDRESS AND ZIP STAY OUT, and that is a line rather than an omission.
+ * "Who is booked on this street" is a question about a NEIGHBOURHOOD rather
+ * than about a booking anybody is trying to reach: it answers no support call,
+ * and it is the one search here that would be worth misusing.
+ *
+ * EVERY CLAUSE IS `ilike`. Somebody reading a ref off an email, a phone screen
+ * or their own handwriting types it however they type it.
  */
-function searchCondition(db: Database, term: string): SQL | undefined {
+
+/**
+ * The three `users` roles a board row touches. All three are the same table,
+ * so they must arrive as aliases from the query that joined them — building
+ * them here would produce a second, unjoined alias that silently matches
+ * nothing.
+ *
+ * Typed as bare `Column`s rather than as `typeof users`, because `alias()`
+ * bakes the alias NAME into the table type: `board_customer` is not
+ * assignable to `users`, and the two aliases are not assignable to each
+ * other. Naming the columns we actually read is both what the compiler
+ * accepts and the more honest signature.
+ */
+interface SearchScope {
+  /** The customer who owns the booking. */
+  customer: { fullName: Column; email: Column; phone: Column };
+  /** The driver holding the pickup, once one is chosen. */
+  driverUser: { fullName: Column };
+  /** The agent assigned to verify — the board's plain `users` join. */
+  agentUser: { fullName: Column; email: Column };
+}
+
+function searchClauses(db: Database, term: string, scope: SearchScope): SQL[] {
   const trimmed = term.trim();
-  if (!trimmed) return undefined;
+  if (!trimmed) return [];
 
   const like = `%${trimmed}%`;
   const digits = trimmed.replace(/\D/g, "");
   const phoneLike = `%${digits}%`;
-  const customer = alias(users, "search_customer");
 
-  const clauses: (SQL | undefined)[] = [
-    // The short ref is a display convention over the uuid (last six hex),
-    // so it is matched by suffix rather than looked up as an identifier.
+  const clauses: SQL[] = [
+    /*
+     * THE REF ITSELF — and this was missing, which is the bug TD reported as
+     * "search is case-sensitive". It was not: every clause here has always
+     * been `ilike`. The ref column simply was not one of them.
+     *
+     * `bookings.ref` is `KOO-XXXXX` over Crockford base32, stored uppercase.
+     * The only clause resembling a ref lookup matched the last six hex of the
+     * UUID, which is a completely different string — so `CEMBB` and `cembb`
+     * both failed, and would have failed in any casing.
+     *
+     * Searching by ref here is exactly what a ref is FOR — display and
+     * SUPPORT. The standing rule is that no PUBLIC route looks a booking up
+     * by it, because 32^5 is hopeless as a secret; this is the admin console
+     * behind a staff session, which is the supported case rather than the
+     * forbidden one.
+     */
+    ilike(bookings.ref, like),
+    // The uuid's last six hex, kept: an operator pasting a fragment of an id
+    // out of a log or a Sentry issue is a real thing that happens.
     sql`right(${bookings.id}::text, 6) ilike ${like}`,
     exists(
       db
@@ -462,6 +686,31 @@ function searchCondition(db: Database, term: string): SQL | undefined {
         .from(bags)
         .where(and(eq(bags.bookingId, bookings.id), ilike(bags.sealId, like))),
     ),
+    /*
+     * The name ON THE TICKET, which is not always the name on the account —
+     * somebody books for a parent or a partner, and then it is the passenger
+     * who rings up about the bags.
+     */
+    ilike(bookings.paxName, like),
+    /*
+     * Stored as "DL777", so `%term%` accepts the whole thing or just the
+     * digits — nobody says "delta seven seven seven" when the board is on
+     * fire. It is also the one field a caller reads off a boarding pass
+     * verbatim, which makes it the most reliable hook of the lot.
+     */
+    ilike(bookings.flightNumber, like),
+    ilike(scope.customer.fullName, like),
+    ilike(scope.customer.email, like),
+
+    /*
+     * The operational half. "Which booking is Marcus on" and "what did truck
+     * 3 have this morning" are dispatch questions asked out loud, and both
+     * were previously answered by scrolling.
+     */
+    ilike(scope.driverUser.fullName, like),
+    ilike(trucks.name, like),
+    ilike(scope.agentUser.fullName, like),
+    ilike(scope.agentUser.email, like),
   ];
 
   if (digits.length >= MIN_PHONE_DIGITS) {
@@ -469,16 +718,16 @@ function searchCondition(db: Database, term: string): SQL | undefined {
     // typed with dashes or spaces, so phones are matched on digits only.
     clauses.push(
       ilike(bookings.contactPhone, phoneLike),
-      exists(
-        db
-          .select({ one: sql`1` })
-          .from(customer)
-          .where(and(eq(customer.id, bookings.userId), ilike(customer.phone, phoneLike))),
-      ),
+      ilike(scope.customer.phone, phoneLike),
     );
   }
 
-  return or(...clauses.filter((c): c is SQL => c !== undefined));
+  return clauses;
+}
+
+function searchCondition(clauses: SQL[]): SQL | undefined {
+  if (clauses.length === 0) return undefined;
+  return or(...clauses);
 }
 
 /** Column ordering, plus a stable tiebreak so pagination cannot shuffle. */
@@ -499,7 +748,10 @@ function orderFor(sort: BoardSort | undefined): SQL[] {
       // Unassigned rows sort last either way — they are the ones an operator
       // is looking for, and burying them under a page of assigned work is the
       // opposite of useful.
-      return [sql`${users.email} ${nulls}`, sql`${bookings.pickupWindowStart} asc nulls last`];
+      return [
+        sql`${users.email} ${nulls}`,
+        sql`${bookings.pickupWindowStart} asc nulls last`,
+      ];
     case "window":
     default:
       return [sql`${bookings.pickupWindowStart} ${nulls}`, asc(bookings.id)];
@@ -510,14 +762,38 @@ function orderFor(sort: BoardSort | undefined): SQL[] {
 export async function listBookingsBoard(
   db: Database,
   filter: BoardFilter = {},
-  now: Date = new Date(),
+  ctx: BoardContext = {},
 ): Promise<BoardRow[]> {
+  const now = ctx.now ?? new Date();
+  const horizonHours = ctx.assignmentHorizonHours ?? DEFAULTS.assignmentHorizonHours;
+
+  // The driver half of the row needs three more joins, all LEFT: a booking
+  // with no pickup task, no shift or no truck must still appear on the board.
+  const driverUser = alias(users, "board_driver");
+  /*
+   * The customer, joined rather than looked up in a subquery — search reads
+   * three of their columns, which as correlated `exists` clauses would be
+   * three subqueries per row for data sitting behind one foreign key. LEFT for
+   * symmetry with the rest of the board; `bookings.user_id` is NOT NULL, so it
+   * never actually widens.
+   */
+  const customerUser = alias(users, "board_customer");
+
+  // Declared before the WHERE because the clauses read these aliases.
+  const clauses = filter.search
+    ? searchClauses(db, filter.search, {
+        customer: customerUser,
+        driverUser,
+        agentUser: users,
+      })
+    : [];
+
   const conditions = [
     filter.statuses?.length ? inArray(bookings.status, filter.statuses) : undefined,
     filter.airports?.length
       ? inArray(bookings.departureAirport, filter.airports)
       : undefined,
-    filter.search ? searchCondition(db, filter.search) : undefined,
+    searchCondition(clauses),
   ].filter((c): c is NonNullable<typeof c> => c !== undefined);
 
   if (filter.day) {
@@ -537,43 +813,71 @@ export async function listBookingsBoard(
       assigneeName: users.fullName,
       taskStatus: verificationTasks.status,
       tz: airports.tz,
+      driverShiftId: pickupTasks.driverShiftId,
+      pickupTaskStatus: pickupTasks.status,
+      driverName: driverUser.fullName,
+      truckName: trucks.name,
     })
     .from(bookings)
     .leftJoin(verificationTasks, eq(verificationTasks.bookingId, bookings.id))
     .leftJoin(users, eq(users.id, verificationTasks.assigneeUserId))
+    .leftJoin(pickupTasks, eq(pickupTasks.bookingId, bookings.id))
+    .leftJoin(driverShifts, eq(driverShifts.id, pickupTasks.driverShiftId))
+    .leftJoin(driverUser, eq(driverUser.id, driverShifts.staffUserId))
+    .leftJoin(trucks, eq(trucks.id, driverShifts.truckId))
+    .leftJoin(customerUser, eq(customerUser.id, bookings.userId))
     .innerJoin(airports, eq(airports.code, bookings.departureAirport))
     .where(conditions.length > 0 ? and(...conditions) : undefined)
     .orderBy(...orderFor(filter.sort))
     .limit(filter.limit ?? 200);
 
-  return rows.map((row) => ({
-    booking: row.booking,
-    slotStart: row.slotStart,
-    assigneeUserId: row.assigneeUserId,
-    assigneeEmail: row.assigneeEmail,
-    assigneeName: row.assigneeName,
-    taskStatus: row.taskStatus,
-    tz: row.tz,
-    atRisk:
+  return rows.map((row) => {
+    const noAgent =
       row.booking.status === "paid" &&
       !row.assigneeUserId &&
       row.slotStart !== null &&
-      row.slotStart.getTime() - now.getTime() < AT_RISK_HORIZON_MS,
-  }));
+      row.slotStart.getTime() - now.getTime() < AT_RISK_HORIZON_MS &&
+      // Beyond the assignment horizon there is nothing wrong: the sweep has
+      // not reached this booking yet and is not supposed to have. At the
+      // default 48h this never bites (12h < 48h), which is precisely why it
+      // has to be written down — a shortened horizon would otherwise turn
+      // every correctly-deferred booking into a red badge.
+      withinAssignmentHorizon(row.slotStart, now, horizonHours);
+
+    const noDriver =
+      (DRIVER_AWAITED_STATUSES as readonly string[]).includes(row.booking.status) &&
+      row.driverShiftId === null &&
+      row.booking.departureAt.getTime() - now.getTime() < NO_DRIVER_HORIZON_MS;
+
+    // `no_driver` wins the label when both somehow apply: sealed bags nobody
+    // is coming for is the later and worse failure.
+    const atRiskReason: AtRiskReason | null = noDriver
+      ? "no_driver"
+      : noAgent
+        ? "no_agent"
+        : null;
+
+    return {
+      booking: row.booking,
+      slotStart: row.slotStart,
+      assigneeUserId: row.assigneeUserId,
+      assigneeEmail: row.assigneeEmail,
+      assigneeName: row.assigneeName,
+      taskStatus: row.taskStatus,
+      tz: row.tz,
+      driverShiftId: row.driverShiftId,
+      driverName: row.driverName,
+      truckName: row.truckName,
+      pickupTaskStatus: row.pickupTaskStatus,
+      atRisk: atRiskReason !== null,
+      atRiskReason,
+    };
+  });
 }
 
 /* ------------------------------------------------------------------ */
 /* Agent workload                                                       */
 /* ------------------------------------------------------------------ */
-
-/**
- * Task statuses that still represent work an agent has to do.
- *
- * `done` and `failed` are both finished — a failed visit has already been
- * handed to the exception flow, and counting it as load would keep an agent
- * artificially "busy" for the rest of the shift.
- */
-const OPEN_TASK_STATUSES = ["pending", "assigned", "in_progress"] as const;
 
 export interface AgentWorkload extends ActiveAgent {
   /** Open verification + pickup tasks scheduled for the requested day. */

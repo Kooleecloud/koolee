@@ -1,4 +1,9 @@
-import { ConsoleNotifier, type EmailMessage, type Notifier, type SmsMessage } from "../notifier";
+import {
+  ConsoleNotifier,
+  type EmailMessage,
+  type Notifier,
+  type SmsMessage,
+} from "../notifier";
 
 /**
  * Resend implementation of the email side of `Notifier`.

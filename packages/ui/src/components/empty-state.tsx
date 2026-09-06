@@ -28,7 +28,9 @@ function EmptyState({ icon, title, description, action, className }: EmptyStateP
         <CardTitle className="text-base">{title}</CardTitle>
         {description ? <CardDescription>{description}</CardDescription> : null}
       </CardHeader>
-      {action ? <CardContent className="flex justify-center">{action}</CardContent> : null}
+      {action ? (
+        <CardContent className="flex justify-center">{action}</CardContent>
+      ) : null}
     </Card>
   );
 }

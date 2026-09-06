@@ -1,0 +1,54 @@
+/*
+ * The map's anchored cards, dressed as ours.
+ *
+ * SHARED, and it has to be. MapLibre's default popup is a white box with a
+ * hard corner, a 10px sans serif and a close button pinned to the corner —
+ * beside a Koolee card it reads as a browser dialog that wandered in. These
+ * rules make the frame ours; everything INSIDE it is React (`renderPopup`) or
+ * DOM built by `LiveMap` itself.
+ *
+ * It lives in `packages/ui/styles` rather than in an app's globals.css because
+ * Storybook has its own stylesheet: rules written in the app were invisible in
+ * the one place the map is actually reviewed, so the story showed square
+ * corners and a proud close button that the app did not. Both import this.
+ *
+ * NOT imported from `live-map.tsx`: `@koolee/ui` declares `sideEffects: false`,
+ * so a CSS import inside a component of that package is droppable, silently.
+ */
+
+.koolee-map-popup .maplibregl-popup-content {
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--color-border);
+  box-shadow: var(--shadow-lift-lg);
+  padding: 0;
+  font: inherit;
+}
+
+/* The little triangle has to match the body, or the card looks pieced together. */
+.koolee-map-popup .maplibregl-popup-tip {
+  border-top-color: var(--color-background);
+  border-bottom-color: var(--color-background);
+}
+
+/*
+ * Inset, not flush. MapLibre pins the close button to the content box's
+ * top-right corner, and with `padding: 0` above that corner is the card's
+ * rounded edge — so the button sat half outside its own card. The offset puts
+ * it back inside; the size keeps it a real touch target rather than the 10px
+ * glyph MapLibre ships.
+ */
+.koolee-map-popup .maplibregl-popup-close-button {
+  top: 0.25rem;
+  right: 0.25rem;
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: var(--radius-md);
+  font-size: 1.125rem;
+  line-height: 1;
+  color: var(--color-muted-foreground);
+}
+
+.koolee-map-popup .maplibregl-popup-close-button:hover {
+  background: var(--color-muted);
+  color: var(--color-foreground);
+}

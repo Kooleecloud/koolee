@@ -127,9 +127,11 @@ export async function discardBookingDraft(
       ? (row.payload["bookingId"] as string)
       : null;
   const candidateIds = [
-    ...new Set([payloadBookingId, input.bookingId ?? null].filter(
-      (id): id is string => Boolean(id),
-    )),
+    ...new Set(
+      [payloadBookingId, input.bookingId ?? null].filter((id): id is string =>
+        Boolean(id),
+      ),
+    ),
   ];
 
   const cancelledBookingIds: string[] = [];
@@ -176,8 +178,7 @@ export async function expireBookingDrafts(
   options: { now?: Date; log?: (message: string) => void } = {},
 ): Promise<ExpireBookingDraftsResult> {
   const now = options.now ?? new Date();
-  const log =
-    options.log ?? ((m: string) => console.log(`[booking-drafts] ${m}`));
+  const log = options.log ?? ((m: string) => console.log(`[booking-drafts] ${m}`));
 
   const expired = await config.db
     .select({ userId: bookingDrafts.userId })

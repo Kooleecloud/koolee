@@ -41,7 +41,7 @@ describe("describeCustodyEvent", () => {
         metadata: { taskId: "t-1", sealId: "KL-88213", weightKg: 12.4 },
       }),
       NY,
-      );
+    );
     expect(headline).toBe("Bag sealed.");
     expect(details).toEqual(["seal KL-88213", "12.4 kg"]);
   });
@@ -53,7 +53,7 @@ describe("describeCustodyEvent", () => {
         metadata: { provider: "stripe", amountCents: 8900, captureRef: "pi_123" },
       }),
       NY,
-      );
+    );
     expect(details).toEqual(["$89.00", "via stripe", "ref pi_123"]);
   });
 
@@ -64,7 +64,7 @@ describe("describeCustodyEvent", () => {
         metadata: { reason: "customer_not_home", note: "Buzzer broken; no answer." },
       }),
       NY,
-      );
+    );
     expect(details).toEqual([
       "reason: customer not home",
       "note: Buzzer broken; no answer.",
@@ -78,7 +78,7 @@ describe("describeCustodyEvent", () => {
         metadata: { source: "admin_manual_override", note: "driver confirmed by phone" },
       }),
       NY,
-      );
+    );
     expect(headline).toContain("Applied as a manual override from the ops console.");
   });
 
@@ -93,7 +93,7 @@ describe("describeCustodyEvent", () => {
         metadata: { source: "admin_exception_resolution", reason: typed },
       }),
       NY,
-      );
+    );
     expect(details).toContain(`reason: ${typed}`);
   });
 
@@ -104,7 +104,7 @@ describe("describeCustodyEvent", () => {
         metadata: { reason: "payment_capture_failed" },
       }),
       NY,
-      );
+    );
     expect(details).toContain("reason: payment capture failed");
   });
 
@@ -121,7 +121,7 @@ describe("describeCustodyEvent", () => {
         },
       }),
       NY,
-      );
+    );
     expect(details).toEqual(["via fake", "ref auth_000002", "draft → paid"]);
     // The three transition keys must not also appear as leftovers.
     expect(details.join(" ")).not.toMatch(/Event:|From:|To:/);
@@ -130,7 +130,7 @@ describe("describeCustodyEvent", () => {
   it("renders an unknown event type readably instead of as a dotted token", () => {
     const { headline } = describeCustodyEvent(
       event({ eventType: "visit.bag_refused" }),
-    NY,
+      NY,
     );
     expect(headline).toBe("Visit bag refused.");
   });
@@ -138,7 +138,7 @@ describe("describeCustodyEvent", () => {
   it("still surfaces metadata keys it has no phrasing for", () => {
     const { details } = describeCustodyEvent(
       event({ eventType: "booking.created", metadata: { cutoffMinutes: 90 } }),
-    NY,
+      NY,
     );
     expect(details).toContain("Cutoff minutes: 90");
   });
@@ -150,16 +150,143 @@ describe("describeCustodyEvent", () => {
         metadata: { bagCount: 2, breakdown: { totalCents: 8900 } },
       }),
       NY,
-      );
+    );
     expect(details).toEqual(["2 bags"]);
   });
 
   it("omits facts that are absent rather than guessing them", () => {
     const { headline, details } = describeCustodyEvent(
       event({ eventType: "booking.created", metadata: {} }),
-    NY,
+      NY,
     );
     expect(headline).toBe("Booking created.");
     expect(details).toEqual([]);
+  });
+});
+
+describe("describeCustodyEvent — the driver / pickup slice", () => {
+  it("names the truck, the bags and the ETA the customer was shown", () => {
+    const { headline, details } = describeCustodyEvent(
+      event({
+        eventType: "pickup.driver_selected",
+        metadata: {
+          shiftId: "s-1",
+          truckName: "Van A",
+          driverUserId: "d-1",
+          bagCount: 3,
+          etaMinMinutes: 20,
+          etaMaxMinutes: 30,
+        },
+      }),
+      NY,
+    );
+    expect(headline).toBe("Customer chose a driver.");
+    expect(details).toEqual([
+      "Van A",
+      "3 bags",
+      "ETA 20–30 min at the time of choosing",
+      "Driver user id: d-1",
+    ]);
+  });
+
+  it("says outright when the driver had no position, rather than omitting it", () => {
+    const { details } = describeCustodyEvent(
+      event({
+        eventType: "pickup.driver_selected",
+        metadata: {
+          shiftId: "s-1",
+          truckName: "Van A",
+          bagCount: 2,
+          etaMinMinutes: null,
+          etaMaxMinutes: null,
+        },
+      }),
+      NY,
+    );
+    expect(details).toContain("no driver position when chosen");
+  });
+
+  it("reads a seal scan as the bag and the seal", () => {
+    const { headline, details } = describeCustodyEvent(
+      event({
+        eventType: "pickup.seal_scanned",
+        metadata: { taskId: "t-1", sealId: "KOO-1-SEAL-2", ordinal: 2 },
+      }),
+      NY,
+    );
+    expect(headline).toBe("Seal matched at the door.");
+    expect(details).toEqual(["bag 2", "seal KOO-1-SEAL-2"]);
+  });
+
+  it("makes a mismatch impossible to skim past", () => {
+    const { headline, details } = describeCustodyEvent(
+      event({
+        eventType: "pickup.seal_mismatch",
+        metadata: { taskId: "t-1", presented: "SOMEONE-ELSES-SEAL" },
+      }),
+      NY,
+    );
+    expect(headline).toContain("NOT on this booking");
+    expect(details).toEqual(["presented SOMEONE-ELSES-SEAL"]);
+  });
+
+  it("keeps the reason on a force-ended shift", () => {
+    const { headline, details } = describeCustodyEvent(
+      event({
+        eventType: "pickup.shift_force_ended",
+        metadata: {
+          shiftId: "s-1",
+          truckId: "tr-1",
+          releasedFromUserId: "d-1",
+          reason: "Van broke down on the BQE",
+        },
+      }),
+      NY,
+    );
+    expect(headline).toContain("went back in the pool");
+    expect(details).toContain("truck tr-1");
+    expect(details).toContain("reason: Van broke down on the BQE");
+  });
+
+  it("surfaces which rule an admin override waived", () => {
+    const { headline, details } = describeCustodyEvent(
+      event({
+        eventType: "pickup.reassigned",
+        metadata: {
+          shiftId: "s-2",
+          truckName: "Van B",
+          overrode: ["capacity"],
+        },
+      }),
+      NY,
+    );
+    expect(headline).toBe("Pickup moved to a different driver from the console.");
+    // The generic fallback skips objects, and `overrode` is an array — so
+    // without its own case the one fact that explains an overloaded van would
+    // have shown only in Raw data.
+    expect(details).toContain("Van B");
+    expect(details).toContain("OVERRIDE: capacity");
+  });
+
+  it("names both waived rules when an override needed two", () => {
+    const { details } = describeCustodyEvent(
+      event({
+        eventType: "pickup.reassigned",
+        metadata: { shiftId: "s-2", truckName: "Van B", overrode: ["zone", "capacity"] },
+      }),
+      NY,
+    );
+    expect(details).toContain("OVERRIDE: zone and capacity");
+  });
+
+  it("says nothing about an override when there was not one", () => {
+    const { details } = describeCustodyEvent(
+      event({
+        eventType: "pickup.reassigned",
+        metadata: { shiftId: "s-2", truckName: "Van B" },
+      }),
+      NY,
+    );
+    expect(details.join(" ")).not.toMatch(/OVERRIDE/);
   });
 });

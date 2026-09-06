@@ -10,6 +10,7 @@ import {
 } from "@stripe/react-stripe-js";
 import { loadStripe, type Stripe } from "@stripe/stripe-js";
 import {
+  BrandLoadingOverlay,
   Button,
   Card,
   CardContent,
@@ -21,10 +22,7 @@ import {
   Label,
 } from "@koolee/ui";
 
-import {
-  preparePayment,
-  saveCheckoutContactPhone,
-} from "@/app/book/pay/actions";
+import { preparePayment, saveCheckoutContactPhone } from "@/app/book/pay/actions";
 
 /**
  * The Stripe Payment Element checkout card.
@@ -123,7 +121,11 @@ export function StripeCheckout({ needsContactPhone }: { needsContactPhone: boole
           <CardDescription>{state.message}</CardDescription>
         </CardHeader>
         <CardContent>
-          <Button type="button" variant="outline" onClick={() => window.location.reload()}>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => window.location.reload()}
+          >
             Try again
           </Button>
         </CardContent>
@@ -230,6 +232,24 @@ function CheckoutForm({
 
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-6">
+      {/*
+        THE PAGE, NOT THE BUTTON.
+
+        While Stripe is confirming, everything else on the review page used to
+        stay live — the Edit links back into the funnel, the promo field, a
+        second click on anything. Disabling one button says nothing about the
+        rest of the page, and this is the one moment in the product where a
+        stray click can cost money.
+
+        Mounted unconditionally and gated on `submitting`, so there is no
+        moment between the click and the scrim.
+      */}
+      <BrandLoadingOverlay
+        open={submitting}
+        title="Authorizing your payment…"
+        description="Hold on — we're placing a hold with your bank. Nothing is charged until an agent has collected and sealed your bags. Please don't close this page."
+      />
+
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Card details</CardTitle>

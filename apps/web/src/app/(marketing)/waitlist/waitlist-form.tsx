@@ -3,7 +3,14 @@
 import * as React from "react";
 import Link from "next/link";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
-import { CTAButton, FormMessage, Input, Label, usePreservedFormValues } from "@koolee/ui";
+import {
+  Card,
+  CTAButton,
+  FormMessage,
+  Input,
+  Label,
+  usePreservedFormValues,
+} from "@koolee/ui";
 import { CircleCheck } from "lucide-react";
 
 import { joinWaitlist, type WaitlistState } from "./actions";
@@ -12,7 +19,10 @@ const INITIAL: WaitlistState = { status: "idle" };
 
 export function WaitlistForm() {
   const [state, formAction, pending] = React.useActionState(joinWaitlist, INITIAL);
-  const { formRef, captureValues } = usePreservedFormValues(state, state.status === "error");
+  const { formRef, captureValues } = usePreservedFormValues(
+    state,
+    state.status === "error",
+  );
   const reduceMotion = useReducedMotion();
 
   const fade = {
@@ -22,7 +32,7 @@ export function WaitlistForm() {
   };
 
   return (
-    <div className="rounded-2xl border border-border bg-white p-6 shadow-lift sm:p-8">
+    <Card surface="panel" className="p-6 sm:p-8">
       <AnimatePresence mode="wait" initial={false}>
         {state.status === "success" ? (
           <motion.div
@@ -105,6 +115,6 @@ export function WaitlistForm() {
           </motion.form>
         )}
       </AnimatePresence>
-    </div>
+    </Card>
   );
 }

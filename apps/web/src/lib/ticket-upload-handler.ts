@@ -1,13 +1,22 @@
 import { createHash } from "node:crypto";
 
 import {
+  deriveScope,
   hasExtractedFields,
+  BUCKETS,
   MAX_TICKET_UPLOAD_BYTES,
   TICKET_UPLOAD_MIME_TYPES,
+  type ExtractedSegment,
+  type TicketExtractionDiagnostics,
   type TicketExtractor,
 } from "@koolee/core";
 
-import type { TicketPrefill } from "@/lib/booking-draft-schema";
+import {
+  AIRPORT_CODES,
+  type PrefillAlternative,
+  type PrefillLeg,
+  type TicketPrefill,
+} from "@/lib/booking-draft-schema";
 
 /**
  * The ticket-upload pipeline, separated from the Next.js route handler so it
@@ -20,7 +29,7 @@ import type { TicketPrefill } from "@/lib/booking-draft-schema";
  * review form's confirmed values go further (see booking-draft-schema.ts).
  */
 
-export const TICKET_BUCKET = "ticket-uploads";
+export const TICKET_BUCKET = BUCKETS.ticketUploads.id;
 
 export const UPLOAD_COPY = {
   tooLarge: "That file is too large — e-tickets are usually under 10 MB.",
@@ -31,8 +40,6 @@ export const UPLOAD_COPY = {
 } as const;
 
 export interface TicketUploadStorage {
-  /** Must create/verify a PRIVATE bucket — never a public one. */
-  ensureBucket(): Promise<void>;
   upload(path: string, data: Uint8Array, contentType: string): Promise<void>;
 }
 
@@ -54,8 +61,18 @@ export interface TicketUploadDeps {
 }
 
 export type TicketUploadOutcome =
-  | { ok: true; uploadId: string; prefill: TicketPrefill }
-  | { ok: false; status: number; error: string };
+  | {
+      ok: true;
+      uploadId: string;
+      prefill: TicketPrefill;
+      diagnostics?: TicketExtractionDiagnostics;
+    }
+  | {
+      ok: false;
+      status: number;
+      error: string;
+      diagnostics?: TicketExtractionDiagnostics;
+    };
 
 export async function handleTicketUpload(
   deps: TicketUploadDeps,
@@ -79,7 +96,11 @@ export async function handleTicketUpload(
   const uploadId = crypto.randomUUID();
   const storagePath = `tickets/${deps.draftId}/${uploadId}.${extension}`;
   try {
-    await deps.storage.ensureBucket();
+    // Nothing ensures the bucket here: `ticket-uploads` is created by
+    // migration 0026 like every other bucket. A request path that creates
+    // infrastructure is a request path that can create it WRONG — this one
+    // used to be the only place a bucket's limits were set, which is
+    // exactly how they ended up unset on every bucket a migration made.
     await deps.storage.upload(storagePath, file.data, file.mimeType);
   } catch (error) {
     console.error("[ticket-upload] storage write failed", error);
@@ -109,9 +130,33 @@ export async function handleTicketUpload(
     return { ok: false, status: 200, error: UPLOAD_COPY.unreadable };
   }
 
+  const diagnostics = outcome.diagnostics;
+  // One structured line per upload, always — the flag below only controls
+  // what reaches the BROWSER, never whether we can see this in the logs.
+  console.info(
+    "[ticket-upload] extraction",
+    JSON.stringify({
+      uploadId: row.id,
+      status: outcome.status,
+      extractor: deps.extractor.name,
+      models: diagnostics?.attempts.map((a) => a.model),
+      latencyMs: diagnostics?.attempts.map((a) => a.latencyMs),
+      segments: diagnostics?.segments.length,
+      chosenIndex: diagnostics?.chosenIndex,
+      selectionReason: diagnostics?.selectionReason,
+      dropped: diagnostics?.droppedFields.map((d) => d.field),
+      ...(outcome.status === "unreadable" ? { reason: outcome.reason } : {}),
+    }),
+  );
+
   if (outcome.status === "unreadable" || !hasExtractedFields(outcome.result)) {
     await deps.setUploadStatus({ id: row.id, status: "unreadable" });
-    return { ok: false, status: 200, error: UPLOAD_COPY.unreadable };
+    return {
+      ok: false,
+      status: 200,
+      error: UPLOAD_COPY.unreadable,
+      ...(diagnostics ? { diagnostics } : {}),
+    };
   }
 
   await deps.setUploadStatus({ id: row.id, status: "extracted" });
@@ -122,10 +167,85 @@ export async function handleTicketUpload(
     ...(result.airlineIata ? { airlineIata: result.airlineIata } : {}),
     ...(result.departureAirport ? { departureAirport: result.departureAirport } : {}),
     ...(result.departureAtLocal ? { departureAtLocal: result.departureAtLocal } : {}),
+    ...(result.destinationAirport
+      ? { destinationAirport: result.destinationAirport }
+      : {}),
     ...(result.paxName ? { paxName: result.paxName } : {}),
     ...(result.scope ? { scope: result.scope } : {}),
+    ...(result.documentKind ? { documentKind: result.documentKind } : {}),
+    ...(result.selectionReason ? { selectionReason: result.selectionReason } : {}),
+    ...(result.nonServicedOrigin ? { nonServicedOrigin: result.nonServicedOrigin } : {}),
+    ...(alternativesFor(result.alternativeSegments).length > 0
+      ? { alternatives: alternativesFor(result.alternativeSegments) }
+      : {}),
+    ...readBackFor(result.legs, result.chosenLegIndex),
     confidence: result.confidence,
     uploadId: row.id,
   };
-  return { ok: true, uploadId: row.id, prefill };
+  return { ok: true, uploadId: row.id, prefill, ...(diagnostics ? { diagnostics } : {}) };
+}
+
+/**
+ * Every leg as read, trimmed to what the read-back list needs, together with
+ * the index of the chosen one INSIDE that trimmed list.
+ *
+ * The two are computed in one place because dropping a leg shifts the index:
+ * a leg with no readable origin cannot be rendered (an empty row shows
+ * nothing), and returning the core result's index alongside a filtered array
+ * would silently mark the wrong flight as the one being booked.
+ */
+function readBackFor(
+  segments: ExtractedSegment[] | undefined,
+  chosenLegIndex: number | undefined,
+): { legs?: PrefillLeg[]; chosenLegIndex?: number } {
+  const legs: PrefillLeg[] = [];
+  let chosen: number | undefined;
+
+  (segments ?? []).slice(0, 6).forEach((segment, index) => {
+    if (!segment.originAirport) return;
+    if (index === chosenLegIndex) chosen = legs.length;
+    legs.push({
+      departureAirport: segment.originAirport,
+      ...(segment.destinationAirport
+        ? { destinationAirport: segment.destinationAirport }
+        : {}),
+      ...(segment.flightNumber ? { flightNumber: segment.flightNumber } : {}),
+      ...(segment.departureAtLocal ? { departureAtLocal: segment.departureAtLocal } : {}),
+    });
+  });
+
+  if (legs.length === 0) return {};
+  return { legs, ...(chosen !== undefined ? { chosenLegIndex: chosen } : {}) };
+}
+
+/**
+ * The other NYC-departing legs, trimmed to what the swap offer needs.
+ *
+ * Capped at two and stripped to four fields on purpose: the whole draft rides
+ * in a 4 KB cookie, and a third alternative has never been a real itinerary.
+ */
+function alternativesFor(segments: ExtractedSegment[] | undefined): PrefillAlternative[] {
+  const serviced = AIRPORT_CODES as readonly string[];
+  return (segments ?? [])
+    .filter(
+      (segment) => segment.originAirport && serviced.includes(segment.originAirport),
+    )
+    .slice(0, 2)
+    .map((segment) => {
+      // Derived from THIS segment's destination country, by the same helper
+      // the chosen leg uses — so a swap carries a scope we actually read
+      // rather than inheriting the other leg's or falling back to domestic.
+      const scope = deriveScope(segment);
+      return {
+        departureAirport: segment.originAirport as (typeof AIRPORT_CODES)[number],
+        ...(segment.destinationAirport
+          ? { destinationAirport: segment.destinationAirport }
+          : {}),
+        ...(segment.flightNumber ? { flightNumber: segment.flightNumber } : {}),
+        ...(segment.departureAtLocal
+          ? { departureAtLocal: segment.departureAtLocal }
+          : {}),
+        ...(scope ? { scope } : {}),
+      };
+    });
 }

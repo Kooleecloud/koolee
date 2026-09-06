@@ -43,7 +43,11 @@ const FOOTER_GROUPS = [
 export default function MarketingLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex min-h-dvh flex-col">
-      <MarketingNav links={NAV_LINKS} linkComponent={ClientLink} actions={<AuthNavActions />} />
+      <MarketingNav
+        links={NAV_LINKS}
+        linkComponent={ClientLink}
+        actions={<AuthNavActions />}
+      />
       <main className="flex-1">{children}</main>
       <MarketingFooter
         groups={FOOTER_GROUPS}

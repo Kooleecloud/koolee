@@ -67,7 +67,8 @@ export const restrictedTimeFormatting = [
       "toLocale* renders in the SYSTEM zone (UTC in production). Use the airport-tz formatters from @koolee/core — formatInstantInAirportTz, formatWindowInAirportTz, formatHourRangeInAirportTz — which require an explicit zone. See docs/TIME.md.",
   },
   {
-    selector: "NewExpression[callee.object.name='Intl'][callee.property.name='DateTimeFormat']",
+    selector:
+      "NewExpression[callee.object.name='Intl'][callee.property.name='DateTimeFormat']",
     message:
       "Constructing Intl.DateTimeFormat directly bypasses the timezone policy. Use the formatters from @koolee/core, or add an eslint-disable with a comment saying why this render is viewer-local. See docs/TIME.md.",
   },
@@ -89,6 +90,11 @@ export const ignores = {
     "**/drizzle/**",
     "**/next-env.d.ts",
     "**/public/sw.js",
+    // MapLibre's worker, copied out of node_modules by
+    // scripts/copy-maplibre-worker.mjs. Minified vendor build output that
+    // happens to land under `public/`, where nothing else is ignored by
+    // extension — 1,228 errors' worth on the first run.
+    "**/public/maplibre/**",
     "**/*.tsbuildinfo",
   ],
 };
@@ -130,11 +136,7 @@ export const baseConfig = [
   {
     // Tooling config consumed by CommonJS loaders (Tailwind, PostCSS) has to
     // stay CJS, so `require()` is legitimate here.
-    files: [
-      "**/*.config.{js,mjs,cjs,ts}",
-      "**/*.setup.{js,mjs,cjs,ts}",
-      "**/*.cjs",
-    ],
+    files: ["**/*.config.{js,mjs,cjs,ts}", "**/*.setup.{js,mjs,cjs,ts}", "**/*.cjs"],
     languageOptions: {
       globals: { ...globals.node, module: "writable", require: "readonly" },
     },

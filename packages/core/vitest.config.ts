@@ -8,7 +8,10 @@ import { defineConfig } from "vitest/config";
 // dotenv never overrides variables already exported in the shell, so an
 // explicit `TEST_DATABASE_URL=... pnpm test:integration` still wins, and a
 // missing .env.test is silently fine (integration tests then skip as before).
-loadEnv({ path: fileURLToPath(new URL("../../.env.test", import.meta.url)), quiet: true });
+loadEnv({
+  path: fileURLToPath(new URL("../../.env.test", import.meta.url)),
+  quiet: true,
+});
 
 /**
  * One config, two kinds of test.

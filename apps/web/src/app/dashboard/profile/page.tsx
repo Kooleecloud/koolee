@@ -4,6 +4,7 @@ import {
   AccordionContent,
   AccordionItem,
   AccordionTrigger,
+  Card,
   DatabaseNotConfigured,
   EmptyState,
   PageHeader,
@@ -13,10 +14,13 @@ import {
   getCustomerById,
   listAddressesForSession,
   listBookingsForSession,
+  profileCompleteness,
   type Address,
 } from "@koolee/core";
 
+import { ProfileCompletenessCard } from "@/components/profile-completeness-card";
 import { getAuthUser } from "@/lib/auth";
+import { signAvatarUrl } from "@/lib/avatars";
 import { tryGetCore } from "@/lib/core";
 import { customerSessionFromAuthUser } from "@/lib/session";
 
@@ -25,6 +29,7 @@ import {
   DeleteAddressButton,
   EditAddressForm,
 } from "../addresses/address-forms";
+import { AvatarCard } from "./avatar-card";
 import { ConfirmEmailForm } from "./confirm-email-form";
 import { ProfileForm } from "./profile-form";
 
@@ -53,9 +58,9 @@ function ContactRow({
 }
 
 /**
- * Account page: one card for name + verified contact channels, then saved
- * addresses below it. `/dashboard/addresses` redirects here — they were two
- * pages describing the same account.
+ * Account page: one card for the picture, the name and the verified contact
+ * channels, then saved addresses below it. `/dashboard/addresses` redirects
+ * here — they were two pages describing the same account.
  *
  * Phone and email stay read-only: changing either re-runs verification through
  * the funnel's guarded OTP path, never a second mechanism (see actions.ts).
@@ -70,7 +75,9 @@ export default async function ProfilePage() {
 
   const core = tryGetCore();
   const session = customerSessionFromAuthUser(authUser);
-  const userRow = core ? await getCustomerById(core.db, authUser.id).catch(() => null) : null;
+  const userRow = core
+    ? await getCustomerById(core.db, authUser.id).catch(() => null)
+    : null;
 
   // Name prefills from the latest booking's passenger name — a nicety.
   let paxName = "";
@@ -93,6 +100,10 @@ export default async function ProfilePage() {
     }
   }
 
+  // Signed with the user's OWN session — 0027's read policy admits your own
+  // folder, so no service-role client is involved in showing you your face.
+  const avatarUrl = await signAvatarUrl(userRow?.avatarStoragePath ?? null);
+
   const phone = userRow?.phone ?? authUser.phone ?? "";
   const email = userRow?.email ?? authUser.email ?? "";
   const phoneVerified = Boolean(userRow?.phoneVerifiedAt);
@@ -105,14 +116,27 @@ export default async function ProfilePage() {
         subtitle="Your contact details, how your name appears, and your saved pickup addresses."
       />
 
+      {/* The same card as the trips home, at the top of the page that holds
+          the controls: it ticks items off as they are done and disappears
+          when there is nothing left, which is the whole design. */}
+      <ProfileCompletenessCard missing={profileCompleteness(userRow).missing} />
+
       <ProfileForm
         defaults={{
           fullName: userRow?.fullName ?? paxName,
           email: emailVerified ? "" : email,
           emailLocked: Boolean(email),
         }}
+        avatar={
+          <AvatarCard
+            currentUrl={avatarUrl}
+            name={userRow?.fullName ?? (paxName || null)}
+          />
+        }
         contact={
           <div className="flex flex-col gap-3 text-sm">
+            {/* Name is the editable field above; these two are read-only and
+                follow it, so the order down the card is Name, Phone, Email. */}
             <ContactRow label="Phone" value={phone} verified={phoneVerified} />
             <ContactRow label="Email" value={email} verified={emailVerified} />
             {/* The code field lives here rather than behind a button: anyone
@@ -120,8 +144,8 @@ export default async function ProfilePage() {
             {email && !emailVerified ? <ConfirmEmailForm email={email} /> : null}
             {phone && !phoneVerified ? (
               <p className="text-xs text-muted-foreground">
-                Your phone still needs verifying. That happens in the booking
-                verification step.
+                Your phone still needs verifying. That happens in the booking verification
+                step.
               </p>
             ) : null}
           </div>
@@ -148,28 +172,28 @@ export default async function ProfilePage() {
           ) : (
             <Accordion type="single" collapsible className="flex flex-col gap-3">
               {saved.map((address) => (
-                <AccordionItem
-                  key={address.id}
-                  value={address.id}
-                  className="rounded-xl border border-border bg-white px-4 shadow-xs"
-                >
-                  <div className="flex items-center justify-between gap-3">
-                    <AccordionTrigger className="flex-1 text-left">
-                      <span className="flex flex-col">
-                        <span className="font-medium">{address.label || address.line1}</span>
-                        <span className="text-sm text-muted-foreground">
-                          {address.line1}
-                          {address.line2 ? `, ${address.line2}` : ""}, {address.city}{" "}
-                          {address.state} {address.zip}
+                <Card asChild key={address.id}>
+                  <AccordionItem value={address.id} className="px-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <AccordionTrigger className="flex-1 text-left">
+                        <span className="flex flex-col">
+                          <span className="font-medium">
+                            {address.label || address.line1}
+                          </span>
+                          <span className="text-sm text-muted-foreground">
+                            {address.line1}
+                            {address.line2 ? `, ${address.line2}` : ""}, {address.city}{" "}
+                            {address.state} {address.zip}
+                          </span>
                         </span>
-                      </span>
-                    </AccordionTrigger>
-                    <DeleteAddressButton addressId={address.id} />
-                  </div>
-                  <AccordionContent className="pb-4">
-                    <EditAddressForm address={address} />
-                  </AccordionContent>
-                </AccordionItem>
+                      </AccordionTrigger>
+                      <DeleteAddressButton addressId={address.id} />
+                    </div>
+                    <AccordionContent className="pb-4">
+                      <EditAddressForm address={address} />
+                    </AccordionContent>
+                  </AccordionItem>
+                </Card>
               ))}
             </Accordion>
           )}

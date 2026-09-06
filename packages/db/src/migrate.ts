@@ -18,7 +18,10 @@ const shellDatabaseUrl = process.env.DATABASE_URL;
 loadEnv({ path: [".env.local", ".env", "../../.env.local", "../../.env"], quiet: true });
 
 const connectionString =
-  shellDirectUrl ?? shellDatabaseUrl ?? process.env.DIRECT_DATABASE_URL ?? process.env.DATABASE_URL;
+  shellDirectUrl ??
+  shellDatabaseUrl ??
+  process.env.DIRECT_DATABASE_URL ??
+  process.env.DATABASE_URL;
 
 const migrationsFolder = path.join(
   path.dirname(fileURLToPath(import.meta.url)),

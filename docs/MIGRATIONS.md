@@ -1,7 +1,7 @@
 # Migrations
 
 > **How schema change works in this repo, and how to not break production.**
-> Baseline: `dev` @ `2fe3a2b`. Related: [ENVIRONMENT.md](ENVIRONMENT.md) ·
+> Baseline: `dev` @ `5db21a4`. Related: [ENVIRONMENT.md](ENVIRONMENT.md) ·
 > [SCRIPTS.md](SCRIPTS.md) · [packages/db/README.md](../packages/db/README.md)
 
 ---
@@ -172,11 +172,39 @@ roles that browser-side `supabase-js` uses for **Realtime and Storage**.
   SECURITY DEFINER function `public.is_active_staff(uuid)`, because granting
   `authenticated` a direct `SELECT` on `staff_members` would expose the roster
   through PostgREST.
+- `0022`/`0023` — the same for `passport-photos`, and `0023` is `0009` all over
+  again: `0022` copied the original inline `EXISTS (… staff_members …)` and had
+  to be corrected to `public.is_active_staff`. Second time; check any new
+  storage policy against this.
+- `0027` — `avatars`, and the **first storage policy here that is not
+  staff-only**. Writes are admitted by folder ownership,
+  `(storage.foldername(name))[1] = auth.uid()::text`, so any signed-in user —
+  a customer included — writes their own folder and no other. Reads add
+  `OR public.is_active_staff(auth.uid())`. All three apps upload over the ANON
+  key so RLS is genuinely the gate, rather than something only the agent app is
+  subject to. Verified against a live database in both directions, including
+  the refusals: see
+  [storage-and-avatars §2](features/storage-and-avatars.md#2-who-may-read-and-write).
 - `0016` — uniform RLS baseline. Hosted had RLS on for 20 policy-less tables
   (applied out-of-band, likely a Supabase security-advisor remediation) while
   local had it **off** — meaning local was the _less_ safe environment and no
   test could catch a client-side read that hosted would refuse. `0016` closes
   that split.
+- `0030`/`0031` — `booking_signals`, the realtime doorbell, and the third
+  instance of this same bug class. `0030` shipped a correct policy, a correct
+  SECURITY DEFINER predicate (`public.can_watch_booking`), `REPLICA IDENTITY
+FULL` and publication membership — and **no browser received a single
+  event**, because `authenticated` had never been granted `SELECT` on the
+  table. **A policy narrows access; it cannot widen it.** `0031` is the one
+  missing `GRANT`. Found by driving two browsers side by side, not by a test:
+  the integration tier runs on the direct connection, where RLS _and_ GRANTs
+  are equally irrelevant.
+- `0032` — `push_subscriptions` deliberately gets **no policy and no grant**.
+  `0016`'s `ensure_rls` event trigger switches RLS on for anything created in
+  `public`, so the table lands RLS-enabled with zero policies, which denies
+  `anon` and `authenticated` outright. That is the correct posture for a
+  server-only table: subscribe/unsubscribe go through authenticated Server
+  Actions on the pooled connection, and no browser ever queries it.
 
 Practical consequences:
 
@@ -184,6 +212,45 @@ Practical consequences:
   path already bypasses RLS. It is a bug only if a browser needs the data.
 - Adding an authorization check means adding it to a `@koolee/core` service.
   Adding a policy instead will silently do nothing for server reads.
+- **A policy is not a grant.** If a browser must read a table, the migration
+  needs `GRANT SELECT … TO authenticated` _and_ a policy. Supabase's default
+  privileges usually supply the grant on hosted (PROJECT-STATUS §3.1 counts 154
+  such grants per role) and the local stack does not — exactly the
+  local-vs-hosted split `0016` exists to stop repeating — so state the grant
+  rather than hoping an environment supplies it.
+- **Never grant `anon`.** A signed-out session has no `auth.uid()` and every
+  predicate here refuses it anyway, but a grant nobody needs is a grant
+  somebody eventually leans on.
+- ✅ `custody_events` — **the trap `0031` recorded here is closed, and it was
+  closed the other way round.** `0034` removes the table from the
+  `supabase_realtime` publication.
+
+  The note this replaces read: the table has carried the incomplete shape
+  since `0001` — RLS on, in the publication, **no `SELECT` grant** — so its
+  subscription has never been able to deliver anything, and `0031`
+  deliberately did not widen it because nothing subscribes.
+
+  That left a **pre-staged silent failure**: the next person to point a
+  `.channel()` at it gets zero events and no error, and "add the grant" looks
+  like the fix long before "nobody meant to open this" does. Slice F4 came to
+  arm the subscription and found two things that argued the other way:
+
+  1. **Nothing subscribes, and nothing should.** The realtime layer is
+     `booking_signals` — a doorbell that says THAT a booking changed, after
+     which the client refetches through the ordinary server path. A second
+     table streaming custody rows to browsers would be the first exception to
+     `PROJECT-STATUS §7`'s "realtime is a signal, never a source of truth".
+  2. **The policy coverage is not what the note above said.** It claimed
+     _two_ policies. There is **one** — `custody_events_select_own`, from
+     `0001`. No staff policy exists, so granting `SELECT` would have opened
+     the table with only the customer half written.
+
+  So the membership went instead of the grant arriving. The policy is left in
+  place (correct, free, and a record of intent), and so is `REPLICA IDENTITY
+FULL` — pointless now and costless, because the table is append-only and no
+  UPDATE or DELETE can reach it. **If this is ever reversed, the `GRANT` must
+  go with it or the subscription is dead again**, which is the whole lesson of
+  `0031`.
 
 ---
 
@@ -208,27 +275,96 @@ Practical consequences:
 - `slots` is **legacy** and kept only because pre-cutover bookings point at it.
   `slots.capacity` / `booked_count` are dead weight on a dead table. Do not
   build on it — pickup windows are virtual.
+- `push_subscriptions.endpoint` is unique **on its own**, not
+  `(user_id, endpoint)`. An endpoint identifies one browser install globally,
+  so subscribe is an upsert on `endpoint` that overwrites `user_id`: when a
+  device changes hands the row **moves** to the new person instead of
+  duplicating. `(user_id, endpoint)` would have permitted exactly the duplicate
+  that keeps notifying a previous owner about a booking that is no longer
+  theirs.
+- `bookings` carries **its own pickup address** (`pickup_line1…pickup_place_id`,
+  `0033`). `pickup_address_id` is provenance only — it says which saved address
+  the booking was made from and goes `NULL` when the customer deletes it. Every
+  reader takes the address off the booking; joining `addresses` is a bug.
+- **The nullable → backfill → constrain pattern.** Adding a `NOT NULL` column
+  with no default to a populated table fails outright, and a `DEFAULT ''` would
+  quietly write empty values onto real rows. Add nullable, `UPDATE` from the
+  existing source, then `SET NOT NULL` — all in the one transaction, so a
+  backfill that misses a row aborts rather than half-applies. Used by `0014`,
+  `0021`, `0028` and `0033`; reach for it every time.
 
 ---
 
 ## 8. Migration history
 
-| #         | Tag                      | Date       | What it did                                                            |
-| --------- | ------------------------ | ---------- | ---------------------------------------------------------------------- |
-| 0000      | `init`                   | 2026-07-31 | Initial schema                                                         |
-| 0001      | `custody_guard_and_rls`  | 2026-07-31 | Append-only trigger + the two RLS policies                             |
-| 0002      | `auth_profile_fields`    | 2026-08-02 | Auth profile columns                                                   |
-| 0003      | `glamorous_krista_starr` | 2026-08-03 | Regenerated after being applied — source of the surviving orphan row   |
-| 0004–0007 |                          | 2026-08-09 | Auth funnel / drafts work                                              |
-| 0008      | `bag_photos_bucket`      | 2026-08-09 | Private storage bucket + policies                                      |
-| 0009      | `staff_check_function`   | 2026-08-09 | `public.is_active_staff()` SECURITY DEFINER                            |
-| 0010–0011 |                          | 2026-08-09 | Staff / ops tables                                                     |
-| 0012      | `yummy_micromacro`       | 2026-08-10 | **Virtual windows** — slot inventory retired                           |
-| 0013      | `curved_adam_destine`    | 2026-08-10 |                                                                        |
-| 0014      | `milky_bug`              | 2026-08-10 | `bags.ordinal` + backfill (arbitrary-but-stable for pre-existing rows) |
-| 0015      | `colossal_sue_storm`     | 2026-08-10 |                                                                        |
-| 0016      | `uniform_rls_baseline`   | 2026-08-11 | RLS on for every `public` table + `ensure_rls` event trigger           |
-| 0017      | `unique_seal_id`         | 2026-08-15 | `bags.seal_id` plain index → **partial `UNIQUE`** (sealed bags only)   |
+| #         | Tag                        | Date       | What it did                                                                                                                                                                                                                                                                                                                              |
+| --------- | -------------------------- | ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0000      | `init`                     | 2026-07-31 | Initial schema                                                                                                                                                                                                                                                                                                                           |
+| 0001      | `custody_guard_and_rls`    | 2026-07-31 | Append-only trigger + the two RLS policies                                                                                                                                                                                                                                                                                               |
+| 0002      | `auth_profile_fields`      | 2026-08-02 | Auth profile columns                                                                                                                                                                                                                                                                                                                     |
+| 0003      | `glamorous_krista_starr`   | 2026-08-03 | Regenerated after being applied — source of the surviving orphan row                                                                                                                                                                                                                                                                     |
+| 0004–0007 |                            | 2026-08-09 | Auth funnel / drafts work                                                                                                                                                                                                                                                                                                                |
+| 0008      | `bag_photos_bucket`        | 2026-08-09 | Private storage bucket + policies                                                                                                                                                                                                                                                                                                        |
+| 0009      | `staff_check_function`     | 2026-08-09 | `public.is_active_staff()` SECURITY DEFINER                                                                                                                                                                                                                                                                                              |
+| 0010–0011 |                            | 2026-08-09 | Staff / ops tables                                                                                                                                                                                                                                                                                                                       |
+| 0012      | `yummy_micromacro`         | 2026-08-10 | **Virtual windows** — slot inventory retired                                                                                                                                                                                                                                                                                             |
+| 0013      | `curved_adam_destine`      | 2026-08-10 |                                                                                                                                                                                                                                                                                                                                          |
+| 0014      | `milky_bug`                | 2026-08-10 | `bags.ordinal` + backfill (arbitrary-but-stable for pre-existing rows)                                                                                                                                                                                                                                                                   |
+| 0015      | `colossal_sue_storm`       | 2026-08-10 |                                                                                                                                                                                                                                                                                                                                          |
+| 0016      | `uniform_rls_baseline`     | 2026-08-11 | RLS on for every `public` table + `ensure_rls` event trigger                                                                                                                                                                                                                                                                             |
+| 0017      | `unique_seal_id`           | 2026-08-15 | `bags.seal_id` plain index → **partial `UNIQUE`** (sealed bags only)                                                                                                                                                                                                                                                                     |
+| 0018–0020 |                            | 2026-08-22 | Dispatch close-out: one task pair per booking (0019), one active pricing rule (0020)                                                                                                                                                                                                                                                     |
+| 0021      | `big_hobgoblin`            | 2026-08-25 | `bookings.ref` (`KOO-XXXXX`) + backfill — the nullable→backfill→constrain pattern                                                                                                                                                                                                                                                        |
+| 0022–0025 |                            | 2026-08-28 | Agreements + passport: the tables, the storage-policy fix, version freeze, per-booking pin                                                                                                                                                                                                                                               |
+| 0026–0027 |                            | 2026-08-29 | Buckets declared by migration; the private `avatars` bucket                                                                                                                                                                                                                                                                              |
+| 0028      | `geo_zip_centroids`        | 2026-08-29 | **Koolee's first coordinates**: `zip_centroids` (837 US-Census rows), `airports.lat/lng` NOT NULL, and a backfill of `addresses.lat/lng`                                                                                                                                                                                                 |
+| 0029      | `driver_fleet_and_shifts`  | 2026-08-29 | `trucks`, `driver_shifts`, `driver_positions`, `staff_members.can_drive`, `pickup_tasks.driver_shift_id` — **and DROPs `drivers`, `routes`, `agents`**                                                                                                                                                                                   |
+| 0030      | `booking_signals`          | 2026-08-29 | The realtime **doorbell** table + `custody_events` AFTER INSERT trigger, `public.can_watch_booking`, `REPLICA IDENTITY FULL`, publication membership                                                                                                                                                                                     |
+| 0031      | `booking_signals_grant`    | 2026-08-30 | The one `GRANT SELECT … TO authenticated` without which `0030`'s policy delivered nothing (§6)                                                                                                                                                                                                                                           |
+| 0032      | `push_subscriptions`       | 2026-08-30 | Web Push routing rows — unique on `endpoint` alone; no policy and no grant, by design                                                                                                                                                                                                                                                    |
+| 0033      | `military_liz_osborn`      | 2026-08-30 | **The booking carries its own doorstep**: eight `pickup_*` columns backfilled from `addresses`, then constrained; `pickup_address_id` demoted to nullable provenance (`ON DELETE set null`). ⚠️ **The CONTRACT rode the same migration as the expand** — the four `SET NOT NULL`s. Not backward-compatible in either direction; see §9.5 |
+| 0034      | `custody_events_unpublish` | 2026-08-31 | `custody_events` **leaves** the `supabase_realtime` publication — the reverse of the expected fix, and why (§6). Catalog-only: no rows, no scan, reversible in one statement                                                                                                                                                             |
+
+⚠️ **`0029` can fail on apply, by design — and that is the safe outcome.** It
+drops three tables that shipped in `0000_init` and were never used, and it does
+not take that on trust: it counts `agents`, `drivers` and `routes` first and
+`RAISE EXCEPTION`s, aborting the whole migration, if the total is not zero.
+
+```
+Refusing to drop: agents=0, drivers=1, routes=0. …
+```
+
+A failure means something started using a table this migration deletes. Find out
+what; do not force it through. The drops run in FK order (routes → drivers →
+agents) with **no `CASCADE`** — Drizzle generated `CASCADE` and it was removed,
+because it would silently take dependents with it and the whole claim is that
+there are none.
+
+⚠️ **`0033` rewrites every `bookings` row.** Eight `ADD COLUMN`s (cheap —
+nullable, no default, metadata-only since PG 11), then one `UPDATE … FROM
+addresses` touching every booking, then four `SET NOT NULL`s that each scan the
+table. It holds `ACCESS EXCLUSIVE` on `bookings` for the whole transaction —
+milliseconds at present volumes, and the ordinary rule if that ever changes:
+backfill in batches out-of-band first, so the in-transaction `UPDATE` finds
+nothing to do.
+
+The migration also **changes what reads are correct**. After it, the pickup
+address on a booking is `bookings.pickup_*`, and `pickup_address_id` is
+provenance that can be `NULL`. Any query that joins `addresses` to render a
+booking's doorstep is now wrong and will start returning nothing the first time
+a customer deletes a saved address — which is precisely the deletion this
+migration exists to permit.
+
+ℹ️ **`0028` reports what it backfilled**, and a gap is not a failure:
+
+```
+NOTICE:  addresses: backfilled 8 row(s) from ZIP centroids; 0 row(s) left
+         without coordinates (ZIP not in zip_centroids)
+```
+
+A row without coordinates renders "ETA on the way" rather than a guess. The
+NOTICE names the ZIPs so you can decide whether
+`packages/db/src/zip-centroids.ts` needs widening.
 
 ⚠️ **`0017` can fail on apply, by design.** It drops `bags_seal_id_idx` and
 builds a partial unique index in its place, so it **refuses to build if
@@ -272,20 +408,36 @@ manual procedure below remains for first-time project setup, for anything the
 ordering caveat in §9.5 rules out, and for recovery.
 
 1. `pnpm db:status` against the target — **confirm the `Target host:` line**.
-2. Apply over a **stable-session** connection (`DIRECT_DATABASE_URL`, port
-   5432) — the session pooler (`aws-0-<region>.pooler.supabase.com:5432`)
+2. Apply over a **stable-session** connection (`DIRECT_DATABASE_URL`, port 5432) — the session pooler (`aws-0-<region>.pooler.supabase.com:5432`)
    counts; see §3's IPv6 gotcha. Through the **transaction** pooler (6543)
    you get `prepared statement does not exist` errors in production that
    will not reproduce locally.
 3. `pnpm db:status` again — expect _"In sync — nothing pending"_.
-4. Seed reference data if the project is new: `pnpm seed` (airports, airline
-   cutoffs, one active pricing rule). Idempotent. CI never seeds — this step
-   is always yours.
+4. Reference data — **only on a project that has nothing to lose.**
+   `pnpm seed` REFUSES a non-local database
+   ([seed-guard.ts](../packages/db/src/seed-guard.ts)), because it is not
+   additive: it resets all 128 `airline_cutoffs` rows to the placeholder
+   45/60 minutes and rewrites the active pricing rule field by field. On a
+   project where ops has verified cutoffs or set launch prices, a routine
+   re-seed destroys the one data nobody can re-derive from this repository.
+
+   On a **brand-new** hosted project, day one, before anybody has verified
+   anything, say so out loud:
+
+   ```bash
+   SEED_ALLOW_HOSTED=1 DATABASE_URL='<hosted pooled url>' pnpm seed
+   ```
+
+   On any project already carrying real values, enter launch data in the
+   **admin console** instead — `/pricing`, `/cutoffs`, `/agreements`,
+   `/trucks`, `/shifts`, `/zones`. The ordered version of that is
+   [docs/runbooks/prod-bringup.md](runbooks/prod-bringup.md). CI never seeds;
+   this step is always yours.
 
 ⚠️ `pnpm seed` also creates dev staff/customer accounts — but **only** when the
 Supabase host is `127.0.0.1`/`localhost`. A non-local host is a **hard skip, not
-a warning**: seeding known passwords into a hosted project would be a standing
-backdoor.
+a warning**, and `SEED_ALLOW_HOSTED` does not lift it: seeding known passwords
+into a hosted project would be a standing backdoor. Use `pnpm bootstrap:staff`.
 
 ---
 
@@ -296,10 +448,10 @@ every push to `dev` or `main` that touches `packages/db/drizzle/**` (or the
 migrator/status scripts), and applies pending migrations to **that branch's
 database**:
 
-| Branch | Database                     | Secret                     |
-| ------ | ---------------------------- | --------------------------- |
-| `main` | production Supabase project  | `PROD_DIRECT_DATABASE_URL` |
-| `dev`  | dev/hosted Supabase project  | `DEV_DIRECT_DATABASE_URL`  |
+| Branch | Database                    | Secret                     |
+| ------ | --------------------------- | -------------------------- |
+| `main` | production Supabase project | `PROD_DIRECT_DATABASE_URL` |
+| `dev`  | dev/hosted Supabase project | `DEV_DIRECT_DATABASE_URL`  |
 
 After applying, the workflow runs `db:status`: the applied set must match the
 checkout **by content hash**, so drift fails the run red instead of hiding.
@@ -315,7 +467,7 @@ checkout **by content hash**, so drift fails the run red instead of hiding.
 - **Where they live:** GitHub **repository** secrets work on every plan.
   **Organization** secrets also work — same `${{ secrets.NAME }}` lookup, a
   repo-level secret of the same name wins — but check two things: the org
-  secret's *repository access policy* must include this repo, and on the
+  secret's _repository access policy_ must include this repo, and on the
   GitHub **Free** org plan, org secrets are only visible to **public**
   repositories.
 - A missing/invisible secret is a **hard failure** ("No DIRECT_DATABASE_URL
@@ -337,6 +489,41 @@ for a moment, old code may run against the new schema or new code against the
 old. A migration the currently-deployed code cannot survive (dropping or
 renaming something still read) must NOT ride this workflow — do a manual,
 sequenced deploy instead (§9), and say so in the PR.
+
+#### `0033` broke this, and rode the workflow anyway
+
+`0033_military_liz_osborn` is **not backward-compatible**, and it merged to
+`dev` through this workflow like any other migration. Nothing on this page said
+so, which left a reader to assume — reasonably — that every migration in this
+repo is expand-safe. It is the one that is not.
+
+**What it did, in one migration:** added eight `pickup_*` columns to `bookings`
+(expand), backfilled them from `addresses` (migrate), then set four of them
+`NOT NULL` (**contract**). That last step is a contract, and it shipped in the
+same step as the expand.
+
+**Neither order is clean**, which is what makes it different from an ordinary
+expand:
+
+| Order                                       | What breaks                                                                                                |
+| ------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| **Migration first**, old code still serving | Old `createBooking` omits `pickup_line1` and the rest → **`NOT NULL` violation → every new booking fails** |
+| **Code first**, migration not yet applied   | New code reads and writes columns that do not exist → **booking reads and writes fail**                    |
+
+So there is a window either way, and it lasts **as long as the Vercel build**.
+On `dev` that was harmless — no traffic. On `main` the identical merge is a
+**booking-creation outage of the same length**.
+
+The expand-safe version would have been two migrations across two deploys: add
+nullable and backfill, deploy code that writes both old and new, then constrain
+in a later migration once nothing writes the old shape. That is the discipline;
+`0033` skipped the middle step.
+
+🧭 **The rule going forward.** A migration that contracts in the same step as it
+expands — `SET NOT NULL`, a new `CHECK` or `UNIQUE` on existing data, a drop, a
+rename — **must be called out in the PR and sequenced manually per §9.** It must
+not ride the automatic workflow on `main`. Deciding to take the window is
+allowed; discovering it afterwards is not.
 
 ---
 

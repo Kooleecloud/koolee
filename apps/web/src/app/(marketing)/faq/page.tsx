@@ -28,8 +28,7 @@ export default function FAQPage() {
         <Reveal className="mx-auto max-w-3xl">
           <FAQAccordion items={FAQS} defaultOpenId="safety" />
           <p className="mt-10 text-sm text-muted-foreground">
-            Still curious?{" "}
-            <ContactEmailLink />
+            Still curious? <ContactEmailLink />
           </p>
         </Reveal>
       </Section>

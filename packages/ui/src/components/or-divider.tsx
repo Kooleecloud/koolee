@@ -16,11 +16,7 @@ export interface OrDividerProps extends React.HTMLAttributes<HTMLDivElement> {
  */
 function OrDivider({ children = "or", className, ...props }: OrDividerProps) {
   return (
-    <div
-      role="separator"
-      className={cn("flex items-center gap-4", className)}
-      {...props}
-    >
+    <div role="separator" className={cn("flex items-center gap-4", className)} {...props}>
       <span aria-hidden="true" className="h-px flex-1 bg-border" />
       <span className="text-xs font-semibold tracking-[0.16em] text-muted-foreground uppercase">
         {children}

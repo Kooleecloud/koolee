@@ -1,7 +1,24 @@
 # The verification visit — agent app core flow
 
 Shipped 2026-08-09 (overnight run 1, Phase 6). The agent app is now
-operationally usable for the core visit.
+operationally usable for the core visit. Baseline: `dev` @ `5db21a4`.
+Feature-level overview:
+[docs/features/agent-visit.md](../../../docs/features/agent-visit.md).
+
+## Where this sits in the day
+
+Since 2026-08-30 the visit is **one leg of a job, not a standalone task**. The
+app groups a booking's `verification_tasks` and `pickup_tasks` rows into a
+single job in presentation (`src/lib/job.ts`) — **Verify & seal** at the door,
+then **Collect & deliver** to the bag drop — because a driver experiences one
+trip to one door with two things to do there, not two tasks three lines apart.
+The tables stay separate underneath, which keeps this reversible the day the
+two halves are assigned to different people.
+
+The Today page (`/`) renders the day as one connected rail with exactly one
+open stop, ordered by scheduled time (never by geography — the customer bought
+a window). Overdue stops lead the route and are marked late. Everything below
+describes what happens once a driver opens the verification leg.
 
 ## Screen order (design call)
 
@@ -22,8 +39,14 @@ what the agent matches against the physical tag.
   role, and timestamp; GPS lands in `lat`/`lng` when the browser grants
   geolocation (best-effort — denied/unavailable degrades to null, never
   blocks); the seal photo path lands in `photo_url`.
-  Step events: `visit.arrived`, `visit.identity_verified`, `bag.sealed`;
+  Step events: `visit.arrived`, `passport.agent_confirmed`, `bag.sealed`;
   the matrix writes `booking.verified_sealed` on completion.
+  (`visit.identity_verified` was the step event until 2026-08-28. The identity
+  step is now a two-part gate — a customer agreement acceptance plus an agent
+  passport confirmation — and `recordIdentityVerified` no longer exists. The
+  old event name is still rendered by the timelines because it is the only
+  record of every visit performed before that change. See
+  [agreements-and-passport.md](../../../docs/features/agreements-and-passport.md).)
   `booking.payment_captured` is written later, by the capture sweep, with a
   NULL actor — the charge is the system's act, not the agent's.
 - **Task split unchanged**: this flow touches `verification_tasks` only;
@@ -50,6 +73,7 @@ what the agent matches against the physical tag.
   provider, the provider check found no matching authorized row, and each
   booking landed in `exception` with the bags already sealed and collected.
   The split makes that class of bug impossible rather than merely fixed.
+
 - **Copy never overclaims** — completion says the bags are in Koolee's
   custody "until the airline's bag drop".
 - **Photos**: PRIVATE `bag-photos` bucket, server-side upload. The agent app

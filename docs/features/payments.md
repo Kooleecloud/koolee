@@ -1,7 +1,7 @@
 # Payments
 
 > Authorize at booking, capture once bags are in custody, refund on
-> cancellation — all through one provider seam. Baseline: `dev` @ `2fe3a2b`.
+> cancellation — all through one provider seam. Baseline: `dev` @ `5db21a4`.
 > ← [Features index](README.md) ·
 > Deeper: [payments-lifecycle.md](../../apps/web/docs/payments-lifecycle.md)
 
@@ -62,6 +62,29 @@ Two genuinely different cases, handled differently:
 
 🧭 This distinction is the reason the pay step can be revisited freely. Get it
 wrong and you either strand intents or silently charge for the wrong booking.
+
+### 3.3 — The return route is the authority, not the redirect
+
+Stripe's `return_url` lands on **`GET /book/return`**
+([route.ts](../../apps/web/src/app/book/return/route.ts)) after _every_
+confirmation attempt — card success, a 3DS challenge outcome, or a failure.
+
+⚠️ Stripe appends `redirect_status` and `payment_intent_client_secret` to that
+URL, and **both are deliberately ignored.** The only authority consulted is
+`reconcileBookingPayment`, which re-reads the intent through the seam and
+advances the booking through the same matrix move the webhook uses. A
+client-visible success signal is never trusted — the query string is something a
+customer can type.
+
+It is a **route handler rather than a page** because the authorized outcome has
+to clear the draft cookie, and only actions and route handlers may write
+cookies.
+
+An outcome that is neither settled nor failed — Stripe's `processing`, or a
+status that could not be read just now — lands on `/book/processing`, which
+makes no claim and offers a "Check again" that re-runs this same re-check. The
+draft cookie is left intact so a failure can retry the pay step with everything
+still in it.
 
 ---
 

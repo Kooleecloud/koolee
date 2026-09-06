@@ -130,6 +130,44 @@ export function resolveCutoffMinutes(
   return winner.cutoffMinutesBeforeDeparture;
 }
 
+/**
+ * The strictest cutoff on record for an airline/airport, across BOTH scopes.
+ *
+ * Bookings do not store domestic vs international — the ticket extractor
+ * derives a scope at quote time and nothing persists it — so a booking read
+ * back later matches cutoff rows for both. Guessing one is the bug this
+ * function exists to remove: `cutoffRiskMonitor` assumed `domestic` for every
+ * booking, which is the LOOSER of the two at Koolee's seeded values (45 vs 60
+ * minutes) and therefore quietly under-alerted on exactly the flights whose
+ * bags are hardest to re-cut.
+ *
+ * Strictest means the LARGEST minutes-before-departure: a deadline that runs
+ * early costs the customer nothing, one that runs late puts bags on the wrong
+ * side of the counter. Same rule, same words, as `getBookingDetail`.
+ *
+ * Throws `CutoffUnknownError` when neither scope has a row, for the same
+ * reason `resolveCutoffMinutes` does.
+ */
+export function resolveStrictestCutoffMinutes(
+  cutoffs: readonly AirlineCutoff[],
+  lookup: Omit<CutoffLookup, "scope">,
+  now: Date = new Date(),
+): number {
+  const minutes = cutoffs
+    .filter(
+      (c) =>
+        c.airlineIata.toUpperCase() === lookup.airlineIata.toUpperCase() &&
+        c.airportCode === lookup.airportCode &&
+        c.effectiveFrom.getTime() <= now.getTime(),
+    )
+    .map((c) => c.cutoffMinutesBeforeDeparture);
+
+  if (minutes.length === 0) {
+    throw new CutoffUnknownError(lookup.airlineIata, lookup.airportCode, "any scope");
+  }
+  return Math.max(...minutes);
+}
+
 /* ------------------------------------------------------------------ */
 /* Display                                                             */
 /* ------------------------------------------------------------------ */
@@ -310,23 +348,43 @@ export function formatDateTimeLocalInAirportTz(instant: Date, tz: string): strin
 }
 
 /**
+ * The absolute instant of a `yyyy-MM-ddTHH:mm` wall clock READ AT AN AIRPORT
+ * — the exact inverse of `formatDateTimeLocalInAirportTz`, and the only
+ * correct way to turn a `datetime-local` form value into a stored instant.
+ *
+ * `new Date("2026-09-01T18:30")` looks like it does this and does not: with no
+ * zone in the string, the runtime applies the SERVER's. In production that is
+ * UTC, so a customer's 6:30 PM departure out of JFK was being stored as
+ * 18:30Z and read back as 2:30 PM — four hours of drift through every cutoff
+ * and every bookable window derived from it.
+ */
+export function airportLocalDateTime(local: string, tz: string): Date {
+  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/.exec(local);
+  if (!match) {
+    throw new RangeError(`Invalid airport-local date-time: ${local}`);
+  }
+  const [, year, month, day, hour, minute] = match.map(Number);
+  const instant = new Date(
+    new TZDate(year!, month! - 1, day!, hour!, minute!, 0, tz).getTime(),
+  );
+  if (Number.isNaN(instant.getTime())) {
+    throw new RangeError(`Invalid airport-local date-time: ${local}`);
+  }
+  return instant;
+}
+
+/**
  * The absolute instant of an airport-local wall-clock hour — the inverse
  * edge of `airportLocalDay`, for ops input ("block Aug 12, 2 PM at JFK").
  * DST-correct because TZDate owns the offset lookup.
  */
-export function airportLocalInstant(
-  day: string,
-  hour: number,
-  tz: string,
-): Date {
+export function airportLocalInstant(day: string, hour: number, tz: string): Date {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(day);
   if (!match || !Number.isInteger(hour) || hour < 0 || hour > 23) {
     throw new RangeError(`Invalid airport-local day/hour: ${day} ${hour}`);
   }
   const [, year, month, dayOfMonth] = match.map(Number);
-  return new Date(
-    new TZDate(year!, month! - 1, dayOfMonth!, hour, 0, 0, tz).getTime(),
-  );
+  return new Date(new TZDate(year!, month! - 1, dayOfMonth!, hour, 0, 0, tz).getTime());
 }
 
 /**

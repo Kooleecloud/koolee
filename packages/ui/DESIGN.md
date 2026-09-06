@@ -4,6 +4,9 @@ One system serves every Koolee app (web, admin, agent, and whatever comes
 next). Nothing visual gets redefined per app; apps compose what this package
 exports. This file is the contract — read it before adding UI anywhere.
 
+Baseline: `dev` @ `5db21a4`. Brand tokens and typography:
+[../../brand/BRAND.md](../../brand/BRAND.md).
+
 ## Layering
 
 ```
@@ -18,13 +21,31 @@ packages/ui  (feedback)        Spinner, FormMessage, EmptyState, DatabaseNotConf
         │                      Skeleton/PageSkeleton, ConfirmDialog, toast,
         │                      BookingStatusBadge, EnvStatusCard
         │
+packages/ui  (navigation)      SegmentedControl — two or three views of one thing
+        │
+packages/ui  (surfaces)        Sheet / FormSheet — an edge panel for a form
+        │
 packages/ui  (forms)           PhoneInput, OTPInput, PriceEstimator, StaffLoginForm,
         │                      PasswordResetForm, SetPasswordForm, usePreservedFormValues
         │
 packages/ui  (marketing)       MarketingNav, MarketingFooter, Section/SectionHeader,
         │                      StepCard, AirportCard, FAQAccordion, StatBadge, SealMotif
         │
-packages/ui  (domain + motion) CustodyTimeline, Reveal, HeroRouteScene
+packages/ui  (domain + motion) CustodyTimeline, Reveal, HeroRouteScene,
+        │                      MilestoneTrack, ProgressTrack, JourneyGlyph,
+        │                      TripContrast, CoverageScene, VerifiedIndicator
+        │
+packages/ui  (tracking)        LiveMap — MapLibre over OpenFreeMap, no key
+        │
+packages/ui  (media + identity) Avatar, AvatarUploader, ImageLightbox
+        │
+packages/ui  (rich input)      AutocompleteField, DateTimeField, MultiSelect,
+        │                      NumberStepper, Calendar, Checkbox, Popover,
+        │                      RichTextEditor, Markdown, RawDataDisclosure
+        │
+packages/ui  (push)            PushEnableCard, useWebPush
+        │
+packages/ui  (live)            useBookingSignal, useAnnounceChange
         │
 apps/*                         pages compose the layers; app-specific modules only
 ```
@@ -61,11 +82,20 @@ Until then it lives in the app that needs it.
 - **Elevation**: two steps, both from `theme.css` — `shadow-lift` for anything
   that reads as a surface (this is what `Card` ships, as of 2026-08-16;
   it was `shadow-xs`, which left app cards visibly flatter than the marketing
-  surfaces beside them) and `shadow-lift-lg` for its raised state. A card that
-  is a link or a picker option pairs it with
-  `hover:-translate-y-0.5 … motion-reduce:hover:translate-y-0`. Do not reach
+  surfaces beside them) and `shadow-lift-lg` for its raised state. Do not reach
   for Tailwind's default `shadow-sm`/`shadow-md`: a second shadow scale is how
   two cards on one page end up sitting at different heights.
+- **Surfaces are `Card`, always.** Never hand-roll
+  `rounded-… border bg-… shadow-…` on a div. `Card` carries the three shapes:
+  default (in-app, `rounded-xl`), `surface="panel"` (marketing, `rounded-2xl`),
+  and `interactive` for a card that is itself a link or a picker option (hover
+  lift, brand focus ring, reduced-motion hold). Use `asChild` to keep the real
+  element — `<Card asChild interactive><Link …>` , `<Card asChild><li …>`.
+  Padding stays on the child, so a row can be `p-3` and a panel `p-6 sm:p-8`.
+  Until 2026-08-29 this recipe was transcribed by hand in 21 places across the
+  three apps and had drifted in both ways that matter: `bg-white` (invisible in
+  the dark theme, where `--card` is navy) and `shadow-xs` sitting next to
+  `shadow-lift` on the same page.
 - **Route states**: every data route ships `loading.tsx` (`PageSkeleton`),
   and each app has root `error.tsx` + `not-found.tsx`. Chrome lives in
   layouts, not pages, so those states keep the header alive.
@@ -79,7 +109,27 @@ Until then it lives in the app that needs it.
   scrolls itself into view) or `toast` for actions whose UI disappears after
   success. Never silence.
 - Every irreversible action: `ConfirmDialog`. Bare buttons must not write to
-  append-only records (custody log, cancellations) or destroy work.
+  append-only records (custody log, cancellations) or destroy work. This
+  includes the small ones: a bare `×` on a chip removed an agent's ZIP coverage
+  silently until F5.
+- **A form that is not the page: `FormSheet`, not a column.** Six console pages
+  had grown a `2fr 1fr` grid with a form pinned permanently down the right —
+  invite staff, add a truck, assign ZIPs, block windows, add an airline,
+  publish a pricing rule. Each was used occasionally, read never, and took a
+  third of the page from the list an operator came to look at. A labelled
+  button in the header is also a better answer to "what can I do here?" than a
+  form somebody has to read to find out.
+  - A **sheet**, not a dialog: a centred modal is for a _decision_ (confirm,
+    cancel); these are data entry with five or six fields and sometimes a list
+    to scroll, and a side panel keeps the table behind it visible for
+    reference. `ConfirmDialog` is unchanged and still right for a destructive
+    yes/no.
+- **Two or three views of one thing: `SegmentedControl`.** It supports links
+  _or_ buttons because its two callers genuinely differ — the agent's
+  schedule/history tabs are bookmarkable URLs, the customer's map/list is a
+  view preference no URL should carry. The active tab is **raised, not
+  tinted**: a colour change alone is what disappears at a glance on a small
+  screen or in bright sun.
 - Every empty list: `EmptyState`, preferably with an `action` — offer the
   next step, not a dead end.
 
@@ -92,8 +142,19 @@ Until then it lives in the app that needs it.
   banked is navy and everything ahead is hollow.
 - `KooleeLogo` renders body/wordmark in `currentColor` — default on light,
   `className="text-white"` on navy. Never tint the whole SVG.
-- Fonts: Sora (display) + Inter (body) via `next/font`, exposed as
-  `--font-display` / `--font-sans`.
+- Fonts: Sora (display) + Inter (body) come from `@koolee/ui/fonts` — one
+  module, imported by every app's root layout as `brandFontClassName` and
+  spread onto `<body>`. It exposes `--font-display` / `--font-sans`, which is
+  what `theme.css` reads. Do not call `next/font` in an app. An app that
+  mounts nothing here does not fail loudly; it silently renders every heading
+  in system-ui, which is exactly how admin and agent ran until 2026-08-29.
+  The subpath is deliberate: `next/font` resolves only in a Next build, and
+  Storybook builds this package with Vite, so it must stay off the barrel.
+- App icons: `icon.svg`, `favicon.ico` and `apple-icon.png` are the same bytes
+  in every app, derived from `brand/app-tile.svg`. `src/lib/brand-assets.test.ts`
+  fails if one drifts. Note `brand/` itself has been gitignored since
+  2026-08-01, so it is absent from a fresh clone — web's committed copy is the
+  in-repo reference.
 
 ## Adding a new app (the recipe)
 
@@ -101,11 +162,14 @@ Until then it lives in the app that needs it.
    if it reads data).
 2. `globals.css`: `@import "tailwindcss";` then
    `@import "@koolee/ui/styles/theme.css";`
-3. Root layout: load Sora + Inter via `next/font` with the two CSS variables
-   (copy from apps/web), mount `<AppHeader>` + `<Toaster />`, set
+3. Root layout: `import { brandFontClassName } from "@koolee/ui/fonts"` and
+   spread it onto `<body>`, mount `<AppHeader>` + `<Toaster />`, set
    `themeColor` to navy `#0B2545`.
-4. Derive favicons/PWA tiles from `brand/app-tile.svg` (masked
-   surfaces: full-bleed square, mark in the 80% safe zone).
+4. Copy `icon.svg`, `favicon.ico` and `apple-icon.png` from `apps/web/src/app`
+   and add the app to `COPY_APPS` in `src/lib/brand-assets.test.ts`. PWA tiles
+   are the one deliberate variant — full-bleed square, no corner radius, mark
+   in the 80% safe zone, because the OS applies its own mask
+   (`apps/agent/public/icons`).
 5. Add root `loading.tsx` / `error.tsx` / `not-found.tsx` (copy from
    apps/admin — they are shell-composed one-liners).
 6. Copy the `env.ts` convention: never throw at import, `requireEnv()` at the
@@ -117,12 +181,28 @@ Until then it lives in the app that needs it.
 ## Storybook
 
 `pnpm --filter @koolee/ui storybook` (port 6006) — the catalog of primitives,
-shell pieces, and feedback states. `pnpm --filter @koolee/ui build-storybook`
+shell pieces, and feedback states.
+
+**`Tracking/LiveMap` is the story to open before touching the map, and it has
+earned that.** Three bugs have now been found by screenshotting it and by
+nothing else: a Vite dep-optimizer worker path, a worker URL that resolved to
+the empty string under every bundler, and a pin that flickered because
+`transition-transform` sat on the element MapLibre rewrites each frame.
+Typecheck, lint and the production build were green over all three. `pnpm --filter @koolee/ui build-storybook`
 produces the static build. Stories are `src/**/*.stories.tsx`.
 
 Coverage is currently `Primitives/Button`, `Primitives/CTAButton`,
 `Primitives/ImageLightbox`, `Primitives/LinkedTableRow`, `Primitives/MultiSelect`,
-`Patterns/CustodyTimeline`, `Shell`, and `Feedback`. That is still a gap, not
+`Controls/SegmentedControl`, `Tracking/LiveMap`, `Patterns/CustodyTimeline`,
+`Shell`, and `Feedback`. That is still a gap, not
+`Avatar` and `AvatarUploader` are the newest additions — a person at five
+sizes, with name-derived initials as the fallback (most people have no photo,
+so the fallback IS the design) and the same fallback on load failure, since a
+signed avatar URL expires after an hour. Both are `"use client"`: they call
+hooks, and `client-directive.test.ts` now asserts that every component here that
+calls a hook says so — a missing directive crashes any page that
+server-renders it, and no build catches it.
+
 the standard: new component → new story in the same PR, and the marketing,
 form, and motion components listed above are owed one.
 

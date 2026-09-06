@@ -2,6 +2,7 @@ import * as React from "react";
 
 import { cn } from "../lib/utils";
 import { ImageLightbox } from "./image-lightbox";
+import { StageDot, type StageState } from "./stage-dot";
 
 /**
  * Chain-of-custody timeline — the visual signature of Koolee's trust story.
@@ -13,7 +14,12 @@ import { ImageLightbox } from "./image-lightbox";
  * Prop-driven and app-agnostic: apps map their domain events to items.
  */
 
-export type CustodyItemState = "complete" | "current" | "upcoming";
+/**
+ * Kept as an alias rather than deleted: the three states now live with the
+ * marker that draws them (`StageDot`), because `ProgressTrack` needs the same
+ * vocabulary and neither component should own it.
+ */
+export type CustodyItemState = StageState;
 
 export interface CustodyTimelineItem {
   id: string;
@@ -39,43 +45,6 @@ export interface CustodyTimelineProps extends React.HTMLAttributes<HTMLOListElem
   emptyMessage?: React.ReactNode;
 }
 
-/**
- * The stage marker.
- *
- * `block` is load-bearing, not decoration: a bare <span> is display:inline,
- * and width/height do not apply to non-replaced inline elements. The
- * horizontal variant got away with it because the dot is a direct flex item
- * there (flex blockifies its children); in the vertical variant the dot sits
- * inside a wrapper span, so it stayed inline and rendered at 0×0 — every
- * vertical timeline in the product drew its line with no dots on it.
- *
- * Colour carries the state: navy for hand-offs already banked, seal orange
- * for the one happening now (the same orange as the physical tamper seal),
- * hollow for what has not happened yet.
- */
-function Dot({ state }: { state: CustodyItemState }) {
-  if (state === "current") {
-    return (
-      <span aria-hidden="true" className="relative block size-3 shrink-0">
-        {/* Two elements because one cannot both pulse and stay legible: the
-            halo animates, the core stays a solid, readable dot. */}
-        <span className="absolute inset-0 animate-ping rounded-full bg-tag opacity-75 motion-reduce:animate-none" />
-        <span className="relative block size-3 rounded-full bg-tag ring-4 ring-tag-100" />
-      </span>
-    );
-  }
-  return (
-    <span
-      aria-hidden="true"
-      className={cn(
-        "block size-3 shrink-0 rounded-full",
-        state === "complete" && "bg-navy-800",
-        state === "upcoming" && "border-2 border-input bg-white",
-      )}
-    />
-  );
-}
-
 function CustodyTimeline({
   items,
   orientation = "vertical",
@@ -98,7 +67,7 @@ function CustodyTimeline({
           return (
             <li key={item.id} className="flex flex-col gap-4">
               <div className="flex items-center">
-                <Dot state={item.state ?? "complete"} />
+                <StageDot state={item.state ?? "complete"} />
                 {!isLast && (
                   <span
                     aria-hidden="true"
@@ -107,7 +76,10 @@ function CustodyTimeline({
                 )}
               </div>
               {item.icon ? (
-                <div aria-hidden="true" className="text-navy-700 [&_svg]:h-7 [&_svg]:w-auto">
+                <div
+                  aria-hidden="true"
+                  className="text-navy-700 [&_svg]:h-7 [&_svg]:w-auto"
+                >
                   {item.icon}
                 </div>
               ) : null}
@@ -137,7 +109,7 @@ function CustodyTimeline({
           <li key={item.id} className="flex gap-4">
             <div className="flex flex-col items-center">
               <span className="mt-1.5">
-                <Dot state={state} />
+                <StageDot state={state} />
               </span>
               {!isLast && (
                 <span
@@ -168,7 +140,10 @@ function CustodyTimeline({
               </div>
               {item.meta ? (
                 item.metaDateTime ? (
-                  <time dateTime={item.metaDateTime} className="text-xs text-muted-foreground">
+                  <time
+                    dateTime={item.metaDateTime}
+                    className="text-xs text-muted-foreground"
+                  >
                     {item.meta}
                   </time>
                 ) : (

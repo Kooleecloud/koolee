@@ -46,7 +46,10 @@ const shellDatabaseUrl = process.env.DATABASE_URL;
 loadEnv({ path: [".env.local", ".env", "../../.env.local", "../../.env"], quiet: true });
 
 const connectionString =
-  shellDirectUrl ?? shellDatabaseUrl ?? process.env.DIRECT_DATABASE_URL ?? process.env.DATABASE_URL;
+  shellDirectUrl ??
+  shellDatabaseUrl ??
+  process.env.DIRECT_DATABASE_URL ??
+  process.env.DATABASE_URL;
 
 const drizzleDir = path.join(path.dirname(fileURLToPath(import.meta.url)), "../drizzle");
 
@@ -122,7 +125,9 @@ function report(migrations: Migration[], state: DbState): boolean {
         `applied; harmless, and not something to "clean up".`,
     );
     for (const o of orphans) {
-      console.log(`  · hash ${o.hash.slice(0, 12)}…  created_at ${o.created_at ?? "null"}`);
+      console.log(
+        `  · hash ${o.hash.slice(0, 12)}…  created_at ${o.created_at ?? "null"}`,
+      );
     }
   }
 

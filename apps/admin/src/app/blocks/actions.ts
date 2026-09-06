@@ -28,7 +28,6 @@ export interface BlockActionState {
   ok?: string;
 }
 
-
 const createSchema = z.object({
   airportCode: z.enum(["JFK", "LGA", "EWR"]),
   day: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),

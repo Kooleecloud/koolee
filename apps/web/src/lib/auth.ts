@@ -26,7 +26,11 @@ export async function getAuthUser(): Promise<AuthUser | null> {
 
   return {
     id: user.id,
-    phone: user.phone ? (user.phone.startsWith("+") ? user.phone : `+${user.phone}`) : null,
+    phone: user.phone
+      ? user.phone.startsWith("+")
+        ? user.phone
+        : `+${user.phone}`
+      : null,
     email: user.email ?? null,
     isAnonymous: user.is_anonymous === true,
   };

@@ -5,7 +5,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./schema": "./src/schema/index.ts",
-    "./coverage-zips": "./src/coverage-zips.ts"
+    "./coverage-zips": "./src/coverage-zips.ts",
+    "./zip-centroids": "./src/zip-centroids.ts"
   },
   "scripts": {
     "db:generate": "drizzle-kit generate",
@@ -14,6 +15,9 @@
     "db:studio": "drizzle-kit studio",
     "seed": "tsx src/seed.ts",
     "seed:local": "tsx src/seed-local.ts",
+    "bootstrap:staff": "tsx src/bootstrap-staff.ts",
+    "create:staff": "tsx src/create-staff.ts",
+    "test": "vitest run",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf .turbo node_modules *.tsbuildinfo"
@@ -30,6 +34,7 @@
     "drizzle-kit": "^0.31.10",
     "eslint": "^10.8.0",
     "tsx": "^4.19.2",
-    "typescript": "^5.7.3"
+    "typescript": "^5.7.3",
+    "vitest": "^4.1.10"
   }
 }

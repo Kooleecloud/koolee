@@ -1,7 +1,7 @@
 # Booking funnel
 
 > The customer path from landing page to a `draft` booking with an authorized
-> payment. App: `apps/web` (`:3000`). Baseline: `dev` @ `2fe3a2b`.
+> payment. App: `apps/web` (`:3000`). Baseline: `dev` @ `5db21a4`.
 > ← [Features index](README.md)
 
 ---
@@ -35,8 +35,41 @@ shared by the client stepper _and_ the server guards:
 | 4   | `/book/pay`    | Review & pay | Price quote + payment. **The auth gate lives inside this step** |
 
 `/book` itself is a **route handler**, not a page
-([book/route.ts](../../apps/web/src/app/book/route.ts)): it resumes the draft
-wherever it left off.
+([book/route.ts](../../apps/web/src/app/book/route.ts)): it starts a NEW
+booking, and offers the old one.
+
+**It used to resume unconditionally**, so pressing "Book a pickup" dropped you
+back into a half-finished booking from days ago, at whatever step it had
+reached, with its flight and address prefilled. Right for somebody genuinely
+coming back; baffling for somebody booking a second trip, whose only way out
+was to notice and then edit every field.
+
+Two halves that pull against each other, and neither may be given up: a fresh
+entry must start **clean**, and nothing may be silently destroyed to achieve
+it. Clearing the draft makes a resume offer impossible; keeping it live means
+the entry was never clean. So the old draft is **moved** to
+`koolee_draft_prev` — the live cookie really goes, the first step really is
+empty, and `ResumeDraftOffer` puts it back in one tap.
+
+- The stash lives an hour, against the draft's 24. This is "you were in the
+  middle of something a moment ago", not an archive; account holders keep the
+  seven-day `booking_drafts` mirror regardless.
+- **Only a draft with progress is offered.** A cookie holding nothing but a
+  `draftId` minted by a ticket upload that went nowhere is not something
+  anybody remembers starting.
+- **The account-holder mirror is offered, not entered.** An empty cookie plus a
+  `booking_drafts` row is a draft from another device — worth proposing, no
+  longer worth redirecting into unasked.
+- **The extracted ticket data goes with it.** `ticketPrefill` is a key on that
+  cookie, so the reset takes the model's reading of somebody's itinerary with
+  it and a resume brings it back; otherwise "resume" would mean "start again
+  from the ZIP".
+
+**Movement INSIDE the funnel never comes through this door** — back and
+forward between steps, a rejected ZIP, a mid-funnel reload all address
+`/book/flight` and friends directly. That is exactly why the door can be this
+decisive, and why F4's "a refused ZIP must not cost the customer their whole
+form" is untouched.
 
 ### 2.1 — Retired routes still resolve
 
@@ -98,6 +131,51 @@ than dead-ended. Since `feat/waitlist-persistence` they land in the
 `waitlist_signups` table via core's `recordWaitlistSignup` — one row per
 (email, zip) pair, idempotent on resubmit — shared with the marketing
 `/waitlist` page (`source` column tells them apart).
+
+### 3.1 — The address ZIP must be the ZIP that was quoted
+
+The funnel takes a ZIP on the **flight** step (coverage + price) and a full
+address two steps later, and for a while they were never reconciled: any covered
+ZIP was accepted and silently replaced the quoted one. That quietly changed two
+things — the `zip_centroids` coordinate every drive-time estimate starts from,
+and the `agent_zones` row that decides who is dispatched.
+
+The pickup step now offers **"update quote to `<new ZIP>`"** or **"use a
+different address"**, and `createBooking` takes a **required** `quotedZip`,
+refusing a mismatch with `QuoteZipMismatchError`. The form is UX; the core check
+is the rule — same shape as `assertInCoverage` above.
+
+### 3.2 — The street field autocompletes, and never gates
+
+[address-autocomplete.tsx](../../apps/web/src/components/address-autocomplete.tsx)
+holds only what is specific to this field — debouncing, the Places session
+token, the fetch, and turning a chosen suggestion into the five structured
+fields the form already had. The list behaviour (open/closed, arrow keys, ARIA,
+dismissal) is `AutocompleteField` in `@koolee/ui`.
+
+⚠️ **Assist, never gate.** Every failure path — no key in this environment (the
+route answers `204`), a network error, a suggestion whose details come back
+incomplete — leaves the customer with exactly the text input they had before,
+and the form submits it. Nothing about the address step depends on Google being
+up.
+
+Two billing details are load-bearing, and both were bugs first:
+
+- **One session token per typing session**, minted client-side, sent with every
+  suggest call and with the details call that ends it, then discarded. Google
+  bills that as one autocomplete plus one details request rather than one per
+  keystroke. A new token is minted after each selection, because the session is
+  over.
+- **Nothing is searched until somebody types.** The field is frequently mounted
+  with a value already in it, and searching on mount billed a Places call per
+  mount — ten expands of one saved address was ten identical billed
+  autocompletes nobody ever saw.
+
+🧭 The key never reaches the browser. `/api/places` exists precisely so this
+field can autocomplete against a **server-restricted**
+`GOOGLE_MAPS_SERVER_KEY` — see
+[ARCHITECTURE §6](../ARCHITECTURE.md#why-google-does-two-of-those-three-jobs-and-not-the-third)
+for why map rendering then had to go somewhere else entirely.
 
 ---
 
@@ -256,14 +334,132 @@ field, never the booking.
 through the state machine, driven by server-side reconciliation and webhooks.
 See [payments.md](payments.md).
 
+`/book/processing` deliberately **makes no claim about the outcome**. It is
+where a payment lands when Stripe is still settling (`processing`) or when the
+status could not be checked just now. Its "Check again" affordance re-runs
+`/book/return`'s server-side re-check, which is the only authority. The draft
+cookie is untouched, so a failure can still retry the pay step with everything
+intact.
+
+### 8.1 — The trip page goes live on its own
+
+[TripLive](../../apps/web/src/components/trip-live.tsx) renders nothing: it
+subscribes with `useBookingSignal` and calls `router.refresh()`. The page is
+`force-dynamic`, so that re-runs the whole server component — timeline,
+agreement and passport cards, driver shortlist, ETA all come back fresh.
+**Nothing from the realtime payload is read**; see
+[realtime-signals.md](realtime-signals.md).
+
+It was an interval inside the driver card first, which meant the page only went
+live once a driver had been chosen — an agent sealing bags on the doorstep
+changed nothing on the screen the customer was watching. **Live-ness belongs to
+the page, not to one card.** Interval polling remains the fallback, and it is
+what the trips _list_ runs on, having no single booking to watch.
+
+A short set of stages also raises a toast — sealed/choose a driver, in transit,
+delivered, exception. A silent refresh is right for most changes; a toast is for
+the cases where the page has grown something that needs the customer, or where
+staying quiet would be alarming.
+
+**There is a map** ([`LiveMap`](../../packages/ui/src/components/live-map.tsx)),
+and the note here used to say there deliberately was not. That was half right: a
+distance and an ETA answer "how long until somebody knocks", but the other
+question somebody sitting with sealed bags is asking is **"is anything actually
+happening"** — and a number that changes every 45 seconds answers it worse than
+a pin that moves. MapLibre GL over OpenFreeMap tiles: no key, no account, no
+per-load billing, explicitly not Google's Maps JS. ⚠️ **It never gates** — a
+tile host down, or no WebGL, leaves the driver list and the ETA beneath it
+untouched. Choosing is still a list decision; pins are a second route to the
+same cards.
+
 ---
 
-## 9. Ticket upload (partial)
+## 9. Ticket upload — and the door it now owns
 
-`/api/ticket-uploads` + `ticket-upload.tsx` accept a ticket PDF; extraction is
-seamed in [packages/core/src/extraction/](../../packages/core/src/extraction/)
-with `heuristic/`, `claude/`, and `fake.ts` behind a factory.
+### 9.0 — Upload IS the first step (2026-08-29, F2)
 
-Status: the seam is real, the Claude integration is **not wired for production**
-(`ANTHROPIC_API_KEY` is documented as out of scope for the scaffold). See
+The flight step opens on a **drop area**, not a form. Most people have their
+e-ticket as a PDF in an inbox or a photo on a phone, and typing a flight
+number, an airport, a date, a time and a name is the slowest possible way to
+tell us something readable off that document in four seconds. Manual entry is
+one link below it, framed as an equal path rather than a fallback — "takes
+about a minute" — because some people genuinely have no file to hand.
+
+`flightEntryMode` ([lib/flight-entry.ts](../../apps/web/src/lib/flight-entry.ts))
+decides which of three faces the step shows, as a pure function:
+
+| Mode     | When                                                   |
+| -------- | ------------------------------------------------------ |
+| `door`   | first visit, nothing answered yet                      |
+| `review` | `?from=ticket` **and** a prefill actually exists       |
+| `manual` | `?entry=manual`, or the draft already carries a flight |
+
+The third row is the one worth remembering: somebody stepping BACK to change
+an answer must never be sent to an upload screen, which reads as having lost
+their booking. `?from=ticket` with no prefill behind it (a shared link, an
+expired cookie) falls back to the door rather than rendering "here's what we
+read" above six empty fields.
+
+**Failure is two different things**, and the door treats them differently:
+
+- a file we will never accept (missing, over 10 MB, wrong type — HTTP
+  400/413/415) is **retryable**: the customer stays on the door, because
+  picking a different file is one tap;
+- a file we accepted and could not **read** (HTTP 200 with `ok: false`) sends
+  them to `?entry=manual&read=failed`, which renders a non-blaming line —
+  _"some airline tickets are images we can't get text out of"_ — above the
+  same form they would have got anyway. Nothing is lost, and the compact
+  upload card is still under the form for a second attempt.
+
+That status mapping is a decision made in a client component about numbers
+produced in `ticket-upload-handler.ts`, so it is pinned by a test rather than
+left to rot.
+
+**Camera capture** is a second `<input capture="environment">`, phone-only
+(`sm:hidden`). One input cannot both open the camera and let somebody pick the
+PDF their airline emailed — `capture` makes a phone skip the file picker
+entirely.
+
+**Instrumentation** extends the `@vercel/analytics` already in the root layout
+(`ticket_upload_started` / `_read` / `_failed`, tagged with the variant). No
+second analytics system.
+
+### 9.1 — The pipeline
+
+`/api/ticket-uploads` + `ticket-upload.tsx` accept a ticket PDF or a photo;
+extraction is seamed in
+[packages/core/src/extraction/](../../packages/core/src/extraction/) with
+`heuristic/`, `claude/` and `fake.ts` behind a factory, selected by one env var.
+
+**Both adapters are live.** With `ANTHROPIC_API_KEY` set the Claude adapter
+transcribes every segment through a forced tool call and `select-segment.ts`
+chooses the leg in code, with a recorded reason; without a key the in-process
+heuristic runs and costs nothing. Either way the output is a review-form
+PREFILL and never a booking field — pressing Continue is the confirm step.
+
+The flight step therefore has two shapes: entered by hand, or "Review your
+flight details" after an upload, which adds a summary sentence, an attention
+ring on extracted fields, a one-click **swap** when the ticket has another
+NYC-departing leg, and a placeholder-plus-explanation when the origin is one we
+do not serve. The form is REMOUNTED on a seed key when the prefill changes —
+uncontrolled inputs keep their old `defaultValue` otherwise.
+
+### 9.2 — A prefilled field is never left unexplained
+
+[ticket-prefill-copy.ts](../../apps/web/src/lib/ticket-prefill-copy.ts) writes
+the sentence above a ticket-filled review form, and its whole point is that
+**no prefilled field is left without a reason**.
+
+A round trip has two legs and we picked one. A ticket out of SFO gets no airport
+at all. Before this, both cases looked identical to the customer: a form that
+had simply decided something, with the airport dropdown sitting on its "JFK"
+default as though they had chosen it.
+
+It is pure and string-only. `departureAtLocal` is a wall clock at its own
+airport with **no zone attached**, so it is formatted from its own digits rather
+than routed through a timezone-aware formatter that would have to invent one —
+the one place in this app where not using the formatters from
+[TIME.md](../TIME.md) is correct.
+
+Full pipeline, selection rules and the debug panel:
 [ticket-extraction.md](../../apps/web/docs/ticket-extraction.md).

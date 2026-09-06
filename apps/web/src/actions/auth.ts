@@ -3,6 +3,7 @@
 import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { z } from "zod";
+import { normalizeEmail } from "@koolee/ui/lib/credentials";
 import {
   attachEmail,
   attachVerifiedPhone,
@@ -48,8 +49,7 @@ export type AuthErrorCode =
   | "provider_error";
 
 export type AuthActionResult<T = object> =
-  | ({ ok: true } & T)
-  | { ok: false; code: AuthErrorCode; message: string };
+  ({ ok: true } & T) | { ok: false; code: AuthErrorCode; message: string };
 
 /** Which Supabase verification flow Screen B must complete. */
 export type OtpMode = "phone_change" | "sms" | "email_change" | "email";
@@ -80,7 +80,9 @@ const OTP_SENDS_COOKIE = "koolee_otp_sends";
 /** 1 initial send + 3 resends. */
 const MAX_SENDS_PER_TARGET = 4;
 
-async function bumpSendCounter(target: string): Promise<{ allowed: boolean; resendsLeft: number }> {
+async function bumpSendCounter(
+  target: string,
+): Promise<{ allowed: boolean; resendsLeft: number }> {
   const store = await cookies();
   let state: { target: string; sends: number } = { target, sends: 0 };
   try {
@@ -125,11 +127,15 @@ function isRateLimit(error: SupabaseishError): boolean {
 }
 
 function isPhoneExists(error: SupabaseishError): boolean {
-  return error.code === "phone_exists" || /phone.*already been registered/i.test(error.message);
+  return (
+    error.code === "phone_exists" || /phone.*already been registered/i.test(error.message)
+  );
 }
 
 function isEmailExists(error: SupabaseishError): boolean {
-  return error.code === "email_exists" || /email.*already been registered/i.test(error.message);
+  return (
+    error.code === "email_exists" || /email.*already been registered/i.test(error.message)
+  );
 }
 
 function isOtpInvalid(error: SupabaseishError): boolean {
@@ -151,9 +157,7 @@ function isOtpInvalid(error: SupabaseishError): boolean {
  * `updateUser()` cannot carry a token — those sends are covered by the
  * captcha-gated session + the `guardUpgradeSend` throttle instead.
  */
-function requireCaptchaToken(
-  token: string | null,
-): AuthActionResult<{ token?: string }> {
+function requireCaptchaToken(token: string | null): AuthActionResult<{ token?: string }> {
   if (!token && optionalEnv("NEXT_PUBLIC_TURNSTILE_SITE_KEY")) {
     return {
       ok: false,
@@ -297,9 +301,21 @@ export async function ensureDraftSession(
 /* 2. Send OTP (Screen A submit; also /login)                           */
 /* ------------------------------------------------------------------ */
 
+/**
+ * Every email this file accepts, normalized BEFORE it is validated.
+ *
+ * `z.email()` alone rejects "  Alice@Koolee.cloud " for the whitespace and
+ * then hands back the mixed case unchanged, so each call site was lowercasing
+ * on its own — four times in this file, and `saveProfile` in the dashboard
+ * did not do it at all. `preprocess` puts the normalization on the schema,
+ * which is the one place that cannot be forgotten. Same helper the staff
+ * apps' sign-in and the admin invite use.
+ */
+const emailField = z.preprocess(normalizeEmail, z.email());
+
 const sendOtpSchema = z.object({
   phone: z.string().min(3).max(25).optional(),
-  email: z.email().optional(),
+  email: emailField.optional(),
   turnstileToken: z.string().nullable(),
   /** "upgrade" = funnel gate (anonymous → permanent). "signin" = /login or the phone-conflict flow. */
   intent: z.enum(["upgrade", "signin"]),
@@ -323,7 +339,11 @@ export async function sendOtp(
 
   const parsed = sendOtpSchema.safeParse(input);
   if (!parsed.success) {
-    return { ok: false, code: "invalid_input", message: "Check the details and try again." };
+    return {
+      ok: false,
+      code: "invalid_input",
+      message: "Check the details and try again.",
+    };
   }
   const { turnstileToken, intent } = parsed.data;
 
@@ -341,7 +361,7 @@ export async function sendOtp(
 
   /* --- email path ---------------------------------------------------- */
   if (parsed.data.email) {
-    const email = parsed.data.email.toLowerCase();
+    const email = parsed.data.email;
     const counter = await bumpSendCounter(email);
     if (!counter.allowed) {
       return { ok: false, code: "resend_capped", message: RATE_LIMIT_COPY };
@@ -369,8 +389,7 @@ export async function sendOtp(
           return {
             ok: false,
             code: "EMAIL_EXISTS",
-            message:
-              "That email already has bookings with us — sign in to continue.",
+            message: "That email already has bookings with us — sign in to continue.",
           };
         }
         if (isRateLimit(error)) {
@@ -378,7 +397,12 @@ export async function sendOtp(
         }
         return { ok: false, code: "provider_error", message: error.message };
       }
-      return { ok: true, mode: "email_change", target: email, resendsLeft: counter.resendsLeft };
+      return {
+        ok: true,
+        mode: "email_change",
+        target: email,
+        resendsLeft: counter.resendsLeft,
+      };
     }
 
     const { error } = await supabase.auth.signInWithOtp({
@@ -446,7 +470,12 @@ export async function sendOtp(
       }
       return { ok: false, code: "provider_error", message: error.message };
     }
-    return { ok: true, mode: "phone_change", target: e164, resendsLeft: counter.resendsLeft };
+    return {
+      ok: true,
+      mode: "phone_change",
+      target: e164,
+      resendsLeft: counter.resendsLeft,
+    };
   }
 
   // No session (anonymous sign-ins disabled, or cookies lost) or an explicit
@@ -527,7 +556,11 @@ export async function verifyOtp(
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) {
-    return { ok: false, code: "provider_error", message: "Verification did not produce a session." };
+    return {
+      ok: false,
+      code: "provider_error",
+      message: "Verification did not produce a session.",
+    };
   }
 
   const core = tryGetCore();
@@ -540,7 +573,11 @@ export async function verifyOtp(
         email: isEmailMode ? target : null,
       });
       if (isEmailMode) {
-        await attachEmail(core.db, { authUserId: user.id, email: target, verified: true });
+        await attachEmail(core.db, {
+          authUserId: user.id,
+          email: target,
+          verified: true,
+        });
       } else {
         await attachVerifiedPhone(core.db, { authUserId: user.id, phone: target });
       }
@@ -584,7 +621,7 @@ export async function verifyOtp(
 /* ------------------------------------------------------------------ */
 
 const magicLinkSchema = z.object({
-  email: z.email(),
+  email: emailField,
   turnstileToken: z.string().nullable(),
   next: z.string().optional(),
 });
@@ -614,7 +651,7 @@ export async function sendMagicLink(
   const next = sanitizeReturnTo(parsed.data.next) ?? "/trips";
 
   const { error } = await supabase.auth.signInWithOtp({
-    email: parsed.data.email.toLowerCase(),
+    email: parsed.data.email,
     options: {
       shouldCreateUser: false,
       emailRedirectTo: `${origin}/auth/callback?next=${encodeURIComponent(next)}`,
@@ -638,7 +675,7 @@ export async function sendMagicLink(
     return { ok: false, code: "provider_error", message: error.message };
   }
 
-  return { ok: true, email: parsed.data.email.toLowerCase() };
+  return { ok: true, email: parsed.data.email };
 }
 
 /* ------------------------------------------------------------------ */
@@ -646,7 +683,7 @@ export async function sendMagicLink(
 /* ------------------------------------------------------------------ */
 
 const attachEmailSchema = z.object({
-  email: z.email(),
+  email: emailField,
   bookingId: z.uuid(),
 });
 
@@ -660,7 +697,7 @@ export async function attachEmailPostBooking(
   if (!parsed.success) {
     return { ok: false, code: "invalid_input", message: "Enter a valid email address." };
   }
-  const email = parsed.data.email.toLowerCase();
+  const email = parsed.data.email;
 
   const supabase = await getSupabaseServerClient();
   if (!supabase) {
@@ -701,9 +738,16 @@ export async function attachEmailPostBooking(
   if (core) {
     try {
       await attachEmail(core.db, { authUserId: user.id, email, verified: false });
+      // Not a double-send risk: this card only renders for an account with NO
+      // email (book/confirmed/page.tsx), which is exactly the case where the
+      // `booking/confirmed` function already returned `no_email` and — being a
+      // memoized Inngest step — never re-runs. See docs/features/notifications.md.
       await sendBookingConfirmationEmail(core, {
         bookingId: parsed.data.bookingId,
         email,
+        // Core reads no env: the absolute origin the email's CTA links to is
+        // resolved here. Without it the customer got `/trips/<id>` in an inbox.
+        appOrigin: optionalEnv("NEXT_PUBLIC_APP_URL"),
       });
     } catch (dbError) {
       if (dbError instanceof ConflictError) {

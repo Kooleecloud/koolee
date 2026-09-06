@@ -39,7 +39,11 @@ export const Row: Story = {
   args: { step: 1, title: "Book a Koolee online" },
   render: () => (
     <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
-      <StepCard step={1} title="Book a Koolee online" visual={<JourneyGlyph name="book" />} />
+      <StepCard
+        step={1}
+        title="Book a Koolee online"
+        visual={<JourneyGlyph name="book" />}
+      />
       <StepCard
         step={2}
         title="Agent arrives, verifies your details, weighs and seals your bags"

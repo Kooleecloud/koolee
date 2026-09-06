@@ -154,10 +154,8 @@
   --color-cream: #f8f9fb;
 
   /* Soft elevation for cards — depth without corporate gloss. */
-  --shadow-lift:
-    0 1px 2px rgba(11, 37, 69, 0.06), 0 8px 24px rgba(11, 37, 69, 0.08);
-  --shadow-lift-lg:
-    0 2px 4px rgba(11, 37, 69, 0.06), 0 16px 40px rgba(11, 37, 69, 0.12);
+  --shadow-lift: 0 1px 2px rgba(11, 37, 69, 0.06), 0 8px 24px rgba(11, 37, 69, 0.08);
+  --shadow-lift-lg: 0 2px 4px rgba(11, 37, 69, 0.06), 0 16px 40px rgba(11, 37, 69, 0.12);
 
   /* House ease: quick start, calm landing. */
   --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
@@ -175,6 +173,74 @@
 
   --animate-accordion-down: accordion-down 0.2s ease-out;
   --animate-accordion-up: accordion-up 0.2s ease-out;
+
+  /*
+   * THE BRAND LOADER. See `BrandLoader` — the mark is a luggage tag hanging
+   * from a grommet, so the one honest way to animate it is the way a tag on a
+   * handle actually moves: a pendulum swinging about its own eyelet.
+   *
+   * `tag-swing` is deliberately unhurried (1.6s, eased at both ends) and never
+   * returns to dead centre — a loop that pauses square-on reads as a stall on
+   * exactly the screen where a stall is the thing people fear. The seal ring
+   * turns underneath it at a different period, so the two never sync into one
+   * beat and the whole thing keeps looking alive on a long wait.
+   */
+  --animate-tag-swing: tag-swing 1.6s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+  --animate-seal-turn: seal-turn 2.4s linear infinite;
+  --animate-seal-pulse: seal-pulse 1.6s ease-in-out infinite;
+  /*
+   * The ring behind a driver's pin on the map. Slow on purpose — a fast pulse
+   * reads as an alert, and nothing here is wrong; this says "these positions
+   * are live", which is the one thing a map of stationary-looking pins cannot
+   * say for itself between updates.
+   */
+  --animate-pin-ping: pin-ping 2.8s cubic-bezier(0, 0, 0.2, 1) infinite;
+
+  @keyframes tag-swing {
+    0%,
+    100% {
+      transform: rotate(-13deg);
+    }
+    50% {
+      transform: rotate(13deg);
+    }
+  }
+  @keyframes seal-turn {
+    from {
+      transform: rotate(0deg);
+    }
+    to {
+      transform: rotate(360deg);
+    }
+  }
+  @keyframes seal-pulse {
+    0%,
+    100% {
+      opacity: 0.35;
+      transform: scale(0.94);
+    }
+    50% {
+      opacity: 1;
+      transform: scale(1);
+    }
+  }
+
+  @keyframes pin-ping {
+    0% {
+      opacity: 0.45;
+      transform: scale(0.75);
+    }
+    /* Fades well before it stops growing, so the ring dissolves outward
+       rather than snapping off at its widest. */
+    70% {
+      opacity: 0;
+      transform: scale(1.9);
+    }
+    100% {
+      opacity: 0;
+      transform: scale(1.9);
+    }
+  }
 
   @keyframes accordion-down {
     from {
@@ -225,8 +291,11 @@
   --radius-sm: calc(var(--radius) - 4px);
 
   /*
-   * Apps set `--font-sans` / `--font-display` via next/font (see web's
-   * layout.tsx); apps that don't get the system fallback chain.
+   * These variables come from `@koolee/ui/fonts`, which every app's root
+   * layout spreads onto `<body>` as `brandFontClassName`. The fallback chain
+   * is the safety net, not the plan: until 2026-08-29 admin and agent mounted
+   * no font at all, so every `font-display` heading in both apps silently
+   * rendered in system-ui while web had Sora.
    */
   --font-sans: var(--font-sans, ui-sans-serif, system-ui, sans-serif);
   --font-display: var(
@@ -270,5 +339,141 @@
   input::placeholder,
   textarea::placeholder {
     color: var(--color-gray-400);
+  }
+
+  /*
+   * Page behaviour and selection/focus affordances. These lived in web's
+   * globals.css until 2026-08-29, which is why admin and agent shipped
+   * browser-default focus outlines while web had the brand ring — the whole
+   * point of a shared theme is that no app has to remember these.
+   */
+  html {
+    scroll-behavior: smooth;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    html {
+      scroll-behavior: auto;
+    }
+  }
+
+  ::selection {
+    background-color: var(--color-sky-200);
+    color: var(--color-navy);
+  }
+
+  /* Visible focus for keyboard users, quiet for pointer users. */
+  :focus-visible {
+    outline: 2px solid hsl(var(--ring));
+    outline-offset: 2px;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * Agreement editor content.
+ *
+ * ProseMirror renders real block elements inside its own container, so these
+ * cannot be Tailwind utilities on a wrapper — the nodes are created by the
+ * editor at runtime. The selector list is deliberately EXACTLY the node set
+ * `packages/ui/src/lib/agreement-markdown.ts` can represent: if a rule appears
+ * here for something that module cannot round-trip, one of the two is wrong.
+ *
+ * Spacing intentionally mirrors the customer-facing `<Markdown>` component so
+ * an operator is composing at roughly the shape the customer will read.
+ * ------------------------------------------------------------------------ */
+@layer components {
+  .prose-agreement {
+    font-size: 0.875rem;
+    line-height: 1.625;
+  }
+  .prose-agreement > * + * {
+    margin-top: 0.75rem;
+  }
+  /* Mirrors `<Markdown>`'s heading sizes exactly. The editor and the
+     customer's page have to agree on what an h1 looks like, or the operator
+     is formatting against a preview that lies. */
+  .prose-agreement h1 {
+    font-family: var(--font-display, inherit);
+    font-size: 1.125rem;
+    font-weight: 600;
+  }
+  .prose-agreement h2 {
+    font-family: var(--font-display, inherit);
+    font-size: 1rem;
+    font-weight: 600;
+  }
+  .prose-agreement h3 {
+    font-family: var(--font-display, inherit);
+    font-size: 0.875rem;
+    font-weight: 600;
+  }
+  .prose-agreement ul,
+  .prose-agreement ol {
+    padding-left: 1.25rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+  .prose-agreement ul {
+    list-style-type: disc;
+  }
+  .prose-agreement ol {
+    list-style-type: decimal;
+  }
+  .prose-agreement blockquote {
+    border-left: 2px solid hsl(var(--border));
+    padding-left: 1rem;
+    color: hsl(var(--muted-foreground));
+  }
+  .prose-agreement hr {
+    border-color: hsl(var(--border));
+  }
+  /* Links and tables, matching `<Markdown>`. Both arrived in slice F4; before
+     it, the renderer had no branch for either and the editor could not author
+     one, so neither needed a rule here. */
+  .prose-agreement a {
+    color: var(--color-navy-800, inherit);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+  .prose-agreement table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.875rem;
+    /* An agreement is read at a measure; a wide rate card scrolls inside its
+       own box rather than making the whole document scroll sideways. */
+    display: block;
+    overflow-x: auto;
+  }
+  .prose-agreement th,
+  .prose-agreement td {
+    border: 1px solid hsl(var(--border));
+    padding: 0.5rem 0.75rem;
+    text-align: left;
+    vertical-align: top;
+  }
+  .prose-agreement th {
+    background-color: hsl(var(--muted) / 0.4);
+    font-weight: 500;
+  }
+  /* ProseMirror's own marker for the cells inside the current selection. */
+  .prose-agreement .selectedCell::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: hsl(var(--muted) / 0.5);
+    pointer-events: none;
+  }
+  .prose-agreement td,
+  .prose-agreement th {
+    position: relative;
+  }
+  /* Tiptap's Placeholder extension marks the first empty node. */
+  .prose-agreement p.is-editor-empty:first-child::before {
+    content: attr(data-placeholder);
+    color: var(--color-gray-400);
+    float: left;
+    height: 0;
+    pointer-events: none;
   }
 }

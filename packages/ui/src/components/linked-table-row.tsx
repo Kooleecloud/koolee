@@ -42,7 +42,12 @@ function LinkedTableRow({ children, className, onClick, ...props }: LinkedTableR
   };
 
   return (
-    <tr ref={ref} onClick={handleClick} className={cn("cursor-pointer", className)} {...props}>
+    <tr
+      ref={ref}
+      onClick={handleClick}
+      className={cn("cursor-pointer", className)}
+      {...props}
+    >
       {children}
     </tr>
   );

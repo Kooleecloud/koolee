@@ -19,6 +19,7 @@ import {
   users,
   type Database,
 } from "@koolee/db";
+import { TEST_AIRPORTS } from "../test-utils/airport-fixtures";
 
 import { createCoreConfig, fixedClock, type CoreConfig } from "../config";
 import type { OpsAlerter } from "../notifications/notifier";
@@ -32,6 +33,8 @@ import {
   captureDueBookings,
 } from "./payment-lifecycle";
 import { handlePaymentEvent } from "./webhooks";
+import { generateBookingRef } from "../booking/ref";
+import { pickupSnapshotOf } from "../test-utils/booking-fixtures";
 
 /**
  * Phase 5 acceptance — the payment lifecycle, end to end over the
@@ -52,7 +55,9 @@ const TEST_DATABASE_URL = process.env.TEST_DATABASE_URL;
 const describeIntegration = TEST_DATABASE_URL ? describe : describe.skip;
 
 if (!TEST_DATABASE_URL) {
-  console.log("[integration] TEST_DATABASE_URL not set — skipping payment-lifecycle tests.");
+  console.log(
+    "[integration] TEST_DATABASE_URL not set — skipping payment-lifecycle tests.",
+  );
 }
 
 const migrationsFolder = path.join(
@@ -128,11 +133,7 @@ describeIntegration("payment lifecycle (integration)", () => {
       SET session_replication_role = DEFAULT;
     `);
 
-    await db.insert(airports).values({
-      code: "JFK",
-      name: "John F. Kennedy International",
-      tz: "America/New_York",
-    });
+    await db.insert(airports).values(TEST_AIRPORTS.JFK);
     await db.insert(airlineCutoffs).values({
       airlineIata: "DL",
       airportCode: "JFK",
@@ -168,6 +169,7 @@ describeIntegration("payment lifecycle (integration)", () => {
     const result = await createBooking(config, {
       userId,
       pickupAddressId: address.id,
+      quotedZip: "10001",
       ...window,
       flightNumber: "DL123",
       airlineIata: "DL",
@@ -231,12 +233,20 @@ describeIntegration("payment lifecycle (integration)", () => {
     );
     const outcome = await handlePaymentEvent(config, cancelEvent);
     expect(outcome.handled).toBe(true);
-    const [bookingA] = await db.select().from(bookings).where(eq(bookings.id, a.booking.id));
+    const [bookingA] = await db
+      .select()
+      .from(bookings)
+      .where(eq(bookings.id, a.booking.id));
     expect(bookingA!.status).toBe("cancelled");
 
     // In transit: same event class must land in `exception`, not cancel.
     const b = await book();
-    for (const status of ["agent_assigned", "verified_sealed", "awaiting_pickup", "in_transit"] as const) {
+    for (const status of [
+      "agent_assigned",
+      "verified_sealed",
+      "awaiting_pickup",
+      "in_transit",
+    ] as const) {
       await db.update(bookings).set({ status }).where(eq(bookings.id, b.booking.id));
     }
     const cancelEvent2 = provider.verifyWebhook(
@@ -249,7 +259,10 @@ describeIntegration("payment lifecycle (integration)", () => {
       ),
     );
     await handlePaymentEvent(config, cancelEvent2);
-    const [bookingB] = await db.select().from(bookings).where(eq(bookings.id, b.booking.id));
+    const [bookingB] = await db
+      .select()
+      .from(bookings)
+      .where(eq(bookings.id, b.booking.id));
     expect(bookingB!.status).toBe("exception");
   });
 
@@ -384,7 +397,10 @@ describeIntegration("payment lifecycle (integration)", () => {
       .where(eq(payments.providerRef, payment.authId));
     expect(paymentRow!.status).toBe("cancelled");
 
-    const [bookingRow] = await db.select().from(bookings).where(eq(bookings.id, booking.id));
+    const [bookingRow] = await db
+      .select()
+      .from(bookings)
+      .where(eq(bookings.id, booking.id));
     expect(bookingRow!.status).toBe("cancelled");
 
     // Windows are virtual: no slots row exists for this booking, and the
@@ -415,6 +431,7 @@ describeIntegration("payment lifecycle (integration)", () => {
     const [legacy] = await db
       .insert(bookings)
       .values({
+        ref: generateBookingRef(),
         userId,
         status: "paid",
         flightNumber: "DL123",
@@ -422,7 +439,7 @@ describeIntegration("payment lifecycle (integration)", () => {
         departureAirport: "JFK",
         departureAt,
         paxName: "Legacy Customer",
-        pickupAddressId: address.id,
+        ...pickupSnapshotOf(address),
         bagCount: 1,
         slotId: slot!.id,
         displayTz: "America/New_York",
@@ -438,7 +455,10 @@ describeIntegration("payment lifecycle (integration)", () => {
     // The hand-inserted legacy row has no payments row → money "none".
     expect(result).toEqual({ ok: true, money: "none" });
 
-    const [bookingRow] = await db.select().from(bookings).where(eq(bookings.id, legacy!.id));
+    const [bookingRow] = await db
+      .select()
+      .from(bookings)
+      .where(eq(bookings.id, legacy!.id));
     expect(bookingRow!.status).toBe("cancelled");
 
     const [after] = await db.select().from(slots).where(eq(slots.id, slot!.id));
@@ -447,7 +467,10 @@ describeIntegration("payment lifecycle (integration)", () => {
 
   it("cancelling after capture refunds IN FULL (no fee rules exist) through the seam", async () => {
     const { booking } = await book();
-    const captured = await captureBookingPayment(config, { bookingId: booking.id, actor });
+    const captured = await captureBookingPayment(config, {
+      bookingId: booking.id,
+      actor,
+    });
     expect(captured.ok).toBe(true);
     if (!captured.ok) return;
 
@@ -476,7 +499,12 @@ describeIntegration("payment lifecycle (integration)", () => {
 
   it("cancellation is refused by the matrix once bags are in transit", async () => {
     const { booking } = await book();
-    for (const status of ["agent_assigned", "verified_sealed", "awaiting_pickup", "in_transit"] as const) {
+    for (const status of [
+      "agent_assigned",
+      "verified_sealed",
+      "awaiting_pickup",
+      "in_transit",
+    ] as const) {
       await db.update(bookings).set({ status }).where(eq(bookings.id, booking.id));
     }
     const result = await cancelBookingWithRefund(config, {

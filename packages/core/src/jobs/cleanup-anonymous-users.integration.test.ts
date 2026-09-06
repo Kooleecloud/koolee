@@ -16,8 +16,11 @@ import {
   users,
   type Database,
 } from "@koolee/db";
+import { TEST_AIRPORTS } from "../test-utils/airport-fixtures";
 
 import { cleanupAnonymousUsers } from "./cleanup-anonymous-users";
+import { generateBookingRef } from "../booking/ref";
+import { pickupSnapshotOf } from "../test-utils/booking-fixtures";
 
 /**
  * Integration tests for the anonymous-user GC against a real Postgres.
@@ -102,9 +105,13 @@ describeIntegration("cleanupAnonymousUsers (integration)", () => {
     expect(result.deletedDrafts).toBe(1);
     expect(result.skippedWithBookings).toBe(0);
     expect(deleteAuthUser).toHaveBeenCalledWith(staleId);
-    expect(await db.query.users.findFirst({ where: eq(users.id, staleId) })).toBeUndefined();
     expect(
-      await db.query.bookingDrafts.findFirst({ where: eq(bookingDrafts.userId, staleId) }),
+      await db.query.users.findFirst({ where: eq(users.id, staleId) }),
+    ).toBeUndefined();
+    expect(
+      await db.query.bookingDrafts.findFirst({
+        where: eq(bookingDrafts.userId, staleId),
+      }),
     ).toBeUndefined();
   });
 
@@ -122,18 +129,18 @@ describeIntegration("cleanupAnonymousUsers (integration)", () => {
     const result = await cleanupAnonymousUsers(db, { now, log: () => {} });
 
     expect(result.deletedUsers).toBe(0);
-    expect(await db.query.users.findFirst({ where: eq(users.id, freshAnon) })).toBeDefined();
-    expect(await db.query.users.findFirst({ where: eq(users.id, verifiedId) })).toBeDefined();
+    expect(
+      await db.query.users.findFirst({ where: eq(users.id, freshAnon) }),
+    ).toBeDefined();
+    expect(
+      await db.query.users.findFirst({ where: eq(users.id, verifiedId) }),
+    ).toBeDefined();
   });
 
   it("refuses to touch a stale anonymous user who somehow owns a booking", async () => {
     const staleWithBooking = await insertAnon(30);
 
-    await db.insert(airports).values({
-      code: "JFK",
-      name: "John F. Kennedy International",
-      tz: "America/New_York",
-    });
+    await db.insert(airports).values(TEST_AIRPORTS.JFK);
     const [address] = await db
       .insert(addresses)
       .values({
@@ -145,6 +152,7 @@ describeIntegration("cleanupAnonymousUsers (integration)", () => {
       })
       .returning();
     await db.insert(bookings).values({
+      ref: generateBookingRef(),
       userId: staleWithBooking,
       status: "draft",
       displayTz: "America/New_York",
@@ -153,7 +161,7 @@ describeIntegration("cleanupAnonymousUsers (integration)", () => {
       departureAirport: "JFK",
       departureAt: daysAgo(-5),
       paxName: "Jordan Alvarez",
-      pickupAddressId: address!.id,
+      ...pickupSnapshotOf(address!),
       bagCount: 2,
       priceCents: 9900,
     });

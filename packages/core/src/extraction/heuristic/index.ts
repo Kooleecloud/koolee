@@ -1,1 +1,1 @@
-export { HeuristicTicketExtractor, parseTicketTextHeuristics } from "./extractor";
+export { HeuristicTicketExtractor, readTicketText } from "./extractor";

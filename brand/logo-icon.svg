@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48" role="img" aria-label="Koolee icon">
+  <path d="M16 27.5 38.5 8.5" stroke="#38B6E3" stroke-width="8.5" stroke-linecap="round" fill="none"/>
+  <path fill="#0B2545" fill-rule="evenodd" d="M11.5 5h3a6.5 6.5 0 0 1 6.5 6.5v29a4.5 4.5 0 0 1-4.5 4.5h-7A4.5 4.5 0 0 1 5 40.5v-29A6.5 6.5 0 0 1 11.5 5Zm1.5 4.8a2.7 2.7 0 1 0 0 5.4 2.7 2.7 0 0 0 0-5.4Z"/>
+  <path d="M16 27.5 37.5 41.5" stroke="#0B2545" stroke-width="8.5" stroke-linecap="round" fill="none"/>
+  <circle cx="13" cy="12.5" r="3.75" stroke="#FF6B35" stroke-width="2.1" fill="none"/>
+</svg>

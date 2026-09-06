@@ -21,6 +21,7 @@ import {
   verificationTasks,
   type Database,
 } from "@koolee/db";
+import { TEST_AIRPORTS } from "../test-utils/airport-fixtures";
 
 import type { AdminSession } from "../auth/types";
 import { createCoreConfig, fixedClock, type CoreConfig } from "../config";
@@ -134,11 +135,7 @@ describeIntegration("admin dispatch + overrides (integration)", () => {
       SET session_replication_role = DEFAULT;
     `);
 
-    await db.insert(airports).values({
-      code: "JFK",
-      name: "John F. Kennedy International",
-      tz: "America/New_York",
-    });
+    await db.insert(airports).values(TEST_AIRPORTS.JFK);
     await db.insert(airlineCutoffs).values({
       airlineIata: "DL",
       airportCode: "JFK",
@@ -200,6 +197,7 @@ describeIntegration("admin dispatch + overrides (integration)", () => {
     const { booking } = await createBooking(config, {
       userId: customerId,
       pickupAddressId: address.id,
+      quotedZip: "10001",
       ...window,
       flightNumber: "DL123",
       airlineIata: "DL",
@@ -330,7 +328,15 @@ describeIntegration("admin dispatch + overrides (integration)", () => {
     });
     expect(result.ok).toBe(false);
     if (result.ok) return;
-    expect(result.error).toMatch(/completed/);
+    /*
+     * The refusal now comes from `assignmentGate` in the actionability
+     * service rather than from a line in `assignAgentToBooking`, so the
+     * WORDING moved with it ("the visit is already complete", plus why). The
+     * rule this test exists for is unchanged and still asserted: a finished
+     * visit cannot be reassigned, because the seals and the passport check
+     * are recorded against the agent who did it.
+     */
+    expect(result.error).toMatch(/visit is already complete/i);
   });
 
   it("refuses inactive agents, non-agent staff, and non-paid first assignments — without leaving orphan tasks", async () => {
@@ -518,7 +524,7 @@ describeIntegration("admin dispatch + overrides (integration)", () => {
     const unassigned = await paidBooking();
     const exception = await exceptionBooking();
 
-    const dashboard = await getOpsDashboard(db, "America/New_York", now);
+    const dashboard = await getOpsDashboard(db, "America/New_York", { now });
     const byStatus = Object.fromEntries(
       dashboard.todayByStatus.map((r) => [r.status, r.count]),
     );
@@ -528,7 +534,7 @@ describeIntegration("admin dispatch + overrides (integration)", () => {
     expect(dashboard.unassignedToday).toBe(1);
     expect(dashboard.exceptionsOpen).toBe(1);
 
-    const board = await listBookingsBoard(db, {}, now);
+    const board = await listBookingsBoard(db, {}, { now });
     expect(board).toHaveLength(3);
     const rowFor = (id: string) => board.find((r) => r.booking.id === id)!;
     // Paid + unassigned + window starts within the 12h horizon → at risk.
@@ -540,21 +546,124 @@ describeIntegration("admin dispatch + overrides (integration)", () => {
     expect(rowFor(exception.id).atRisk).toBe(false);
 
     // Filters narrow by status.
-    const exceptionsOnly = await listBookingsBoard(db, { statuses: ["exception"] }, now);
+    const exceptionsOnly = await listBookingsBoard(
+      db,
+      { statuses: ["exception"] },
+      { now },
+    );
     expect(exceptionsOnly.map((r) => r.booking.id)).toEqual([exception.id]);
 
     // Multi-select is an OR within the dimension.
     const twoStatuses = await listBookingsBoard(
       db,
       { statuses: ["exception", "paid"] },
-      now,
+      { now },
     );
     expect(new Set(twoStatuses.map((r) => r.booking.id))).toEqual(
       new Set([exception.id, unassigned.id]),
     );
 
     // An empty array clears the filter — it never means "match nothing".
-    const cleared = await listBookingsBoard(db, { statuses: [], airports: [] }, now);
+    const cleared = await listBookingsBoard(db, { statuses: [], airports: [] }, { now });
     expect(cleared).toHaveLength(3);
+  });
+
+  /* ------------------------------------------------------------------ */
+  /* Board search                                                         */
+  /* ------------------------------------------------------------------ */
+
+  /**
+   * Search widened from three fields to eleven. Each of these pins one field
+   * as reachable — and one of them pins a field as deliberately NOT.
+   */
+  describe("board search", () => {
+    /** Names the customer, so the account's own fields are searchable. */
+    async function namedCustomer() {
+      await db
+        .update(users)
+        .set({ fullName: "Priya Raghunathan", email: "priya.r@koolee-test.example" })
+        .where(eq(users.id, customerId));
+    }
+
+    it("finds a booking by its ref in any casing, and says so", async () => {
+      const booking = await paidBooking();
+      const payload = booking.ref.replace("KOO-", "");
+
+      for (const term of [booking.ref, payload, payload.toLowerCase()]) {
+        const rows = await listBookingsBoard(db, { search: term }, { now });
+        expect(rows.map((r) => r.booking.id)).toEqual([booking.id]);
+      }
+    });
+
+    it("finds the passenger on the ticket", async () => {
+      const booking = await paidBooking();
+      const rows = await listBookingsBoard(db, { search: "test custom" }, { now });
+      expect(rows.map((r) => r.booking.id)).toEqual([booking.id]);
+    });
+
+    it("finds a flight by its digits alone", async () => {
+      const booking = await paidBooking();
+      // Nobody says "delta one two three" when the board is on fire.
+      const rows = await listBookingsBoard(db, { search: "123" }, { now });
+      expect(rows.map((r) => r.booking.id)).toEqual([booking.id]);
+    });
+
+    it("finds the account holder by name and by email", async () => {
+      await namedCustomer();
+      const booking = await paidBooking();
+
+      const byName = await listBookingsBoard(db, { search: "raghunathan" }, { now });
+      expect(byName.map((r) => r.booking.id)).toEqual([booking.id]);
+
+      const byEmail = await listBookingsBoard(db, { search: "priya.r@" }, { now });
+      expect(byEmail.map((r) => r.booking.id)).toEqual([booking.id]);
+    });
+
+    /*
+     * The account holder and the passenger are DIFFERENT PEOPLE here, which is
+     * the ordinary case for a parent booking for a child. Searching either
+     * name has to reach the booking — the old three-field search reached
+     * neither.
+     */
+    it("reaches a booking by the account holder OR the passenger", async () => {
+      await namedCustomer();
+      const booking = await paidBooking();
+
+      for (const term of ["priya", "test customer"]) {
+        const rows = await listBookingsBoard(db, { search: term }, { now });
+        expect(rows.map((r) => r.booking.id)).toEqual([booking.id]);
+      }
+    });
+
+    it("returns a row once however many of its fields the term hits", async () => {
+      await db
+        .update(users)
+        .set({ fullName: "DL123 Person", email: "dl123@koolee-test.example" })
+        .where(eq(users.id, customerId));
+      const booking = await paidBooking();
+
+      // "dl123" is the flight number, the customer's name and their email —
+      // three clauses OR'd together, one row.
+      const rows = await listBookingsBoard(db, { search: "dl123" }, { now });
+      expect(rows.map((r) => r.booking.id)).toEqual([booking.id]);
+    });
+
+    /*
+     * THE PII LINE, PINNED. Address and ZIP are deliberately unsearchable:
+     * "who is booked on this street" answers no support call, and it is the
+     * one search here worth misusing. A future widening that adds them will
+     * fail this test, which is the point of writing it down.
+     */
+    it("does not search the pickup address or zip", async () => {
+      await paidBooking();
+      expect(await listBookingsBoard(db, { search: "1 Test St" }, { now })).toEqual([]);
+      expect(await listBookingsBoard(db, { search: "10001" }, { now })).toEqual([]);
+    });
+
+    it("returns the whole board when nothing was searched", async () => {
+      const booking = await paidBooking();
+      const rows = await listBookingsBoard(db, {}, { now });
+      expect(rows.map((r) => r.booking.id)).toEqual([booking.id]);
+    });
   });
 });

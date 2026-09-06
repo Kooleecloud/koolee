@@ -42,7 +42,9 @@ function NumberStepper({
   className,
   disabled,
 }: NumberStepperProps) {
-  const [count, setCount] = React.useState(() => Math.min(Math.max(defaultValue, min), max));
+  const [count, setCount] = React.useState(() =>
+    Math.min(Math.max(defaultValue, min), max),
+  );
 
   const step = (delta: number) =>
     setCount((current) => Math.min(Math.max(current + delta, min), max));

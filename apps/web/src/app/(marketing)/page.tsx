@@ -131,8 +131,8 @@ export default function HomePage() {
               Walk into the airport carrying nothing.
             </h1>
             <p className="max-w-xl text-lg leading-relaxed text-muted-foreground">
-              From your doorstep to your airline&apos;s bag drop, we handle every bag —
-              so you skip the haul, skip the bag-drop line, and arrive at the airport
+              From your doorstep to your airline&apos;s bag drop, we handle every bag — so
+              you skip the haul, skip the bag-drop line, and arrive at the airport
               hassle-free.
             </p>
             <div className="flex flex-wrap items-center gap-3">
@@ -248,8 +248,7 @@ export default function HomePage() {
           <Reveal className="rounded-2xl border border-border bg-navy-800 p-8 text-white shadow-lift">
             <p className="text-sm font-medium text-navy-200">Launch pricing</p>
             <p className="font-display text-display-sm mt-2 font-semibold">
-              $29 + $15{" "}
-              <span className="text-xl font-medium text-navy-200">per bag</span>
+              $29 + $15 <span className="text-xl font-medium text-navy-200">per bag</span>
             </p>
             <ul className="mt-6 flex flex-col gap-2.5 text-sm text-navy-100">
               <li>· Doorstep pickup, sealing, and bag-drop delivery included</li>
@@ -280,8 +279,7 @@ export default function HomePage() {
               href="/faq"
               className="inline-flex items-center gap-1.5 text-sm font-medium text-sky-700 underline-offset-4 hover:text-sky-600 hover:underline"
             >
-              All questions, answered{" "}
-              <ArrowRight aria-hidden="true" className="size-4" />
+              All questions, answered <ArrowRight aria-hidden="true" className="size-4" />
             </Link>
           </p>
         </Reveal>

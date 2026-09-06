@@ -21,6 +21,15 @@ import { customerSessionFromAuthUser } from "@/lib/session";
  * translates typed errors into copy.
  */
 
+/**
+ * Everything these actions mutate is rendered by `/dashboard/profile` —
+ * saved addresses included, since `/dashboard/addresses` is now a redirect
+ * onto it. Without this the action returns `ok`, the form says "saved", and
+ * the page keeps showing the old value out of the client Router Cache: the
+ * server component never re-ran. Matches what every admin action already does.
+ */
+const PROFILE_PATH = "/dashboard/profile";
+
 export interface AddressActionState {
   error?: string;
   ok?: boolean;
@@ -33,6 +42,15 @@ const addressSchema = z.object({
   city: z.string().min(1, "Enter the city.").max(100),
   state: z.string().length(2, "Two-letter state."),
   zip: z.string().min(5).max(10),
+  /**
+   * Posted as hidden fields by the autocomplete, and only ever present when
+   * the customer picked a suggestion — the form clears them on any hand edit.
+   * Coerced from strings because that is what a form sends; anything
+   * unparseable becomes undefined and the ZIP centroid answers instead.
+   */
+  lat: z.coerce.number().min(-90).max(90).optional(),
+  lng: z.coerce.number().min(-180).max(180).optional(),
+  placeId: z.string().max(255).optional().or(z.literal("")),
 });
 
 async function requireSession() {
@@ -41,14 +59,25 @@ async function requireSession() {
   return customerSessionFromAuthUser(authUser);
 }
 
+/** Undefined rather than "" — the schema's coercion turns "" into 0. */
+function optional(form: FormData, key: string): string | undefined {
+  const raw = String(form.get(key) ?? "").trim();
+  return raw.length > 0 ? raw : undefined;
+}
+
 function parseAddress(form: FormData) {
   return addressSchema.safeParse({
     label: String(form.get("label") ?? "").trim(),
     line1: String(form.get("line1") ?? "").trim(),
     line2: String(form.get("line2") ?? "").trim(),
     city: String(form.get("city") ?? "").trim(),
-    state: String(form.get("state") ?? "").trim().toUpperCase(),
+    state: String(form.get("state") ?? "")
+      .trim()
+      .toUpperCase(),
     zip: String(form.get("zip") ?? "").trim(),
+    lat: optional(form, "lat"),
+    lng: optional(form, "lng"),
+    placeId: optional(form, "placeId"),
   });
 }
 
@@ -61,7 +90,9 @@ export async function createAddress(
 
   const parsed = parseAddress(form);
   if (!parsed.success) {
-    return { error: parsed.error.issues[0]?.message ?? "Check the fields and try again." };
+    return {
+      error: parsed.error.issues[0]?.message ?? "Check the fields and try again.",
+    };
   }
 
   const core = tryGetCore();
@@ -75,6 +106,9 @@ export async function createAddress(
       city: parsed.data.city,
       state: parsed.data.state,
       zip: parsed.data.zip,
+      lat: parsed.data.lat ?? null,
+      lng: parsed.data.lng ?? null,
+      placeId: parsed.data.placeId || null,
     });
   } catch (error) {
     if (error instanceof OutOfCoverageError) {
@@ -84,7 +118,7 @@ export async function createAddress(
     return { error: "Something went wrong saving the address." };
   }
 
-  revalidatePath("/dashboard/profile");
+  revalidatePath(PROFILE_PATH);
   return { ok: true };
 }
 
@@ -100,7 +134,9 @@ export async function updateAddress(
 
   const parsed = parseAddress(form);
   if (!parsed.success) {
-    return { error: parsed.error.issues[0]?.message ?? "Check the fields and try again." };
+    return {
+      error: parsed.error.issues[0]?.message ?? "Check the fields and try again.",
+    };
   }
 
   const core = tryGetCore();
@@ -114,6 +150,9 @@ export async function updateAddress(
       city: parsed.data.city,
       state: parsed.data.state,
       zip: parsed.data.zip,
+      lat: parsed.data.lat ?? null,
+      lng: parsed.data.lng ?? null,
+      placeId: parsed.data.placeId || null,
     });
   } catch (error) {
     if (error instanceof OutOfCoverageError) {
@@ -126,7 +165,7 @@ export async function updateAddress(
     return { error: "Something went wrong saving the address." };
   }
 
-  revalidatePath("/dashboard/profile");
+  revalidatePath(PROFILE_PATH);
   return { ok: true };
 }
 
@@ -156,6 +195,6 @@ export async function deleteAddress(
     return { error: "Something went wrong deleting the address." };
   }
 
-  revalidatePath("/dashboard/profile");
+  revalidatePath(PROFILE_PATH);
   return { ok: true };
 }

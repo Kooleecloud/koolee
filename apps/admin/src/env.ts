@@ -11,6 +11,30 @@ import { z } from "zod";
 const optionalString = z.string().min(1).optional().catch(undefined);
 const optionalUrl = z.url().optional().catch(undefined);
 
+/**
+ * The Supabase **API** URL, and specifically not the database host.
+ *
+ * `https://db.<ref>.supabase.co` is the direct Postgres host: IPv6-only, and
+ * it serves no HTTP API at all. Pasted into this variable — an easy mistake,
+ * because it is the hostname the Database settings page shows — every auth
+ * call fails with `ERR_NAME_NOT_RESOLVED`, supabase-js reports it as an auth
+ * error, and the staff apps render it as "Email or password didn't match"
+ * over credentials that are perfectly correct. It cost a day (2026-08-30).
+ *
+ * Rejecting it here turns that into the app's honest "not configured" state,
+ * which the boot warnings and the env panel both name. The right value comes
+ * from Settings → **API** → Project URL: `https://<ref>.supabase.co`.
+ */
+const supabaseApiUrl = z
+  .url()
+  .refine((value) => !/^https?:\/\/db\./i.test(value), {
+    message:
+      "NEXT_PUBLIC_SUPABASE_URL is the db.<ref> host (direct Postgres, IPv6-only, no HTTP API). " +
+      "Use Settings → API → Project URL: https://<ref>.supabase.co",
+  })
+  .optional()
+  .catch(undefined);
+
 const schema = z.object({
   NODE_ENV: z
     .enum(["development", "test", "production"])
@@ -24,14 +48,115 @@ const schema = z.object({
   NEXT_PUBLIC_AGENT_APP_URL: optionalUrl,
 
   DATABASE_URL: optionalString,
-  DIRECT_DATABASE_URL: optionalString,
 
-  NEXT_PUBLIC_SUPABASE_URL: optionalUrl,
+  // --- Web Push (VAPID) --------------------------------------------------
+  /**
+   * THE PUSH KILL SWITCH. `"true"` to enable; anything else (including unset)
+   * means OFF, in every environment.
+   *
+   * Push ships DISABLED. It is the one channel that fails silently and
+   * undetectably, so it is opt-in by explicit configuration rather than
+   * something you get by accident when a key happens to be present.
+   *
+   * ONE VARIABLE, NOT TWO. It is `NEXT_PUBLIC_` so the server and the browser
+   * read the SAME value — same pattern as NEXT_PUBLIC_LAUNCH_MODE. A
+   * server flag paired with a public twin is two things that can disagree,
+   * and this slice has already paid once for exactly that shape (the agent
+   * app held the public VAPID key but not the private one, so it registered
+   * devices and silently sent nothing). "Is push on" is not a secret.
+   *
+   * OFF means: `ConsolePushSender` regardless of the VAPID vars, every enable
+   * affordance hidden, and the VAPID boot gate waived. Stored subscriptions
+   * are left ALONE — flipping it back on resumes sends with no re-subscribe.
+   */
+  NEXT_PUBLIC_PUSH_NOTIFICATIONS_ENABLED: z
+    .enum(["true", "false"])
+    .default("false")
+    .catch("false"),
+  /**
+   * The SAME pair apps/web holds. All four are needed here because this app
+   * SENDS: `/api/push/test` pushes a test notification to your own devices,
+   * and without the private key the runtime falls back to
+   * `ConsolePushSender`, which logs a line and reports SUCCESS — so the
+   * "did you see it?" check asks about a notification that was never sent.
+   *
+   * Generate once with `pnpm push:vapid`; regenerating invalidates every
+   * stored subscription. See docs/features/f3-hosted-setup.md.
+   */
+  VAPID_PUBLIC_KEY: optionalString,
+  VAPID_PRIVATE_KEY: optionalString,
+  /** `mailto:` or `https:`. Apple REFUSES a push whose subject is neither. */
+  VAPID_SUBJECT: optionalString,
+  NEXT_PUBLIC_VAPID_PUBLIC_KEY: optionalString,
+
+  /**
+   * How many hours before a pickup window an agent is assigned to it.
+   *
+   * The console reads it so the board and the rail badges can tell "nobody
+   * has picked this up" apart from "the sweep has correctly not reached it
+   * yet". MUST match apps/web, which is where the assignment actually
+   * happens; unset or unparseable → the core default (48).
+   */
+  ASSIGNMENT_HORIZON_HOURS: optionalString,
+  // DIRECT_DATABASE_URL is deliberately NOT read here: it is a hosted DDL
+  // credential and belongs in packages/db/.env alone (see .env.example).
+
+  NEXT_PUBLIC_SUPABASE_URL: supabaseApiUrl,
   NEXT_PUBLIC_SUPABASE_ANON_KEY: optionalString,
+
+  /**
+   * Cloudflare Turnstile SITE key. Required whenever the Supabase project has
+   * CAPTCHA protection on — that is a PROJECT setting, so enabling it for the
+   * customer funnel gates this app's `signInWithPassword` and
+   * `resetPasswordForEmail` too. Absent, those calls fail with
+   * "captcha protection: request disallowed (no captcha_token found)".
+   *
+   * Must be the SAME site key apps/web uses for this environment: the secret
+   * is a single per-Supabase-project value and lives only in the Supabase
+   * dashboard, never here.
+   */
+  NEXT_PUBLIC_TURNSTILE_SITE_KEY: optionalString,
   SUPABASE_SERVICE_ROLE_KEY: optionalString,
 
   STRIPE_SECRET_KEY: optionalString,
-  SENTRY_DSN: optionalString,
+  /**
+   * Event key for the shared Inngest app. This app SENDS domain events (an
+   * ops override moving a booking to exception) but serves no functions —
+   * the registry and the signing key live in apps/web. Unset is fine
+   * locally: the dev server accepts unauthenticated sends.
+   */
+  INNGEST_EVENT_KEY: optionalString,
+  /**
+   * Shared secret for machine-triggered routes. This app has exactly one:
+   * `/api/observability/test-error`, which proves Sentry is wired after a
+   * deploy. Absent ⇒ that route refuses to run, the same way apps/web's cron
+   * routes do.
+   */
+  CRON_SECRET: optionalString,
+
+  // --- Observability -----------------------------------------------------
+  /**
+   * Sentry's DSN, and deliberately `NEXT_PUBLIC_`.
+   *
+   * ONE variable for both runtimes, for the same reason the push kill switch
+   * is one: a server-only `SENTRY_DSN` plus a public twin is two things that
+   * can disagree, and the failure — the browser half silently reporting
+   * nothing while the server half looks healthy — is invisible. A DSN is not a
+   * secret; it is in every client bundle by design, and it grants nothing but
+   * the ability to send events to one project.
+   *
+   * Absent ⇒ the SDK initialises with no DSN and drops everything, which is
+   * what a fresh clone and every local run do.
+   */
+  NEXT_PUBLIC_SENTRY_DSN: optionalString,
+  /**
+   * Source-map upload, BUILD TIME ONLY — never read at runtime. All three
+   * absent (a laptop build) means the upload step is skipped silently and
+   * stack traces in Sentry stay minified.
+   */
+  SENTRY_ORG: optionalString,
+  SENTRY_PROJECT: optionalString,
+  SENTRY_AUTH_TOKEN: optionalString,
 });
 
 export type Env = z.infer<typeof schema>;
@@ -44,14 +169,26 @@ const raw = {
   NEXT_PUBLIC_AGENT_APP_URL: process.env.NEXT_PUBLIC_AGENT_APP_URL,
 
   DATABASE_URL: process.env.DATABASE_URL,
-  DIRECT_DATABASE_URL: process.env.DIRECT_DATABASE_URL,
+  VAPID_PUBLIC_KEY: process.env.VAPID_PUBLIC_KEY,
+  VAPID_PRIVATE_KEY: process.env.VAPID_PRIVATE_KEY,
+  VAPID_SUBJECT: process.env.VAPID_SUBJECT,
+  NEXT_PUBLIC_VAPID_PUBLIC_KEY: process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY,
+  NEXT_PUBLIC_PUSH_NOTIFICATIONS_ENABLED:
+    process.env.NEXT_PUBLIC_PUSH_NOTIFICATIONS_ENABLED,
+  ASSIGNMENT_HORIZON_HOURS: process.env.ASSIGNMENT_HORIZON_HOURS,
 
   NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL,
   NEXT_PUBLIC_SUPABASE_ANON_KEY: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+  NEXT_PUBLIC_TURNSTILE_SITE_KEY: process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY,
   SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY,
 
   STRIPE_SECRET_KEY: process.env.STRIPE_SECRET_KEY,
-  SENTRY_DSN: process.env.SENTRY_DSN,
+  INNGEST_EVENT_KEY: process.env.INNGEST_EVENT_KEY,
+  CRON_SECRET: process.env.CRON_SECRET,
+  NEXT_PUBLIC_SENTRY_DSN: process.env.NEXT_PUBLIC_SENTRY_DSN,
+  SENTRY_ORG: process.env.SENTRY_ORG,
+  SENTRY_PROJECT: process.env.SENTRY_PROJECT,
+  SENTRY_AUTH_TOKEN: process.env.SENTRY_AUTH_TOKEN,
 };
 
 export const env: Env = schema.parse(raw);
@@ -69,9 +206,14 @@ export class MissingEnvError extends Error {
 const HINTS: Partial<Record<EnvKey, string>> = {
   DATABASE_URL:
     "Supabase → Project Settings → Database → Connection pooling (Transaction mode, port 6543).",
-  DIRECT_DATABASE_URL:
-    "Supabase → Project Settings → Database → Direct connection (port 5432).",
   STRIPE_SECRET_KEY: "Stripe Dashboard → Developers → API keys. Needed for refunds.",
+  CRON_SECRET: "Any random string; protects /api/observability/test-error.",
+  NEXT_PUBLIC_SENTRY_DSN:
+    "Sentry → Project → Settings → Client Keys (DSN). Public by design; one per app, per environment.",
+  SENTRY_ORG: "Sentry → Settings → Organization slug. Build time only.",
+  SENTRY_PROJECT: "Sentry → Project → Settings → Name (slug). Build time only.",
+  SENTRY_AUTH_TOKEN:
+    "Sentry → Settings → Auth Tokens, scope `project:releases`. Build time only; uploads source maps.",
 };
 
 export function requireEnv(key: EnvKey): string {
@@ -91,6 +233,17 @@ export const isDev = env.NODE_ENV === "development";
 export const isProd = env.NODE_ENV === "production";
 
 /**
+ * The push kill switch. Default OFF — see the schema entry.
+ *
+ * Read by the runtime (which sender to build), the boot gate (whether VAPID
+ * is required) and the client surfaces (whether to offer enabling at all), so
+ * all three can never disagree about whether push is on.
+ */
+export function pushNotificationsEnabled(): boolean {
+  return env.NEXT_PUBLIC_PUSH_NOTIFICATIONS_ENABLED === "true";
+}
+
+/**
  * Fail-loud production gate (same `isProd` convention as apps/web).
  *
  * Each of these, absent, silently disables something ops depends on rather
@@ -102,10 +255,14 @@ export const isProd = env.NODE_ENV === "production";
 export function assertProductionBootConfig(): void {
   const missing: string[] = [];
   if (!optionalEnv("NEXT_PUBLIC_SUPABASE_URL")) {
-    missing.push("NEXT_PUBLIC_SUPABASE_URL (admin sign-in silently unavailable without it)");
+    missing.push(
+      "NEXT_PUBLIC_SUPABASE_URL (admin sign-in silently unavailable without it)",
+    );
   }
   if (!optionalEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY")) {
-    missing.push("NEXT_PUBLIC_SUPABASE_ANON_KEY (admin sign-in silently unavailable without it)");
+    missing.push(
+      "NEXT_PUBLIC_SUPABASE_ANON_KEY (admin sign-in silently unavailable without it)",
+    );
   }
   if (!optionalEnv("SUPABASE_SERVICE_ROLE_KEY")) {
     missing.push(
@@ -113,8 +270,35 @@ export function assertProductionBootConfig(): void {
     );
   }
   if (!optionalEnv("NEXT_PUBLIC_AGENT_APP_URL")) {
-    missing.push("NEXT_PUBLIC_AGENT_APP_URL (agent invite links would land on the wrong app)");
+    missing.push(
+      "NEXT_PUBLIC_AGENT_APP_URL (agent invite links would land on the wrong app)",
+    );
   }
+  /*
+   * Push, all four or none.
+   *
+   * Not "nice to have": the fallback is `ConsolePushSender`, which logs and
+   * REPORTS SUCCESS. Without these, every notification this app sends looks
+   * sent, nothing arrives, and the one mechanism built to detect that — the
+   * did-you-see-it check — is itself lying. Push is never load-bearing, so
+   * this does not block the product; it blocks the SILENT version of it.
+   */
+  const push = (
+    [
+      "VAPID_PUBLIC_KEY",
+      "VAPID_PRIVATE_KEY",
+      "VAPID_SUBJECT",
+      "NEXT_PUBLIC_VAPID_PUBLIC_KEY",
+    ] as const
+  ).filter((key) => !optionalEnv(key));
+  // Waived while push is off (the default): a console sender is the correct
+  // answer when the channel is deliberately disabled.
+  if (pushNotificationsEnabled() && push.length > 0 && push.length < 4) {
+    missing.push(
+      `${push.join(", ")} (push is half-configured: sends would silently log instead of delivering)`,
+    );
+  }
+
   if (missing.length > 0) {
     throw new Error(
       "Refusing to run the admin app in production with ops config missing:\n" +
@@ -153,7 +337,7 @@ export function describeEnvStatus(): ServiceStatus[] {
       service: "Postgres (Supabase)",
       configured: has("DATABASE_URL"),
       fallback: "Bookings table renders an empty state.",
-      keys: ["DATABASE_URL", "DIRECT_DATABASE_URL"],
+      keys: ["DATABASE_URL"],
     },
     {
       service: "Supabase client (Realtime)",
@@ -169,9 +353,9 @@ export function describeEnvStatus(): ServiceStatus[] {
     },
     {
       service: "Sentry",
-      configured: has("SENTRY_DSN"),
-      fallback: "Errors log to console.",
-      keys: ["SENTRY_DSN"],
+      configured: has("NEXT_PUBLIC_SENTRY_DSN"),
+      fallback: "Errors and ops alerts log to console only — nothing is recorded.",
+      keys: ["NEXT_PUBLIC_SENTRY_DSN"],
     },
   ];
 }

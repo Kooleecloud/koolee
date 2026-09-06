@@ -1,6 +1,16 @@
-import { and, asc, count, eq, gt, inArray, lt } from "drizzle-orm";
 import {
-  addresses,
+  and,
+  asc,
+  count,
+  eq,
+  gt,
+  inArray,
+  isNotNull,
+  isNull,
+  lt,
+  lte,
+} from "drizzle-orm";
+import {
   agentZones,
   airports,
   bookings,
@@ -15,9 +25,11 @@ import type { TransitionActor } from "../booking/state-machine";
 import type { AdminSession } from "../auth/types";
 import type { CoreConfig } from "../config";
 import { isInCoverage, normalizeZip } from "../coverage/nyc-zips";
+import { assignmentHorizonEnd, withinAssignmentHorizon } from "./assignment-horizon";
 import { airportLocalDayBounds } from "../slots/cutoff";
 import { assignAgentToBooking } from "./dispatch";
 import { getActiveStaffRole } from "./staff";
+import { OPEN_TASK_STATUSES } from "./tasks";
 
 /**
  * Naive auto-assignment (v1).
@@ -64,9 +76,6 @@ const SYSTEM_ACTOR: TransitionActor = { userId: null, role: null };
 
 /** Every airport Koolee serves is Eastern; the lookup is the real source. */
 const FALLBACK_TZ = "America/New_York";
-
-/** Task statuses that still cost the agent time. Mirrors `listAgentWorkload`. */
-const OPEN_TASK_STATUSES = ["pending", "assigned", "in_progress"] as const;
 
 interface Candidate {
   agentUserId: string;
@@ -166,6 +175,10 @@ export async function autoAssignBooking(
     };
   }
 
+  // Cheap early exit for the common case. NOT the guard — the real one is
+  // `neverReassign` inside `assignAgentToBooking`'s transaction, because
+  // everything between here and the write is time a concurrent writer can
+  // use.
   const existing = await db.query.verificationTasks.findFirst({
     where: eq(verificationTasks.bookingId, booking.id),
   });
@@ -177,14 +190,32 @@ export async function autoAssignBooking(
     };
   }
 
-  const pickup = await db.query.addresses.findFirst({
-    where: eq(addresses.id, booking.pickupAddressId),
-    columns: { zip: true },
-  });
-  if (!pickup) {
-    return { ok: false, reason: "no_coverage", detail: "Pickup address not found." };
-  }
+  // The booking's own ZIP (0033) — no join, and no "address not found" branch:
+  // a booking cannot exist without a snapshotted doorstep.
+  const pickup = { zip: booking.pickupZip };
 
+  // AGENTS STAY SHIFT-BLIND, BY DESIGN — this is the decision, not an
+  // oversight.
+  //
+  // `driver_shifts` (migration 0029) is the first temporal-availability
+  // entity in the schema, and the obvious next thought is "so auto-assign
+  // should check whether the agent is working". It deliberately does not.
+  // Two reasons, both from the preflight (§7.5):
+  //
+  //  1. A verification visit is scheduled against a pickup WINDOW the
+  //     customer bought hours or days ahead. A shift is a live "I am out
+  //     right now" fact. Filtering tomorrow's 9 AM visit by who happens to
+  //     be clocked in tonight would assign nobody to anything.
+  //  2. Shifts exist for DRIVERS, because a driver has a truck with finite
+  //     capacity and a customer picks them in real time. An agent has
+  //     neither. Giving agents shifts too would mean every agent has to
+  //     clock in before dispatch can see them, which is a rostering product
+  //     Koolee has not built and does not need at NYC scale.
+  //
+  // The asymmetry — a shift-aware driver selector next to a shift-blind
+  // agent selector — is therefore intentional. If agent rostering ever
+  // ships, this comment is the thing to come back and delete.
+  //
   // Covering agents must ALSO be active staff with the agent role — a zone row
   // for someone who has left is stale data, not a licence to assign them.
   const covering = await db
@@ -246,6 +277,11 @@ export async function autoAssignBooking(
   const assigned = await assignAgentToBooking(config, input.actor ?? SYSTEM_ACTOR, {
     bookingId: booking.id,
     agentUserId: winner.agentUserId,
+    // "It never reassigns" is this function's rule (see the header). The
+    // check at the top of this function cannot enforce it on its own: the
+    // zone lookup and the load counts happen in between, and a concurrent
+    // sweep can commit inside that gap. Enforced in the transaction instead.
+    neverReassign: true,
   });
 
   if (!assigned.ok) {
@@ -275,16 +311,43 @@ export async function autoAssignBooking(
  * DESIGN; the 0019 unique indexes referee, and the loser lands on
  * `not_assignable`.
  *
+ * DEFERRED BEYOND THE HORIZON. A booking whose window is more than
+ * `defaults.assignmentHorizonHours` away creates NOTHING here — no
+ * verification task, no pickup task, no custody event — and rests in `paid`
+ * until `assignEnteringHorizon` picks it up. Assigning in March for a June
+ * flight names a person against a roster that will have changed and puts a
+ * task nobody can act on into an agent's list for three months.
+ *
+ * Near-term bookings are unaffected: anything inside the horizon (which is
+ * every same-day and next-day booking at the default 48h) takes exactly the
+ * path it took before.
+ *
  * NEVER throws, and a skip is not an error: a booking nobody covers stays
- * paid-unassigned, which the board already surfaces as at-risk. The one
- * outcome worth shouting about is a refused WRITE (`assignment_failed`) —
- * that means a candidate was picked and the assignment itself broke.
+ * paid-unassigned, which the board surfaces as at-risk once it is inside the
+ * horizon. The one outcome worth shouting about is a refused WRITE
+ * (`assignment_failed`) — that means a candidate was picked and the
+ * assignment itself broke.
  */
 export async function autoAssignOnPaid(
   config: CoreConfig,
   bookingId: string,
 ): Promise<void> {
   try {
+    const booking = await config.db.query.bookings.findFirst({
+      where: eq(bookings.id, bookingId),
+      columns: { pickupWindowStart: true },
+    });
+    if (
+      booking &&
+      !withinAssignmentHorizon(
+        booking.pickupWindowStart,
+        config.clock.now(),
+        config.defaults.assignmentHorizonHours,
+      )
+    ) {
+      return;
+    }
+
     const result = await autoAssignBooking(config, { bookingId });
     if (!result.ok && result.reason === "assignment_failed") {
       console.error(
@@ -294,6 +357,93 @@ export async function autoAssignOnPaid(
   } catch (error) {
     console.error(`[auto-assign] on-paid hook crashed for ${bookingId}`, error);
   }
+}
+
+export interface HorizonSweepResult {
+  /** Paid bookings that had entered the horizon with no verification task. */
+  considered: number;
+  assigned: string[];
+  /** Entered the horizon but nobody covers the ZIP — the board's problem now. */
+  uncovered: string[];
+  /** Lost the race to a concurrent sweep or a dispatcher. Not an error. */
+  raced: string[];
+}
+
+/**
+ * How many bookings one sweep will look at. Generous against the real load
+ * (a horizon-entry cohort is hours of bookings, not days) and a bound on the
+ * blast radius of a sweep that finds a backlog after an outage.
+ */
+const SWEEP_BATCH = 200;
+
+/**
+ * The other half of deferred assignment: assigns bookings whose window has
+ * just entered the horizon.
+ *
+ * Run every 5 minutes, so a booking is assigned within 5 minutes of crossing
+ * the line. Two properties make that safe to run concurrently with itself and
+ * with a dispatcher clicking Assign:
+ *
+ *  - it selects only bookings with NO verification-task row, so an
+ *    already-assigned booking (including one an admin assigned early) is
+ *    invisible to it by construction — no "never reassign" rule to remember;
+ *  - `assignAgentToBooking` inserts through the 0019 unique index on
+ *    `verification_tasks(booking_id)`, so two sweeps that both selected the
+ *    same booking collapse to one assignment, with the loser reported as
+ *    `conflict` (23505) rather than an error. Same discipline as the
+ *    two-concurrent-paid test.
+ *
+ * Stamps the SYSTEM actor on the custody event, exactly as the on-paid path
+ * does — nobody clicked anything, and the schema models that with a null
+ * actor.
+ */
+export async function assignEnteringHorizon(
+  config: CoreConfig,
+): Promise<HorizonSweepResult> {
+  const { db } = config;
+  const now = config.clock.now();
+  const cutoff = assignmentHorizonEnd(now, config.defaults.assignmentHorizonHours);
+
+  const due = await db
+    .select({ id: bookings.id })
+    .from(bookings)
+    .leftJoin(verificationTasks, eq(verificationTasks.bookingId, bookings.id))
+    .where(
+      and(
+        eq(bookings.status, "paid"),
+        isNull(verificationTasks.id),
+        // Inside the horizon. A null window would never have been deferred
+        // (see `withinAssignmentHorizon`), so it cannot be waiting here.
+        isNotNull(bookings.pickupWindowStart),
+        lte(bookings.pickupWindowStart, cutoff),
+      ),
+    )
+    .orderBy(asc(bookings.pickupWindowStart))
+    .limit(SWEEP_BATCH);
+
+  const result: HorizonSweepResult = {
+    considered: due.length,
+    assigned: [],
+    uncovered: [],
+    raced: [],
+  };
+
+  // Sequential on purpose. The candidate ranking counts each agent's OPEN
+  // TASKS, so two bookings assigned in parallel both read the load from
+  // before either was written and pile onto the same person.
+  for (const row of due) {
+    try {
+      const outcome = await autoAssignBooking(config, { bookingId: row.id });
+      if (outcome.ok) result.assigned.push(row.id);
+      else if (outcome.reason === "no_coverage") result.uncovered.push(row.id);
+      else result.raced.push(row.id);
+    } catch (error) {
+      console.error(`[auto-assign] horizon sweep failed for ${row.id}`, error);
+      result.raced.push(row.id);
+    }
+  }
+
+  return result;
 }
 
 /* ------------------------------------------------------------------ */
@@ -335,8 +485,7 @@ export async function listAgentZones(db: Database): Promise<AgentZoneCoverage[]>
 }
 
 export type ZoneMutationResult =
-  | { ok: true; zips: string[] }
-  | { ok: false; error: string };
+  { ok: true; zips: string[] } | { ok: false; error: string };
 
 /**
  * Gives an agent one or more ZIPs.
@@ -386,9 +535,7 @@ export async function removeAgentZone(
 
   const deleted = await config.db
     .delete(agentZones)
-    .where(
-      and(eq(agentZones.agentUserId, input.agentUserId), eq(agentZones.zip, zip)),
-    )
+    .where(and(eq(agentZones.agentUserId, input.agentUserId), eq(agentZones.zip, zip)))
     .returning({ id: agentZones.id });
 
   return deleted.length > 0;

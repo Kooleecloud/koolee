@@ -194,9 +194,9 @@ describe("FakePaymentProvider client-confirmation parity (Stripe-like mode)", ()
     await provider.cancelAuth(auth.authId);
 
     expect((await provider.getAuth(auth.authId)).status).toBe("failed");
-    expect(provider.simulateClientConfirmation.bind(provider, auth.authId, "success")).toThrow(
-      /nothing to confirm/,
-    );
+    expect(
+      provider.simulateClientConfirmation.bind(provider, auth.authId, "success"),
+    ).toThrow(/nothing to confirm/);
   });
 
   it("default mode still authorizes instantly — dev funnel behavior unchanged", async () => {

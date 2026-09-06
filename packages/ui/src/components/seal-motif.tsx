@@ -50,7 +50,14 @@ function SealMotif({
       />
       {/* Eyelet */}
       <circle cx="30" cy="36" r="6" fill="#F8F9FB" />
-      <circle cx="30" cy="36" r="6" stroke="#0B2545" strokeOpacity="0.35" strokeWidth="2.5" />
+      <circle
+        cx="30"
+        cy="36"
+        r="6"
+        stroke="#0B2545"
+        strokeOpacity="0.35"
+        strokeWidth="2.5"
+      />
       {/* Print: wordmark + serial */}
       <text
         x="52"

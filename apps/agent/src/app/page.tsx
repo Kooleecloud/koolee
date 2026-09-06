@@ -1,133 +1,255 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import {
-  Badge,
-  Button,
-  ContentColumn,
-  DatabaseNotConfigured,
-  EmptyState,
-  PageHeader,
-} from "@koolee/ui";
+import { ArrowRight, CalendarDays } from "lucide-react";
+import { Button, Card, DatabaseNotConfigured, EmptyState } from "@koolee/ui";
 import {
   airportLocalDayBounds,
-  formatHourRangeInAirportTz,
-  formatInstantInAirportTz,
+  formatTimeInAirportTz,
+  getActiveShift,
   listAssignedTasks,
-  type PickupTask,
-  type VerificationTask,
+  listTruckOptions,
 } from "@koolee/core";
 
-import { EnvStatus } from "@/components/env-status";
+import { JobCard } from "@/components/job/job-card";
+import { JourneyList } from "@/components/job/journey-list";
+import { LiveTasks } from "@/components/live-tasks";
+import { AgentMain } from "@/components/shell/agent-main";
+import {
+  ShiftBar,
+  type ActiveShiftView,
+  type TruckOptionView,
+} from "@/components/shift/shift-bar";
+import { groupJobs, isOutstanding, startablePickupTaskId, type Job } from "@/lib/job";
 import { tryGetCore } from "@/lib/core";
-import { getAgentSession } from "@/lib/session";
+import { getAgentIdentity } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
 
-type Row =
-  | { kind: "verification"; task: VerificationTask; tz: string }
-  | { kind: "pickup"; task: PickupTask; tz: string };
-
-/** Agent home: TODAY's visits, in pickup-window order — the shift at a glance. */
+/**
+ * Today — the only screen a driver should need mid-shift.
+ *
+ * The previous version of this page showed a status chip, the word
+ * "Unscheduled", and then a dev-only environment panel that filled the rest
+ * of the phone. It did not say who, where, or when.
+ *
+ * What replaces it is one question in order: what am I doing right now, and
+ * what is after it. The current job is rendered large with Navigate and Call
+ * attached, because at the moment a driver looks at this screen they are
+ * either driving to a door or standing at one.
+ */
 export default async function AgentHomePage() {
-  const session = await getAgentSession();
-  if (!session) redirect("/login");
+  const identity = await getAgentIdentity();
+  if (!identity) redirect("/login");
+  const { session } = identity;
 
   const core = tryGetCore();
-  let today: Row[] = [];
+  let jobs: Job[] = [];
   let unavailable = core === null;
+  let activeShift: ActiveShiftView | null = null;
+  let trucks: TruckOptionView[] = [];
 
   if (core) {
     try {
-      const tasks = await listAssignedTasks(core.db, session.userId);
-      const now = new Date();
-
-      today = [
-        ...tasks.verification.map((row) => ({ kind: "verification" as const, ...row })),
-        ...tasks.pickup.map((row) => ({ kind: "pickup" as const, ...row })),
-      ]
-        .filter(({ task, tz }) => {
-          if (!task.scheduledStart) return task.status !== "done";
-          // "Today" means today AT THE AIRPORT, per task. `setHours(0,0,0,0)`
-          // was server-local, and production runs in UTC — which starts the
-          // agent's day at 8 PM the previous evening and drops the real
-          // morning's visits off this list.
-          const { start, end } = airportLocalDayBounds(now, tz);
-          return task.scheduledStart >= start && task.scheduledStart < end;
-        })
-        .sort(
-          (a, b) =>
-            (a.task.scheduledStart?.getTime() ?? Infinity) -
-            (b.task.scheduledStart?.getTime() ?? Infinity),
-        );
+      jobs = groupJobs(await listAssignedTasks(core.db, session.userId));
     } catch {
       unavailable = true;
     }
   }
 
+  // The shift block is only ever fetched for staff cleared to drive, so an
+  // agent who never drives pays nothing for it.
+  if (core && identity.canDrive && !unavailable) {
+    try {
+      const [shift, truckRows] = await Promise.all([
+        getActiveShift(core.db, session.userId),
+        listTruckOptions(core.db),
+      ]);
+      trucks = truckRows.map((truck) => ({
+        id: truck.id,
+        name: truck.name,
+        bagCapacity: truck.bagCapacity,
+        unavailable: truck.heldByUserId !== null && truck.heldByUserId !== session.userId,
+      }));
+      if (shift) {
+        // The shift's own start renders in the zone of the work, like every
+        // other time in this app — the driver's phone zone is never used.
+        const tz = jobs[0]?.tz ?? "America/New_York";
+        activeShift = {
+          truckName: shift.truck.name,
+          bagCapacity: shift.truck.bagCapacity,
+          bagsOnBoard: shift.bagsOnBoard,
+          startedAtLabel: formatTimeInAirportTz(shift.shift.startedAt, tz),
+        };
+      }
+    } catch {
+      // A shift block that cannot load must not take the day's work with it.
+      activeShift = null;
+      trucks = [];
+    }
+  }
+
+  const now = new Date();
+  // "Today" is today AT THE AIRPORT, per job. A UTC server would otherwise
+  // start an Eastern driver's day at 8 PM the previous evening.
+  const dayOf = (job: Job) => airportLocalDayBounds(now, job.tz);
+  const todays = jobs.filter((job) => {
+    if (!job.startsAt) return false;
+    const { start, end } = dayOf(job);
+    return job.startsAt >= start && job.startsAt < end;
+  });
+
+  /*
+   * OVERDUE STOPS LEAD THE ROUTE.
+   *
+   * They used to appear nowhere on this screen: "Today" filtered to jobs whose
+   * window falls inside today, so a driver with four stops they were late for
+   * opened their home screen to "Nothing assigned for today" while the
+   * Schedule tab said "Overdue · 4". The home screen was hiding the most
+   * urgent work in the app.
+   *
+   * They are still doable — a pickup stays actionable right up to the
+   * airline's bag-drop cutoff (see actionability), which is exactly why
+   * hiding them is the wrong answer rather than a tidy one. They sort first
+   * because a stop you are behind on outranks one you are not.
+   */
+  const overdue = jobs.filter((job) => {
+    if (!job.startsAt || job.state === "done") return false;
+    return job.startsAt < dayOf(job).start;
+  });
+  /*
+   * A CANCELLED STOP IS NEVER LATE. Its window passing is not a thing anybody
+   * needs to chase — F4 settled that for the card and the badge, and this is
+   * where the number behind them comes from. Without the filter the heading
+   * read "· 1 late" about a stop nobody was going to.
+   */
+  const lateIds = new Set(overdue.filter(isOutstanding).map((job) => job.bookingId));
+
+  /*
+   * The rail SHOWS cancelled stops and the counts do not COUNT them.
+   *
+   * Both halves matter and they pull opposite ways. Dropping the stop leaves
+   * a driver who was sent to that address with no trace of it; counting it
+   * tells them they have work they do not have. So `outstanding` is what the
+   * rail renders, and every number below is taken from the subset that is
+   * still work.
+   */
+  const outstanding = [...overdue, ...todays.filter((job) => job.state !== "done")];
+  const stillWork = outstanding.filter(isOutstanding);
+  const finished = todays.filter((job) => job.state === "done");
+
+  // Work with no window on it still has to surface somewhere, or it is simply
+  // never done. It belongs with today rather than buried at the end of a list
+  // sorted by a time it does not have.
+  const unscheduled = jobs.filter((job) => !job.startsAt && isOutstanding(job));
+
+  // The subtitle counts everything a driver still has to do, scheduled or
+  // not. Counting only the scheduled ones printed "Nothing scheduled" above a
+  // card that plainly had work in it.
+  const left = stillWork.length + unscheduled.length;
+  const summary = unavailable
+    ? "Can't reach the server."
+    : left === 0
+      ? finished.length > 0
+        ? `All ${finished.length} done. Nice.`
+        : "Nothing assigned for today."
+      : `${left} to do${finished.length > 0 ? ` · ${finished.length} done` : ""}`;
+
   return (
-    <ContentColumn>
-      <PageHeader
-        title="Today"
-        subtitle="Your visits, in pickup-window order. Verify, seal, photograph — then hand off for delivery to the airline's bag drop."
+    <AgentMain>
+      {/* A task assigned mid-shift appears here without a pull-to-refresh. */}
+      <LiveTasks
+        bookingIds={jobs.map((job) => job.bookingId)}
+        stage={`jobs:${jobs.length}`}
       />
+      <header className="flex flex-col gap-1">
+        <h1 className="font-display text-3xl font-semibold text-navy-800">Today</h1>
+        <p className="text-sm text-muted-foreground">{summary}</p>
+      </header>
+
+      {identity.canDrive && !unavailable ? (
+        <>
+          <ShiftBar active={activeShift} trucks={trucks} />
+        </>
+      ) : null}
 
       {unavailable ? (
         <DatabaseNotConfigured />
-      ) : today.length === 0 ? (
-        <EmptyState
-          title="Nothing scheduled today"
-          description="Visits assigned to you will show up here in pickup-window order."
-        />
       ) : (
-        <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-          {today.map(({ kind, task, tz }) => (
-            <li key={`${kind}-${task.id}`}>
+        <>
+          {/*
+            ONE RAIL, NOT TWO SECTIONS. "Up next" and "Later today" were two
+            headings over identical cards, which said nothing about the thing
+            a driver most needs — that these stops happen in an order, and
+            which one they are on. See `JourneyList`.
+          */}
+          {outstanding.length > 0 && (
+            <section className="flex flex-col gap-3">
+              <h2 className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">
+                Your route · {stillWork.length}{" "}
+                {stillWork.length === 1 ? "stop" : "stops"}
+                {lateIds.size > 0 ? ` · ${lateIds.size} late` : ""}
+              </h2>
+              <JourneyList stops={outstanding} lateIds={lateIds} />
+            </section>
+          )}
+
+          {/*
+            Kept OUT of the rail. A stop with no window has no place in a
+            sequence ordered by time, and slotting it in would put a made-up
+            position on the one job whose position is genuinely unknown.
+          */}
+          {unscheduled.length > 0 && (
+            <section className="flex flex-col gap-2">
+              <h2 className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">
+                No time set
+              </h2>
+              <ul className="flex flex-col gap-3">
+                {unscheduled.map((job) => (
+                  <li key={job.bookingId}>
+                    <JobCard job={job} startsPickupTaskId={startablePickupTaskId(job)} />
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+
+          {outstanding.length === 0 && unscheduled.length === 0 && (
+            <EmptyState
+              title={finished.length > 0 ? "Today is done" : "Nothing today"}
+              description={
+                finished.length > 0
+                  ? "Every stop on today's list is finished."
+                  : "When ops assigns you a pickup it shows up here."
+              }
+              action={
+                <Button asChild variant="outline">
+                  <Link href="/tasks">
+                    <CalendarDays aria-hidden="true" />
+                    See the schedule
+                  </Link>
+                </Button>
+              }
+            />
+          )}
+
+          {finished.length > 0 && outstanding.length > 0 && (
+            <Card asChild>
               <Link
-                href={`/tasks/${task.id}?kind=${kind}`}
-                className="flex items-start justify-between gap-3 rounded-lg border border-border bg-white p-4 shadow-xs transition-colors hover:bg-accent/10"
+                href="/tasks"
+                className="flex items-center justify-between gap-3 p-4 text-sm"
               >
-                <span className="flex flex-col gap-1">
-                  <span className="font-medium">
-                    {kind === "verification" ? "Verify and seal" : "Collect and deliver"}
-                  </span>
-                  <span className="text-sm text-muted-foreground">
-                    {task.scheduledStart
-                      ? task.scheduledEnd
-                        ? formatHourRangeInAirportTz(
-                            task.scheduledStart,
-                            task.scheduledEnd,
-                            tz,
-                          )
-                        : formatInstantInAirportTz(task.scheduledStart, tz)
-                      : "Unscheduled"}
-                  </span>
+                <span className="text-muted-foreground">
+                  {finished.length} finished today
                 </span>
-                <Badge
-                  variant={
-                    task.status === "done"
-                      ? "success"
-                      : task.status === "failed"
-                        ? "destructive"
-                        : task.status === "in_progress"
-                          ? "warning"
-                          : "secondary"
-                  }
-                >
-                  {task.status.replace("_", " ")}
-                </Badge>
+                <span className="inline-flex items-center gap-1 font-medium text-navy-800">
+                  Schedule
+                  <ArrowRight aria-hidden="true" className="size-4" />
+                </span>
               </Link>
-            </li>
-          ))}
-        </ul>
+            </Card>
+          )}
+        </>
       )}
-
-      <div className="flex flex-col gap-3 sm:flex-row">
-        <Button asChild variant="outline">
-          <Link href="/tasks">All my tasks</Link>
-        </Button>
-      </div>
-
-      <EnvStatus appName="agent" />
-    </ContentColumn>
+    </AgentMain>
   );
 }

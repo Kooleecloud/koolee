@@ -1,9 +1,11 @@
-import { ContentColumn, PageSkeleton } from "@koolee/ui";
+import { PageSkeleton } from "@koolee/ui";
+
+import { AgentMain } from "@/components/shell/agent-main";
 
 export default function AgentLoading() {
   return (
-    <ContentColumn>
-      <PageSkeleton cards={2} />
-    </ContentColumn>
+    <AgentMain>
+      <PageSkeleton cards={3} />
+    </AgentMain>
   );
 }

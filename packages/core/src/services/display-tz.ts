@@ -55,9 +55,7 @@ export async function resolveDisplayTz(
  * The ops board renders up to 200 rows spanning every airport; resolving per
  * row would be 200 queries for a table with a handful of rows in it.
  */
-export async function getDisplayZones(
-  db: Database,
-): Promise<Record<string, string>> {
+export async function getDisplayZones(db: Database): Promise<Record<string, string>> {
   const rows = await db.select({ code: airports.code, tz: airports.tz }).from(airports);
   return Object.fromEntries(rows.map((r) => [r.code, r.tz]));
 }

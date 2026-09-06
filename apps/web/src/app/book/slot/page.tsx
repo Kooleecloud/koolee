@@ -15,6 +15,7 @@ import {
   formatDayInAirportTz,
   formatHourInAirportTz,
   listBookableWindows,
+  resolveQuoteDistanceKm,
   type PricedWindow,
 } from "@koolee/core";
 
@@ -68,14 +69,20 @@ export default async function SlotStepPage() {
   let loadError: string | null = null;
 
   try {
+    // The same distance the review page and `createBooking` will resolve —
+    // one function, so the three moments a booking is priced cannot disagree.
+    const distance = await resolveQuoteDistanceKm(core, {
+      airportCode: draft.departureAirport,
+      zip: draft.zip,
+    });
+
     const result = await listBookableWindows(core, {
       airportCode: draft.departureAirport,
       airlineIata: draft.airlineIata,
       scope: draft.scope ?? "domestic",
       departureAt: new Date(draft.departureAt),
       bagCount: draft.bagCount,
-      // TODO(maps): real door-to-airport distance via the Maps API.
-      distanceKm: 20,
+      distanceKm: distance.km,
       promoCode: draft.promoCode ?? null,
     });
     windows = result.windows;
@@ -108,9 +115,8 @@ export default async function SlotStepPage() {
         title="Pickup window"
         subtitle={
           <>
-            We pick up between 30 and 6 hours before your flight — the last 6 hours
-            are for getting your bags to {draft.departureAirport}. Earlier windows
-            cost less.
+            We pick up between 30 and 6 hours before your flight — the last 6 hours are
+            for getting your bags to {draft.departureAirport}. Earlier windows cost less.
           </>
         }
       />
@@ -133,43 +139,63 @@ export default async function SlotStepPage() {
               repeating "EDT" is noise, and every window on this page shares the
               airport's zone by construction.
             */}
-            <p className="text-sm text-muted-foreground">
-              All times are in local time.
-            </p>
+            <p className="text-sm text-muted-foreground">All times are in local time.</p>
             {[...byDay.entries()].map(([day, dayWindows]) => (
               <div key={day} className="flex flex-col gap-3">
-                <h3 className="text-sm font-medium text-muted-foreground">
+                {/*
+                  The day is the thing you navigate by — 24 tiles under a
+                  muted grey caption made the grid read as one undifferentiated
+                  wall. Navy at semibold is the same weight the rest of the
+                  funnel gives a heading.
+                */}
+                <h3 className="font-display text-sm font-semibold text-navy-800">
                   {formatDayInAirportTz(dayWindows[0]!.windowStart, tz)}
                 </h3>
-                <div className="grid grid-cols-2 gap-3">
+                {/*
+                  Two up on a phone, three on anything wider. Two columns on a
+                  laptop left half the row empty and made a 24-window day
+                  twelve rows of scrolling.
+                */}
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
                   {dayWindows.map((window) => (
-                    <label
-                      key={window.windowStart.toISOString()}
-                      className="flex cursor-pointer flex-col items-center gap-0.5 rounded-lg border border-border bg-white p-3 text-center shadow-lift transition-all duration-300 hover:-translate-y-0.5 hover:border-sky-300 hover:shadow-lift-lg has-checked:border-primary has-checked:bg-primary/5 has-checked:shadow-lift-lg has-checked:ring-1 has-checked:ring-primary has-focus-visible:ring-2 has-focus-visible:ring-ring has-focus-visible:ring-offset-2 motion-reduce:transition-none motion-reduce:hover:translate-y-0"
-                    >
-                      <input
-                        type="radio"
-                        name="windowStart"
-                        value={window.windowStart.toISOString()}
-                        defaultChecked={
-                          draft.windowStart === window.windowStart.toISOString()
-                        }
-                        className="sr-only"
-                        required
-                      />
+                    <Card asChild interactive key={window.windowStart.toISOString()}>
                       {/*
-                        Same family and weight for both lines — the customer is
-                        trading time against price, so neither should read as a
-                        caption of the other. The time is a step larger only
-                        because it is what they scan the grid for.
+                        SELECTED IS A PRESSED TILE. It used to be a hairline
+                        primary ring on a 5%-tint background, which at a glance
+                        across 24 tiles was almost invisible. Now: sky-100
+                        ground, a sky-400 border, navy text, and an INSET
+                        shadow — pressed in rather than lifted, which is the
+                        one shadow direction that reads as "this one is
+                        chosen" instead of "this one is hovered".
                       */}
-                      <span className="font-display text-base font-semibold text-navy-800">
-                        {formatHourInAirportTz(window.windowStart, tz)}
-                      </span>
-                      <span className="font-display text-sm font-semibold text-navy-800">
-                        {dollars(window.totalCents)}
-                      </span>
-                    </label>
+                      <label className="flex cursor-pointer items-center justify-center gap-1.5 p-3 text-center transition-all has-checked:border-sky-400 has-checked:bg-sky-100 has-checked:shadow-[inset_0_2px_4px_0_rgb(2_132_199_/_0.18)] has-checked:ring-1 has-checked:ring-sky-300 has-focus-visible:ring-2 has-focus-visible:ring-ring has-focus-visible:ring-offset-2">
+                        <input
+                          type="radio"
+                          name="windowStart"
+                          value={window.windowStart.toISOString()}
+                          defaultChecked={
+                            draft.windowStart === window.windowStart.toISOString()
+                          }
+                          className="sr-only"
+                          required
+                        />
+                        {/*
+                          One line, `{time} · {price}`. Stacked, the price read
+                          as a caption of the time; side by side they are the
+                          two halves of the same trade, which is what the
+                          customer is actually making.
+                        */}
+                        <span className="font-display text-sm font-semibold text-navy-800">
+                          {formatHourInAirportTz(window.windowStart, tz)}
+                        </span>
+                        <span aria-hidden className="text-navy-400">
+                          ·
+                        </span>
+                        <span className="font-display text-sm font-semibold text-navy-800">
+                          {dollars(window.totalCents)}
+                        </span>
+                      </label>
+                    </Card>
                   ))}
                 </div>
               </div>
@@ -213,9 +239,9 @@ function NoWindows() {
       <CardHeader>
         <CardTitle className="text-base">No windows can make that flight</CardTitle>
         <CardDescription>
-          Pickups need to finish 6 hours before departure and start at least 2 hours
-          from now — for this flight, no window fits both. We will not sell a pickup
-          that cannot make it.
+          Pickups need to finish 6 hours before departure and start at least 2 hours from
+          now — for this flight, no window fits both. We will not sell a pickup that
+          cannot make it.
         </CardDescription>
       </CardHeader>
       <CardContent>

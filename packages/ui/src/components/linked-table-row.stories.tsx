@@ -17,9 +17,24 @@ export default meta;
 type Story = StoryObj;
 
 const ROWS = [
-  { id: "3f9a2c41-0000-4000-8000-00000000ab12", flight: "DL 402", pax: "J. Rivera", status: "paid" },
-  { id: "7b1e88d0-0000-4000-8000-0000000044c7", flight: "AA 118", pax: "M. Osei", status: "in_transit" },
-  { id: "c02d5517-0000-4000-8000-000000009f30", flight: "UA 77", pax: "K. Tanaka", status: "exception" },
+  {
+    id: "3f9a2c41-0000-4000-8000-00000000ab12",
+    flight: "DL 402",
+    pax: "J. Rivera",
+    status: "paid",
+  },
+  {
+    id: "7b1e88d0-0000-4000-8000-0000000044c7",
+    flight: "AA 118",
+    pax: "M. Osei",
+    status: "in_transit",
+  },
+  {
+    id: "c02d5517-0000-4000-8000-000000009f30",
+    flight: "UA 77",
+    pax: "K. Tanaka",
+    status: "exception",
+  },
 ];
 
 /**
@@ -54,7 +69,11 @@ export const Default: Story = {
                 <Badge variant="outline">{row.status}</Badge>
               </td>
               <td className="px-4 py-2">
-                <Button size="sm" variant="outline" onClick={() => alert("Row click not hijacked")}>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => alert("Row click not hijacked")}
+                >
                   Ping
                 </Button>
               </td>
@@ -70,9 +89,7 @@ export const RawData: StoryObj = {
   render: () => (
     <div className="max-w-md rounded-lg border p-4">
       <p className="mb-1 text-sm">Bag sealed with seal KL-88213 (12.4 kg).</p>
-      <RawDataDisclosure
-        data={{ taskId: "0f2b…", sealId: "KL-88213", weightKg: 12.4 }}
-      />
+      <RawDataDisclosure data={{ taskId: "0f2b…", sealId: "KL-88213", weightKg: 12.4 }} />
     </div>
   ),
 };

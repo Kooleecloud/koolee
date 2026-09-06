@@ -65,7 +65,11 @@ describe("ResendNotifier", () => {
   });
 
   it("throws ResendSendError with the status on a non-2xx response", async () => {
-    const { impl } = fakeFetch({ ok: false, status: 422, body: '{"message":"bad from"}' });
+    const { impl } = fakeFetch({
+      ok: false,
+      status: 422,
+      body: '{"message":"bad from"}',
+    });
     const notifier = new ResendNotifier({
       apiKey: "re_test_123",
       from: "not-an-address",

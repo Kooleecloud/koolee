@@ -24,13 +24,19 @@ export interface CustomerSession extends BaseSession {
   fullName?: string | null;
 }
 
+/**
+ * A field-staff session. One shape for both jobs — see `staff_members`: driving
+ * is a capability (`can_drive`), not a third role, so the same person's session
+ * covers a verification visit and a pickup run.
+ *
+ * It carries a `userId` and nothing else. It used to carry optional `agentId`
+ * and `driverId` pointing at the `agents` and `drivers` tables; both tables
+ * were empty scaffolding, both fields were never once populated, and migration
+ * 0029 dropped the tables. Every lookup resolves through `users.id`.
+ */
 export interface AgentSession extends BaseSession {
   kind: "agent";
   role: "agent" | "driver";
-  /** Populated when the user is a check-in agent. */
-  agentId?: string;
-  /** Populated when the user is a driver. */
-  driverId?: string;
 }
 
 export interface AdminSession extends BaseSession {

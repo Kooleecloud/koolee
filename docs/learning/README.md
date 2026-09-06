@@ -36,7 +36,7 @@
 
 | #   | Chapter                                                  | Status | Verified at |
 | --- | -------------------------------------------------------- | ------ | ----------- |
-| 1   | [The product & its nouns](01-product-and-nouns.md)       | ✅     | `2fe3a2b`   |
+| 1   | [The product & its nouns](01-product-and-nouns.md)       | ✅     | `5db21a4`   |
 | 2   | Repo map & boundaries                                    | ⬜     | —           |
 | 3   | Data model & migrations                                  | ⬜     | —           |
 | 4   | Domain core — state machine, cutoffs, windows, pricing   | ⬜     | —           |

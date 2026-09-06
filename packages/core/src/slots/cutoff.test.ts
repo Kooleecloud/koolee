@@ -6,15 +6,18 @@ import { CutoffUnknownError } from "../errors";
 import {
   airportLocalDay,
   airportLocalDayBounds,
+  airportLocalDateTime,
   airportLocalInstant,
   computeBagDropCutoffAt,
   computeLatestPickupStart,
   dstTransitionNote,
+  formatDateTimeLocalInAirportTz,
   formatDayInAirportTz,
   formatHourRangeInAirportTz,
   formatWindowInAirportTz,
   minutesUntilCutoff,
   resolveCutoffMinutes,
+  resolveStrictestCutoffMinutes,
   zoneAbbrev,
 } from "./cutoff";
 
@@ -354,7 +357,6 @@ describe("resolveCutoffMinutes", () => {
 /* sellability                                                         */
 /* ================================================================== */
 
-
 describe("computeBagDropCutoffAt / minutesUntilCutoff", () => {
   it("returns the instant the airline stops accepting bags", () => {
     expect(
@@ -474,7 +476,46 @@ describe("dstTransitionNote", () => {
     expect(dstTransitionNote(new Date("2025-10-26T01:00:00Z"), "Europe/London")).toBe(
       "second of two — clocks have already gone back",
     );
-    expect(dstTransitionNote(new Date("2025-11-02T05:00:00Z"), "Europe/London")).toBeNull();
+    expect(
+      dstTransitionNote(new Date("2025-11-02T05:00:00Z"), "Europe/London"),
+    ).toBeNull();
+  });
+});
+
+/* ================================================================== */
+/* airportLocalDateTime                                                */
+/* ================================================================== */
+
+describe("airportLocalDateTime", () => {
+  it("reads a datetime-local value in the AIRPORT's zone, not the server's", () => {
+    // The bug this exists to prevent: `new Date("2026-09-01T18:30")` uses the
+    // server zone, which is UTC in production — a 6:30 PM JFK departure was
+    // being stored as 18:30Z and read back four hours early.
+    expect(airportLocalDateTime("2026-09-01T18:30", NY).toISOString()).toBe(
+      "2026-09-01T22:30:00.000Z",
+    );
+  });
+
+  it("round-trips formatDateTimeLocalInAirportTz", () => {
+    const local = "2025-12-24T06:05";
+    expect(formatDateTimeLocalInAirportTz(airportLocalDateTime(local, NY), NY)).toBe(
+      local,
+    );
+  });
+
+  it("is DST-correct on both sides of the change", () => {
+    // EST (UTC-5) in January, EDT (UTC-4) in July.
+    expect(airportLocalDateTime("2026-01-15T12:00", NY).toISOString()).toBe(
+      "2026-01-15T17:00:00.000Z",
+    );
+    expect(airportLocalDateTime("2026-07-15T12:00", NY).toISOString()).toBe(
+      "2026-07-15T16:00:00.000Z",
+    );
+  });
+
+  it("throws on anything that is not a datetime-local value", () => {
+    expect(() => airportLocalDateTime("2026-09-01", NY)).toThrow(RangeError);
+    expect(() => airportLocalDateTime("tomorrow", NY)).toThrow(RangeError);
   });
 });
 
@@ -534,13 +575,93 @@ describe("airportLocalDayBounds", () => {
 
     // 9 Mar 2025 loses an hour; 2 Nov 2025 gains one. Adding 24h would put
     // both boundaries in the wrong place.
-    expect(hours(airportLocalDayBounds(new Date("2025-03-09T17:00:00.000Z"), NY))).toBe(23);
-    expect(hours(airportLocalDayBounds(new Date("2025-11-02T17:00:00.000Z"), NY))).toBe(25);
+    expect(hours(airportLocalDayBounds(new Date("2025-03-09T17:00:00.000Z"), NY))).toBe(
+      23,
+    );
+    expect(hours(airportLocalDayBounds(new Date("2025-11-02T17:00:00.000Z"), NY))).toBe(
+      25,
+    );
   });
 
   it("rolls over month and year ends", () => {
     const newYearEve = airportLocalDayBounds(new Date("2025-12-31T17:00:00.000Z"), NY);
     expect(airportLocalDay(newYearEve.start, NY)).toBe("2025-12-31");
     expect(newYearEve.end.toISOString()).toBe("2026-01-01T05:00:00.000Z"); // 00:00 EST
+  });
+});
+
+describe("resolveStrictestCutoffMinutes", () => {
+  const cutoff = (over: Partial<AirlineCutoff>): AirlineCutoff =>
+    ({
+      id: "c-1",
+      airlineIata: "DL",
+      airportCode: "JFK" as AirportCode,
+      scope: "domestic",
+      cutoffMinutesBeforeDeparture: 45,
+      source: null,
+      effectiveFrom: new Date("2024-01-01T00:00:00Z"),
+      createdAt: new Date("2024-01-01T00:00:00Z"),
+      ...over,
+    }) as AirlineCutoff;
+
+  const now = new Date("2025-06-01T00:00:00Z");
+  const lookup = { airlineIata: "DL", airportCode: "JFK" as AirportCode };
+
+  it("takes the larger of the two scopes — the earlier deadline", () => {
+    const rows = [
+      cutoff({ id: "dom", scope: "domestic", cutoffMinutesBeforeDeparture: 45 }),
+      cutoff({ id: "intl", scope: "international", cutoffMinutesBeforeDeparture: 60 }),
+    ];
+    expect(resolveStrictestCutoffMinutes(rows, lookup, now)).toBe(60);
+  });
+
+  it("does not care which order the rows arrive in", () => {
+    const rows = [
+      cutoff({ id: "intl", scope: "international", cutoffMinutesBeforeDeparture: 90 }),
+      cutoff({ id: "dom", scope: "domestic", cutoffMinutesBeforeDeparture: 45 }),
+    ];
+    expect(resolveStrictestCutoffMinutes(rows, lookup, now)).toBe(90);
+  });
+
+  it("works from a single scope", () => {
+    const rows = [cutoff({ scope: "international", cutoffMinutesBeforeDeparture: 75 })];
+    expect(resolveStrictestCutoffMinutes(rows, lookup, now)).toBe(75);
+  });
+
+  it("matches the airline code case-insensitively", () => {
+    expect(
+      resolveStrictestCutoffMinutes([cutoff({ airlineIata: "dl" })], lookup, now),
+    ).toBe(45);
+  });
+
+  it("ignores rows that have not taken effect yet", () => {
+    const rows = [
+      cutoff({ cutoffMinutesBeforeDeparture: 45 }),
+      cutoff({
+        id: "future",
+        scope: "international",
+        cutoffMinutesBeforeDeparture: 120,
+        effectiveFrom: new Date("2030-01-01T00:00:00Z"),
+      }),
+    ];
+    expect(resolveStrictestCutoffMinutes(rows, lookup, now)).toBe(45);
+  });
+
+  it("ignores another airport's rows", () => {
+    const rows = [
+      cutoff({ cutoffMinutesBeforeDeparture: 45 }),
+      cutoff({
+        id: "lga",
+        airportCode: "LGA" as AirportCode,
+        cutoffMinutesBeforeDeparture: 200,
+      }),
+    ];
+    expect(resolveStrictestCutoffMinutes(rows, lookup, now)).toBe(45);
+  });
+
+  it("throws rather than guessing when nothing is on record", () => {
+    expect(() => resolveStrictestCutoffMinutes([], lookup, now)).toThrow(
+      /No bag-drop cutoff/,
+    );
   });
 });

@@ -1,9 +1,13 @@
 import type { Metadata, Viewport } from "next";
 import Link from "next/link";
-import { AppHeader, Button, Toaster } from "@koolee/ui";
+import { Analytics } from "@vercel/analytics/next";
+import { SpeedInsights } from "@vercel/speed-insights/next";
+import { AppHeader, Toaster } from "@koolee/ui";
+import { brandFontClassName } from "@koolee/ui/fonts";
 
-import { signOutStaff } from "@/actions/auth";
 import { ServiceWorkerRegistrar } from "@/components/service-worker-registrar";
+import { AgentTabBar } from "@/components/shell/agent-tab-bar";
+import { ShiftLocation } from "@/components/shift/shift-location";
 import { getAgentSession } from "@/lib/session";
 
 import "./globals.css";
@@ -31,33 +35,45 @@ export const viewport: Viewport = {
   viewportFit: "cover",
 };
 
+/**
+ * The agent shell: a slim header and a bottom tab bar.
+ *
+ * Two changes from what this app had, both about who is holding the phone.
+ *
+ * There was no navigation at all — `/scan` could only be reached by typing
+ * the URL — and the single most prominent control on every screen was Sign
+ * out, sitting in the top-right corner where a thumb lands. Sign out now
+ * lives on the Account tab, which is where someone goes deliberately rather
+ * than by accident at the end of a shift.
+ *
+ * The header keeps only the wordmark: on a 393px screen, chrome is space
+ * taken from the job. Every screen names itself in its own heading, so a
+ * title in the bar would say it twice.
+ */
 export default async function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
-  // Session-aware chrome: with no nav links the header renders no hamburger,
-  // so the sign-out stays inline next to the logo at every width. Null on
-  // the login/reset screens, so no button shows there.
   const session = await getAgentSession();
 
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className="min-h-dvh">
-        <AppHeader
-          linkComponent={Link}
-          tag="agent"
-          actions={
-            session ? (
-              <form action={signOutStaff}>
-                <Button type="submit" variant="ghost" size="sm">
-                  Sign out
-                </Button>
-              </form>
-            ) : undefined
-          }
-        />
+      <body className={`${brandFontClassName} min-h-dvh`}>
+        <AppHeader linkComponent={Link} tag="agent" sticky={false} />
         {children}
+        {session ? <AgentTabBar /> : null}
+        {/*
+          POSITION IS A FACT ABOUT THE DRIVER, NOT ABOUT THE SCREEN.
+          `GpsPinger` used to live on the Today page alone, so opening a task —
+          the moment somebody is most likely to be moving — stopped reporting,
+          silently, and the customer's map went quiet. In the shell it runs
+          from every page for as long as the shift is open. Off the clock it
+          renders nothing and touches no geolocation API at all.
+        */}
+        {session ? <ShiftLocation /> : null}
         <ServiceWorkerRegistrar />
         <Toaster position="top-center" />
+        <Analytics />
+        <SpeedInsights />
       </body>
     </html>
   );

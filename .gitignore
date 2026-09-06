@@ -41,6 +41,12 @@ packages/db/.drizzle-tmp/
 npm-debug.log*
 pnpm-debug.log*
 
+# MapLibre's tile-parsing worker, copied out of node_modules by
+# scripts/copy-maplibre-worker.mjs before every dev and every build. Generated,
+# version-locked to the installed maplibre-gl, and never committed — a vendored
+# copy would drift silently on the next version bump.
+**/public/maplibre/
+
 # next-pwa generated service worker artifacts
 apps/agent/public/workbox-*.js
 apps/agent/public/sw.js.map
@@ -48,4 +54,8 @@ apps/agent/public/sw.js.map
 # storybook build output
 storybook-static/
 
-brand*
+# Brand artifacts. The vector source and guidelines are the single source of
+# truth for every app icon, so they belong in the repo — an unanchored
+# `brand*` here also swallowed `brand/` itself and any `brand-*.ts` anywhere
+# in the tree. Only the large working proposal PDFs stay local.
+/brand/*.pdf

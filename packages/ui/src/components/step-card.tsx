@@ -2,8 +2,10 @@ import * as React from "react";
 
 import { cn } from "../lib/utils";
 
-export interface StepCardProps
-  extends Omit<React.HTMLAttributes<HTMLDivElement>, "title"> {
+export interface StepCardProps extends Omit<
+  React.HTMLAttributes<HTMLDivElement>,
+  "title"
+> {
   /** 1-based step number, rendered as a zero-padded index ("01"). */
   step: number;
   title: React.ReactNode;

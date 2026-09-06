@@ -63,7 +63,10 @@ function MarketingNav({
         className,
       )}
     >
-      <nav aria-label="Main" className="container flex h-16 items-center justify-between gap-4">
+      <nav
+        aria-label="Main"
+        className="container flex h-16 items-center justify-between gap-4"
+      >
         <LinkComponent
           href={homeHref}
           className="rounded-md focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"

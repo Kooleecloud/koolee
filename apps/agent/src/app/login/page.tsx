@@ -11,6 +11,7 @@ import {
   StaffLoginForm,
 } from "@koolee/ui";
 
+import { TurnstileField } from "@/components/auth/turnstile-field";
 import { signInStaff } from "@/actions/auth";
 import { getAgentSession } from "@/lib/session";
 
@@ -34,12 +35,16 @@ export default async function AgentLoginPage() {
         <CardHeader>
           <CardTitle className="text-base">Sign in with your staff account</CardTitle>
           <CardDescription>
-            Agent accounts are created by invitation only. If you don&apos;t have one,
-            ask an admin to invite you.
+            Agent accounts are created by invitation only. If you don&apos;t have one, ask
+            an admin to invite you.
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <StaffLoginForm action={signInStaff} resetHref="/login/reset" />
+          <StaffLoginForm
+            action={signInStaff}
+            resetHref="/login/reset"
+            captchaSlot={<TurnstileField />}
+          />
         </CardContent>
       </Card>
 

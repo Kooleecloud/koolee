@@ -103,7 +103,8 @@ function bandDeadline(ctx: WindowRulesContext): Date {
 
 function overlapsBlock(start: Date, end: Date, blocks: readonly BlockSpan[]): boolean {
   return blocks.some(
-    (b) => start.getTime() < b.blockEnd.getTime() && end.getTime() > b.blockStart.getTime(),
+    (b) =>
+      start.getTime() < b.blockEnd.getTime() && end.getTime() > b.blockStart.getTime(),
   );
 }
 
@@ -114,9 +115,7 @@ function classify(
   deadline: Date,
 ): WindowUnavailableReason | undefined {
   if (windowEnd.getTime() > deadline.getTime()) return "misses_bag_drop_cutoff";
-  if (
-    differenceInMinutes(windowStart, ctx.now) < ctx.noticeMinutes
-  ) {
+  if (differenceInMinutes(windowStart, ctx.now) < ctx.noticeMinutes) {
     return "starts_before_notice";
   }
   if (overlapsBlock(windowStart, windowEnd, ctx.blocks ?? [])) return "blocked";

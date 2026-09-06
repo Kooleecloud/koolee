@@ -2,13 +2,18 @@
 
 import { redirect } from "next/navigation";
 import {
+  airportLocalDateTime,
   checkCoverage,
   ConflictError,
   createBooking,
   discardBookingDraft,
+  FALLBACK_DISPLAY_TZ,
   listBookableWindows,
   OutOfCoverageError,
+  QuoteZipMismatchError,
   recordWaitlistSignup,
+  resolveDisplayTz,
+  resolveQuoteDistanceKm,
   SlotNotSellableError,
   softDeleteBookingDraft,
   type AirportCode,
@@ -18,7 +23,14 @@ import {
 import { ensureDraftSession } from "@/actions/auth";
 import { getAuthUser } from "@/lib/auth";
 import { emitBookingConfirmed } from "@/lib/booking-events";
-import { clearDraft, readDraft, writeDraft } from "@/lib/booking-draft";
+import {
+  clearDraft,
+  clearStashedDraft,
+  readDraft,
+  restoreStashedDraft,
+  writeDraft,
+} from "@/lib/booking-draft";
+import type { PrefillAlternative } from "@/lib/booking-draft-schema";
 import { nextIncompleteStep } from "@/lib/booking-steps";
 import { buildCheckoutSetup, isDraftReadyForPayment } from "@/lib/checkout";
 import { getCore, tryGetCore } from "@/lib/core";
@@ -42,6 +54,12 @@ export interface ActionState {
   error?: string;
   /** Set when the ZIP is outside the service area, to show the email capture. */
   outOfCoverageZip?: string;
+  /**
+   * Set when the address entered at the pickup step is in a different ZIP
+   * from the one the quote was built for. Not an error — the form offers to
+   * re-quote for the new ZIP, or to go back and use another address.
+   */
+  zipMismatch?: { quotedZip: string; addressZip: string };
   ok?: boolean;
 }
 
@@ -84,6 +102,42 @@ export async function startOverBooking(): Promise<void> {
   redirect("/book/flight");
 }
 
+/* ------------------------------------------------------------------ */
+/* The set-aside draft                                                  */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Puts the set-aside draft back and jumps to where it left off.
+ *
+ * The counterpart to `/book`'s reset: that door starts a clean booking and
+ * moves the old draft to `koolee_draft_prev`; this moves it back and sends the
+ * customer to its first incomplete step, which is exactly where the old
+ * unconditional resume used to land them — the difference being that they
+ * asked for it.
+ *
+ * A no-op redirect when the stash has expired (an hour) or was already used:
+ * the offer that triggered this is rendered from the same cookie, so the only
+ * way to get here without one is a stale tab, and the honest answer to that is
+ * the clean first step they are already looking at.
+ */
+export async function resumeStashedDraft(): Promise<void> {
+  const restored = await restoreStashedDraft();
+  redirect(restored ? nextIncompleteStep(restored) : "/book/flight");
+}
+
+/**
+ * "No thanks" — the offer goes away and the clean booking carries on.
+ *
+ * It drops the stash cookie only. The account holder's `booking_drafts` mirror
+ * row is deliberately untouched: dismissing a prompt is not the same as
+ * discarding a booking, and that row is the seven-day safety net behind a lost
+ * phone. `startOverBooking` is what actually throws work away, and it says so.
+ */
+export async function dismissStashedDraft(): Promise<void> {
+  await clearStashedDraft();
+  redirect("/book/flight");
+}
+
 /** Out-of-area waitlist: persists to `waitlist_signups` via core. */
 export async function captureOutOfAreaEmail(
   _prev: ActionState,
@@ -96,7 +150,10 @@ export async function captureOutOfAreaEmail(
     return { error: "Enter a valid email address.", outOfCoverageZip: zip };
   }
   if (!/^\d{5}$/.test(zip)) {
-    return { error: "That ZIP code doesn't look right — go back and re-enter it.", outOfCoverageZip: zip };
+    return {
+      error: "That ZIP code doesn't look right — go back and re-enter it.",
+      outOfCoverageZip: zip,
+    };
   }
 
   const core = tryGetCore();
@@ -114,7 +171,10 @@ export async function captureOutOfAreaEmail(
     await recordWaitlistSignup(core.db, { email, zip, source: "booking_out_of_area" });
   } catch (error) {
     console.error("[waitlist] failed to persist out-of-area signup", error);
-    return { error: "Something went wrong saving your spot — please try again.", outOfCoverageZip: zip };
+    return {
+      error: "Something went wrong saving your spot — please try again.",
+      outOfCoverageZip: zip,
+    };
   }
 
   return { ok: true };
@@ -134,9 +194,102 @@ export async function captureOutOfAreaEmail(
  */
 
 /**
+ * "Use the other leg instead" on a round-trip ticket.
+ *
+ * Swaps the chosen leg with one of the alternatives the extractor recorded,
+ * inside the quarantined prefill ONLY — nothing here touches a booking field,
+ * and the customer still confirms the review form afterwards. The leg being
+ * replaced becomes an alternative in turn, so the swap is reversible.
+ *
+ * `scope` comes from the CHOSEN leg's own reading, not from the leg being
+ * replaced. Each alternative carries the domestic/international value derived
+ * from its own destination country at extraction time, so nothing is inherited
+ * and nothing is invented. It was previously cleared on swap, which sounded
+ * conservative but made the review form fall back to "Domestic" on a leg to
+ * Paris — asserting a value we had actually read the opposite of, and one that
+ * picks a shorter bag-drop cutoff.
+ */
+export async function useTicketAlternativeLeg(form: FormData): Promise<void> {
+  const draft = await readDraft();
+  const prefill = draft.ticketPrefill;
+  const index = Number(str(form, "index"));
+  const chosen = prefill?.alternatives?.[index];
+
+  if (!prefill || !chosen) redirect("/book/flight");
+
+  const replaced: PrefillAlternative | null = prefill.departureAirport
+    ? {
+        departureAirport: prefill.departureAirport,
+        ...(prefill.destinationAirport
+          ? { destinationAirport: prefill.destinationAirport }
+          : {}),
+        ...(prefill.flightNumber ? { flightNumber: prefill.flightNumber } : {}),
+        ...(prefill.departureAtLocal
+          ? { departureAtLocal: prefill.departureAtLocal }
+          : {}),
+        // Carried so swapping BACK restores this leg's scope too.
+        ...(prefill.scope ? { scope: prefill.scope } : {}),
+      }
+    : null;
+
+  const alternatives = (prefill.alternatives ?? []).filter((_, i) => i !== index);
+  if (replaced) alternatives.unshift(replaced);
+
+  await writeDraft({
+    ticketPrefill: {
+      ...prefill,
+      departureAirport: chosen.departureAirport,
+      flightNumber: chosen.flightNumber,
+      airlineIata: chosen.flightNumber
+        ? (/^([A-Z]{2}|[A-Z]\d|\d[A-Z])/.exec(chosen.flightNumber)?.[1] ?? undefined)
+        : undefined,
+      departureAtLocal: chosen.departureAtLocal,
+      destinationAirport: chosen.destinationAirport,
+      scope: chosen.scope,
+      nonServicedOrigin: undefined,
+      // The customer picked this leg, so it is no longer our ambiguous guess.
+      selectionReason: "single_serviced_origin",
+      alternatives: alternatives.slice(0, 2),
+    },
+  });
+
+  redirect("/book/flight?from=ticket");
+}
+
+/**
  * Confirming the flight review form is the moment funnel state is first
  * persisted server-side: anonymous session + `public.users` row + draft row.
  */
+/**
+ * Persist what the customer typed at the flight step, then return the
+ * rejection.
+ *
+ * EVERY refusal in `submitFlight` goes through this. The alternative — the
+ * one that shipped — is a `return { error }` that leaves the cookie untouched
+ * and a page reload with nothing to seed the form from. `usePreservedFormValues`
+ * covers the round trip inside one mount; it cannot survive the navigation an
+ * out-of-area ZIP forces, because the waitlist card replaces the form and its
+ * "Try another ZIP" is a real link.
+ *
+ * Quarantined under `flightEntry`, never into the real draft keys — see
+ * `rejectedEntrySchema`. Writing a refused ZIP into `draft.zip` would make
+ * `stepCompletion` count a step the customer never cleared.
+ */
+async function rejectFlight(form: FormData, state: ActionState): Promise<ActionState> {
+  await writeDraft({
+    flightEntry: {
+      zip: str(form, "zip"),
+      flightNumber: str(form, "flightNumber"),
+      departureAirport: str(form, "departureAirport"),
+      destinationAirport: str(form, "destinationAirport"),
+      departureAt: str(form, "departureAt"),
+      scope: str(form, "scope"),
+      paxName: str(form, "paxName"),
+    },
+  });
+  return state;
+}
+
 export async function submitFlight(
   _prev: ActionState,
   form: FormData,
@@ -146,12 +299,15 @@ export async function submitFlight(
   const zip = str(form, "zip");
   const coverage = checkCoverage(zip);
   if (!coverage.covered) {
-    return coverage.reason === "malformed"
-      ? { error: "That ZIP code does not look right." }
-      : {
-          error: "We do not serve that ZIP code yet.",
-          outOfCoverageZip: coverage.zip ?? zip,
-        };
+    return rejectFlight(
+      form,
+      coverage.reason === "malformed"
+        ? { error: "That ZIP code does not look right." }
+        : {
+            error: "We do not serve that ZIP code yet.",
+            outOfCoverageZip: coverage.zip ?? zip,
+          },
+    );
   }
 
   const flightNumber = str(form, "flightNumber").toUpperCase().replace(/\s+/g, "");
@@ -159,26 +315,52 @@ export async function submitFlight(
   const departureAtLocal = str(form, "departureAt");
   const scope = (str(form, "scope") || "domestic") as CutoffScope;
   const paxName = str(form, "paxName");
+  /*
+   * Where they are flying TO. Optional, display-only, and validated loosely —
+   * three letters or nothing.
+   *
+   * A bad value here costs nothing (it appears on a history card and nowhere
+   * else), so it is never a reason to refuse a booking: anything that is not
+   * three letters is simply dropped rather than returned as an error the
+   * customer has to clear before they can pay.
+   */
+  const destinationRaw = str(form, "destinationAirport")
+    .toUpperCase()
+    .replace(/[^A-Z]/g, "");
+  const destinationAirport = destinationRaw.length === 3 ? destinationRaw : undefined;
 
   if (!/^[A-Z0-9]{2,3}\d{1,4}$/.test(flightNumber)) {
-    return { error: "Enter a flight number like DL123 or UA1189." };
+    return rejectFlight(form, { error: "Enter a flight number like DL123 or UA1189." });
   }
   if (!AIRPORTS.includes(departureAirport)) {
-    return { error: "Choose JFK, LGA, or EWR." };
+    return rejectFlight(form, { error: "Choose JFK, LGA, or EWR." });
   }
   if (!departureAtLocal) {
-    return { error: "Enter your departure date and time." };
+    return rejectFlight(form, { error: "Enter your departure date and time." });
   }
 
-  const departureAt = new Date(departureAtLocal);
-  if (Number.isNaN(departureAt.getTime())) {
-    return { error: "That departure time is not valid." };
+  // A `datetime-local` value carries no zone, so it has to be read in the
+  // DEPARTURE AIRPORT's — `new Date(...)` applies the SERVER's instead, which
+  // is UTC in production and silently shifted every stored departure (and so
+  // every cutoff and bookable window derived from it) by the offset.
+  const flightCore = tryGetCore();
+  const airportTz = flightCore
+    ? await resolveDisplayTz(flightCore.db, departureAirport).catch(
+        () => FALLBACK_DISPLAY_TZ,
+      )
+    : FALLBACK_DISPLAY_TZ;
+
+  let departureAt: Date;
+  try {
+    departureAt = airportLocalDateTime(departureAtLocal, airportTz);
+  } catch {
+    return rejectFlight(form, { error: "That departure time is not valid." });
   }
   if (departureAt.getTime() < Date.now()) {
-    return { error: "That flight has already departed." };
+    return rejectFlight(form, { error: "That flight has already departed." });
   }
   if (!paxName) {
-    return { error: "Enter the name on the ticket." };
+    return rejectFlight(form, { error: "Enter the name on the ticket." });
   }
 
   // Airline code is the leading token of the flight number. IATA codes are
@@ -205,13 +387,22 @@ export async function submitFlight(
   // this confirmation and is never read by any booking-write path.
   const next = await writeDraft({
     zip: coverage.zip,
+    // The quote and the coverage answer the customer is about to see are
+    // built from THIS ZIP. Recorded so the pickup step can tell whether the
+    // address they type two steps later is the same place.
+    quotedZip: coverage.zip,
     flightNumber,
     airlineIata,
     departureAirport,
     departureAt: departureAt.toISOString(),
     scope,
     paxName,
+    destinationAirport,
     ticketPrefill: undefined,
+    // Cleared the moment the step succeeds: it exists only to survive a
+    // refusal, and a stale copy would seed the form on a later visit with
+    // values the customer has since corrected.
+    flightEntry: undefined,
     ...(flightChanged ? { windowStart: undefined, windowEnd: undefined } : {}),
   });
 
@@ -232,32 +423,95 @@ export async function submitFlight(
 /* Step 2 — pickup (address + bags)                                     */
 /* ------------------------------------------------------------------ */
 
+/**
+ * The pickup step's half of the same fix. See `rejectFlight`.
+ *
+ * The address fields are the more expensive ones to lose: a street, a unit, a
+ * city, a state and a ZIP, typed or picked from autocomplete. The waitlist
+ * card's "Try another ZIP" points at `/book/pickup`, which re-reads the draft
+ * — and the draft only ever held an address that had already been ACCEPTED.
+ *
+ * The Places precision (`lat`/`lng`/`placeId`) is deliberately NOT carried
+ * here. It belongs to an address the customer is about to change, and stale
+ * coordinates are worse than none: they would point a driver at the previous
+ * door while looking exactly as confident.
+ */
+async function rejectPickup(form: FormData, state: ActionState): Promise<ActionState> {
+  await writeDraft({
+    pickupEntry: {
+      line1: str(form, "line1"),
+      line2: str(form, "line2"),
+      city: str(form, "city"),
+      state: str(form, "state"),
+      zip: str(form, "zip"),
+      bagCount: str(form, "bagCount"),
+    },
+  });
+  return state;
+}
+
 export async function submitPickup(
   _prev: ActionState,
   form: FormData,
 ): Promise<ActionState> {
+  const draft = await readDraft();
   const line1 = str(form, "line1");
   const line2 = str(form, "line2");
   const city = str(form, "city");
   const state = str(form, "state").toUpperCase();
   const zip = str(form, "zip");
   const bagCount = Number(str(form, "bagCount"));
+  // The point behind the address, when a Places suggestion supplied one. The
+  // form posts these only while they still belong to the text in the fields —
+  // any hand edit drops them — so "absent" here means "fall back to the ZIP
+  // centroid", and the draft's old values must go with them.
+  const precision = readAddressPrecision(form);
 
   if (!line1 || !city || !state || !zip) {
-    return { error: "Fill in street, city, state, and ZIP." };
+    return rejectPickup(form, { error: "Fill in street, city, state, and ZIP." });
   }
   if (!Number.isInteger(bagCount) || bagCount < 1 || bagCount > 10) {
-    return { error: "Choose between 1 and 10 bags." };
+    return rejectPickup(form, { error: "Choose between 1 and 10 bags." });
   }
 
   const coverage = checkCoverage(zip);
   if (!coverage.covered) {
-    return coverage.reason === "malformed"
-      ? { error: "That ZIP code does not look right." }
-      : {
-          error: "We do not serve that ZIP code yet.",
-          outOfCoverageZip: coverage.zip ?? zip,
-        };
+    return rejectPickup(
+      form,
+      coverage.reason === "malformed"
+        ? { error: "That ZIP code does not look right." }
+        : {
+            error: "We do not serve that ZIP code yet.",
+            outOfCoverageZip: coverage.zip ?? zip,
+          },
+    );
+  }
+
+  /*
+   * Reconcile the address ZIP with the one the quote was built for.
+   *
+   * Both ZIPs pass coverage here — that is the point. Two covered ZIPs are
+   * still two different places: `zip_centroids` gives each its own
+   * coordinate, which is where every drive-time estimate starts, and
+   * `agent_zones` maps each to a different agent. Silently taking the new one
+   * changed the pickup location, the dispatch zone and (once the Maps seam is
+   * real) the price, without the customer being told any of it had happened.
+   *
+   * The customer decides, in one click: re-quote for the address they typed,
+   * or go back and use an address in the ZIP they were quoted for. The button
+   * that re-quotes posts `confirmZipChange`, which is why this is one action
+   * and not two.
+   */
+  const quotedZip = draft.quotedZip ?? draft.zip;
+  const changingZip = Boolean(quotedZip) && !sameZip(quotedZip!, coverage.zip);
+  if (changingZip && str(form, "confirmZipChange") !== "1") {
+    // Not an error — the form stays mounted and offers a one-click re-quote —
+    // but a reload mid-decision would still lose the address, and this is the
+    // exact moment a customer is most likely to open a new tab and check
+    // which ZIP they actually live in.
+    return rejectPickup(form, {
+      zipMismatch: { quotedZip: quotedZip!, addressZip: coverage.zip },
+    });
   }
 
   const next = await writeDraft({
@@ -267,10 +521,62 @@ export async function submitPickup(
     state,
     zip: coverage.zip,
     bagCount,
+    // Written unconditionally, `undefined` included: a customer who picked a
+    // suggestion and then corrected the street by hand must not keep the
+    // first address's coordinates.
+    lat: precision.lat,
+    lng: precision.lng,
+    placeId: precision.placeId,
+    // Cleared on success, like `flightEntry`.
+    pickupEntry: undefined,
+    // Re-quoting means this ZIP is now the one the price is computed for.
+    // The chosen window goes with it: its lead-time price and its drive-time
+    // headroom were both derived from the old location, the same reason
+    // `submitFlight` clears the window when the flight moves.
+    ...(changingZip
+      ? { quotedZip: coverage.zip, windowStart: undefined, windowEnd: undefined }
+      : { quotedZip: quotedZip ?? coverage.zip }),
   });
   await syncDraftRow();
 
   redirect(nextIncompleteStep(next));
+}
+
+/** ZIP+4 and whitespace are the same five-digit ZIP for this comparison. */
+function sameZip(a: string, b: string): boolean {
+  return a.trim().slice(0, 5) === b.trim().slice(0, 5);
+}
+
+/**
+ * `lat`/`lng`/`placeId` off the pickup form, or undefined.
+ *
+ * Both halves of the coordinate or neither: half a point is not a point, and
+ * a lone latitude written over a centroid pair would leave the address
+ * pointing somewhere nobody chose. Anything unparseable is treated as absent
+ * rather than rejected — these are an assist, and a bad value must not stop a
+ * customer booking.
+ */
+function readAddressPrecision(form: FormData): {
+  lat: number | undefined;
+  lng: number | undefined;
+  placeId: string | undefined;
+} {
+  const lat = Number(str(form, "lat"));
+  const lng = Number(str(form, "lng"));
+  const placeId = str(form, "placeId");
+
+  const usable =
+    Number.isFinite(lat) &&
+    Number.isFinite(lng) &&
+    Math.abs(lat) <= 90 &&
+    Math.abs(lng) <= 180 &&
+    !(lat === 0 && lng === 0);
+
+  return {
+    lat: usable ? lat : undefined,
+    lng: usable ? lng : undefined,
+    placeId: placeId ? placeId.slice(0, 255) : undefined,
+  };
 }
 
 /* ------------------------------------------------------------------ */
@@ -297,14 +603,18 @@ export async function submitSlot(
   // landed, or the notice fence may have moved past this window.
   if (core && draft.departureAirport && draft.departureAt && draft.airlineIata) {
     try {
+      const distance = await resolveQuoteDistanceKm(core, {
+        airportCode: draft.departureAirport,
+        zip: draft.zip,
+      });
+
       const { windows } = await listBookableWindows(core, {
         airportCode: draft.departureAirport,
         airlineIata: draft.airlineIata,
         scope: draft.scope ?? "domestic",
         departureAt: new Date(draft.departureAt),
         bagCount: draft.bagCount ?? 1,
-        // TODO(maps): real door-to-airport distance via the Maps API.
-        distanceKm: 20,
+        distanceKm: distance.km,
       });
       if (!windows.some((w) => w.windowStart.getTime() === windowStart.getTime())) {
         return { error: "That window is no longer available. Pick another." };
@@ -406,6 +716,14 @@ export async function confirmBooking(
     }
     if (error instanceof OutOfCoverageError) {
       return { error: "That address is outside our service area." };
+    }
+    if (error instanceof QuoteZipMismatchError) {
+      // Unreachable through the funnel — the pickup step reconciles the two
+      // ZIPs before this action can be reached. It is here because a server
+      // action stays a reachable POST whatever the form renders.
+      return {
+        error: `Your pickup address is in ${error.addressZip} but this booking was priced for ${error.quotedZip}. Go back to the pickup step and confirm the address.`,
+      };
     }
     if (error instanceof ConflictError) {
       return { error: error.message };

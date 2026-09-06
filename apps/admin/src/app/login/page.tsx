@@ -10,6 +10,7 @@ import {
   StaffLoginForm,
 } from "@koolee/ui";
 
+import { TurnstileField } from "@/components/auth/turnstile-field";
 import { signInStaff } from "@/actions/auth";
 import { getAdminSession } from "@/lib/session";
 
@@ -37,7 +38,11 @@ export default async function AdminLoginPage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <StaffLoginForm action={signInStaff} resetHref="/login/reset" />
+          <StaffLoginForm
+            action={signInStaff}
+            resetHref="/login/reset"
+            captchaSlot={<TurnstileField />}
+          />
         </CardContent>
       </Card>
     </ContentColumn>

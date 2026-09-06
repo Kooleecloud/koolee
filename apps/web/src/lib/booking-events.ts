@@ -2,12 +2,16 @@ import "server-only";
 
 import { getCustomerById, type Booking, type CoreConfig } from "@koolee/core";
 
-import { inngest } from "@/lib/inngest";
+import { inngest } from "@/lib/inngest-client";
 
 /**
- * Booking lifecycle event emission — the bridge from the payment paths to the
- * Inngest side effects (confirmation email, pickup reminder, exception ops
- * alert).
+ * Booking-confirmed event emission — the bridge from the payment paths to the
+ * Inngest side effects (confirmation email, pickup reminder).
+ *
+ * The exception alert used to live here too and no longer does: it is emitted
+ * by `packages/core` from the transition that raises it, so every path into
+ * `exception` is covered rather than only this app's webhook. See
+ * packages/core/src/events/booking-events.ts.
  *
  * Contracts:
  *  - NEVER throws: an event that fails to enqueue must not fail a payment
@@ -40,32 +44,5 @@ export async function emitBookingConfirmed(
     });
   } catch (error) {
     console.error(`[events] booking/confirmed emit failed for ${booking.id}`, error);
-  }
-}
-
-export async function emitExceptionRaised(input: {
-  bookingId: string;
-  reason: string;
-  /** Distinguishes independent raises of the same booking (e.g. webhook event id). */
-  dedupeKey: string;
-  raisedByUserId?: string;
-}): Promise<void> {
-  try {
-    await inngest.send({
-      id: `booking-exception:${input.bookingId}:${input.dedupeKey}`,
-      name: "booking/exception_raised",
-      data: {
-        bookingId: input.bookingId,
-        reason: input.reason,
-        ...(input.raisedByUserId === undefined
-          ? {}
-          : { raisedByUserId: input.raisedByUserId }),
-      },
-    });
-  } catch (error) {
-    console.error(
-      `[events] booking/exception_raised emit failed for ${input.bookingId}`,
-      error,
-    );
   }
 }

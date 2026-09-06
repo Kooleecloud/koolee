@@ -1,9 +1,11 @@
-import { ContentColumn, PageSkeleton } from "@koolee/ui";
+import { PageSkeleton } from "@koolee/ui";
+
+import { ConsoleMain } from "@/components/console";
 
 export default function AdminLoading() {
   return (
-    <ContentColumn>
-      <PageSkeleton cards={2} />
-    </ContentColumn>
+    <ConsoleMain>
+      <PageSkeleton cards={3} />
+    </ConsoleMain>
   );
 }

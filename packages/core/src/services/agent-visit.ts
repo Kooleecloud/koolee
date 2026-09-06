@@ -4,11 +4,13 @@ import {
   bookings,
   custodyEvents,
   payments,
+  users,
   verificationTasks,
   type Bag,
   type Booking,
   type CustodyEvent,
   type Database,
+  type PassportVerification,
   type Payment,
   type VerificationTask,
 } from "@koolee/db";
@@ -16,8 +18,12 @@ import {
 import type { AgentSession } from "../auth/types";
 import type { CoreConfig } from "../config";
 import { ConflictError, NotFoundError } from "../errors";
+import { getBookingAgreementState, type BookingAgreementState } from "./agreements";
+import { assertActionable } from "./actionability";
 import { applyTransition } from "./bookings";
 import { resolveDisplayTz } from "./display-tz";
+import { confirmPassport, getPassportVerification } from "./passport";
+import { bookingPickupAddress, type PickupAddress } from "./pickup-address";
 
 /**
  * The verification visit — the agent app's core flow.
@@ -39,6 +45,14 @@ import { resolveDisplayTz } from "./display-tz";
  */
 export const VISIT_EVENT_TYPES = {
   arrived: "visit.arrived",
+  /**
+   * SUPERSEDED as a gate, kept as a name. Identity used to be a self-attested
+   * checkbox ("ID matches the ticket") and the event it wrote is the only
+   * record of every visit performed before this slice — so the constant stays
+   * and the timeline keeps rendering it. What CHANGED is that nothing reads it
+   * to decide whether the visit may continue; `passport_verifications` does.
+   * See `identityGate` below.
+   */
   identityVerified: "visit.identity_verified",
   bagSealed: "bag.sealed",
 } as const;
@@ -67,6 +81,17 @@ export interface VisitContext {
    */
   paymentStatus: Payment["status"] | null;
   /**
+   * The pickup address, off the booking's own snapshot.
+   *
+   * The agent app's visit screen used to render neither this nor the contact
+   * number, which meant the one screen a driver looks at while standing on
+   * somebody's doorstep could not tell them which doorstep. It was a join on
+   * `addresses` until 0033; now the booking carries the doorstep it was made
+   * for, so a customer editing their saved address mid-week cannot move an
+   * agent who is already on their way.
+   */
+  address: PickupAddress;
+  /**
    * The booking's display zone. The agent app renders every time through this
    * and never through the device or server zone: the agent has to show up for
    * the window the CUSTOMER bought, and the only way to guarantee both screens
@@ -74,6 +99,70 @@ export interface VisitContext {
    * in UTC, so a bare local format here put the agent 4–5 hours out.)
    */
   tz: string;
+  /**
+   * Who the agent is meeting.
+   *
+   * `booking.paxName` is the name on the TICKET, which is the name the seal
+   * and the airline care about. This is the account holder's own display name
+   * and face — what actually helps at a door, where the person answering has
+   * to be recognised before a passport comes out. Null if the row went
+   * missing; the screen degrades to the pax name and initials.
+   */
+  customer: {
+    fullName: string | null;
+    /** Key in the PRIVATE `avatars` bucket. Signed by whoever renders it. */
+    avatarStoragePath: string | null;
+    /**
+     * The account's verified number, for the door. See `doorContact` — this
+     * is ONE field, granted by the same relationship that already gives this
+     * agent the address and the traveller's face, and nothing else about the
+     * customer's row travels with it.
+     */
+    phone: string | null;
+  } | null;
+  /** The two things that must both be true before any bag may be sealed. */
+  identityGate: VisitIdentityGate;
+}
+
+export type VisitGateBlocker =
+  | "agreement_not_accepted"
+  | "passport_not_confirmed"
+  /**
+   * NOTHING HAS EVER BEEN PUBLISHED, so no booking can have accepted
+   * anything. This is a separate blocker from `agreement_not_accepted`
+   * because the two demand opposite actions from the agent standing at the
+   * door: one is "ask the customer to open their trip page", and the other is
+   * something the customer CANNOT fix and must not be blamed for.
+   *
+   * The gate refuses either way — `bookingHasAcceptedAgreement` fails closed
+   * on purpose. What changes is the sentence the agent reads.
+   */
+  | "no_agreement_published";
+
+/**
+ * The identity gate: the customer has accepted the CURRENT agreement, and the
+ * assigned agent has confirmed the traveler's passport.
+ *
+ * This replaced a self-attested checkbox. The old step wrote
+ * `visit.identity_verified` when the agent tapped "ID matches the ticket" —
+ * evidence of a tap, and of nothing else. Now both halves are rows another
+ * party wrote: the acceptance is the customer's (append-only, versioned), and
+ * the passport confirmation names the agent who vouched.
+ *
+ * THERE IS NO OVERRIDE, deliberately. An agent who cannot clear the gate files
+ * an exception (`reportVisitException`), which raises the booking, alerts ops
+ * by email, and leaves a trail. An override would be a button whose only use
+ * is to bypass the control the slice exists to add, and it would be pressed at
+ * 6am on a doorstep by someone who just wants to finish the job.
+ */
+export interface VisitIdentityGate {
+  agreement: BookingAgreementState;
+  passport: PassportVerification | null;
+  /** True only at `agent_confirmed` — an unreviewed upload is not a check. */
+  passportConfirmed: boolean;
+  /** In the order the agent should act on them. Empty when `passed`. */
+  blockers: VisitGateBlocker[];
+  passed: boolean;
 }
 
 function actorOf(session: AgentSession) {
@@ -85,6 +174,13 @@ export async function getVisitContext(
   db: Database,
   session: AgentSession,
   taskId: string,
+  /**
+   * The instant the agreement's "which version is current" derivation is read
+   * at. Defaults to real now for the render path (which holds `db`, not a
+   * `CoreConfig`); every function here that HAS a config passes
+   * `config.clock.now()` so a fixed clock in tests governs the gate too.
+   */
+  now: Date = new Date(),
 ): Promise<VisitContext> {
   const task = await db.query.verificationTasks.findFirst({
     where: and(
@@ -99,24 +195,47 @@ export async function getVisitContext(
   });
   if (!booking) throw new NotFoundError("Booking", task.bookingId);
 
-  const [bagRows, timeline, paymentRows, tz] = await Promise.all([
-    // By ordinal, never createdAt — see the note on `bags.ordinal`. This is the
-    // list the agent seals down, so a shuffling order was visible in the UI.
-    db.select().from(bags).where(eq(bags.bookingId, booking.id)).orderBy(asc(bags.ordinal)),
-    db
-      .select()
-      .from(custodyEvents)
-      .where(eq(custodyEvents.bookingId, booking.id))
-      .orderBy(asc(custodyEvents.createdAt)),
-    // Status column only — no provider call, no credentials.
-    db
-      .select({ status: payments.status })
-      .from(payments)
-      .where(eq(payments.bookingId, booking.id))
-      .orderBy(desc(payments.createdAt))
-      .limit(1),
-    resolveDisplayTz(db, booking.departureAirport),
-  ]);
+  const [bagRows, timeline, paymentRows, tz, agreement, passport, customerRows] =
+    await Promise.all([
+      // By ordinal, never createdAt — see the note on `bags.ordinal`. This is the
+      // list the agent seals down, so a shuffling order was visible in the UI.
+      db
+        .select()
+        .from(bags)
+        .where(eq(bags.bookingId, booking.id))
+        .orderBy(asc(bags.ordinal)),
+      db
+        .select()
+        .from(custodyEvents)
+        .where(eq(custodyEvents.bookingId, booking.id))
+        .orderBy(asc(custodyEvents.createdAt)),
+      // Status column only — no provider call, no credentials.
+      db
+        .select({ status: payments.status })
+        .from(payments)
+        .where(eq(payments.bookingId, booking.id))
+        .orderBy(desc(payments.createdAt))
+        .limit(1),
+      resolveDisplayTz(db, booking.departureAirport),
+      // Both halves of the gate, fetched with everything else rather than on
+      // demand: the agent screen renders them on every load, and a gate the UI
+      // has to ask for separately is a gate that can be rendered as passed
+      // before the answer arrives.
+      getBookingAgreementState(db, booking.id, now),
+      getPassportVerification(db, booking.id),
+      // Name, face and the door number. Email and the verification timestamps
+      // stay unselected — see `doorContact` for why the phone stopped being on
+      // that list, and what is still withheld.
+      db
+        .select({
+          fullName: users.fullName,
+          avatarStoragePath: users.avatarStoragePath,
+          phone: users.phone,
+        })
+        .from(users)
+        .where(eq(users.id, booking.userId))
+        .limit(1),
+    ]);
 
   return {
     task,
@@ -124,8 +243,80 @@ export async function getVisitContext(
     bags: bagRows,
     timeline,
     paymentStatus: paymentRows[0]?.status ?? null,
+    address: bookingPickupAddress(booking),
     tz,
+    customer: customerRows[0] ?? null,
+    identityGate: buildIdentityGate(agreement, passport),
   };
+}
+
+/**
+ * Exported for a PURE test, not for callers.
+ *
+ * The obvious place to test "an absent agreement is its own blocker" is the
+ * integration tier, and it cannot go there: migration 0024 freezes a version
+ * that is in effect, so a suite cannot delete its way to the day-zero state
+ * — `agreement_versions_freeze_once_effective()` raises 23001, correctly.
+ * The derivation is pure, so it is tested as one.
+ */
+export function buildIdentityGate(
+  agreement: BookingAgreementState,
+  passport: PassportVerification | null,
+): VisitIdentityGate {
+  const passportConfirmed = passport?.status === "agent_confirmed";
+  const blockers: VisitGateBlocker[] = [];
+  // Agreement first: it is the customer's action, and the agent can do
+  // nothing about it except ask them to open their trip page. Telling them
+  // that before the passport step saves a wasted photo.
+  //
+  // …unless there is no agreement to accept. `getBookingAgreementState`
+  // returns a null `currentVersion` when nothing has ever been published, and
+  // an unaccepted booking in that state is an OPS failure, not a customer
+  // one. Naming it as "the customer hasn't accepted" would send an agent to
+  // knock on a door about something no customer can do.
+  if (!agreement.accepted) {
+    blockers.push(
+      agreement.currentVersion === null
+        ? "no_agreement_published"
+        : "agreement_not_accepted",
+    );
+  }
+  if (!passportConfirmed) blockers.push("passport_not_confirmed");
+
+  return {
+    agreement,
+    passport,
+    passportConfirmed,
+    blockers,
+    passed: blockers.length === 0,
+  };
+}
+
+/** The sentence the agent reads when a step is refused. */
+export function identityGateMessage(gate: VisitIdentityGate): string | null {
+  if (gate.passed) return null;
+  const parts = gate.blockers.map((blocker) => {
+    switch (blocker) {
+      case "agreement_not_accepted":
+        return "the customer has not accepted our booking agreement yet (they accept it on their trip page)";
+      case "no_agreement_published":
+        return "no booking agreement is published at all — this is not something the customer can fix, so contact ops";
+      case "passport_not_confirmed":
+        return "the traveler's passport has not been confirmed";
+    }
+  });
+  return `You can't seal bags yet — ${parts.join(", and ")}. If it can't be resolved at the door, flag a problem.`;
+}
+
+/**
+ * Throws unless both halves are satisfied. Every step past identity calls this
+ * FIRST, in core — the agent app's step ordering is a convenience, not the
+ * guarantee, because a server action stays reachable as a POST regardless of
+ * what the UI renders.
+ */
+function assertIdentityGate(context: VisitContext): void {
+  const message = identityGateMessage(context.identityGate);
+  if (message) throw new ConflictError("passport", message);
 }
 
 export interface ArriveInput {
@@ -144,7 +335,11 @@ export async function arriveAtVisit(
   input: ArriveInput,
 ): Promise<VisitContext> {
   const { db } = config;
-  const context = await getVisitContext(db, session, input.taskId);
+  const context = await getVisitContext(db, session, input.taskId, config.clock.now());
+  // Arriving is the visit's first forward step. Late-but-savable still runs
+  // (the agent sees a "running late" notice instead); past the bag drop it
+  // does not, and the attempt raises the exception ops resolves.
+  await assertActionable(config, context.booking, "startVisit", actorOf(session));
 
   const alreadyArrived = context.timeline.some(
     (e) => e.eventType === VISIT_EVENT_TYPES.arrived,
@@ -167,35 +362,54 @@ export async function arriveAtVisit(
     });
   }
 
-  return getVisitContext(db, session, input.taskId);
+  return getVisitContext(db, session, input.taskId, config.clock.now());
 }
 
 /**
- * Step 2 — photo-ID check against the passenger name on the booking. A
- * mismatch is not recorded as "verified": the agent raises an exception
- * instead (that path is `reportVisitException`).
+ * Step 2 — the identity gate: confirm the traveler's passport.
+ *
+ * This REPLACES `recordIdentityVerified`, which wrote
+ * `visit.identity_verified` when the agent tapped a checkbox. That step is
+ * gone rather than kept alongside: two ways to satisfy identity means the
+ * weaker one is the one that gets used at 6am, and a self-attested tap is
+ * evidence of a tap. Confirmation now names the agent, timestamps itself, and
+ * lands in `passport_verifications` — see `services/passport.ts`.
+ *
+ * The customer's agreement acceptance is the other half and is NOT something
+ * the agent can do for them; it has to happen on the customer's own trip page,
+ * which is the entire point of it being an acceptance.
  */
-export async function recordIdentityVerified(
+export async function confirmVisitIdentity(
   config: CoreConfig,
   session: AgentSession,
-  input: { taskId: string },
+  input: { taskId: string; lat?: number | null; lng?: number | null },
 ): Promise<VisitContext> {
   const { db } = config;
-  const context = await getVisitContext(db, session, input.taskId);
+  // Resolves the task assignment-scoped, so an unassigned task 404s here
+  // before anything is written.
+  const context = await getVisitContext(db, session, input.taskId, config.clock.now());
 
-  const already = context.timeline.some(
-    (e) => e.eventType === VISIT_EVENT_TYPES.identityVerified,
-  );
-  if (!already) {
-    await db.insert(custodyEvents).values({
-      bookingId: context.booking.id,
-      actorUserId: session.userId,
-      actorRole: session.role,
-      eventType: VISIT_EVENT_TYPES.identityVerified,
-      metadata: { taskId: context.task.id, paxName: context.booking.paxName },
-    });
-  }
-  return getVisitContext(db, session, input.taskId);
+  /*
+   * THE GATE THIS WAS MISSING (found 2026-08-29, F2 Phase 5).
+   *
+   * `arriveAtVisit` has carried `assertActionable` since F1; this step, one
+   * tap later in the same flow, had none — so an agent whose task was still
+   * assigned could append a `passport.agent_confirmed` custody event to a
+   * booking that had already been delivered, completed or cancelled. The
+   * append-only log of a closed booking would grow an entry days after the
+   * bags reached the airline, and it would show on the customer's timeline.
+   *
+   * `startVisit` is the right action, not a sixth gate: this IS the visit, one
+   * step after arriving, and it belongs to the phase before custody transfers
+   * — which is exactly the set the carve-out covers. Late-but-savable still
+   * runs (`startVisit` is permitted in `running_late`); past the bag drop it
+   * refuses and raises the exception ops resolves, the same as arriving does.
+   */
+  await assertActionable(config, context.booking, "startVisit", actorOf(session));
+
+  await confirmPassport(config, session, input);
+
+  return getVisitContext(db, session, input.taskId, config.clock.now());
 }
 
 export interface SealBagInput {
@@ -227,7 +441,12 @@ export async function recordBagSealed(
   input: SealBagInput,
 ): Promise<VisitContext> {
   const { db } = config;
-  const context = await getVisitContext(db, session, input.taskId);
+  const context = await getVisitContext(db, session, input.taskId, config.clock.now());
+
+  // The gate, enforced in CORE. The agent app hides the bag steps until it
+  // passes, but a server action stays reachable as a POST whatever the UI
+  // renders, so the UI is a convenience and this line is the guarantee.
+  assertIdentityGate(context);
 
   const bag = context.bags.find((b) => b.id === input.bagId);
   if (!bag) throw new NotFoundError("Bag", input.bagId);
@@ -294,7 +513,7 @@ export async function recordBagSealed(
     });
   });
 
-  return getVisitContext(db, session, input.taskId);
+  return getVisitContext(db, session, input.taskId, config.clock.now());
 }
 
 export type CompleteVisitResult = { ok: true } | { ok: false; error: string };
@@ -324,7 +543,14 @@ export async function completeVerificationVisit(
   input: { taskId: string; lat?: number | null; lng?: number | null },
 ): Promise<CompleteVisitResult> {
   const { db } = config;
-  const context = await getVisitContext(db, session, input.taskId);
+  const context = await getVisitContext(db, session, input.taskId, config.clock.now());
+
+  // Belt and braces. Every bag being sealed already implies the gate passed
+  // (nothing can be sealed without it), but a booking with ZERO bags would
+  // slip through that implication, and "complete" is the step that moves
+  // custody to Koolee.
+  const gateMessage = identityGateMessage(context.identityGate);
+  if (gateMessage) return { ok: false, error: gateMessage };
 
   const unsealed = context.bags.filter((b) => !b.sealId);
   if (unsealed.length > 0) {
@@ -374,7 +600,7 @@ export async function reportVisitException(
   input: VisitExceptionInput,
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   const { db } = config;
-  const context = await getVisitContext(db, session, input.taskId);
+  const context = await getVisitContext(db, session, input.taskId, config.clock.now());
 
   if (!VISIT_EXCEPTION_REASONS.includes(input.reason)) {
     return { ok: false, error: "Pick a reason." };
