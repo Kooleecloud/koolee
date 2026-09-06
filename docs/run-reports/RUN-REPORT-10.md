@@ -629,3 +629,82 @@ with an avatar, "You chose your driver · Yara" with an avatar, one
 3. **The two new crons and the ping-log write** have no integration test.
 4. **Background Sync is Chromium-only** by design — Safari and Firefox drain
    the queue on the next successful foreground send instead.
+
+---
+
+## End-to-end pass — the real apps, real data, real session
+
+Driven with Playwright against all three apps on the local stack, signed in as
+TD's own customer account (`+13322602829`), the seeded admin, and a seeded
+driver. **Three real defects were found and fixed here, none of which any test
+or typecheck in the repo could have caught.**
+
+### Defect 1 — the trip page 500'd
+
+`"use client"` on `custody-timeline.tsx` (added for the collapse) pulled
+`@koolee/core` → `@koolee/db` → `postgres` into the browser bundle. Module not
+found at request time; **every trip page returned 500**. `tsc` was clean, all
+259 web/ui tests were green, and the Storybook pass could not see it because
+Storybook does not render that file.
+
+Fixed by splitting where the dependency actually is: the mapping stays on the
+server in `custody-timeline.tsx`, and `custody-trail.tsx` owns nothing but the
+`useState` for the collapse. Finished React elements cross the RSC boundary
+fine; a Postgres driver does not.
+
+### Defect 2 — "Agent assigned" had no name
+
+Item 20 resolved the actor, and on a real booking the actor of
+`booking.agent_assigned` is the ADMIN who assigned (or nobody, for auto-assign
+on paid). The person the customer cares about is the one being assigned, whom
+dispatch puts in `metadata.agentUserId`.
+
+Fixed with `subjectOf(event)` — metadata subject first, actor as fallback (still
+correct for `pickup.travel_started`, where the driver IS the actor). No fixture
+in any test had an actor and a subject that differed.
+
+### Defect 3 — a `Date` in a raw `sql` template
+
+Found by the new integration tier, before any browser work. Both
+`listStalePositionShifts` and `prunePositionPings` interpolated a `Date` into a
+`sql` template, which binds a parameter `postgres.js` cannot serialise —
+**both queries threw on every call**. Rewritten with typed builders (`or`,
+`inArray` + a subquery). Typecheck saw nothing wrong.
+
+### What was verified running
+
+| Area | Evidence |
+| --- | --- |
+| Map renders where it used to vanish | A `verified_sealed` booking whose only candidate had a 139-hour-old fix: map + canvas + **stale pin** + pickup pin. Before the slice this was `pins.length === 0` → no map at all |
+| Stale pin (29, 30) | `data-variant="stale"`, "Last seen 6 days ago. The grey van is where we saw them last." Popup carries the same line |
+| Driver bar + micro timeline (13–17) | "Nina is assigned to you" · "Nina assigned — current step / On the way / Bags collected / In transit / Delivered" |
+| Choose → track transition | Selected from the map popup; page moved to the tracking view with the named track |
+| Custody collapse (18, 19) | 3 rows + "Show full history · 7 earlier events" → 10 rows + "Show less" |
+| Named actors (20) | "Agent assigned · **Nina**" with avatar, after Defect 2 was fixed |
+| Photo buttons (21, 22) | "View photo" in the trail, "View seal photo" on bags, zero thumbnails |
+| After delivery (23, 24) | Completed booking: no map, no driver card, "Who handled your bags" naming the sealing agent and the delivering driver |
+| One-finger pan (25) | CDP touch drag of (−90, −60) moved the marker exactly (290,93) → (200,33). Cooperative-gesture overlay absent |
+| Wheel scrolls the page (27) | Real `mouse.wheel` over the map: `scrollY` 200 → 600, no zoom |
+| Agent Today (31–33) | "NEEDS ATTENTION · 2" leading; no stale overdue rows |
+| Agent Schedule (34–39) | "To do · 2" / "History · 6"; "OPEN PROBLEMS · 2" leads; **cancelled stops now in History with their badge** |
+| GPS pinger + chip (40, 49) | Granted geolocation → chip `data-gps-state="live"`, "Location live" |
+| Position write path (46, 48, 52) | After that ping, the ops console dropped Leo Vargas's stale flag while every other driver still read "No location" / "Location silent 139 hrs" |
+| Clock-on gate (50) | Permission granted → **nothing shown** (the designed silent path). Revoked → "Location is off for this site… turn it on in your browser settings", non-blocking |
+
+Leo Vargas's shift was ended and restarted to reach the off-shift gate; it is
+back on DEV Truck B with GPS live. No other dev data was changed beyond the two
+bookings deliberately advanced.
+
+### Still not verified — needs a human
+
+1. **Ghost pins in the running app.** Verified in Storybook (3 pins,
+   `pointer-events: none`, no button, no text, `aria-hidden`, pulse) and by
+   seven unit tests. The app trigger is `candidates.length === 0`, which needs
+   **every driver shift ended** — the shortlist widens to out-of-zone drivers
+   before it empties. Not worth mutating six shifts in a shared dev database.
+2. **The clock-on gate's `prompt` branch** with its "Turn on location" button.
+   Playwright grants or denies; it cannot hold a permission at `prompt`.
+3. **Real-device touch feel** — pinch-zoom, and whether the fixed-height hero
+   makes the scroll trap tolerable in a thumb's hand rather than in CDP.
+4. **Push nudge delivery (47).** The cron and the payload are unit-tested;
+   an actual push to a real subscribed device is not.

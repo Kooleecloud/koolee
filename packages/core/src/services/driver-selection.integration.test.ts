@@ -13,6 +13,7 @@ import {
   bookings,
   createDb,
   custodyEvents,
+  driverPositionPings,
   driverPositions,
   driverShifts,
   pickupTasks,
@@ -109,6 +110,7 @@ describeIntegration("driver selection (integration)", () => {
       DELETE FROM bags;
       DELETE FROM bookings;
       DELETE FROM driver_positions;
+      DELETE FROM driver_position_pings;
       DELETE FROM driver_shifts;
       DELETE FROM trucks;
       DELETE FROM agent_zones;
@@ -948,6 +950,88 @@ describeIntegration("driver selection (integration)", () => {
         recordedAt: new Date(now.getTime() + 10_000),
       }),
     ).resolves.not.toThrow();
+  });
+
+  /* --- the diagnostic trail ------------------------------------------ */
+
+  /*
+   * THE TABLE THAT MAKES A GAP ANSWERABLE. `driver_positions` destroys the
+   * previous answer every time it writes one, so before this the question ops
+   * actually gets asked — "the driver says their location kept dropping" —
+   * had no evidence behind it at all.
+   */
+  it("appends a ping row beside the mutable position row", async () => {
+    const driver = await makeDriver("Trail Maker");
+    const truck = await makeTruck("Van Trail", 30);
+    const shift = await startShift(config, { staffUserId: driver, truckId: truck.id });
+
+    await recordDriverPosition(config, {
+      staffUserId: driver,
+      ...MIDTOWN,
+      recordedAt: new Date(now.getTime() + 10_000),
+    });
+
+    const pings = await db.select().from(driverPositionPings);
+    expect(pings).toHaveLength(1);
+    expect(pings[0]).toMatchObject({
+      staffUserId: driver,
+      driverShiftId: shift.shift.id,
+      lat: MIDTOWN.lat,
+      lng: MIDTOWN.lng,
+    });
+    // One mutable row, many pings — the whole point of having both.
+    expect(await db.select().from(driverPositions)).toHaveLength(1);
+  });
+
+  it("keeps every ping while the position row holds only the newest", async () => {
+    const driver = await makeDriver("Repeat Pinger");
+    const truck = await makeTruck("Van Repeat", 30);
+    await startShift(config, { staffUserId: driver, truckId: truck.id });
+
+    for (let i = 1; i <= 3; i += 1) {
+      await recordDriverPosition(config, {
+        staffUserId: driver,
+        lat: 40.75 + i / 1000,
+        lng: -73.99,
+        recordedAt: new Date(now.getTime() + i * 20_000),
+      });
+    }
+
+    expect(await db.select().from(driverPositionPings)).toHaveLength(3);
+    const [position] = await db.select().from(driverPositions);
+    expect(position!.lat).toBeCloseTo(40.753, 5);
+  });
+
+  /*
+   * APPENDED EVEN WHEN THE UPSERT DECLINES. A fix that lost the ordering race
+   * is still a real observation, and a replayed backlog is precisely the
+   * evidence worth keeping — the distance between the device's fix time and
+   * the server's write time is what says "was in a tunnel" rather than
+   * "stopped reporting". If this ever regresses, the diagnostics go blind for
+   * exactly the outage they exist to explain.
+   */
+  it("records a ping for a fix that lost the ordering race", async () => {
+    const driver = await makeDriver("Late Arrival");
+    const truck = await makeTruck("Van Late", 30);
+    await startShift(config, { staffUserId: driver, truckId: truck.id });
+
+    await recordDriverPosition(config, {
+      staffUserId: driver,
+      ...MIDTOWN,
+      recordedAt: new Date(now.getTime() + 60_000),
+    });
+    await recordDriverPosition(config, {
+      staffUserId: driver,
+      lat: 40.71277,
+      lng: -73.95371,
+      recordedAt: new Date(now.getTime() + 10_000),
+    });
+
+    // The pin did not rewind...
+    const [position] = await db.select().from(driverPositions);
+    expect(position).toMatchObject({ ...MIDTOWN });
+    // ...and the losing fix is still on the record.
+    expect(await db.select().from(driverPositionPings)).toHaveLength(2);
   });
 
   it("refuses a position from somebody who is not on shift", async () => {

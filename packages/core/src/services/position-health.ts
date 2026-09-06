@@ -1,4 +1,4 @@
-import { and, desc, eq, isNull, lt, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, lt, or } from "drizzle-orm";
 import {
   driverPositionPings,
   driverPositions,
@@ -106,7 +106,15 @@ export async function listStalePositionShifts(
         // The grace period: a shift younger than the gap window has not had
         // time to be late yet.
         lt(driverShifts.startedAt, cutoff),
-        sql`(${driverPositions.recordedAt} is null or ${driverPositions.recordedAt} < ${cutoff})`,
+        /*
+         * NEVER REPORTED, OR STOPPED REPORTING — both are silence, and the
+         * `or` is what keeps the first one in the result. Written with
+         * drizzle's builders rather than a raw `sql` template: interpolating a
+         * `Date` into one binds a parameter postgres.js cannot serialise, and
+         * the whole query throws at runtime. Caught by the integration tier;
+         * no typecheck sees it.
+         */
+        or(isNull(driverPositions.recordedAt), lt(driverPositions.recordedAt, cutoff)),
       ),
     )
     .orderBy(desc(driverShifts.startedAt));
@@ -178,15 +186,21 @@ export async function prunePositionPings(
   const { olderThanDays = 7, now = new Date(), batchSize = 5_000 } = options;
   const cutoff = new Date(now.getTime() - olderThanDays * 24 * 60 * 60 * 1000);
 
+  /*
+   * A typed subquery, not a raw `sql` template — same reason as the `or`
+   * above: a `Date` interpolated into raw SQL is a parameter postgres.js
+   * cannot bind, and the delete throws. The subquery is what bounds the batch;
+   * Postgres has no LIMIT on DELETE itself.
+   */
+  const doomed = db
+    .select({ id: driverPositionPings.id })
+    .from(driverPositionPings)
+    .where(lt(driverPositionPings.recordedAt, cutoff))
+    .limit(batchSize);
+
   const deleted = await db
     .delete(driverPositionPings)
-    .where(
-      sql`${driverPositionPings.id} in (
-        select id from ${driverPositionPings}
-         where ${driverPositionPings.recordedAt} < ${cutoff}
-         limit ${batchSize}
-      )`,
-    )
+    .where(inArray(driverPositionPings.id, doomed))
     .returning({ id: driverPositionPings.id });
 
   return { deleted: deleted.length };
