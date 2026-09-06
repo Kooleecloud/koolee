@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { ArrowRight, CalendarDays } from "lucide-react";
 import { Button, Card, DatabaseNotConfigured, EmptyState } from "@koolee/ui";
 import {
+  airportLocalDay,
   airportLocalDayBounds,
   formatTimeInAirportTz,
   getActiveShift,
@@ -19,7 +20,13 @@ import {
   type ActiveShiftView,
   type TruckOptionView,
 } from "@/components/shift/shift-bar";
-import { groupJobs, isOutstanding, startablePickupTaskId, type Job } from "@/lib/job";
+import {
+  groupIntoSections,
+  groupJobs,
+  isDone,
+  startablePickupTaskId,
+  type Job,
+} from "@/lib/job";
 import { tryGetCore } from "@/lib/core";
 import { getAgentIdentity } from "@/lib/session";
 
@@ -89,63 +96,59 @@ export default async function AgentHomePage() {
   }
 
   const now = new Date();
-  // "Today" is today AT THE AIRPORT, per job. A UTC server would otherwise
-  // start an Eastern driver's day at 8 PM the previous evening.
-  const dayOf = (job: Job) => airportLocalDayBounds(now, job.tz);
-  const todays = jobs.filter((job) => {
-    if (!job.startsAt) return false;
-    const { start, end } = dayOf(job);
+  /*
+   * ONE BUCKETING FUNCTION, SHARED WITH THE SCHEDULE.
+   *
+   * This screen used to filter the day itself — its own `todays`, its own
+   * `overdue`, its own definition of what counts as work — and the Schedule
+   * tab used `groupIntoSections`. Two implementations of "today" is how the
+   * home screen came to exclude cancelled stops from its counts while the
+   * Schedule tab's "To do · N" went on counting them: the same booking, two
+   * screens, two answers. They cannot disagree now because there is one
+   * answer, and `groupIntoSections` is where it lives.
+   *
+   * "Today" is today AT THE AIRPORT, per job — a UTC server would otherwise
+   * start an Eastern driver's day at 8 PM the previous evening.
+   */
+  const sections = groupIntoSections(jobs, now, airportLocalDayBounds, airportLocalDay);
+
+  /*
+   * THE ROUTE IS TODAY'S WORK. Late stops are no longer folded into it.
+   *
+   * They used to lead the rail, on the reasoning that a stop you are behind
+   * on outranks one you are not. TD's call reverses that, and the reason is
+   * what a driver opens this screen FOR: the next thing to do. A stop from
+   * three days ago sorted to the top of the route pushed today's first job
+   * below it, and the two most common cases for a stale late stop — it was
+   * cancelled, or its flight has long gone — are now handled before this
+   * point, by `isSettled` and `hasMissedCutoff` respectively. What is left in
+   * `overdue` is genuinely late, genuinely doable work, and it gets its own
+   * section under the route rather than in front of it.
+   */
+  const route = sections.today;
+  const runningLate = sections.overdue;
+  const unscheduled = sections.unscheduled;
+  /*
+   * A failed phase, or a stop whose bag-drop cutoff has passed. Leads the
+   * screen because neither is something a driver can simply go and do.
+   */
+  const needsAttention = sections.problems;
+
+  // Today's finished work, for the "N finished today" footer. Not in
+  // `sections` — that function is about what is LEFT, and skips everything
+  // settled — so the day filter is done once, here.
+  const finished = jobs.filter((job) => {
+    if (!isDone(job) || !job.startsAt) return false;
+    const { start, end } = airportLocalDayBounds(now, job.tz);
     return job.startsAt >= start && job.startsAt < end;
   });
 
-  /*
-   * OVERDUE STOPS LEAD THE ROUTE.
-   *
-   * They used to appear nowhere on this screen: "Today" filtered to jobs whose
-   * window falls inside today, so a driver with four stops they were late for
-   * opened their home screen to "Nothing assigned for today" while the
-   * Schedule tab said "Overdue · 4". The home screen was hiding the most
-   * urgent work in the app.
-   *
-   * They are still doable — a pickup stays actionable right up to the
-   * airline's bag-drop cutoff (see actionability), which is exactly why
-   * hiding them is the wrong answer rather than a tidy one. They sort first
-   * because a stop you are behind on outranks one you are not.
-   */
-  const overdue = jobs.filter((job) => {
-    if (!job.startsAt || job.state === "done") return false;
-    return job.startsAt < dayOf(job).start;
-  });
-  /*
-   * A CANCELLED STOP IS NEVER LATE. Its window passing is not a thing anybody
-   * needs to chase — F4 settled that for the card and the badge, and this is
-   * where the number behind them comes from. Without the filter the heading
-   * read "· 1 late" about a stop nobody was going to.
-   */
-  const lateIds = new Set(overdue.filter(isOutstanding).map((job) => job.bookingId));
-
-  /*
-   * The rail SHOWS cancelled stops and the counts do not COUNT them.
-   *
-   * Both halves matter and they pull opposite ways. Dropping the stop leaves
-   * a driver who was sent to that address with no trace of it; counting it
-   * tells them they have work they do not have. So `outstanding` is what the
-   * rail renders, and every number below is taken from the subset that is
-   * still work.
-   */
-  const outstanding = [...overdue, ...todays.filter((job) => job.state !== "done")];
-  const stillWork = outstanding.filter(isOutstanding);
-  const finished = todays.filter((job) => job.state === "done");
-
-  // Work with no window on it still has to surface somewhere, or it is simply
-  // never done. It belongs with today rather than buried at the end of a list
-  // sorted by a time it does not have.
-  const unscheduled = jobs.filter((job) => !job.startsAt && isOutstanding(job));
-
   // The subtitle counts everything a driver still has to do, scheduled or
   // not. Counting only the scheduled ones printed "Nothing scheduled" above a
-  // card that plainly had work in it.
-  const left = stillWork.length + unscheduled.length;
+  // card that plainly had work in it. Cancelled stops are not in any of these
+  // arrays any more, so nothing has to be subtracted back out.
+  const left =
+    needsAttention.length + route.length + runningLate.length + unscheduled.length;
   const summary = unavailable
     ? "Can't reach the server."
     : left === 0
@@ -177,19 +180,37 @@ export default async function AgentHomePage() {
       ) : (
         <>
           {/*
+            LEADS THE SCREEN. A failed visit, or a stop whose bag-drop cutoff
+            has passed: neither can be fixed by driving anywhere, and both
+            need somebody told. Above the route because a driver working down
+            their stops would otherwise reach these last, which is the wrong
+            order for the only items on the page that are already going wrong.
+          */}
+          {needsAttention.length > 0 && (
+            <JobSection
+              title={`Needs attention · ${needsAttention.length}`}
+              jobs={needsAttention}
+            />
+          )}
+
+          {/*
             ONE RAIL, NOT TWO SECTIONS. "Up next" and "Later today" were two
             headings over identical cards, which said nothing about the thing
             a driver most needs — that these stops happen in an order, and
             which one they are on. See `JourneyList`.
           */}
-          {outstanding.length > 0 && (
+          {route.length > 0 && (
             <section className="flex flex-col gap-3">
               <h2 className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">
-                Your route · {stillWork.length}{" "}
-                {stillWork.length === 1 ? "stop" : "stops"}
-                {lateIds.size > 0 ? ` · ${lateIds.size} late` : ""}
+                Your route · {route.length} {route.length === 1 ? "stop" : "stops"}
               </h2>
-              <JourneyList stops={outstanding} lateIds={lateIds} />
+              {/*
+                No `lateIds` any more: nothing in the route is late. A stop
+                that is late is in `runningLate` below, under a heading that
+                says so — which is a clearer statement than a badge on a card
+                sitting in a list of on-time work.
+              */}
+              <JourneyList stops={route} lateIds={new Set<string>()} />
             </section>
           )}
 
@@ -199,21 +220,26 @@ export default async function AgentHomePage() {
             position on the one job whose position is genuinely unknown.
           */}
           {unscheduled.length > 0 && (
-            <section className="flex flex-col gap-2">
-              <h2 className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">
-                No time set
-              </h2>
-              <ul className="flex flex-col gap-3">
-                {unscheduled.map((job) => (
-                  <li key={job.bookingId}>
-                    <JobCard job={job} startsPickupTaskId={startablePickupTaskId(job)} />
-                  </li>
-                ))}
-              </ul>
-            </section>
+            <JobSection title="No time set" jobs={unscheduled} />
           )}
 
-          {outstanding.length === 0 && unscheduled.length === 0 && (
+          {/*
+            UNDER THE ROUTE, NOT OVER IT — TD's call, and the same ordering the
+            Schedule tab uses. These are real work and must stay visible (the
+            bug that put them on this screen at all was a driver opening to
+            "Nothing assigned for today" with four stops they were behind on).
+            But they are not what the screen is for, and a stop from Tuesday
+            standing in front of this morning's first job is a home screen
+            answering a question nobody asked.
+          */}
+          {runningLate.length > 0 && (
+            <JobSection
+              title={`Running late · ${runningLate.length}`}
+              jobs={runningLate}
+            />
+          )}
+
+          {left === 0 && (
             <EmptyState
               title={finished.length > 0 ? "Today is done" : "Nothing today"}
               description={
@@ -232,7 +258,7 @@ export default async function AgentHomePage() {
             />
           )}
 
-          {finished.length > 0 && outstanding.length > 0 && (
+          {finished.length > 0 && left > 0 && (
             <Card asChild>
               <Link
                 href="/tasks"
@@ -251,5 +277,31 @@ export default async function AgentHomePage() {
         </>
       )}
     </AgentMain>
+  );
+}
+
+/**
+ * A headed list of stops that is NOT the route.
+ *
+ * Three sections on this page have the same shape — needs attention, no time
+ * set, running late — and none of them is an ordered sequence, which is the
+ * one thing `JourneyList` exists to draw. Sharing a component keeps them
+ * visually identical to each other and visibly different from the route,
+ * which is the distinction a driver is actually reading for.
+ */
+function JobSection({ title, jobs }: { title: string; jobs: readonly Job[] }) {
+  return (
+    <section className="flex flex-col gap-2">
+      <h2 className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">
+        {title}
+      </h2>
+      <ul className="flex flex-col gap-3">
+        {jobs.map((job) => (
+          <li key={job.bookingId}>
+            <JobCard job={job} startsPickupTaskId={startablePickupTaskId(job)} />
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }

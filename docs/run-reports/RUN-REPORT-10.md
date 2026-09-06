@@ -29,13 +29,13 @@ not the conversation, and not memory.
 | F · After delivery                       | 2     | 0     |
 | G · Map gestures                         | 4     | 0     |
 | H · Stale positions never empty the map  | 2     | 0     |
-| I · Agent app — Today                    | 3     | 0     |
-| J · Agent app — Schedule                 | 6     | 0     |
+| I · Agent app — Today                    | 3     | **3** |
+| J · Agent app — Schedule                 | 6     | **6** |
 | K · Driver position — capture            | 4     | 0     |
 | L · Driver position — never drop a fix   | 2     | 0     |
 | M · Driver position — detect and recover | 7     | 0     |
-| N · Stories and tests                    | 4     | 0     |
-| **Total**                                | **56** | **0** |
+| N · Stories and tests                    | 4     | 1     |
+| **Total**                                | **56** | **10** |
 
 ---
 
@@ -166,24 +166,24 @@ inferred.
 
 ### I · Agent app — Today
 
-- [ ] **31.** Cancelled stops never reach the Today rail (`isOutstanding` in the
+- [x] **31.** Cancelled stops never reach the Today rail (`isOutstanding` in the
       overdue filter).
-- [ ] **32.** Live overdue stays, under a "Running late" heading.
-- [ ] **33.** Overdue bounded by actionability — past the airline's bag-drop
+- [x] **32.** Live overdue stays, under a "Running late" heading.
+- [x] **33.** Overdue bounded by actionability — past the airline's bag-drop
       cutoff a stop becomes a `problem`, not a to-do that climbs forever.
 
 ### J · Agent app — Schedule
 
-- [ ] **34.** Split the predicate: `isDone` (work that happened) vs `isSettled`
+- [x] **34.** Split the predicate: `isDone` (work that happened) vs `isSettled`
       (done **or** cancelled).
-- [ ] **35.** Cancelled moves to History.
-- [ ] **36.** History marks cancelled distinctly — chip plus muted treatment;
+- [x] **35.** Cancelled moves to History.
+- [x] **36.** History marks cancelled distinctly — chip plus muted treatment;
       empty-state copy updated.
-- [ ] **37.** To do order: Problems → Today → Upcoming → Running late at the
+- [x] **37.** To do order: Problems → Today → Upcoming → Running late at the
       bottom.
-- [ ] **38.** `To do · N` stops counting cancelled, sharing one predicate with
+- [x] **38.** `To do · N` stops counting cancelled, sharing one predicate with
       the home screen.
-- [ ] **39.** Overdue tone softened from `alarm` when the stop is not from today.
+- [x] **39.** Overdue tone softened from `alarm` when the stop is not from today.
 
 ### K · Driver position — capture
 
@@ -225,7 +225,7 @@ inferred.
       `live-map` stories for the new gesture defaults.
 - [ ] **54.** Unit: ghost generator determinism and distance bounds,
       stale-vs-fresh classification, name-interpolated step labels.
-- [ ] **55.** Unit: `isDone`/`isSettled`, `groupIntoSections` with cancelled
+- [x] **55.** Unit: `isDone`/`isSettled`, `groupIntoSections` with cancelled
       input, Today filters.
 - [ ] **56.** Integration: an older fix cannot overwrite a newer one; queue
       flush ordering.
@@ -292,3 +292,46 @@ Newest last. One entry per phase, written as the phase lands.
 verified empty. Plan written to this file before any code. Seven decisions
 locked with TD across three rounds; the three-way branch split was offered and
 declined in favour of one end-to-end branch.
+
+### Phase 1 — agent Today and Schedule (items 31–39, 55)
+
+**Commit:** `feat(agent): cancelled stops leave the schedule for history`
+
+**The one-line cause.** `isFinished` was `state === "done"`, so a cancelled job
+was neither finished nor outstanding and fell through every bucket into
+`overdue` — where an old window sorts to the top, forever.
+
+**What changed.**
+
+- `apps/agent/src/lib/job.ts` — `isFinished` split into `isDone` (work that
+  happened) and `isSettled` (done or cancelled). `finishedJobs` → `settledJobs`.
+  New `hasMissedCutoff`. `groupIntoSections` skips settled, files past-cutoff
+  stops under `problems`, and gained an `unscheduled` bucket.
+- `apps/agent/src/app/page.tsx` — **deleted its own day-bucketing** and now
+  reads `groupIntoSections`, the same function the Schedule uses. This is what
+  made the two screens' counts disagree in the first place. Sections are now
+  Needs attention → route → No time set → Running late; a new local
+  `JobSection` renders the three that are not the route.
+- `apps/agent/src/app/tasks/page.tsx` — History shows settled work, `To do · N`
+  counts `unscheduled`, section order is Problems → Today → Upcoming → No time
+  set → Running late, and Running late dropped from `alarm` to `muted`.
+- `packages/core/src/services/tasks.ts` — `TaskBookingContext` carries
+  `bagDropCutoffAt`, resolved from `airline_cutoffs` in one query for the whole
+  queue (strictest minutes win, matching `cutoffMinutesByRoute`).
+  `listAssignedTasks` takes an optional `now`.
+
+**A cancelled card was already right.** `JobCard` has drawn cancelled at 75%
+opacity with a "Cancelled" badge since F4, so item 36 needed no card work —
+only History's framing and empty-state copy.
+
+**Verified.** `apps/agent` 61 tests pass (38 in `job.test.ts`, up from 30 —
+new coverage for cancelled leaving the schedule, past-cutoff becoming a
+problem, late-but-doable staying overdue, the unscheduled bucket, the three
+predicates, and `hasMissedCutoff` including an undefined-field fixture).
+`tsc --noEmit` clean on `apps/agent` and `packages/core`. ESLint clean on all
+three changed files.
+
+**Not verified: core's own suites.** Docker is stopped locally, and
+`packages/core`'s vitest global setup requires Postgres on `127.0.0.1:54322`.
+`dispatch.integration.test.ts` exercises `listAssignedTasks` and should be run
+before this branch merges. The DB is needed for phase 4's migration anyway.

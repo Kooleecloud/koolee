@@ -2,11 +2,13 @@ import { describe, expect, it } from "vitest";
 import type { AssignedTasks, PickupTask, VerificationTask } from "@koolee/core";
 
 import {
-  finishedJobs,
   groupIntoSections,
   groupJobs,
-  isFinished,
+  hasMissedCutoff,
+  isDone,
   isOutstanding,
+  isSettled,
+  settledJobs,
   startablePickupTaskId,
   type Job,
 } from "./job";
@@ -36,6 +38,10 @@ const BOOKING = {
   addressPlaceId: null,
   contactPhone: null,
   customerPhone: null,
+  // No rule on record for this route. `hasMissedCutoff` treats an unknown
+  // deadline as not-yet-passed, so fixtures stay actionable unless they say
+  // otherwise.
+  bagDropCutoffAt: null,
 };
 
 const WINDOW_START = new Date("2025-06-12T14:00:00Z");
@@ -171,19 +177,22 @@ const job = (over: Partial<Job> = {}): Job => ({
 const NOW = new Date("2026-06-12T15:00:00Z");
 
 describe("groupIntoSections", () => {
-  it("puts every unfinished job in exactly one bucket", () => {
+  it("puts every unsettled job in exactly one bucket", () => {
     const jobs = [
       job({ bookingId: "problem", state: "problem", startsAt: NOW }),
       job({ bookingId: "overdue", startsAt: new Date("2026-06-11T15:00:00Z") }),
       job({ bookingId: "today", startsAt: new Date("2026-06-12T18:00:00Z") }),
       job({ bookingId: "later", startsAt: new Date("2026-06-14T18:00:00Z") }),
+      job({ bookingId: "none" }),
       job({ bookingId: "done", state: "done", startsAt: NOW }),
+      job({ bookingId: "cancelled", state: "cancelled", startsAt: NOW }),
     ];
 
     const s = groupIntoSections(jobs, NOW, dayBounds, localDay);
     expect(s.problems.map((j) => j.bookingId)).toEqual(["problem"]);
     expect(s.overdue.map((j) => j.bookingId)).toEqual(["overdue"]);
     expect(s.today.map((j) => j.bookingId)).toEqual(["today"]);
+    expect(s.unscheduled.map((j) => j.bookingId)).toEqual(["none"]);
     expect(s.upcoming.flatMap((d) => d.jobs.map((j) => j.bookingId))).toEqual(["later"]);
 
     // Nothing lost, nothing duplicated — the property that actually matters.
@@ -191,16 +200,74 @@ describe("groupIntoSections", () => {
       ...s.problems,
       ...s.overdue,
       ...s.today,
+      ...s.unscheduled,
       ...s.upcoming.flatMap((d) => d.jobs),
     ].map((j) => j.bookingId);
-    expect(placed.sort()).toEqual(["later", "overdue", "problem", "today"]);
+    expect(placed.sort()).toEqual(["later", "none", "overdue", "problem", "today"]);
   });
 
   it("keeps finished work off the schedule entirely", () => {
     const jobs = [job({ bookingId: "done", state: "done", startsAt: NOW })];
     const s = groupIntoSections(jobs, NOW, dayBounds, localDay);
-    expect(s.problems.concat(s.overdue, s.today)).toHaveLength(0);
+    expect(s.problems.concat(s.overdue, s.today, s.unscheduled)).toHaveLength(0);
     expect(s.upcoming).toHaveLength(0);
+  });
+
+  /*
+   * THE BUG TD REPORTED. A cancelled booking from weeks ago led both the
+   * Today rail and the Schedule, because it was neither done (so never
+   * finished) nor outstanding — and an old window sorts to the top of
+   * Overdue. It now leaves the schedule entirely and turns up in History.
+   */
+  it("keeps a cancelled stop off the schedule instead of filing it overdue", () => {
+    const jobs = [
+      job({
+        bookingId: "cancelled-last-month",
+        state: "cancelled",
+        startsAt: new Date("2026-05-14T15:00:00Z"),
+      }),
+    ];
+    const s = groupIntoSections(jobs, NOW, dayBounds, localDay);
+    expect(s.overdue).toHaveLength(0);
+    expect(s.problems.concat(s.today, s.unscheduled)).toHaveLength(0);
+    expect(s.upcoming).toHaveLength(0);
+  });
+
+  /*
+   * A stop past its airline's bag-drop cutoff cannot be completed by driving
+   * anywhere, so it is not a chore — it is something somebody has to be told
+   * about. Filed with the problems, which lead the screen.
+   */
+  it("files a stop past its bag-drop cutoff as a problem, not as overdue", () => {
+    const jobs = [
+      job({
+        bookingId: "missed",
+        startsAt: new Date("2026-06-11T15:00:00Z"),
+        booking: {
+          ...BOOKING,
+          bagDropCutoffAt: new Date("2026-06-11T20:00:00Z"),
+        } as Job["booking"],
+      }),
+    ];
+    const s = groupIntoSections(jobs, NOW, dayBounds, localDay);
+    expect(s.problems.map((j) => j.bookingId)).toEqual(["missed"]);
+    expect(s.overdue).toHaveLength(0);
+  });
+
+  it("leaves a late stop whose cutoff has not passed in overdue", () => {
+    const jobs = [
+      job({
+        bookingId: "late-but-doable",
+        startsAt: new Date("2026-06-11T15:00:00Z"),
+        booking: {
+          ...BOOKING,
+          bagDropCutoffAt: new Date("2026-06-12T22:00:00Z"),
+        } as Job["booking"],
+      }),
+    ];
+    const s = groupIntoSections(jobs, NOW, dayBounds, localDay);
+    expect(s.overdue.map((j) => j.bookingId)).toEqual(["late-but-doable"]);
+    expect(s.problems).toHaveLength(0);
   });
 
   it("shows a problem as a problem even when it is overdue", () => {
@@ -218,10 +285,16 @@ describe("groupIntoSections", () => {
     expect(s.overdue).toHaveLength(0);
   });
 
-  it("files an unscheduled job under Today rather than dropping it", () => {
-    // "Someday" is not a bucket anybody looks at. Somebody has to see it.
+  it("gives an unscheduled job its own bucket rather than dropping it", () => {
+    /*
+     * "Someday" is not a bucket anybody looks at, so it is still surfaced —
+     * but not inside Today. Today is drawn as an ordered ROUTE, and a stop
+     * with no time has no position in one; putting it there invents a
+     * position for the single job whose position is genuinely unknown.
+     */
     const s = groupIntoSections([job({ bookingId: "x" })], NOW, dayBounds, localDay);
-    expect(s.today.map((j) => j.bookingId)).toEqual(["x"]);
+    expect(s.unscheduled.map((j) => j.bookingId)).toEqual(["x"]);
+    expect(s.today).toHaveLength(0);
   });
 
   it("groups upcoming work one entry per day", () => {
@@ -244,8 +317,8 @@ describe("groupIntoSections", () => {
   });
 });
 
-describe("finishedJobs", () => {
-  it("returns only finished work, most recent first", () => {
+describe("settledJobs", () => {
+  it("returns settled work, most recent first", () => {
     const jobs = [
       job({
         bookingId: "old",
@@ -259,7 +332,30 @@ describe("finishedJobs", () => {
         startsAt: new Date("2026-06-10T14:00:00Z"),
       }),
     ];
-    expect(finishedJobs(jobs).map((j) => j.bookingId)).toEqual(["new", "old"]);
+    expect(settledJobs(jobs).map((j) => j.bookingId)).toEqual(["new", "old"]);
+  });
+
+  /*
+   * History is where a cancelled stop goes now, and this is the assertion
+   * that keeps it there. An agent who remembers driving to that address has
+   * to be able to find it; the requirement was never that it stay in a list
+   * of things to go and do.
+   */
+  it("includes cancelled stops alongside completed ones", () => {
+    const jobs = [
+      job({
+        bookingId: "cancelled",
+        state: "cancelled",
+        startsAt: new Date("2026-06-11T14:00:00Z"),
+      }),
+      job({
+        bookingId: "done",
+        state: "done",
+        startsAt: new Date("2026-06-10T14:00:00Z"),
+      }),
+      job({ bookingId: "open", startsAt: NOW }),
+    ];
+    expect(settledJobs(jobs).map((j) => j.bookingId)).toEqual(["cancelled", "done"]);
   });
 });
 
@@ -390,23 +486,29 @@ describe("a cancelled booking in the agent's day", () => {
 });
 
 /**
- * SHOWN, BUT NOT COUNTED — the half F4 left open.
+ * THREE PREDICATES, THREE QUESTIONS — and the bug that came from having two.
  *
  * F4 gave a cancelled booking its own `JobState` and stopped the expanded card
- * offering Navigate and Call. What it did not do was teach the DAY about it:
- * `isFinished` is "done" only, so a cancelled stop stayed in every derivation
- * that used "not done" to mean "work". A driver with two live jobs and one
- * cancelled one read "3 to do", saw "· 1 late" for a stop nobody was going to,
- * and got a route headed "3 stops" — three wrong numbers with one cause.
+ * offering Navigate and Call. What it did not do was teach the DAY about it.
+ * `isFinished` was "done" only, so a cancelled stop was not finished; it was
+ * not outstanding either; and every bucket that filtered on one or the other
+ * let it through into `overdue`, where an old window sorts to the top. TD
+ * opened the agent app to a Today rail and a Schedule both led by cancelled
+ * bookings from 27 and 30 August.
  *
- * The two predicates answer different questions and must not be merged:
- * `isFinished` is "did somebody DO this" (History), `isOutstanding` is "does
- * this still ask for something" (every count on Today).
+ * The three cannot be merged, because they are read in three places that want
+ * three different answers:
+ *
+ *  - `isDone` — did somebody DO this? The "N done" count on Today.
+ *  - `isSettled` — is there anything left to do? What History shows and the
+ *    schedule does not.
+ *  - `isOutstanding` — is this still asking for something? Every count of
+ *    remaining work.
  */
-describe("isOutstanding vs isFinished", () => {
+describe("isDone / isSettled / isOutstanding", () => {
   const jobIn = (state: Job["state"]): Job => ({
     bookingId: "b-1",
-    booking: BOOKING,
+    booking: BOOKING as Job["booking"],
     tz: "America/New_York",
     phases: [],
     startsAt: null,
@@ -418,6 +520,8 @@ describe("isOutstanding vs isFinished", () => {
     "counts a %s stop as work",
     (state) => {
       expect(isOutstanding(jobIn(state))).toBe(true);
+      expect(isSettled(jobIn(state))).toBe(false);
+      expect(isDone(jobIn(state))).toBe(false);
     },
   );
 
@@ -425,19 +529,82 @@ describe("isOutstanding vs isFinished", () => {
     expect(isOutstanding(jobIn("done"))).toBe(false);
   });
 
-  /* THE BUG. A cancelled stop is visible and is not work. */
+  /* THE BUG. A cancelled stop is not work, and must not be counted as any. */
   it("does not count a cancelled stop as work", () => {
     expect(isOutstanding(jobIn("cancelled"))).toBe(false);
   });
 
   /*
-   * And it is still not "finished": History lists work somebody DID, and
-   * nobody did this one. Merging the two predicates would either put a
-   * cancelled booking in the driver's completed work or put it back in the
-   * to-do count — the two failures this pair exists to keep apart.
+   * THE FIX. Cancelled is settled — it leaves the schedule and turns up in
+   * History — while still not being work anybody performed. Collapsing these
+   * two into one predicate would either file a cancelled booking under a
+   * driver's completed work or put it back in the to-do count, which are
+   * exactly the two failures this trio exists to keep apart.
    */
-  it("does not call a cancelled stop finished", () => {
-    expect(isFinished(jobIn("cancelled"))).toBe(false);
-    expect(isFinished(jobIn("done"))).toBe(true);
+  it("calls a cancelled stop settled without calling it done", () => {
+    expect(isSettled(jobIn("cancelled"))).toBe(true);
+    expect(isDone(jobIn("cancelled"))).toBe(false);
+  });
+
+  it("calls a done stop both settled and done", () => {
+    expect(isSettled(jobIn("done"))).toBe(true);
+    expect(isDone(jobIn("done"))).toBe(true);
+  });
+});
+
+/**
+ * The deadline that separates "late" from "cannot happen".
+ *
+ * A pickup stays doable long past its window — that is why late stops are
+ * surfaced rather than hidden — right up to the airline's bag-drop cutoff.
+ * Past it, driving to the door achieves nothing.
+ */
+describe("hasMissedCutoff", () => {
+  const withCutoff = (bagDropCutoffAt: Date | null): Job => ({
+    bookingId: "b-1",
+    booking: { ...BOOKING, bagDropCutoffAt } as Job["booking"],
+    tz: "America/New_York",
+    phases: [],
+    startsAt: null,
+    next: null,
+    state: "upcoming",
+  });
+
+  it("is true once the cutoff has passed", () => {
+    expect(hasMissedCutoff(withCutoff(new Date("2026-06-12T14:00:00Z")), NOW)).toBe(true);
+  });
+
+  it("is false while the cutoff is still ahead", () => {
+    expect(hasMissedCutoff(withCutoff(new Date("2026-06-12T16:00:00Z")), NOW)).toBe(
+      false,
+    );
+  });
+
+  /*
+   * An unknown deadline is never treated as a passed one. No rule on record
+   * for the route means a human decides, not a filter that quietly moves the
+   * stop out of the driver's list.
+   */
+  it("is false when the route has no cutoff on record", () => {
+    expect(hasMissedCutoff(withCutoff(null), NOW)).toBe(false);
+  });
+
+  /*
+   * Defensive, and deliberately tested: a booking context assembled before
+   * this field existed hands over `undefined`, and a screen a driver depends
+   * on mid-shift must not throw over one oddly-shaped row.
+   */
+  it("survives a booking context with no cutoff field at all", () => {
+    const legacy = {
+      bookingId: "b-1",
+      booking: { ...BOOKING, bagDropCutoffAt: undefined } as unknown as Job["booking"],
+      tz: "America/New_York",
+      phases: [],
+      startsAt: null,
+      next: null,
+      state: "upcoming" as const,
+    };
+    expect(() => hasMissedCutoff(legacy, NOW)).not.toThrow();
+    expect(hasMissedCutoff(legacy, NOW)).toBe(false);
   });
 });

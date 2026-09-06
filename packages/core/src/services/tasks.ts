@@ -1,5 +1,6 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, lte } from "drizzle-orm";
 import {
+  airlineCutoffs,
   airports,
   bookings,
   pickupTasks,
@@ -10,6 +11,8 @@ import {
   type TaskStatus,
   type VerificationTask,
 } from "@koolee/db";
+
+import { computeBagDropCutoffAt } from "../slots/cutoff";
 
 /**
  * Task reads for the agent app.
@@ -132,6 +135,22 @@ export interface TaskBookingContext {
   contactPhone: string | null;
   /** The account's verified number. Also read through `doorContact`. */
   customerPhone: string | null;
+  /**
+   * The instant this booking's bags stop being droppable, or null when the
+   * route has no cutoff on record.
+   *
+   * WHY A TASK QUEUE CARRIES A DEADLINE. An overdue stop is not automatically
+   * a stop somebody can still drive to. A pickup stays doable long past its
+   * window — right up to this instant — and is genuinely urgent until then;
+   * one minute later it is not late work, it is a stop that cannot happen,
+   * and leaving it in a to-do list means a driver reads a queue where the
+   * undoable and the urgent look identical.
+   *
+   * The strictest minutes on record for the route, matching
+   * `resolveStrictestCutoffMinutes`: bookings do not persist domestic vs
+   * international, and the looser row is a deadline that runs late.
+   */
+  bagDropCutoffAt: Date | null;
 }
 
 export interface AssignedTasks {
@@ -149,6 +168,12 @@ export interface AssignedTasks {
 export async function listAssignedTasks(
   db: Database,
   assigneeUserId: string,
+  /**
+   * Explicit and defaulted, the same shape `getSelectedDriver` uses. Only the
+   * cutoff lookup reads it — a test that wants to sit either side of a
+   * deadline should be able to say so without waiting for one.
+   */
+  now: Date = new Date(),
 ): Promise<AssignedTasks> {
   // Selected once and reused by both queues so the two halves of the agent's
   // list can never describe the same booking differently.
@@ -182,9 +207,15 @@ export async function listAssignedTasks(
      * customers.
      */
     customerPhone: users.phone,
+    /**
+     * Not exposed on `TaskBookingContext` — it is the KEY to the cutoff table
+     * and nothing on a task card renders it. It is selected so the deadline
+     * can be resolved below without a second read of the booking.
+     */
+    airlineIata: bookings.airlineIata,
   };
 
-  const [verification, pickup] = await Promise.all([
+  const [verification, pickup, cutoffs] = await Promise.all([
     db
       .select({ task: verificationTasks, tz: airports.tz, booking: bookingColumns })
       .from(verificationTasks)
@@ -201,7 +232,70 @@ export async function listAssignedTasks(
       .innerJoin(users, eq(users.id, bookings.userId))
       .where(eq(pickupTasks.assigneeUserId, assigneeUserId))
       .orderBy(pickupTasks.scheduledStart),
+    /*
+     * ONE READ FOR EVERY ROUTE IN THE QUEUE, not one per task. An agent with
+     * a dozen stops at one airport shares a handful of routes between them,
+     * and the effective rows are a small table — cheaper to hold the lot than
+     * to issue a lookup per card.
+     *
+     * STRICTEST WINS, exactly as `cutoffMinutesByRoute` in trips.ts does it,
+     * and for the same reason: a booking does not record whether it is
+     * domestic or international, so taking the looser row would hand a driver
+     * a deadline that runs late.
+     */
+    db
+      .select({
+        airline: airlineCutoffs.airlineIata,
+        airport: airlineCutoffs.airportCode,
+        minutes: airlineCutoffs.cutoffMinutesBeforeDeparture,
+      })
+      .from(airlineCutoffs)
+      .where(lte(airlineCutoffs.effectiveFrom, now)),
   ]);
 
-  return { verification, pickup };
+  const minutesByRoute = new Map<string, number>();
+  for (const row of cutoffs) {
+    const key = `${row.airline.toUpperCase()}:${row.airport}`;
+    const existing = minutesByRoute.get(key);
+    minutesByRoute.set(
+      key,
+      existing === undefined ? row.minutes : Math.max(existing, row.minutes),
+    );
+  }
+
+  /**
+   * Drops `airlineIata` and puts the resolved deadline in its place, so no
+   * consumer has to know the cutoff table exists to answer "can this stop
+   * still happen?".
+   */
+  const withCutoff = <T>({
+    task,
+    tz,
+    booking,
+  }: {
+    task: T;
+    tz: string;
+    booking: Omit<TaskBookingContext, "bagDropCutoffAt"> & { airlineIata: string };
+  }): ScheduledTask<T> => {
+    const { airlineIata, ...rest } = booking;
+    const minutes = minutesByRoute.get(
+      `${airlineIata.toUpperCase()}:${booking.departureAirport}`,
+    );
+    return {
+      task,
+      tz,
+      booking: {
+        ...rest,
+        bagDropCutoffAt:
+          minutes === undefined
+            ? null
+            : computeBagDropCutoffAt(booking.departureAt, minutes),
+      },
+    };
+  };
+
+  return {
+    verification: verification.map(withCutoff),
+    pickup: pickup.map(withCutoff),
+  };
 }

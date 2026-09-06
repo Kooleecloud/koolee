@@ -11,7 +11,7 @@ import {
 import { JobCard } from "@/components/job/job-card";
 import { LiveTasks } from "@/components/live-tasks";
 import { AgentMain } from "@/components/shell/agent-main";
-import { finishedJobs, groupIntoSections, groupJobs, type Job } from "@/lib/job";
+import { groupIntoSections, groupJobs, settledJobs, type Job } from "@/lib/job";
 import { tryGetCore } from "@/lib/core";
 import { getAgentSession } from "@/lib/session";
 
@@ -63,11 +63,22 @@ export default async function SchedulePage({
 
   const now = new Date();
   const sections = groupIntoSections(jobs, now, airportLocalDayBounds, airportLocalDay);
-  const finished = finishedJobs(jobs);
+  const settled = settledJobs(jobs);
+  /*
+   * WHAT "TO DO" MEANS, and the number that was wrong.
+   *
+   * This summed the same four sections it does now, but `groupIntoSections`
+   * used to let cancelled stops fall through into `overdue` — so the tab read
+   * "To do · 7" for a driver with five jobs, while the home screen's own
+   * count said five. Two screens, two answers, one booking. The filtering now
+   * happens in one place and both read it, so the disagreement cannot come
+   * back; see `isSettled`.
+   */
   const open =
     sections.problems.length +
     sections.overdue.length +
     sections.today.length +
+    sections.unscheduled.length +
     sections.upcoming.reduce((total, day) => total + day.jobs.length, 0);
 
   return (
@@ -92,7 +103,7 @@ export default async function SchedulePage({
             { value: "todo" as const, label: `To do · ${open}`, href: "/tasks" },
             {
               value: "history" as const,
-              label: `History · ${finished.length}`,
+              label: `History · ${settled.length}`,
               href: "/tasks?view=history",
             },
           ]}
@@ -105,7 +116,7 @@ export default async function SchedulePage({
       {unavailable ? (
         <DatabaseNotConfigured />
       ) : history ? (
-        <HistoryList jobs={finished} />
+        <HistoryList jobs={settled} />
       ) : (
         <ScheduleList sections={sections} empty={jobs.length === 0} />
       )}
@@ -166,6 +177,7 @@ function ScheduleList({
     sections.problems.length === 0 &&
     sections.overdue.length === 0 &&
     sections.today.length === 0 &&
+    sections.unscheduled.length === 0 &&
     sections.upcoming.length === 0;
 
   if (nothingLeft) {
@@ -185,11 +197,6 @@ function ScheduleList({
         tone="alarm"
         jobs={sections.problems}
       />
-      <Section
-        title={`Overdue · ${sections.overdue.length}`}
-        tone="alarm"
-        jobs={sections.overdue}
-      />
       {/* Today is the default focus — first heading a driver reads once
           nothing is wrong, and the only one that is not a date. */}
       <Section title="Today" tone="now" jobs={sections.today} />
@@ -204,6 +211,28 @@ function ScheduleList({
           jobs={day.jobs}
         />
       ))}
+      <Section title="No time set" jobs={sections.unscheduled} />
+      {/*
+        RUNNING LATE SITS LAST, and it used to sit second.
+
+        TD's call, and the reasoning is about what a schedule is FOR. Sorted by
+        time, the oldest thing in the queue leads — so a driver opening the tab
+        met stops from days ago before this morning's, and the further behind
+        they fell the harder the screen was to use. The two cases that made
+        that unbearable are gone before this point (cancelled goes to History,
+        past-cutoff goes to Open problems), so what is left here is real,
+        doable, late work. It stays visible, and it stops taking the top of
+        the screen from the stop somebody is driving to now.
+
+        `muted` rather than `alarm` for the same reason: a stop you are twenty
+        minutes behind on earns red, a stop from Tuesday earns attention but
+        not alarm, and the section cannot tell them apart — so it stops
+        shouting and the count says how many.
+      */}
+      <Section
+        title={`Running late · ${sections.overdue.length}`}
+        jobs={sections.overdue}
+      />
       {/* Said out loud rather than left as an absence: "no heading called
           Today" and "nothing today" look identical, and only one of them is
           information. */}
@@ -219,7 +248,23 @@ function ScheduleList({
 }
 
 /**
- * Finished work, most recent first.
+ * Settled work, most recent first — done AND cancelled.
+ *
+ * WHY CANCELLED LIVES HERE. It used to live nowhere: `isFinished` was "done"
+ * alone, so a cancelled stop was not finished, was not outstanding, and sat in
+ * the schedule's overdue section for the rest of time. TD's report was a
+ * driver's Schedule led by cancelled bookings from 27 and 30 August.
+ *
+ * The old reasoning for keeping them on the day was sound and is preserved:
+ * an agent who remembers being sent to that address must be able to find it,
+ * and a schedule that quietly loses stops cannot be reconciled against what
+ * somebody actually did. History satisfies both — the stop is still there,
+ * still under its own day, and the only thing that changed is that it is no
+ * longer in a list of things to go and do.
+ *
+ * A cancelled card is NOT dressed as work performed: `JobCard` draws it at
+ * reduced opacity with a "Cancelled" badge, and the "N done" count on Today
+ * uses `isDone`, never the length of this list.
  *
  * READ-ONLY BY CONSTRUCTION, not by hiding buttons: every card links to the
  * same task detail page, which renders its locked mode for a terminal task —
@@ -231,8 +276,8 @@ function HistoryList({ jobs }: { jobs: readonly Job[] }) {
   if (jobs.length === 0) {
     return (
       <EmptyState
-        title="Nothing finished yet"
-        description="Stops you've completed will be kept here with their seals and timeline."
+        title="Nothing here yet"
+        description="Stops you've completed are kept here with their seals and timeline, along with any that were cancelled."
       />
     );
   }
