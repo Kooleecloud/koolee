@@ -135,12 +135,27 @@ export interface DriverCandidate {
    * the same bargain every ride-hail app strikes and the reason the pool is
    * filtered before it is drawn.
    *
-   * It is a 45-second-old foreground ping, not a track: `driver_positions`
-   * holds ONE mutable row per driver and keeps no history (schema/ops.ts).
-   * Null the moment a phone goes into a pocket, which the map renders as an
-   * absent pin rather than a stale one.
+   * It is a foreground ping, not a track: `driver_positions` holds ONE mutable
+   * row per driver and keeps no history (schema/ops.ts).
+   *
+   * THE LAST KNOWN POSITION, FRESH OR NOT. It used to be nulled once it aged
+   * past `POSITION_FRESH_MS`, which meant a driver whose phone went into a
+   * pocket simply left the map — and with four candidates that could empty the
+   * map entirely at the moment somebody was choosing on it. Null now means
+   * only one thing: this driver has never reported at all.
    */
   position: Coordinates | null;
+  /**
+   * Whether `position` may be presented as where the driver IS.
+   *
+   * False with a non-null position is the case that matters, and it is
+   * ordinary rather than exceptional: we know where they were, and it is too
+   * old to draw as current. The map renders those grey and unpulsed with the
+   * age in words; see `MapDriver.variant`.
+   */
+  positionIsFresh: boolean;
+  /** When that fix was taken, for saying how old it is. */
+  positionRecordedAt: Date | null;
 }
 
 interface EligibleRow {
@@ -408,14 +423,24 @@ async function shortlistEtas(
  * hours ago, with exactly the confidence of a live one.
  *
  * Same window as `getSelectedDriver` (`POSITION_FRESH_MS`), because "is this
- * where they are" cannot have two answers on one page. A driver with no fresh
- * fix keeps their CARD and simply has no pin — they are perfectly choosable,
- * and the list is the view that says so.
+ * where they are" cannot have two answers on one page.
+ *
+ * USED FOR THE ETA, AND NO LONGER FOR THE PIN. An estimate computed from a
+ * stale origin is a number that looks exactly like a real one, so it is still
+ * dropped here. The PIN now degrades instead of vanishing — see
+ * `positionIsFresh` on `DriverCandidate` — because an empty map at the moment
+ * somebody is choosing is worse than a grey pin that says how old it is.
  */
 function freshPosition(row: EligibleRow, now: Date): Coordinates | null {
   if (row.driverPositionAt === null) return null;
   if (now.getTime() - row.driverPositionAt.getTime() > POSITION_FRESH_MS) return null;
   return toCoordinates(row.driverLat, row.driverLng);
+}
+
+/** Whether that fix is recent enough to present as where the driver IS. */
+function positionIsFresh(row: EligibleRow, now: Date): boolean {
+  if (row.driverPositionAt === null) return false;
+  return now.getTime() - row.driverPositionAt.getTime() <= POSITION_FRESH_MS;
 }
 
 function toCandidate(
@@ -436,7 +461,14 @@ function toCandidate(
     availableCapacity: bookableSpaces(row, row.bagsOnBoard),
     outOfZone,
     eta,
-    position: freshPosition(row, now),
+    /*
+     * LAST KNOWN, fresh or not — the caller decides how to draw it. Paired
+     * with `positionIsFresh`, which is the only thing that says whether it may
+     * be presented as current.
+     */
+    position: toCoordinates(row.driverLat, row.driverLng),
+    positionIsFresh: positionIsFresh(row, now),
+    positionRecordedAt: row.driverPositionAt,
   };
 }
 
@@ -558,6 +590,7 @@ export async function selectDriver(
         staffActive: staffMembers.active,
         driverLat: driverPositions.lat,
         driverLng: driverPositions.lng,
+        driverPositionAt: driverPositions.recordedAt,
       })
       .from(driverShifts)
       .innerJoin(trucks, eq(trucks.id, driverShifts.truckId))
@@ -659,6 +692,11 @@ export async function selectDriver(
       eta,
       // Re-read under the lock along with everything else on this row.
       position: toCoordinates(row.driverLat, row.driverLng),
+      positionIsFresh:
+        row.driverPositionAt !== null &&
+        config.clock.now().getTime() - row.driverPositionAt.getTime() <=
+          POSITION_FRESH_MS,
+      positionRecordedAt: row.driverPositionAt,
     };
 
     return { candidate, releasedShiftId, custodyEventId: selectedEvent?.id ?? null };

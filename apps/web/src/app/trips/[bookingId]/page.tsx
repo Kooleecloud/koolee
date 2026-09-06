@@ -50,14 +50,14 @@ import {
   type TripPassportView,
 } from "@/components/trip-action-needed";
 import {
-  DriverChoice,
-  DriverTracking,
+  TripDriverPanel,
   type DriverCandidateView,
   type SelectedDriverView,
 } from "@/components/trip-driver";
 import { signAvatarUrlsForBooking, signShortlistAvatarUrl } from "@/lib/avatars";
 import { flightRouteLabel, flightRouteText } from "@/lib/flight-label";
 import { pickupStepIndexFor } from "@/lib/pickup-progress";
+import { positionAgoLabel } from "@/lib/position-age";
 import { signBagPhotoUrls } from "@/lib/bag-photos";
 import { tryGetCore } from "@/lib/core";
 import { tagBooking } from "@/lib/sentry";
@@ -265,9 +265,16 @@ export default async function TripPage({
       outOfZone: candidate.outOfZone,
       etaLabel: formatEtaMinutes(candidate.eta),
       hasEta: candidate.eta !== null,
-      // For the map. Null is ordinary — a phone in a pocket stops reporting —
-      // and such a driver keeps their card while having no pin.
+      /*
+       * LAST KNOWN, fresh or not. Null now means only "has never reported",
+       * so the map can tell a driver who is quiet from one who was never
+       * there — and draw the quiet one grey instead of not at all.
+       */
       position: candidate.position,
+      positionIsFresh: candidate.positionIsFresh,
+      positionAgoLabel: candidate.positionIsFresh
+        ? null
+        : positionAgoLabel(candidate.positionRecordedAt, new Date()),
     })),
   );
 
@@ -315,15 +322,21 @@ export default async function TripPage({
           selectedDriver.travelStartedAt !== null,
         ),
         /*
-         * Only a FRESH fix reaches the map. `driver_positions` keeps one
-         * mutable row per driver with no history, so a driver who has been
-         * chosen but has not set off yet — or whose phone went into a pocket
-         * — still has a position on file, possibly from yesterday's job.
-         * Drawing that puts a van on a street it left hours ago, looking
-         * exactly as live as a real one. Stale degrades to what this card
-         * said before there was a map: a distance, and "Position updating".
+         * THE LAST KNOWN FIX REACHES THE MAP, FRESH OR NOT.
+         *
+         * It used to be nulled once stale, on the reasoning that drawing a
+         * position from yesterday's job puts a van on a street it left hours
+         * ago looking exactly as live as a real one. That reasoning is intact
+         * — which is why the pin is drawn GREY and unpulsed, with its age in
+         * words beside it, rather than presented as current. What changed is
+         * the alternative: hiding it emptied the map at the moment somebody
+         * was watching it hardest, which is the failure TD reported.
          */
-        position: selectedDriver.positionIsFresh ? selectedDriver.position : null,
+        position: selectedDriver.position,
+        positionIsFresh: selectedDriver.positionIsFresh,
+        positionAgoLabel: selectedDriver.positionIsFresh
+          ? null
+          : positionAgoLabel(selectedDriver.positionRecordedAt, new Date()),
         // Distinguishes "nobody is coming yet" from "we have lost sight of
         // somebody who is". Both render as no map; only one is a problem.
         travelStarted: selectedDriver.travelStartedAt !== null,
@@ -384,30 +397,33 @@ export default async function TripPage({
   const cancellation =
     booking.status === "cancelled" ? cancellationFromTimeline(timeline) : null;
 
-  const driverSection = driverView ? (
-    <DriverTracking
-      driver={driverView}
-      live={
-        booking.status !== "delivered_to_bagdrop" &&
-        booking.status !== "completed" &&
-        booking.status !== "cancelled"
-      }
-      // The card stays on a cancelled booking, struck through rather than
-      // removed: the leg existed, and a page that forgets it is a page that
-      // cannot answer "who was coming?".
-      cancelled={booking.status === "cancelled"}
-      pickup={pickupPoint}
-      pickupAddressLine={pickupAddressLine}
-    />
-  ) : canChooseDriver ? (
-    <DriverChoice
+  /*
+   * THE MAP'S LIFESPAN: sealed through delivered, and no further.
+   *
+   * Once the bags are at the bag drop there is no van to watch, no ETA to
+   * count down and no stage left to reach — so the whole panel goes, rather
+   * than lingering as a map of where somebody used to be. What answers the
+   * remaining question ("who handled my bags?") is the handover block further
+   * down, which names both people. A cancelled booking KEEPS the card, struck
+   * through: the leg existed, and a page that forgets it cannot answer "who
+   * was coming?".
+   */
+  const bagsDelivered =
+    booking.status === "delivered_to_bagdrop" || booking.status === "completed";
+
+  const driverSection = bagsDelivered ? null : (
+    <TripDriverPanel
       bookingId={booking.id}
-      candidates={candidateViews}
       pickup={pickupPoint}
       pickupAddressLine={pickupAddressLine}
+      choosing={canChooseDriver}
+      candidates={candidateViews}
       bestShiftId={best?.shiftId ?? null}
+      selected={driverView}
+      live={booking.status !== "cancelled"}
+      cancelled={booking.status === "cancelled"}
     />
-  ) : null;
+  );
 
   // Bag and custody photos live in a private bucket and are stored as paths;
   // they need signing before any <img> can load them. Safe to sign here: the

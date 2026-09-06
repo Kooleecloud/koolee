@@ -21,21 +21,21 @@ not the conversation, and not memory.
 
 | Group                                    | Items | Done  |
 | ---------------------------------------- | ----- | ----- |
-| A · Map as permanent hero                | 6     | 0     |
-| B · Searching state with ghost pins      | 6     | 0     |
-| C · Driver bar and micro timeline        | 5     | 0     |
+| A · Map as permanent hero                | 6     | **6** |
+| B · Searching state with ghost pins      | 6     | **6** |
+| C · Driver bar and micro timeline        | 5     | **5** |
 | D · Custody trail collapse               | 2     | 0     |
 | E · Timeline detail                      | 3     | 0     |
 | F · After delivery                       | 2     | 0     |
 | G · Map gestures                         | 4     | **4** |
-| H · Stale positions never empty the map  | 2     | 0     |
+| H · Stale positions never empty the map  | 2     | **2** |
 | I · Agent app — Today                    | 3     | **3** |
 | J · Agent app — Schedule                 | 6     | **6** |
 | K · Driver position — capture            | 4     | **4** |
 | L · Driver position — never drop a fix   | 2     | **2** |
 | M · Driver position — detect and recover | 7     | 2     |
-| N · Stories and tests                    | 4     | 2     |
-| **Total**                                | **56** | **23** |
+| N · Stories and tests                    | 4     | 3     |
+| **Total**                                | **56** | **43** |
 
 ---
 
@@ -94,36 +94,36 @@ inferred.
 
 ### A · Map as permanent hero — web trip page
 
-- [ ] **1.** Merge `DriverChoice`, `NoDriverYet` and `DriverTracking` into one
+- [x] **1.** Merge `DriverChoice`, `NoDriverYet` and `DriverTracking` into one
       map-first card. No state renders without a map.
-- [ ] **2.** Map gates on pickup coordinates alone, never on `pins.length > 0`.
-- [ ] **3.** Map lives from `verified_sealed` through `delivered_to_bagdrop`.
-- [ ] **4.** Taller map — it is the view now, roughly `h-[28rem]` on a phone.
-- [ ] **5.** Map/List toggle kept, map default. List stays the accessible
+- [x] **2.** Map gates on pickup coordinates alone, never on `pins.length > 0`.
+- [x] **3.** Map lives from `verified_sealed` through `delivered_to_bagdrop`.
+- [x] **4.** Taller map — it is the view now, roughly `h-[28rem]` on a phone.
+- [x] **5.** Map/List toggle kept, map default. List stays the accessible
       fallback and the only view that can show a driver with no fix.
-- [ ] **6.** Cancelled bookings keep the existing struck-through card.
+- [x] **6.** Cancelled bookings keep the existing struck-through card.
 
 ### B · Searching state with ghost pins
 
-- [ ] **7.** 2–3 anonymous ghost pins whenever there are no real candidates.
-- [ ] **8.** Deterministic placement seeded from the booking id, 400 m – 2 km
+- [x] **7.** 2–3 anonymous ghost pins whenever there are no real candidates.
+- [x] **8.** Deterministic placement seeded from the booking id, 400 m – 2 km
       out — no teleporting across the ~15 s page refresh.
-- [ ] **9.** Slow drift plus pulse, reusing the existing 1.2 s marker walk.
-- [ ] **10.** Inert and anonymous: no name, ETA, capacity, popup or click target.
-- [ ] **11.** Chip reads "Finding drivers near you…", replacing the
+- [x] **9.** Slow drift plus pulse, reusing the existing 1.2 s marker walk.
+- [x] **10.** Inert and anonymous: no name, ETA, capacity, popup or click target.
+- [x] **11.** Chip reads "Finding drivers near you…", replacing the
       `NoDriverYet` copy. No disclaimer (decision 2).
-- [ ] **12.** Every ghost vanishes in the same render the first real candidate
+- [x] **12.** Every ghost vanishes in the same render the first real candidate
       appears. Never mixed.
 
 ### C · Driver bar and micro timeline
 
-- [ ] **13.** Bar under the map: avatar, "Ravi is on the way", ETA, distance.
-- [ ] **14.** New compact `ProgressTrack` variant — single row, small dots,
+- [x] **13.** Bar under the map: avatar, "Ravi is on the way", ETA, distance.
+- [x] **14.** New compact `ProgressTrack` variant — single row, small dots,
       about one line tall.
-- [ ] **15.** Five steps: `Ravi assigned → On the way → Bags collected →
+- [x] **15.** Five steps: `Ravi assigned → On the way → Bags collected →
       In transit → Delivered`.
-- [ ] **16.** `PICKUP_STEPS` becomes a function taking the driver's name.
-- [ ] **17.** Timeline appears only after a driver is chosen.
+- [x] **16.** `PICKUP_STEPS` becomes a function taking the driver's name.
+- [x] **17.** Timeline appears only after a driver is chosen.
 
 ### D · Custody trail collapse
 
@@ -160,8 +160,8 @@ inferred.
 
 ### H · Stale positions never empty the map
 
-- [ ] **29.** Tracking view: dimmed, non-pulsing pin with "last seen N min ago".
-- [ ] **30.** Shortlist: a candidate with a stale fix keeps a dimmed pin instead
+- [x] **29.** Tracking view: dimmed, non-pulsing pin with "last seen N min ago".
+- [x] **30.** Shortlist: a candidate with a stale fix keeps a dimmed pin instead
       of vanishing.
 
 ### I · Agent app — Today
@@ -444,3 +444,44 @@ and is unaffected. Rotation and pitch stay disabled as before.
 `live-map` stories updated — the "what to check by hand" list said "one finger
 scrolls the PAGE, two pan the map", which is now the opposite of the truth.
 Needs a real touch-device pass; the Storybook story is the place to do it.
+
+### Phase 6 — the map is the card (items 1–17, 29, 30, part of 54)
+
+**Commit:** `feat(web): the map is the driver card, in every state`
+
+Three cards became one. The map used to be gated on three separate conditions
+— a non-null pickup, a non-empty pin list, a fresh fix — and any one failing
+produced a page with no map. The two most common failures happened at the two
+most anxious moments: before anyone was assigned, and while a chosen driver's
+phone was in a pocket. Only the first gate survives, and only because a
+booking whose address never resolved has genuinely nothing to draw.
+
+**Ghost pins.** `lib/ghost-drivers.ts` — deterministic from the booking id, so
+the page's ~15 s refresh does not scatter them to new streets. 400 m–2 km out,
+spread across the compass, drifting ≤120 m per 8 s step. Anonymous and inert
+*structurally*: `LiveMap` renders `variant: "ghost"` as a `span` inside a
+`pointer-events-none` root, so there is no element for a click listener to
+fire from. They are torn down in the same render a real candidate appears, and
+the drift timer with them.
+
+**Stale pins, both surfaces.** Core stopped nulling an aged position:
+`DriverCandidate` now carries `position` (last known), `positionIsFresh` and
+`positionRecordedAt`. Null means one thing only — never reported. The ETA is
+still refused on a stale origin, because a number computed from one is
+indistinguishable from a real estimate.
+
+**Driver bar and micro timeline.** `ProgressTrack` gained `compact` — one row,
+11px labels, rails intact. The full-size strip stacked into five rows on a
+phone and pushed the map off the screen. `pickupSteps(name)` puts the driver's
+name in the first stage; "At the bag drop" became "Delivered".
+
+**After delivery, the panel goes entirely** (item 23 is half-done here: the
+removal has landed, the "who handled your bags" block has not).
+
+**Verified.** `apps/web` 190 tests (23 new across ghost-drivers, driver-pins
+and position-age). `packages/core` driver-selection integration 34.
+`tsc --noEmit` clean on web, ui, core. ESLint clean.
+
+**Not verified: anything visual.** No browser pass yet — the ghost drift, the
+compact track's wrapping, the searching chip over the map and the one-finger
+pan all need real eyes on a real phone.

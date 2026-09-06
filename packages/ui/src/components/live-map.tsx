@@ -108,6 +108,28 @@ export interface MapDriver {
   /** Rendered inside the pin. A first name, or empty. */
   label?: string | null;
   selected?: boolean;
+  /**
+   * What kind of claim this pin is making. Default `"live"`.
+   *
+   * THE THREE ARE NOT COSMETIC — each says something different about how much
+   * the viewer should trust the dot, and drawing them identically is how a map
+   * lies:
+   *
+   *  - **`live`** — a fresh fix from a real driver. Named, tappable, pulsing.
+   *  - **`stale`** — a real driver's LAST KNOWN position, past the freshness
+   *    window. Still their pin and still tappable, but greyed and with the
+   *    pulse removed, because the pulse is the thing that says "this is now".
+   *    The caller says how old in words beside the map; see `H` in the slice
+   *    plan. This exists because the alternative — dropping the pin — empties
+   *    the map at precisely the moment somebody is watching it hardest.
+   *  - **`ghost`** — NOT A DRIVER. A placeholder drawn while the shortlist is
+   *    still being built, so the map is not an empty rectangle. Anonymous,
+   *    inert and unclickable BY CONSTRUCTION rather than by convention: it
+   *    renders a `span` with `pointer-events-none`, so there is no element for
+   *    a click listener to fire from and no way for one to be selected by
+   *    mistake. It carries no label, and callers must not give it one.
+   */
+  variant?: "live" | "stale" | "ghost";
 }
 
 export interface LiveMapProps {
@@ -596,7 +618,28 @@ export function LiveMap({
       seen.add(driver.id);
       const existing = markers.current.get(driver.id);
 
-      if (existing) {
+      /*
+       * A CHANGE OF VARIANT IS A CHANGE OF ELEMENT, not a change of class.
+       *
+       * The reuse branch below moves a marker and updates its selected state,
+       * which is what makes a van drive rather than blink. It cannot carry a
+       * live pin into a stale one: the ring is a child that stale does not
+       * have, and ghost is a different element entirely. Reusing across that
+       * boundary left a driver whose fix went stale drawn as fresh and
+       * pulsing — the exact lie the variant exists to prevent.
+       *
+       * Recreating costs the walk animation for one frame, on a transition
+       * that happens at most twice a journey.
+       */
+      if (existing && existing.getElement().dataset.variant !== (driver.variant ?? "live")) {
+        const frame = moves.current.get(driver.id);
+        if (frame !== undefined) cancelAnimationFrame(frame);
+        moves.current.delete(driver.id);
+        existing.remove();
+        markers.current.delete(driver.id);
+      }
+
+      if (markers.current.has(driver.id) && existing) {
         /*
          * MOVED, NOT REPLACED, and WALKED rather than jumped. Re-creating the
          * marker would teleport the pin and drop any transition; animating
@@ -1187,10 +1230,19 @@ function pickupPin(label: string): HTMLElement {
   return root;
 }
 
-/** A van. Tag orange when chosen, sky otherwise — the brand's own two accents. */
+/**
+ * A van. Tag orange when chosen, sky otherwise — the brand's own two accents.
+ *
+ * Three shapes, one function, because they must stay recognisably the same
+ * object: see `MapDriver.variant` for what each one is claiming.
+ */
 function driverPin(driver: MapDriver): HTMLElement {
+  const variant = driver.variant ?? "live";
+  if (variant === "ghost") return ghostPin();
+
   const root = markerRoot();
   root.dataset.selected = driver.selected ? "true" : "false";
+  root.dataset.variant = variant;
   // The pin sits above its own ring; both share the root's centre.
   root.classList.add("relative");
 
@@ -1208,22 +1260,32 @@ function driverPin(driver: MapDriver): HTMLElement {
    * somebody who asked for less motion is not asking for a subtler version of
    * it, and the map is complete without it.
    */
-  const ring = document.createElement("span");
-  ring.setAttribute("aria-hidden", "true");
-  ring.className = [
-    "pointer-events-none absolute left-1/2 top-1/2 size-9 -translate-x-1/2 -translate-y-1/2",
-    "rounded-full bg-sky-500/40 animate-pin-ping motion-reduce:hidden",
-    "group-data-[selected=true]:bg-tag-500/40",
-  ].join(" ");
-  root.appendChild(ring);
+  /*
+   * A STALE PIN DOES NOT PULSE, and that is the whole point of the variant.
+   * The ring is the map's way of saying "this is now"; keeping it on a fix
+   * that is minutes old would make the one dishonest pin the liveliest thing
+   * on the screen.
+   */
+  if (variant !== "stale") {
+    const ring = document.createElement("span");
+    ring.setAttribute("aria-hidden", "true");
+    ring.className = [
+      "pointer-events-none absolute left-1/2 top-1/2 size-9 -translate-x-1/2 -translate-y-1/2",
+      "rounded-full bg-sky-500/40 animate-pin-ping motion-reduce:hidden",
+      "group-data-[selected=true]:bg-tag-500/40",
+    ].join(" ");
+    root.appendChild(ring);
+  }
 
   const button = document.createElement("button");
   button.type = "button";
   button.dataset.pin = "driver";
   button.setAttribute("aria-pressed", driver.selected ? "true" : "false");
+  const who = driver.label ? `Driver ${driver.label}` : "Koolee driver";
+  // Said out loud, not just drawn grey: a screen reader gets no colour.
   button.setAttribute(
     "aria-label",
-    driver.label ? `Driver ${driver.label}` : "Koolee driver",
+    variant === "stale" ? `${who} — last known position` : who,
   );
   button.className = [
     // `relative` so the pill paints above the ring behind it.
@@ -1234,7 +1296,9 @@ function driverPin(driver: MapDriver): HTMLElement {
     // parent, and which a child inherits nothing of but which it is far too
     // easy to reintroduce here by habit.
     "transition-[scale] duration-150",
-    "bg-sky-600 hover:scale-110",
+    variant === "stale"
+      ? "bg-navy-400 hover:scale-110"
+      : "bg-sky-600 hover:scale-110",
     "group-data-[selected=true]:bg-tag-500 group-data-[selected=true]:scale-110",
     "focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring",
   ].join(" ");
@@ -1248,6 +1312,48 @@ function driverPin(driver: MapDriver): HTMLElement {
   }
 
   root.appendChild(button);
+  return root;
+}
+
+/**
+ * A placeholder where a driver might be — drawn while the shortlist is still
+ * being built, so the map is not an empty rectangle.
+ *
+ * IT IS NOT A DRIVER AND MUST NOT BE MISTAKEN FOR ONE. No name, no ETA, no
+ * capacity, nothing tappable. A `span` rather than a `button`, and the whole
+ * root is `pointer-events-none`, so the click listener the caller attaches
+ * has no element to fire from — the inertness is structural rather than a
+ * rule somebody has to remember.
+ *
+ * Muted slate rather than the sky or tag accents: the two brand colours mean
+ * "a real driver" and "your driver" everywhere else on this map, and spending
+ * either on a placeholder would make the real ones mean less.
+ *
+ * It keeps the pulse. That is what it is FOR — the ring is the map saying
+ * something is happening, and the searching state is the one moment when that
+ * is the only thing the map has to say.
+ */
+function ghostPin(): HTMLElement {
+  const root = markerRoot();
+  root.classList.add("relative", "pointer-events-none");
+  root.dataset.variant = "ghost";
+  // Hidden from the accessibility tree entirely: there is nothing here to
+  // announce, and "Koolee driver" would be a claim about a van that does not
+  // exist. The list view is what a screen reader uses to choose.
+  root.setAttribute("aria-hidden", "true");
+
+  const ring = document.createElement("span");
+  ring.className = [
+    "pointer-events-none absolute left-1/2 top-1/2 size-8 -translate-x-1/2 -translate-y-1/2",
+    "rounded-full bg-navy-400/25 animate-pin-ping motion-reduce:hidden",
+  ].join(" ");
+  root.appendChild(ring);
+
+  const dot = document.createElement("span");
+  dot.className = [
+    "relative block size-3 rounded-full border-2 border-white bg-navy-400/70 shadow-md",
+  ].join(" ");
+  root.appendChild(dot);
   return root;
 }
 

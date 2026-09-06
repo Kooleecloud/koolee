@@ -14,8 +14,9 @@ import {
   CardTitle,
   FormMessage,
   LiveMap,
-  SegmentedControl,
   ProgressTrack,
+  SegmentedControl,
+  cn,
 } from "@koolee/ui";
 
 import {
@@ -23,34 +24,39 @@ import {
   type SelectDriverState,
 } from "@/app/trips/[bookingId]/actions";
 import { driverPins } from "@/lib/driver-pins";
-import { PICKUP_STEPS } from "@/lib/pickup-progress";
+import { ghostDrivers } from "@/lib/ghost-drivers";
+import { pickupSteps } from "@/lib/pickup-progress";
 
 /**
  * The customer's driver: choosing one, then watching them come.
  *
- * Three states, in the order a customer meets them:
+ * ONE CARD, AND THE MAP IS ALWAYS IN IT. That is the change, and it is worth
+ * saying what it replaced. There were three cards here — a shortlist, a
+ * text-only "we're assigning your driver", and a tracking card — and the map
+ * appeared in two of them under three separate conditions: a non-null pickup,
+ * a non-empty pin list, and a fresh fix. Any one of those failing produced a
+ * page with no map at all, and the two most common failures happened at the
+ * two most anxious moments: while nobody had been assigned yet, and while a
+ * chosen driver's phone was in a pocket.
  *
- *  1. a shortlist to choose from — up to four, emptiest van first;
- *  2. nothing to offer, which says a driver is being assigned (and pages ops
- *     behind the scenes) rather than showing an empty list;
- *  3. a chosen driver, their distance, their ETA and where the bags are.
+ * TD's report was that the map "is completely gone". It was not one bug; it
+ * was three gates, each individually defensible. So the gates are gone and the
+ * map is the card:
  *
- * THERE IS A MAP NOW, and the old note here said there deliberately was not:
- * "a distance and an updating ETA answer the actual question — how long until
- * somebody knocks". That was half right. The other question somebody sitting
- * with sealed bags is asking is "is anything actually happening", and a number
- * that changes every 45 seconds answers it worse than a pin that moves.
+ *  - no shortlist yet → the door, and ghost pins (see `ghostDrivers`);
+ *  - a shortlist → their pins, greyed where a fix has aged;
+ *  - a chosen driver → their pin, a bar saying who and how long, and a
+ *    five-stage strip under it.
  *
- * The map is `LiveMap` in @koolee/ui — MapLibre over OpenFreeMap tiles, no key
- * and no per-load billing, deliberately not Google's Maps JS (a separate SKU
- * needing a browser-side key, where every Maps call this product makes today
- * is server-side). It NEVER gates: a tile host that is down, or a browser with
- * no WebGL, leaves the list and the ETA below it untouched.
+ * The only thing that can still remove the map is a booking with no pickup
+ * COORDINATES, which is a hand-typed address Places never resolved. There is
+ * genuinely nothing to draw, and the list view carries on alone.
  *
- * CHOOSING IS STILL A LIST DECISION. The pins are a second way to reach the
- * same four cards — click a pin, its card highlights and scrolls into view —
- * because a name, a van's remaining capacity and an ETA do not fit in a map
- * pin, and those are what somebody actually chooses on.
+ * CHOOSING IS STILL A LIST DECISION. Pins are a second way to reach the same
+ * cards — tap a pin, its card opens anchored to it — because a name, a van's
+ * remaining capacity and an ETA do not fit in a pin, and those are what
+ * somebody actually chooses on. The List tab is also the only view that works
+ * with no coordinates, no WebGL and no sight.
  */
 
 export interface DriverCandidateView {
@@ -66,11 +72,14 @@ export interface DriverCandidateView {
   /** True when the ETA is a real estimate rather than the fallback phrase. */
   hasEta: boolean;
   /**
-   * Last known position, for the map. Null is ordinary — a phone in a pocket
-   * stops reporting — and such a driver simply has no pin while keeping their
-   * card, because they are still perfectly choosable.
+   * Last known position. Null means this driver has never reported at all,
+   * and only that — an aged fix is still a position and still drawn.
    */
   position: { lat: number; lng: number } | null;
+  /** False when `position` is a last-known fix rather than a current one. */
+  positionIsFresh: boolean;
+  /** "4 min ago", for a stale pin. Null when fresh or never reported. */
+  positionAgoLabel: string | null;
 }
 
 export interface SelectedDriverView {
@@ -78,49 +87,100 @@ export interface SelectedDriverView {
   avatarUrl: string | null;
   truckName: string;
   etaLabel: string;
-  /** Miles, e.g. "3.2 miles away". Null when the driver has not pinged. */
+  /** Miles, e.g. "3.2 miles away". Null when there is no usable position. */
   distanceLabel: string | null;
   /** Airport-local, preformatted. Null when there is no position yet. */
   lastSeenLabel: string | null;
-  /** Where the bags are, as a milestone index into `PICKUP_STEPS`. */
+  /** "4 min ago". Null when the fix is fresh or there has never been one. */
+  positionAgoLabel: string | null;
+  /** Where the bags are, as an index into `pickupSteps`. */
   stepIndex: number;
-  /** Where they are right now. Null until the first ping, or once it is stale. */
+  /** Last known position, fresh or not. Null only if they never reported. */
   position: { lat: number; lng: number } | null;
+  positionIsFresh: boolean;
   /**
    * Whether the driver has started this leg (`startPickupTravel`).
    *
    * It is the difference between two silences that look identical on screen
    * and are not: "nobody is coming yet, and that is fine" versus "somebody is
-   * coming and we have lost sight of them". The card says which.
+   * coming and we have lost sight of them".
    */
   travelStarted: boolean;
 }
 
+/**
+ * How often the ghost pins are nudged, in milliseconds.
+ *
+ * Slow. They are meant to read as vehicles idling in traffic; anything brisk
+ * makes them the most eye-catching thing on a screen whose actual job is to
+ * say "hold on, we are working". Well inside the page's own refresh, so the
+ * motion never stalls waiting for the server.
+ */
+const GHOST_DRIFT_MS = 8_000;
+
+export function TripDriverPanel({
+  bookingId,
+  pickup,
+  pickupAddressLine = null,
+  choosing,
+  candidates,
+  bestShiftId,
+  selected,
+  live,
+  cancelled = false,
+}: {
+  bookingId: string;
+  /** The door. Null when the address has no coordinates — the only no-map case. */
+  pickup: { lat: number; lng: number } | null;
+  pickupAddressLine?: string | null;
+  /** The customer may pick a driver right now. */
+  choosing: boolean;
+  candidates: DriverCandidateView[];
+  bestShiftId: string | null;
+  /** The driver they picked, once they have. */
+  selected: SelectedDriverView | null;
+  /** False once the booking is terminal — nothing left to watch. */
+  live: boolean;
+  cancelled?: boolean;
+}) {
+  if (selected) {
+    return (
+      <TrackingCard
+        driver={selected}
+        live={live}
+        cancelled={cancelled}
+        pickup={pickup}
+        pickupAddressLine={pickupAddressLine}
+      />
+    );
+  }
+  if (!choosing) return null;
+  return (
+    <ChoosingCard
+      bookingId={bookingId}
+      candidates={candidates}
+      pickup={pickup}
+      pickupAddressLine={pickupAddressLine}
+      bestShiftId={bestShiftId}
+    />
+  );
+}
+
 /* ------------------------------------------------------------------ */
-/* 1. Choosing                                                          */
+/* 1. Choosing — including the wait before there is anybody to choose   */
 /* ------------------------------------------------------------------ */
 
-export function DriverChoice({
+function ChoosingCard({
   bookingId,
   candidates,
   pickup,
-  pickupAddressLine = null,
+  pickupAddressLine,
   bestShiftId,
 }: {
   bookingId: string;
   candidates: DriverCandidateView[];
-  /** The door, for the map. Null when the address has no coordinates. */
   pickup: { lat: number; lng: number } | null;
-  /** The doorstep in words, for the pickup pin's card. */
-  pickupAddressLine?: string | null;
-  /**
-   * Who "pick the best" would choose, decided SERVER-SIDE by `bestCandidate`.
-   *
-   * Passed down rather than recomputed here so the button and the server
-   * cannot disagree about who is best — and so the rule stays in core, where
-   * it is tested, rather than in a component. Null when the shortlist has
-   * nobody with an ETA to rank.
-   */
+  pickupAddressLine: string | null;
   bestShiftId: string | null;
 }) {
   const router = useRouter();
@@ -128,34 +188,27 @@ export function DriverChoice({
     selectDriverAction,
     {},
   );
-  /**
-   * Which pin is open. PURELY A HIGHLIGHT — it commits nothing.
-   *
-   * Choosing a driver is irreversible (the pickup task is claimed and the
-   * shortlist closes), so a tap on a map pin must never be the tap that does
-   * it. It opens a card; the card's own button is what chooses.
-   *
-   * Held HERE rather than inside `LiveMap` because it is the same fact as
-   * which row is highlighted in the list below. Two components each keeping
-   * their own copy is how they end up disagreeing.
-   */
   const [focusRequest, setFocused] = React.useState<string | null>(null);
-  /**
-   * MAP OR LIST, one at a time — TD's call, and the pattern every delivery
-   * product uses.
-   *
-   * The first version stacked them: map on top, four cards under it. On a
-   * phone that gave the map about a third of the screen and put the cards
-   * below the fold, so neither view was any good — the map too small to judge
-   * distance on, the list needing a scroll to reach. Two full-size views and a
-   * toggle beats two half ones.
-   *
-   * MAP IS THE DEFAULT because it answers the question people actually have —
-   * "who is near me" — and the list answers the follow-up. Once a driver is
-   * chosen the toggle is gone entirely: `DriverTracking` is map-only, because
-   * there is nothing left to compare.
-   */
   const [view, setView] = React.useState<"map" | "list">("map");
+
+  const searching = candidates.length === 0;
+
+  /*
+   * THE GHOSTS DRIFT, AND ONLY WHILE THERE IS NOBODY REAL.
+   *
+   * The timer is torn down the moment a candidate arrives, so it cannot go on
+   * animating placeholders underneath a real shortlist — item 12 in the plan,
+   * and the one failure mode that would turn a reassuring animation into a
+   * lie. It is also the reason this state lives here rather than inside the
+   * generator: the generator is pure and testable precisely because it does
+   * not own a clock.
+   */
+  const [drift, setDrift] = React.useState(0);
+  useEffect(() => {
+    if (!searching) return;
+    const id = setInterval(() => setDrift((n) => n + 1), GHOST_DRIFT_MS);
+    return () => clearInterval(id);
+  }, [searching]);
 
   // A lost race is not a dead end. `revalidatePath` already ran server-side;
   // this pulls the refreshed shortlist so the customer's next click is a
@@ -165,101 +218,75 @@ export function DriverChoice({
   }, [state.stale, router]);
 
   /*
-   * A DRIVER WHO DROPS OUT TAKES THE OPEN CARD WITH THEM.
-   *
-   * The shortlist refreshes underneath this component every time the booking
-   * signals or the poll fires. A driver who clocked off, or whose van filled
-   * up, simply stops appearing — and a card anchored to them would go on
-   * offering a Select button for somebody who is no longer selectable.
-   *
-   * DERIVED, not synced. The obvious version is an effect that clears the
-   * state when the id disappears, and it is wrong twice: it renders one frame
-   * with a card for a driver who is gone, and it sets state inside an effect,
-   * which cascades a second render before paint. What is open is a FUNCTION of
-   * the shortlist, so it is computed rather than remembered.
+   * A DRIVER WHO DROPS OUT TAKES THE OPEN CARD WITH THEM. Derived, not synced:
+   * an effect clearing the state would render one frame with a card for a
+   * driver who is gone, and set state inside an effect to do it.
    */
   const focused =
     focusRequest && candidates.some((c) => c.shiftId === focusRequest)
       ? focusRequest
       : null;
 
-  if (candidates.length === 0) return <NoDriverYet />;
-
-  const allOutOfZone = candidates.every((c) => c.outOfZone);
-  // A driver with no fix keeps their card and gets no pin — see `driverPins`.
-  const pins = driverPins(candidates, focused);
+  const allOutOfZone = candidates.length > 0 && candidates.every((c) => c.outOfZone);
+  const realPins = driverPins(candidates, focused);
   /*
-   * Whether a map is possible at all. A map of vans with no reference point is
-   * worse than no map, and pins with nowhere to be drawn are not a map either.
-   *
-   * Read ONCE and used for both the toggle and the view, so the two cannot
-   * disagree — a toggle offering a view that renders nothing is the failure
-   * this variable exists to prevent.
+   * GHOSTS OR REAL PINS, NEVER BOTH. Mixing them would put an anonymous dot
+   * beside a named van and invite somebody to tap it.
    */
-  const showMap = pickup !== null && pins.length > 0;
+  const pins =
+    searching && pickup ? ghostDrivers(bookingId, pickup, drift) : realPins;
+
+  /*
+   * A map needs a reference point, and that is the ONLY thing it needs now.
+   * It used to also require at least one pin, which is what made the map
+   * vanish exactly when there was nobody to show — the moment it was most
+   * worth drawing something.
+   */
+  const showMap = pickup !== null;
   const showing = showMap ? view : "list";
+  const staleCount = candidates.filter(
+    (c) => c.position !== null && !c.positionIsFresh,
+  ).length;
+  const unpinned = candidates.filter((c) => c.position === null).length;
 
-  /*
-   * A pin tap opens that driver's card and nothing else.
-   *
-   * It used to also scroll the matching list row into view, which made sense
-   * when the list sat under the map. With one view at a time the list is not
-   * mounted while a pin is tappable, so that scroll could never run — and the
-   * anchored card now carries the same facts the row did. The highlight
-   * SURVIVES the toggle, so switching to List after tapping a pin lands on a
-   * highlighted row.
-   */
   const onPinClick = (shiftId: string) => setFocused(shiftId);
-
   const byShift = new Map(candidates.map((c) => [c.shiftId, c] as const));
 
   return (
-    // `overflow-hidden` so the flush map below takes the CARD's corner radius
-    // rather than spilling past it — see `frame` on `LiveMap`.
+    // `overflow-hidden` so the flush map takes the CARD's corner radius.
     <Card className="overflow-hidden">
       <CardHeader>
-        <CardTitle className="font-display text-base">Choose your driver</CardTitle>
+        <CardTitle className="font-display text-base">
+          {searching ? "Finding your driver" : "Choose your driver"}
+        </CardTitle>
         <CardDescription>
-          {allOutOfZone
-            ? "Everyone close by is full right now, so these drivers are coming from a little further out — they will take a bit longer to reach you."
-            : "Your bags are sealed and ready. Pick whoever suits you; they will collect your bags and deliver them to your airline's bag drop."}
+          {searching
+            ? "Your bags are sealed and ready. We're matching you with a driver nearby — this page updates on its own."
+            : allOutOfZone
+              ? "Everyone close by is full right now, so these drivers are coming from a little further out — they will take a bit longer to reach you."
+              : "Your bags are sealed and ready. Pick whoever suits you; they will collect your bags and deliver them to your airline's bag drop."}
         </CardDescription>
-        {/*
-          THE TOGGLE ONLY EXISTS WHEN THERE IS A MAP TO SWITCH TO.
-          
-          No coordinates on the address, or nobody has reported a position, and
-          there is no map — so the list is not one of two views, it is the only
-          view, and a control offering a second one would be a lie. This is the
-          case the toggle is easiest to get wrong in: `showMap` is exactly the
-          condition the map is rendered under, read once.
-        */}
-        {/*
-          THE HINT LIVES HERE, not under the map — TD's note. Below the map it
-          forced a gap between the map and the card's own edge, which is
-          exactly the padding this section had just been stripped of. Under the
-          description it reads as part of the instructions, which is what it
-          is, and the map below can sit flush with nothing after it.
-        */}
-        {showMap && showing === "map" && (
+
+        {showMap && showing === "map" && !searching && (
           <CardDescription>
             Tap a van to see who it is and choose them.
-            {pins.length < candidates.length
+            {unpinned > 0
               ? " Some drivers have not reported a position yet — they are all in the list."
-              : " Nothing is booked until you choose."}
+              : staleCount > 0
+                ? " A greyed van is a last known position, not a live one."
+                : " Nothing is booked until you choose."}
           </CardDescription>
         )}
-        {showMap && (
+
+        {/*
+          THE TOGGLE ONLY EXISTS WHEN THERE IS A LIST WORTH SWITCHING TO.
+          While searching there is nothing in it, so offering the tab would be
+          offering an empty screen.
+        */}
+        {showMap && !searching && (
           <SegmentedControl
             items={[
               { value: "map" as const, label: "Map" },
-              /*
-               * The count is on the LIST tab alone, and that is the point
-               * rather than an omission: the list holds EVERY candidate, and
-               * the map can only draw the ones who have reported a position.
-               * Two different numbers on two tabs would read as a discrepancy
-               * rather than as a fact about GPS — the map view says the rest
-               * in a sentence when they differ.
-               */
               { value: "list" as const, label: `List · ${candidates.length}` },
             ]}
             value={view}
@@ -270,12 +297,6 @@ export function DriverChoice({
         )}
       </CardHeader>
 
-      {/*
-        NO INNER PADDING ON THIS SECTION, so the map bleeds to the card's own
-        edge — TD's note. The page container keeps its padding; the map simply
-        stops having a second one inside it, which on a phone was costing the
-        map about a fifth of its width for a margin nobody wanted.
-      */}
       <CardContent className="flex flex-col gap-4 px-0 pb-0">
         {state.error ? (
           <div className="px-6">
@@ -283,14 +304,6 @@ export function DriverChoice({
           </div>
         ) : null}
 
-        {/*
-          PICK THE BEST sits ABOVE the map, not inside it: it is an
-          alternative to the whole business of choosing, so it should be
-          readable before the map invites somebody to start comparing.
-
-          Only offered when there is something to compare. With one driver it
-          would be a second button doing exactly what the first one does.
-        */}
         {bestShiftId && candidates.length > 1 && (
           <div className="px-6">
             <PickTheBest
@@ -302,44 +315,49 @@ export function DriverChoice({
         )}
 
         {showing === "map" ? (
-          <LiveMap
-            pickup={pickup!}
-            drivers={pins}
-            onDriverClick={onPinClick}
-            popupDriverId={focused}
-            onPopupClose={() => setFocused(null)}
-            renderPopup={(shiftId) => {
-              const driver = byShift.get(shiftId);
-              if (!driver) return null;
-              return (
-                <DriverPopup
-                  bookingId={bookingId}
-                  driver={driver}
-                  formAction={formAction}
-                  pending={pending}
-                />
-              );
-            }}
-            allowFullscreen
-            frame={false}
-            recenterLabel="Back to my pickup"
-            pickupAddressLine={pickupAddressLine}
-            // Taller than it was when a list sat under it: this IS the view
-            // now, and a map you have to squint at is not one.
-            className="h-80 sm:h-[26rem]"
-            label={`Map showing your pickup address and ${pins.length} available ${
-              pins.length === 1 ? "driver" : "drivers"
-            }`}
-          />
+          <div className="relative">
+            <LiveMap
+              pickup={pickup!}
+              drivers={pins}
+              /*
+               * Handed the click even while searching, and it costs nothing:
+               * a ghost renders a `span` inside a `pointer-events-none` root,
+               * so there is no element for this to fire from. The inertness is
+               * structural rather than a condition that could be forgotten.
+               */
+              onDriverClick={onPinClick}
+              popupDriverId={searching ? null : focused}
+              onPopupClose={() => setFocused(null)}
+              renderPopup={(shiftId) => {
+                const driver = byShift.get(shiftId);
+                if (!driver) return null;
+                return (
+                  <DriverPopup
+                    bookingId={bookingId}
+                    driver={driver}
+                    formAction={formAction}
+                    pending={pending}
+                  />
+                );
+              }}
+              allowFullscreen
+              frame={false}
+              recenterLabel="Back to my pickup"
+              pickupAddressLine={pickupAddressLine}
+              // The map IS the view now, so it gets the height the toggle used
+              // to share with a list below it.
+              className="h-[22rem] sm:h-[28rem]"
+              label={
+                searching
+                  ? "Map showing your pickup address while we find a driver"
+                  : `Map showing your pickup address and ${realPins.length} available ${
+                      realPins.length === 1 ? "driver" : "drivers"
+                    }`
+              }
+            />
+            {searching && <SearchingChip />}
+          </div>
         ) : (
-          /*
-            THE LIST IS A FULL VIEW, not a fallback.
-
-            A name, a van's remaining capacity and an ETA side by side is a
-            comparison a map cannot make, and this is also the only view that
-            works with no coordinates, no WebGL and no sight. Every driver
-            appears here, including the ones with no position to pin.
-          */
           <ul className="grid gap-3 px-6 pb-6 sm:grid-cols-2">
             {candidates.map((candidate) => (
               <li key={candidate.shiftId}>
@@ -399,18 +417,36 @@ export function DriverChoice({
 }
 
 /**
+ * The label over the searching map.
+ *
+ * IT SAYS WHAT IS HAPPENING, NOT WHAT IS THERE. "Finding drivers near you" is
+ * about our search; a count of the dots on the map would be a claim about
+ * supply, which is the line this state must not cross. The dots carry no
+ * number and this carries no number, deliberately.
+ */
+function SearchingChip() {
+  return (
+    <div className="pointer-events-none absolute inset-x-0 top-3 flex justify-center">
+      <span className="inline-flex items-center gap-2 rounded-full bg-navy-900/85 px-3 py-1.5 text-xs font-medium text-white shadow-lg">
+        <span
+          aria-hidden="true"
+          className="size-1.5 animate-pulse rounded-full bg-sky-300 motion-reduce:animate-none"
+        />
+        Finding drivers near you…
+      </span>
+    </div>
+  );
+}
+
+/**
  * The shortcut: one tap, the nearest eligible driver.
  *
- * It runs the SAME `selectDriverAction` as every card below, with the shift id
- * core picked. That is deliberate and load-bearing — there is exactly one way
- * to be assigned a driver, so the transactional recheck, the advisory lock and
- * the lost-race behaviour are identical whether somebody tapped this or read
- * four cards first. A second selection path would be a second set of races.
+ * Runs the SAME `selectDriverAction` as every card, with the shift id core
+ * picked — one way to be assigned a driver, so the transactional recheck, the
+ * advisory lock and the lost-race behaviour are identical either way.
  *
  * The COPY makes it a shortcut rather than a different offer: it names who it
- * would pick and why, so pressing it is a choice rather than a surrender. A
- * button that said only "pick for me" would be asking for trust it has not
- * earned; naming the driver and the reason lets somebody disagree.
+ * would pick and why, so pressing it is a choice rather than a surrender.
  */
 function PickTheBest({
   bookingId,
@@ -451,16 +487,13 @@ function PickTheBest({
 }
 
 /**
- * The card anchored to a pin.
+ * The card anchored to a pin. Deliberately the SAME facts as the list row —
+ * a popover showing different information from the card three inches below it
+ * would make somebody wonder which one to believe.
  *
- * Deliberately the SAME facts as the list row — name, truck, room, ETA — and
- * the same Select. A popover showing different information from the card three
- * inches below it would make somebody wonder which one to believe.
- *
- * It is its own `<form>` rather than a button reaching into the list's: the
- * popup is portalled into a node MapLibre owns and moves, which is nowhere
- * near the list in the DOM tree, so a `form` attribute pointing at it would be
- * the only thing holding them together.
+ * Its own `<form>` rather than a button reaching into the list's: the popup is
+ * portalled into a node MapLibre owns and moves, nowhere near the list in the
+ * DOM tree.
  */
 function DriverPopup({
   bookingId,
@@ -478,8 +511,6 @@ function DriverPopup({
       <input type="hidden" name="bookingId" value={bookingId} />
       <input type="hidden" name="shiftId" value={driver.shiftId} />
 
-      {/* `pr-5` on the top row only: the close button sits over that corner,
-          and padding the whole card would leave everything below it short. */}
       <div className="flex items-center gap-2 pr-5">
         <Avatar size="sm" name={driver.givenName} src={driver.avatarUrl} alt="" />
         <div className="min-w-0">
@@ -495,6 +526,14 @@ function DriverPopup({
         {driver.outOfZone ? <Badge variant="secondary">Further out</Badge> : null}
       </div>
 
+      {/* Said in the popup as well as on the pin: somebody who tapped a grey
+          van is asking exactly this question. */}
+      {!driver.positionIsFresh && driver.positionAgoLabel ? (
+        <p className="text-xs text-muted-foreground">
+          Last seen {driver.positionAgoLabel}.
+        </p>
+      ) : null}
+
       <p className="text-xs text-muted-foreground">
         Room for {driver.availableCapacity} more{" "}
         {driver.availableCapacity === 1 ? "bag" : "bags"} after yours.
@@ -507,82 +546,46 @@ function DriverPopup({
   );
 }
 
-/**
- * Nothing to offer.
- *
- * It does NOT say "no drivers available" — that is a Koolee staffing problem
- * described to the customer as their problem, and there is nothing they can do
- * with it. The page tells them what will happen; the ops alert (raised
- * server-side, once an hour at most) is what makes that sentence true.
- */
-function NoDriverYet() {
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="font-display text-base">
-          We&rsquo;re assigning your driver
-        </CardTitle>
-        <CardDescription>
-          Your bags are sealed and ready to go. We&rsquo;re matching you with a driver now
-          — you&rsquo;ll get a confirmation as soon as they&rsquo;re on it.
-        </CardDescription>
-      </CardHeader>
-    </Card>
-  );
-}
-
 /* ------------------------------------------------------------------ */
 /* 2. Watching                                                          */
 /* ------------------------------------------------------------------ */
 
 /**
- * REFRESH IS NOT THIS COMPONENT'S JOB ANY MORE.
- *
- * This used to own a 30-second `setInterval(router.refresh)`, which made the
- * page live only once a driver had been chosen — an agent sealing bags on the
- * doorstep changed nothing on the screen the customer was watching. `TripLive`
- * now sits at page level and refreshes on a `booking_signals` change (with the
- * same interval as its fallback), so everything on the page updates, not one
- * card. Do not re-add a timer here.
+ * REFRESH IS NOT THIS COMPONENT'S JOB. `TripLive` sits at page level and
+ * refreshes on a `booking_signals` change, so everything on the page updates
+ * rather than one card. Do not re-add a timer here.
  */
-export function DriverTracking({
+function TrackingCard({
   driver,
-  /** False once the bags are delivered — nothing left to track. */
   live,
-  /** The door, for the map. Null when the address has no coordinates. */
   pickup,
-  pickupAddressLine = null,
-  cancelled = false,
+  pickupAddressLine,
+  cancelled,
 }: {
   driver: SelectedDriverView;
   live: boolean;
   pickup: { lat: number; lng: number } | null;
-  /** The doorstep in words, for the pickup pin's card. */
-  pickupAddressLine?: string | null;
-  /**
-   * The booking was cancelled after a driver was chosen.
-   *
-   * The card STAYS. A customer who picked a driver, watched the ETA and then
-   * cancelled should still see that the leg existed — dropping the card makes
-   * the trip page read as though no driver was ever assigned, which is not
-   * what happened and not what a dispute would be argued against.
-   */
-  cancelled?: boolean;
+  pickupAddressLine: string | null;
+  cancelled: boolean;
 }) {
   /*
-   * THE MAP IS ONLY FOR A JOURNEY IN PROGRESS. Once the bags are at the bag
-   * drop there is no van to watch, and a map of where somebody was is not a
-   * receipt — the custody timeline is. Also gated on having both ends: a pin
-   * with no reference point tells nobody anything.
+   * A STALE PIN IS DRAWN, NOT DROPPED — the change TD asked for.
    *
-   * A cancelled booking is never live, whatever its position field still
-   * holds: a pin walking towards a door nobody is going to is the single most
+   * This used to require `positionIsFresh`, so a driver whose phone went into
+   * a pocket took the whole map with them: the card collapsed to a sentence at
+   * the exact moment somebody was watching hardest. The last known position,
+   * grey and unpulsed with its age beside it, answers more than a blank does
+   * and cannot be mistaken for live.
+   *
+   * A CANCELLED BOOKING IS STILL NEVER LIVE, whatever the position field
+   * holds. A pin walking towards a door nobody is going to is the single most
    * misleading thing this page could draw.
    */
   const showMap = live && !cancelled && pickup !== null && driver.position !== null;
+  const steps = pickupSteps(driver.givenName);
 
   return (
-    <Card className={cancelled ? "opacity-90" : undefined}>
+    <Card className={cn(cancelled && "opacity-90", "overflow-hidden")}>
       <CardHeader>
         <CardTitle className="font-display text-base">Your driver</CardTitle>
         <CardDescription>
@@ -593,45 +596,8 @@ export function DriverTracking({
               : "Your bags are with your airline now."}
         </CardDescription>
       </CardHeader>
-      {/*
-        NO INNER PADDING, so the map bleeds to the card edge — TD's note, and
-        the same treatment the shortlist above gets. Everything that is NOT
-        the map puts the padding back on itself, which is a few `px-6`s in
-        exchange for a map that is not wearing a frame inside a frame.
-      */}
-      <CardContent className="flex flex-col gap-5 px-0 pb-0">
-        <div className="flex flex-wrap items-center gap-4 px-6">
-          <Avatar size="lg" name={driver.givenName} src={driver.avatarUrl} alt="" />
-          <div className="min-w-0">
-            <p className="font-medium">{driver.givenName ?? "Your Koolee driver"}</p>
-            <p className="text-sm text-muted-foreground">{driver.truckName}</p>
-          </div>
-          {live && !cancelled ? (
-            <div className="ml-auto text-right">
-              <p className="font-display text-lg">{driver.etaLabel}</p>
-              <p className="text-sm text-muted-foreground">
-                {driver.distanceLabel ??
-                  (driver.travelStarted ? "Position updating" : "Not on the way yet")}
-              </p>
-            </div>
-          ) : null}
-        </div>
 
-        {/*
-          NO MAP IS TWO DIFFERENT FACTS, and an absent card says neither.
-          Before the driver starts the leg there is genuinely nothing to track,
-          and a customer staring at a card with no map cannot tell that from a
-          map that failed. After they start, a gap means we have lost sight of
-          them, which is worth saying out loud rather than leaving as a blank.
-        */}
-        {live && !cancelled && !showMap && (
-          <p className="mx-6 rounded-lg border border-dashed border-border bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
-            {driver.travelStarted
-              ? "We've lost the live position for a moment — it comes back on its own, and your driver is still on the way."
-              : `Live tracking starts when ${driver.givenName ?? "your driver"} sets off for you.`}
-          </p>
-        )}
-
+      <CardContent className="flex flex-col gap-4 px-0 pb-0">
         {showMap && (
           <LiveMap
             pickup={pickup}
@@ -645,20 +611,71 @@ export function DriverTracking({
                 position: driver.position!,
                 label: driver.givenName,
                 selected: true,
+                variant: driver.positionIsFresh ? "live" : "stale",
               },
             ]}
             frame={false}
             pickupAddressLine={pickupAddressLine}
-            className="h-64 sm:h-72"
+            className="h-[20rem] sm:h-[26rem]"
             label={`Map showing ${driver.givenName ?? "your driver"} on the way to your pickup address`}
           />
         )}
 
-        <div className="px-6">
-          <PickupProgress stepIndex={driver.stepIndex} cancelled={cancelled} />
+        {/*
+          NO MAP IS TWO DIFFERENT FACTS, and an absent card says neither. With
+          a stale pin now drawn rather than hidden, this is down to the two
+          cases where there is genuinely no coordinate to place: a driver who
+          has never reported, and a booking whose address never resolved.
+        */}
+        {live && !cancelled && !showMap && (
+          <p className="mx-6 rounded-lg border border-dashed border-border bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
+            {driver.travelStarted
+              ? "We've lost the live position for a moment — it comes back on its own, and your driver is still on the way."
+              : `Live tracking starts when ${driver.givenName ?? "your driver"} sets off for you.`}
+          </p>
+        )}
+
+        {/* WHO, AND HOW LONG — the two things somebody wants under a map. */}
+        <div className="flex flex-wrap items-center gap-3 px-6">
+          <Avatar size="lg" name={driver.givenName} src={driver.avatarUrl} alt="" />
+          <div className="min-w-0 flex-1">
+            <p className="font-medium">
+              {cancelled
+                ? (driver.givenName ?? "Your Koolee driver")
+                : `${driver.givenName ?? "Your Koolee driver"} ${headline(driver)}`}
+            </p>
+            <p className="text-sm text-muted-foreground">
+              {driver.truckName}
+              {live && !cancelled && driver.distanceLabel
+                ? ` · ${driver.distanceLabel}`
+                : ""}
+            </p>
+          </div>
+          {live && !cancelled ? (
+            <p className="font-display text-lg whitespace-nowrap">{driver.etaLabel}</p>
+          ) : null}
         </div>
 
-        {live && !cancelled && driver.lastSeenLabel ? (
+        {/*
+          THE TRACK IS A CAPTION NOW, not the card. `compact` is what keeps
+          five stages to about one line — the full-size strip stacked into five
+          rows on a phone and pushed the map off the screen, which is the
+          opposite of the point.
+        */}
+        <div className="px-6">
+          <ProgressTrack
+            steps={steps}
+            currentIndex={driver.stepIndex}
+            cancelled={cancelled}
+            compact
+          />
+        </div>
+
+        {live && !cancelled && !driver.positionIsFresh && driver.positionAgoLabel ? (
+          <p className="px-6 pb-6 text-xs text-muted-foreground">
+            Last seen {driver.positionAgoLabel}. The grey van is where we saw them last.
+          </p>
+        ) : live && !cancelled && driver.lastSeenLabel ? (
           <p className="px-6 pb-6 text-xs text-muted-foreground">
             Location last updated {driver.lastSeenLabel}.
           </p>
@@ -672,30 +689,16 @@ export function DriverTracking({
 }
 
 /**
- * Where the bags are, as a track with a current position.
+ * What the driver is doing, in three words, keyed off the stage.
  *
- * This used to be a local component drawing its own dots and rails —
- * `size-2.5`, `bg-sky-500` for done and `bg-navy-200` for not, a hairline
- * connector, and NOTHING marking the step in progress. It sat on the same
- * page as the custody trail, which draws `CustodyTimeline`'s navy and
- * seal-orange markers, so a customer watching their bags met two different
- * visual languages on one screen and the one describing what was happening
- * right now was the quieter of the two.
- *
- * `ProgressTrack` in @koolee/ui is that strip, drawing the shared `StageDot`.
- * The old comment here said `MilestoneTrack` "has no notion of you-are-here,
- * which is the only thing this needs to say" — correct, and the answer was a
- * component that does, not a private copy.
+ * Read from `stepIndex` rather than from `travelStarted` alone, so the line
+ * and the strip beneath it can never describe different moments — which is
+ * exactly the kind of disagreement two sources for one fact produce.
  */
-export function PickupProgress({
-  stepIndex,
-  cancelled = false,
-}: {
-  stepIndex: number;
-  /** The booking was cancelled: every stage draws struck through. */
-  cancelled?: boolean;
-}) {
-  return (
-    <ProgressTrack steps={PICKUP_STEPS} currentIndex={stepIndex} cancelled={cancelled} />
-  );
+function headline(driver: SelectedDriverView): string {
+  if (driver.stepIndex >= 4) return "delivered your bags";
+  if (driver.stepIndex >= 3) return "is on the way to the bag drop";
+  if (driver.stepIndex >= 2) return "has your bags";
+  if (driver.travelStarted) return "is on the way to you";
+  return "is assigned to you";
 }

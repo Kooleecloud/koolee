@@ -51,6 +51,21 @@ export interface ProgressTrackProps extends Omit<
    * now" (an exception, a pause). This means "nothing is going to".
    */
   cancelled?: boolean;
+  /**
+   * Squeeze the strip into a single row of dots with small labels.
+   *
+   * FOR A MAP-FIRST LAYOUT. The default renders as a stacked list on a phone
+   * and a spaced row above it, which is right when the track IS the card. Once
+   * the map became the card, the track is a caption under it — five stacked
+   * rows there push the map off the screen, which is the opposite of what the
+   * whole change was for.
+   *
+   * It stays a real `<ol>` with the same states, the same `aria-current` and
+   * the same screen-reader suffixes: this is a size, not a simpler component.
+   * Labels shrink and the connector rails stay, because a row of dots with no
+   * thread between them stops reading as a progression.
+   */
+  compact?: boolean;
 }
 
 function stateFor(index: number, currentIndex: number): StageState {
@@ -63,23 +78,35 @@ function ProgressTrack({
   steps,
   currentIndex,
   cancelled = false,
+  compact = false,
   className,
   ...props
 }: ProgressTrackProps) {
   if (steps.length === 0) return null;
 
   return (
-    <ol className={cn("flex flex-col sm:flex-row sm:items-start", className)} {...props}>
+    <ol
+      className={cn(
+        compact ? "flex items-start" : "flex flex-col sm:flex-row sm:items-start",
+        className,
+      )}
+      {...props}
+    >
       {steps.map((step, i) => {
         const state: StageState = cancelled ? "cancelled" : stateFor(i, currentIndex);
         const isLast = i === steps.length - 1;
         return (
           <li
             key={step}
-            className="flex flex-1 items-center gap-3 sm:flex-col sm:items-start sm:gap-2"
+            className={cn(
+              "flex flex-1",
+              compact
+                ? "min-w-0 flex-col items-start gap-1"
+                : "items-center gap-3 sm:flex-col sm:items-start sm:gap-2",
+            )}
             aria-current={state === "current" ? "step" : undefined}
           >
-            <div className="flex items-center sm:w-full">
+            <div className={cn("flex items-center", compact ? "w-full" : "sm:w-full")}>
               <StageDot state={state} />
               {!isLast && (
                 <span
@@ -89,7 +116,7 @@ function ProgressTrack({
                     // is solid once a stage is behind you and dashed while it
                     // is still ahead. The dots carry the state; the rail says
                     // how far the thread has been drawn.
-                    "ml-2 hidden flex-1 sm:block",
+                    compact ? "ml-1.5 block flex-1" : "ml-2 hidden flex-1 sm:block",
                     state === "complete"
                       ? "h-0.5 rounded-full bg-sky-400"
                       : "border-t-2 border-dashed border-border",
@@ -99,7 +126,11 @@ function ProgressTrack({
             </div>
             <span
               className={cn(
-                "text-sm",
+                compact ? "text-[11px] leading-tight" : "text-sm",
+                // Compact labels sit under their own dot in a fixed-width
+                // column, so a long name has to wrap rather than shove the
+                // next stage sideways.
+                compact && "pr-2",
                 state === "current" && "font-medium text-navy-800",
                 state === "complete" && "text-muted-foreground",
                 state === "upcoming" && "text-navy-300",

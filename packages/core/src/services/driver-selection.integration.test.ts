@@ -768,9 +768,16 @@ describeIntegration("driver selection (integration)", () => {
     expect(live!.position).not.toBeNull();
     expect(live!.eta).not.toBeNull();
 
-    // The same driver, read past the window. Still perfectly choosable — the
-    // CARD remains, which is why the list is not a fallback — but nothing is
-    // drawn and nothing is estimated.
+    /*
+     * The same driver, read past the window.
+     *
+     * THE ETA STILL GOES, AND THE PIN NO LONGER DOES — the two were dropped
+     * together until the map became the whole view. An estimate computed from
+     * a stale origin is a number indistinguishable from a real one, so it is
+     * still refused. A POSITION is different: the caller can draw it grey,
+     * unpulsed, with its age in words, and that is strictly better than four
+     * candidates emptying the map at the moment somebody is choosing on it.
+     */
     const later = createCoreConfig({
       db,
       payments: new FakePaymentProvider(),
@@ -778,8 +785,29 @@ describeIntegration("driver selection (integration)", () => {
     });
     const [stale] = await listCandidateDrivers(later, { bookingId: booking.id });
     expect(stale!.shiftId).toBe(live!.shiftId);
-    expect(stale!.position).toBeNull();
     expect(stale!.eta).toBeNull();
+    expect(stale!.position).not.toBeNull();
+    expect(stale!.positionIsFresh).toBe(false);
+    expect(live!.positionIsFresh).toBe(true);
+  });
+
+  /*
+   * Null position now means exactly one thing: this driver has never reported
+   * at all. Worth its own assertion, because the previous behaviour overloaded
+   * null to mean "never reported OR reported too long ago" and the map had no
+   * way to tell those apart.
+   */
+  it("reports a driver who has never pinged with a null position", async () => {
+    const verifier = await makeDriver("Never Verifier", { canDrive: false });
+    const driver = await makeDriver("Silent Sam");
+    const truck = await makeTruck("Van Silent", 30);
+    await startShift(config, { staffUserId: driver, truckId: truck.id });
+    const { booking } = await sealedBooking(2, verifier);
+
+    const [candidate] = await listCandidateDrivers(config, { bookingId: booking.id });
+    expect(candidate!.position).toBeNull();
+    expect(candidate!.positionIsFresh).toBe(false);
+    expect(candidate!.positionRecordedAt).toBeNull();
   });
 
   it("a fix older than POSITION_FRESH_MS is reported as not fresh", async () => {
