@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createCoreConfig, fixedClock, type CoreConfig } from "../config";
 import { RecordingNotifier, type EmailMessage } from "../notifications/notifier";
@@ -34,6 +34,40 @@ import {
 const NOW = new Date("2026-09-01T12:00:00Z");
 const PICKUP_START = new Date("2026-09-03T14:00:00Z");
 const DEPARTURE = new Date("2026-09-03T22:00:00Z");
+
+/**
+ * THE WALL CLOCK, PINNED TO THE SAME INSTANT THE INJECTED CLOCK REPORTS.
+ *
+ * `jobs/functions.ts` decides whether to sleep by comparing against
+ * `Date.now()` directly (the pickup reminder and the no-show grace period),
+ * not against `config.clock` — so those two paths ignored the `fixedClock(NOW)`
+ * this file already injects and measured fixtures dated 2026-09-03 against the
+ * REAL date instead.
+ *
+ * That made them time bombs. Both passed while the real date was before
+ * 2026-09-03 and started failing the moment it wasn't, on an unchanged tree:
+ * CI was green on 2026-09-01 and red on 2026-09-06 for the same commits, with
+ * the failure surfacing on the dev -> main promotion rather than on the PR
+ * that introduced it.
+ *
+ * Pinning the wall clock to NOW makes the two clocks agree, which is what
+ * every fixture here already assumed. It also makes the "already inside the
+ * lead" case below deterministic rather than merely true-for-now.
+ *
+ * The production code is correct as written: in production `Date.now()` IS the
+ * right answer. Routing those two branches through `config.clock` would be the
+ * deeper fix and is deliberately NOT done here — it changes live Inngest job
+ * behaviour, which does not belong in a test repair.
+ */
+let nowSpy: ReturnType<typeof vi.spyOn> | undefined;
+
+beforeEach(() => {
+  nowSpy = vi.spyOn(Date, "now").mockReturnValue(NOW.getTime());
+});
+
+afterEach(() => {
+  nowSpy?.mockRestore();
+});
 
 /** Refuses every email, the way a dead provider does. */
 class ThrowingNotifier extends RecordingNotifier {
