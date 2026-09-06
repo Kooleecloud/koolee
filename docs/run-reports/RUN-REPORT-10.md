@@ -31,11 +31,11 @@ not the conversation, and not memory.
 | H · Stale positions never empty the map  | 2     | 0     |
 | I · Agent app — Today                    | 3     | **3** |
 | J · Agent app — Schedule                 | 6     | **6** |
-| K · Driver position — capture            | 4     | 0     |
-| L · Driver position — never drop a fix   | 2     | 1     |
-| M · Driver position — detect and recover | 7     | 0     |
+| K · Driver position — capture            | 4     | **4** |
+| L · Driver position — never drop a fix   | 2     | **2** |
+| M · Driver position — detect and recover | 7     | 2     |
 | N · Stories and tests                    | 4     | 2     |
-| **Total**                                | **56** | **12** |
+| **Total**                                | **56** | **19** |
 
 ---
 
@@ -187,16 +187,16 @@ inferred.
 
 ### K · Driver position — capture
 
-- [ ] **40.** `watchPosition` subscription replaces interval polling; POSTs
+- [x] **40.** `watchPosition` subscription replaces interval polling; POSTs
       throttled to the existing phase cadences.
-- [ ] **41.** Screen Wake Lock while `en_route`/`carrying`, re-acquired on
+- [x] **41.** Screen Wake Lock while `en_route`/`carrying`, re-acquired on
       visibility return (the browser drops it on background).
-- [ ] **42.** Immediate fix on foreground return and on phase change.
-- [ ] **43.** `sendBeacon` final flush on `pagehide`.
+- [x] **42.** Immediate fix on foreground return and on phase change.
+- [x] **43.** `sendBeacon` final flush on `pagehide`.
 
 ### L · Driver position — never drop a captured fix
 
-- [ ] **44.** IndexedDB queue flushed through the service worker's Background
+- [x] **44.** IndexedDB queue flushed through the service worker's Background
       Sync — anticipated already at `apps/agent/public/sw.js:8`.
       `recordDriverPosition` already accepts `recordedAt`, so late fixes keep
       their true device time.
@@ -211,10 +211,10 @@ inferred.
       backgrounded PWA. Stack already exists (`packages/core/src/notifications/`,
       `apps/agent/public/sw.js:119`).
 - [ ] **48.** Stale-location flag on the admin console's shift view.
-- [ ] **49.** In-app status chip: Live / Paused / Blocked, with a one-tap fix.
+- [x] **49.** In-app status chip: Live / Paused / Blocked, with a one-tap fix.
 - [ ] **50.** Clock-on gate — no shift starts without permission and one
       successful fix.
-- [ ] **51.** `permissions.query().onchange` listener for a mid-shift revoke.
+- [x] **51.** `permissions.query().onchange` listener for a mid-shift revoke.
 - [ ] **52.** Append-only ping log with short retention. **Needs a migration —
       SQL shown to TD and lock/index risk flagged before it is applied.**
 
@@ -366,3 +366,54 @@ starting. `driver-selection.integration` 33 passed (3 new: older loses, newer
 wins, loser does not throw). Core unit tier 617 passed / 1 skipped.
 `dispatch.integration` 19 passed — the suite that exercises phase 1's
 `listAssignedTasks` change. `tsc --noEmit` clean.
+
+### Phase 3 — capture and queue (items 40–44, 49, 51)
+
+**Commit:** `feat(agent): keep reporting a driver's position through the gaps`
+
+The pinger was `setInterval` around `getCurrentPosition`. Five separate
+reasons that lost a driver's location, each now answered:
+
+| Cause                                     | Answer                                   |
+| ----------------------------------------- | ---------------------------------------- |
+| A timer only fires in the foreground      | `watchPosition` subscription             |
+| The screen sleeps                         | Wake Lock while `en_route`/`carrying`    |
+| A failed send was a lost fix              | IndexedDB queue + Background Sync        |
+| Coming back waited out a full tick        | Send on `visibilitychange`               |
+| A revoked permission was invisible        | `permissions.query().onchange`           |
+
+**New files.** `src/lib/position-queue.ts` (bounded 120-entry IDB queue,
+batch flush, `sendBeacon` helper, exported `flushDisposition` rule) and
+`src/lib/position-queue.test.ts`.
+
+**Changed.** `components/shift/gps-pinger.tsx` rewritten. `api/driver-position`
+accepts one fix or a batch of up to 120, applied oldest-first and sequentially
+(they contend on one row per driver). `public/sw.js` gained a third job: a
+`sync` handler that drains the same IDB store after the tab is gone.
+
+**Throttle vs fix rate — the distinction that keeps the battery cost flat.**
+`watchPosition` delivers whenever the device has news; only one send per phase
+cadence reaches the network. The first callback after (re)subscribing always
+sends, which is what makes a phase change and a foreground return immediate.
+
+**The status chip is always present now (item 49).** The old component
+rendered nothing unless something had already failed, so "is Koolee seeing me?"
+was unanswerable on the happy path. Live / Finding / lost / blocked, with a
+"Try again" that forces a fresh hardware fix. `data-gps-state` is on the
+element so a browser pass can read the real state out of the DOM.
+
+**A contract with no type system across it.** The DB name, store name, sync
+tag, record shape and endpoint are duplicated between `position-queue.ts` and
+`sw.js`, which is served raw and cannot import from the app. Both files carry
+the warning.
+
+**Verified.** `apps/agent` 74 tests pass (5 files). `tsc --noEmit` clean,
+ESLint clean across `src/`, `node --check` on `sw.js`.
+
+**Not verified: the IndexedDB paths themselves.** The repo has no
+`fake-indexeddb` and adding a dependency is TD's call, so the queue's storage
+behaviour needs a browser pass. The rule most worth pinning — keep vs drop vs
+retry, whose three failure modes are each invisible until a driver is in a
+tunnel — was extracted as a pure `flushDisposition` and is unit-tested.
+Background Sync is Chromium-only by design; on Safari and Firefox the queue
+drains on the next successful foreground send.

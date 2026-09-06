@@ -13,9 +13,15 @@ import { requireAgentSession } from "@/lib/session";
  * The driver's latest position.
  *
  * A route handler rather than a server action because the caller is a plain
- * `fetch` on a 45-second interval, not a form — and because a server action
- * would revalidate the page on every ping, re-rendering a driver's screen
- * forty times an hour for a value that screen does not show.
+ * `fetch` from a `watchPosition` subscription, not a form — and because a
+ * server action would revalidate the page on every ping, re-rendering a
+ * driver's screen forty times an hour for a value that screen does not show.
+ *
+ * THREE CALLERS, and they are why the body accepts two shapes: the live
+ * pinger (one fix), the offline queue draining a backlog (many), and
+ * `sendBeacon` on pagehide (one again, because a beacon body is size-capped).
+ * `public/sw.js` is a fourth in effect — it drains the same queue on a
+ * Background Sync event after the tab is gone.
  *
  * The session is resolved per request, exactly like every other agent
  * endpoint, and `recordDriverPosition` refuses a driver who is not on shift —
@@ -27,11 +33,28 @@ import { requireAgentSession } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
 
-const bodySchema = z.object({
+const fixSchema = z.object({
   lat: z.number().finite(),
   lng: z.number().finite(),
   recordedAt: z.iso.datetime().optional(),
 });
+
+/**
+ * One fix, or a batch of them.
+ *
+ * TWO SHAPES, ONE ROUTE. The live pinger sends a single fix; the offline queue
+ * drains a backlog in one request after a tunnel, and `sendBeacon` on pagehide
+ * sends a single fix again because a beacon body is size-capped. A second
+ * endpoint for the batch would have meant a second session check, a second
+ * error vocabulary and a second thing to keep in step with `sw.js`.
+ *
+ * The batch is capped at the queue's own ceiling (`MAX_QUEUED`, 120) so a
+ * malformed or hostile body cannot ask this handler to do unbounded work.
+ */
+const bodySchema = z.union([
+  fixSchema,
+  z.object({ fixes: z.array(fixSchema).min(1).max(120) }),
+]);
 
 export async function POST(request: Request): Promise<NextResponse> {
   let session;
@@ -46,13 +69,27 @@ export async function POST(request: Request): Promise<NextResponse> {
     return NextResponse.json({ error: "invalid_body" }, { status: 400 });
   }
 
+  /*
+   * OLDEST FIRST, and applied one at a time rather than reduced to the newest
+   * here. Only the newest can win the position row — `recordDriverPosition`
+   * enforces that with a condition on the upsert — but each fix is still a
+   * real observation, and the ping log that phase 4 adds is what turns a
+   * backlog into an answer to "how long were we blind".
+   *
+   * Sequential, not `Promise.all`: they contend on one row per driver, and
+   * firing a backlog at it concurrently trades a tidy loop for lock waits.
+   */
+  const fixes = "fixes" in parsed.data ? parsed.data.fixes : [parsed.data];
+
   try {
-    await recordDriverPosition(getCore(), {
-      staffUserId: session.userId,
-      lat: parsed.data.lat,
-      lng: parsed.data.lng,
-      ...(parsed.data.recordedAt ? { recordedAt: new Date(parsed.data.recordedAt) } : {}),
-    });
+    for (const fix of fixes) {
+      await recordDriverPosition(getCore(), {
+        staffUserId: session.userId,
+        lat: fix.lat,
+        lng: fix.lng,
+        ...(fix.recordedAt ? { recordedAt: new Date(fix.recordedAt) } : {}),
+      });
+    }
   } catch (error) {
     // Off shift is the expected failure — a tab left open after clock-off.
     // 409, not 500: nothing is broken, the ping is simply no longer wanted.
@@ -66,5 +103,5 @@ export async function POST(request: Request): Promise<NextResponse> {
     return NextResponse.json({ error: "unavailable" }, { status: 503 });
   }
 
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({ ok: true, accepted: fixes.length });
 }
