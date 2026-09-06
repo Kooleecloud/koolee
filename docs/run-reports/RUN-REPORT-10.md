@@ -1,6 +1,6 @@
 # Run report 10 — Map-first trip page, agent schedule, driver-position robustness
 
-**Branch:** `feat/live-map-first`, cut from `origin/dev` @ `bffe2d4` with
+**Branch:** `feat/live-map-first`, cut from `origin/dev` @ `9d26a71` with
 `--no-track` (`branch.feat/live-map-first.merge` verified empty; `git status -sb`
 shows no upstream). **Commits are made on this branch**, one per phase, at TD's
 explicit instruction.
@@ -288,8 +288,17 @@ Newest last. One entry per phase, written as the phase lands.
 
 ### Phase 0 — plan agreed, branch cut
 
-`feat/live-map-first` cut from `origin/dev` @ `bffe2d4`, `--no-track`, upstream
-verified empty. Plan written to this file before any code. Seven decisions
+`feat/live-map-first` cut from `origin/dev` @ `9d26a71`, `--no-track`, upstream
+verified empty.
+
+**A correction to this header, made at push time.** It first recorded the base
+as `bffe2d4`, read off the LOCAL `dev` ref, which was stale — `origin/dev` had
+already advanced to `9d26a71` (the merge of PR #41). The branch was cut from
+`origin/dev`, so the real base is `9d26a71` and this work already carries
+`9caf060`, the wall-clock test fix. The earlier note that the branch "won't
+carry it" was wrong. Worth recording rather than quietly editing: reading a
+base off a local ref that nobody has pulled is an easy way to describe a
+branch incorrectly. Plan written to this file before any code. Seven decisions
 locked with TD across three rounds; the three-way branch split was offered and
 declined in favour of one end-to-end branch.
 
