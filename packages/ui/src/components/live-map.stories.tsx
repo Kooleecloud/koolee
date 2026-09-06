@@ -46,7 +46,10 @@ type Story = StoryObj<typeof meta>;
  *  - drag the map away: "Back to my pickup" appears at the bottom left, and
  *    the map stops re-framing itself on its own;
  *  - tap that button: the frame returns and the button goes;
- *  - one finger on a touch device scrolls the PAGE, two pan the map.
+ *  - ONE finger on a touch device pans the map (it no longer scrolls the
+ *    page — see the gesture note in `live-map.tsx`), and a pinch zooms;
+ *  - a mouse WHEEL over the map scrolls the page rather than zooming it, so
+ *    a laptop cannot get caught on the way past. Zoom is the +/− buttons.
  */
 export const ChoosingADriver: Story = {
   render: function Choosing() {

@@ -27,7 +27,7 @@ not the conversation, and not memory.
 | D · Custody trail collapse               | 2     | 0     |
 | E · Timeline detail                      | 3     | 0     |
 | F · After delivery                       | 2     | 0     |
-| G · Map gestures                         | 4     | 0     |
+| G · Map gestures                         | 4     | **4** |
 | H · Stale positions never empty the map  | 2     | 0     |
 | I · Agent app — Today                    | 3     | **3** |
 | J · Agent app — Schedule                 | 6     | **6** |
@@ -35,7 +35,7 @@ not the conversation, and not memory.
 | L · Driver position — never drop a fix   | 2     | **2** |
 | M · Driver position — detect and recover | 7     | 2     |
 | N · Stories and tests                    | 4     | 2     |
-| **Total**                                | **56** | **19** |
+| **Total**                                | **56** | **23** |
 
 ---
 
@@ -151,11 +151,11 @@ inferred.
 
 ### G · Map gestures
 
-- [ ] **25.** `cooperativeGestures: false` — one finger drags.
-- [ ] **26.** Pinch zooms; rotation and pitch stay disabled.
-- [ ] **27.** `scrollZoom.disable()` so a desktop wheel scrolls the page; the
+- [x] **25.** `cooperativeGestures: false` — one finger drags.
+- [x] **26.** Pinch zooms; rotation and pitch stay disabled.
+- [x] **27.** `scrollZoom.disable()` so a desktop wheel scrolls the page; the
       +/− buttons still zoom.
-- [ ] **28.** Fixed-height hero, never full-viewport, so there is always page
+- [x] **28.** Fixed-height hero, never full-viewport, so there is always page
       above and below to scroll from.
 
 ### H · Stale positions never empty the map
@@ -417,3 +417,30 @@ retry, whose three failure modes are each invisible until a driver is in a
 tunnel — was extracted as a pure `flushDisposition` and is unit-tested.
 Background Sync is Chromium-only by design; on Safari and Firefox the queue
 drains on the next successful foreground send.
+
+### Phase 5 — map gestures (items 25–28)
+
+**Commit:** `feat(ui): one finger pans the map`
+
+`cooperativeGestures: true` came out. It was the right trade when the map was
+a garnish above a list somebody actually chose from; it is the wrong one now
+the map is the view. Asking for two fingers to drag is a gesture nothing else
+on a phone requires.
+
+**The scroll trap is bounded, not solved,** and the code says so. The map is a
+fixed-height hero, never full-viewport, so there is always page above and below
+to scroll from — but a thumb landing ON the map now pans the map. That is the
+accepted cost of the change and the reason item 28 is part of this group
+rather than a nicety.
+
+**The desktop half costs nothing, so it is not paid.** With cooperative
+gestures off, the default is that a wheel over the map zooms it — a laptop
+scrolling past the trip page gets caught and dropped into street level. Fixed
+with `scrollZoom.disable()`: the wheel scrolls the page, and zoom stays on the
++/− buttons where a mouse user looks for it. Touch pinch is a separate handler
+and is unaffected. Rotation and pitch stay disabled as before.
+
+**Verified.** `packages/ui` `tsc --noEmit` and ESLint clean. The four existing
+`live-map` stories updated — the "what to check by hand" list said "one finger
+scrolls the PAGE, two pan the map", which is now the opposite of the truth.
+Needs a real touch-device pass; the Storybook story is the place to do it.

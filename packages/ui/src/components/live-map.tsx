@@ -412,19 +412,28 @@ export function LiveMap({
         dragRotate: false,
         touchZoomRotate: true,
         /*
-         * ONE FINGER SCROLLS THE PAGE; TWO PAN THE MAP.
+         * ONE FINGER PANS THE MAP. TD's call, and it reverses this file's
+         * previous decision, so both sides are worth writing down.
          *
-         * Without this a map sitting mid-page is a scroll trap on a phone:
-         * a thumb landing anywhere on it pans the map, and the page under it
-         * will not move — so somebody trying to reach the driver list below
-         * is stuck dragging a map they did not want to move. MapLibre shows
-         * its own hint the first time a single finger tries.
+         * `cooperativeGestures: true` used to sit here. It made a single
+         * finger scroll the PAGE and two fingers pan the map, which stopped a
+         * map sitting mid-page from being a scroll trap: a thumb landing on it
+         * could still reach the driver list below.
          *
-         * On desktop it also means the wheel scrolls the page and ctrl+wheel
-         * zooms, which is the behaviour every embedded map has taught people
-         * to expect.
+         * That was the right trade when the map was a garnish above a list
+         * somebody actually chose from. It is the wrong one now the map is the
+         * view — asking for two fingers to drag is a gesture nothing else on a
+         * phone requires, and it made the map feel broken to the person whose
+         * van is on it.
+         *
+         * THE SCROLL TRAP IS REAL AND IS NOT SOLVED, IT IS BOUNDED. The map is
+         * a fixed-height hero, never full-viewport, so there is always page
+         * above and below it to scroll from. A thumb that lands ON the map
+         * will pan the map and not the page; that is now the accepted cost.
+         *
+         * Wheel behaviour is handled separately below — see `scrollZoom`.
          */
-        cooperativeGestures: true,
+        cooperativeGestures: false,
         attributionControl: { compact: true },
       });
     } catch {
@@ -438,7 +447,27 @@ export function LiveMap({
       return () => clearTimeout(timer);
     }
 
+    /*
+     * PINCH ZOOMS, TWISTING DOES NOTHING. A customer watching a van has no
+     * use for a rotated world, and a stray two-finger twist leaves the map at
+     * an angle they cannot undo without a compass control this map does not
+     * render.
+     */
     instance.touchZoomRotate.disableRotation();
+    /*
+     * THE WHEEL SCROLLS THE PAGE, IT DOES NOT ZOOM THE MAP.
+     *
+     * `cooperativeGestures` used to give this for free — with it off, the
+     * default is that a wheel over the map zooms it, so a laptop user
+     * scrolling past the trip page gets caught and dropped into street level
+     * instead of reaching the timeline. That is the desktop half of exactly
+     * the trap we just accepted on touch, and unlike the touch half it costs
+     * nothing to avoid: zoom on desktop stays available on the +/− buttons,
+     * which is where a mouse user looks for it anyway.
+     *
+     * Touch pinch is a separate handler and is untouched by this.
+     */
+    instance.scrollZoom.disable();
     instance.addControl(new NavigationControl({ showCompass: false }), "top-right");
     if (allowFullscreen) {
       instance.addControl(new FullscreenControl(), "top-right");
