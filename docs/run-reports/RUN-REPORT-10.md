@@ -24,9 +24,9 @@ not the conversation, and not memory.
 | A · Map as permanent hero                | 6     | **6** |
 | B · Searching state with ghost pins      | 6     | **6** |
 | C · Driver bar and micro timeline        | 5     | **5** |
-| D · Custody trail collapse               | 2     | 0     |
-| E · Timeline detail                      | 3     | 0     |
-| F · After delivery                       | 2     | 0     |
+| D · Custody trail collapse               | 2     | **2** |
+| E · Timeline detail                      | 3     | **3** |
+| F · After delivery                       | 2     | **2** |
 | G · Map gestures                         | 4     | **4** |
 | H · Stale positions never empty the map  | 2     | **2** |
 | I · Agent app — Today                    | 3     | **3** |
@@ -34,8 +34,8 @@ not the conversation, and not memory.
 | K · Driver position — capture            | 4     | **4** |
 | L · Driver position — never drop a fix   | 2     | **2** |
 | M · Driver position — detect and recover | 7     | **7** |
-| N · Stories and tests                    | 4     | 3     |
-| **Total**                                | **56** | **48** |
+| N · Stories and tests                    | 4     | **4** |
+| **Total**                                | **56** | **56** |
 
 ---
 
@@ -127,25 +127,25 @@ inferred.
 
 ### D · Custody trail collapse
 
-- [ ] **18.** Collapsed by default: latest event with timestamp, plus a
+- [x] **18.** Collapsed by default: latest event with timestamp, plus a
       "Show full history" button.
-- [ ] **19.** Expands in place — client-side disclosure, no navigation, no
+- [x] **19.** Expands in place — client-side disclosure, no navigation, no
       refetch. The full trail is already server-rendered.
 
 ### E · Timeline detail
 
-- [ ] **20.** Actor avatar and name on agent/driver events ("Agent assigned ·
+- [x] **20.** Actor avatar and name on agent/driver events ("Agent assigned ·
       Ravi"), via the existing `custody_events.actor_user_id`. Ops and admin
       actors keep the plain role badge — naming back-office staff to a customer
       is a separate decision.
-- [ ] **21.** Photos behind a "View photo" button instead of the always-rendered
+- [x] **21.** Photos behind a "View photo" button instead of the always-rendered
       192 px thumbnail (`packages/ui/src/components/custody-timeline.tsx:161`).
-- [ ] **22.** Bags card seal thumbnails get the same button treatment.
+- [x] **22.** Bags card seal thumbnails get the same button treatment.
 
 ### F · After delivery
 
-- [ ] **23.** No driver card, map or timeline once delivered or completed.
-- [ ] **24.** Replaced by "Who handled your bags" — the sealing agent and the
+- [x] **23.** No driver card, map or timeline once delivered or completed.
+- [x] **24.** Replaced by "Who handled your bags" — the sealing agent and the
       delivering driver, both with avatar and name. Both are already loaded on
       the page; no new query.
 
@@ -220,7 +220,7 @@ inferred.
 
 ### N · Stories and tests
 
-- [ ] **53.** Storybook: `SearchingWithGhostDrivers`, `DriverOnTheWayCompact`,
+- [x] **53.** Storybook: `SearchingWithGhostDrivers`, `DriverOnTheWayCompact`,
       `StalePosition`, `CollapsedCustodyTrail`; plus updating the four existing
       `live-map` stories for the new gesture defaults.
 - [ ] **54.** Unit: ghost generator determinism and distance bounds,
@@ -532,3 +532,52 @@ clean on core, agent and admin.
 
 **Not verified:** the two new crons have no integration test, and the ping-log
 write path is only covered indirectly. Worth an integration test before merge.
+
+### Phase 8 — the trail, the photos, and who handled the bags (items 18–24, 53)
+
+**Commit:** `feat(web): fold the custody trail, and name the people on it`
+
+- **18, 19 — collapsed.** Newest three events, then "Show full history · N
+  earlier events". A completed booking carries twenty-odd, each of which drew
+  a 192px photo, so the trail was a screen and a half between the map and
+  everything below it. Expands in place — every event is already in the
+  component's props, so the button is a state flip, not a request. The
+  "current" marker stays on the newest event of the WHOLE trail, not of what
+  is on screen.
+- **20 — named actors.** `custody_events.actor_user_id` resolved against the
+  two people the page already loads, with the avatars it already signs. No new
+  query. Scoped by `NAMED_EVENTS` to the five field-role moments; an admin who
+  reassigns a pickup is an actor on the real trail and is never named to the
+  customer.
+- **21, 22 — photos behind a button.** `ImageLightbox` gained
+  `trigger="button"`. Same dialog, same keyboard path, same evidence — a 56px
+  crop of a suitcase was never information anyway, since the detail that makes
+  a proof photo proof is the seal number and that always needed the dialog.
+- **23, 24 — after delivery.** The driver panel goes (landed in phase 6); in
+  its place, "Who handled your bags" names the agent who sealed at the door
+  and the driver who delivered to the bag drop, both from data already on the
+  page.
+- **53 — stories.** `SearchingForDrivers` and `StalePosition` on LiveMap,
+  three `Compact` stories on ProgressTrack (including the long-name wrap
+  case), `NamedActorsWithPhotoButtons` on CustodyTimeline. Each carries what
+  to check by hand, because none of it is catchable by typecheck.
+
+**Verified.** `pnpm typecheck` — 6/6 packages. `pnpm test` — 6/6, web 195,
+core 622 (+1 skipped). ESLint clean across web, ui, agent, admin, core.
+
+---
+
+## All 56 items are implemented.
+
+**What is NOT verified, and should be before merge:**
+
+1. **No browser pass yet.** Nothing visual in this slice has been seen
+   running: the ghost drift, the searching chip over the map, the compact
+   track's wrapping at 375px, the one-finger pan and the desktop wheel
+   behaviour, the collapsed trail, the photo buttons.
+2. **The IndexedDB queue's storage paths.** No `fake-indexeddb` in the repo;
+   adding a dependency is TD's call. The keep/drop/retry rule is unit-tested
+   as a pure function; the storage around it is not.
+3. **The two new crons and the ping-log write** have no integration test.
+4. **Background Sync is Chromium-only** by design — Safari and Firefox drain
+   the queue on the next successful foreground send instead.

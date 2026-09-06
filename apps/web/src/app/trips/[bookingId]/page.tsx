@@ -36,7 +36,10 @@ import {
   type AssignedAgent,
 } from "@koolee/core";
 
-import { CustodyTimeline } from "@/components/custody-timeline";
+import {
+  CustodyTimeline,
+  type TimelineActor,
+} from "@/components/custody-timeline";
 import { TripCancel, TripCancelledNotice } from "@/components/trip-cancel";
 import { TripLive } from "@/components/trip-live";
 import { TripPushPrompt } from "@/components/trip-push-prompt";
@@ -161,6 +164,33 @@ export default async function TripPage({
     bookingId: booking.id,
     subjectUserIds: [assignedAgent?.userId, selectedDriver?.staffUserId],
   });
+  /*
+   * THE FACES ON THE TRAIL, from the two people already loaded for this page.
+   *
+   * NO EXTRA QUERY, and that is the whole reason it is built here rather than
+   * inside the timeline component: `assignedAgent` and `selectedDriver` are
+   * already resolved for the pickup card and the driver panel, and their
+   * avatars are already signed by the call above. What was missing was the
+   * link from a `custody_events.actor_user_id` back to them.
+   *
+   * SCOPED TO THE TWO FIELD ROLES. An admin who reassigns a pickup is an
+   * actor on this trail and is deliberately not named to the customer —
+   * `NAMED_EVENTS` in the timeline is the other half of that rule.
+   */
+  const timelineActors = new Map<string, TimelineActor>();
+  if (assignedAgent?.userId && assignedAgent.givenName) {
+    timelineActors.set(assignedAgent.userId, {
+      name: assignedAgent.givenName,
+      avatarUrl: relatedAvatars.get(assignedAgent.userId) ?? null,
+    });
+  }
+  if (selectedDriver?.staffUserId && selectedDriver.givenName) {
+    timelineActors.set(selectedDriver.staffUserId, {
+      name: selectedDriver.givenName,
+      avatarUrl: relatedAvatars.get(selectedDriver.staffUserId) ?? null,
+    });
+  }
+
   const agentAvatarUrl = assignedAgent
     ? (relatedAvatars.get(assignedAgent.userId) ?? null)
     : null;
@@ -411,6 +441,40 @@ export default async function TripPage({
   const bagsDelivered =
     booking.status === "delivered_to_bagdrop" || booking.status === "completed";
 
+  /*
+   * WHO HANDLED YOUR BAGS, once the watching is over.
+   *
+   * The driver panel answers "where are my bags" and stops being able to the
+   * moment they are delivered. What replaces it is the question that outlives
+   * the trip: two people came into contact with somebody's luggage, and the
+   * page should be able to name both of them — the agent who sealed at the
+   * door, and the driver who handed them to the airline.
+   *
+   * BOTH ARE ALREADY LOADED. No query is added; this is the same
+   * `assignedAgent` and `selectedDriver` the page has had all along, and the
+   * same signed avatars.
+   */
+  const handledBy = bagsDelivered
+    ? [
+        assignedAgent?.givenName
+          ? {
+              key: "agent",
+              role: "Sealed your bags at your door",
+              name: assignedAgent.givenName,
+              avatarUrl: agentAvatarUrl,
+            }
+          : null,
+        driverView?.givenName
+          ? {
+              key: "driver",
+              role: `Delivered them to ${booking.airlineIata} bag drop`,
+              name: driverView.givenName,
+              avatarUrl: driverView.avatarUrl,
+            }
+          : null,
+      ].filter((entry): entry is NonNullable<typeof entry> => entry !== null)
+    : [];
+
   const driverSection = bagsDelivered ? null : (
     <TripDriverPanel
       bookingId={booking.id}
@@ -584,6 +648,42 @@ export default async function TripPage({
 
       {driverSection}
 
+      {/*
+        Only once there is nothing left to watch, and only when there is
+        somebody to name. A booking delivered by a driver whose row has since
+        lost its name renders nothing rather than "Delivered by —".
+      */}
+      {handledBy.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="font-display text-base">
+              Who handled your bags
+            </CardTitle>
+            <CardDescription>
+              Every hand-off was recorded. The full trail is below.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <ul className="grid gap-4 sm:grid-cols-2">
+              {handledBy.map((person) => (
+                <li key={person.key} className="flex items-center gap-3">
+                  <Avatar
+                    size="lg"
+                    name={person.name}
+                    src={person.avatarUrl}
+                    alt=""
+                  />
+                  <div className="min-w-0">
+                    <p className="font-medium">{person.name}</p>
+                    <p className="text-sm text-muted-foreground">{person.role}</p>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </CardContent>
+        </Card>
+      )}
+
       <div className="grid items-start gap-6 lg:grid-cols-[3fr_2fr]">
         <Card>
           <CardHeader>
@@ -591,7 +691,12 @@ export default async function TripPage({
             <CardDescription>Every hand-off, recorded as it happens.</CardDescription>
           </CardHeader>
           <CardContent>
-            <CustodyTimeline events={timeline} tz={tz} signedUrls={signedUrls} />
+            <CustodyTimeline
+              events={timeline}
+              tz={tz}
+              signedUrls={signedUrls}
+              actors={timelineActors}
+            />
           </CardContent>
         </Card>
 
@@ -617,22 +722,7 @@ export default async function TripPage({
                       key={bag.id}
                       className="flex items-center gap-3 rounded-lg border border-border p-2"
                     >
-                      {photo ? (
-                        <ImageLightbox
-                          src={photo}
-                          alt={`Bag ${bag.ordinal}`}
-                          title={`Bag ${bag.ordinal}`}
-                          description={
-                            bag.sealId ? `seal ${bag.sealId}` : "not yet sealed"
-                          }
-                          className="h-14 w-14 shrink-0"
-                        />
-                      ) : (
-                        <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-md border border-dashed text-[10px] text-muted-foreground">
-                          no photo
-                        </span>
-                      )}
-                      <span className="flex min-w-0 flex-col gap-0.5">
+                      <span className="flex min-w-0 flex-1 flex-col gap-1">
                         <span className="font-medium">Bag {bag.ordinal}</span>
                         <span className="font-mono text-xs break-all">
                           {bag.sealId ? (
@@ -642,6 +732,28 @@ export default async function TripPage({
                           )}
                           {bag.weightKg ? ` · ${bag.weightKg} kg` : null}
                         </span>
+                        {/*
+                          A BUTTON, NOT A THUMBNAIL — the same change the
+                          custody trail gets. A 56px crop of a suitcase is not
+                          information: every bag looks like every other bag at
+                          that size, and the detail that makes the photo
+                          evidence (the seal number on the tag) needs the
+                          dialog either way. The line of text says a photo
+                          exists and gets out of the way of the seal id, which
+                          is the thing on this row somebody actually reads.
+                        */}
+                        {photo ? (
+                          <ImageLightbox
+                            src={photo}
+                            alt={`Bag ${bag.ordinal}`}
+                            title={`Bag ${bag.ordinal}`}
+                            description={
+                              bag.sealId ? `seal ${bag.sealId}` : "not yet sealed"
+                            }
+                            trigger="button"
+                            triggerLabel="View seal photo"
+                          />
+                        ) : null}
                       </span>
                     </li>
                   );

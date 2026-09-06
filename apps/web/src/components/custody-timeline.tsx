@@ -1,4 +1,7 @@
-import { Badge, CustodyTimeline as CustodyTimelineView } from "@koolee/ui";
+"use client";
+
+import * as React from "react";
+import { Avatar, Badge, Button, CustodyTimeline as CustodyTimelineView } from "@koolee/ui";
 import { formatInstantInAirportTz, type CustodyEvent } from "@koolee/core";
 
 /**
@@ -79,19 +82,53 @@ function labelFor(eventType: string): string {
   return LABELS[eventType] ?? eventType;
 }
 
+/** Who to name and show a face for, keyed by the actor's user id. */
+export interface TimelineActor {
+  name: string;
+  avatarUrl: string | null;
+}
+
 /**
- * `tz` is required, not defaulted: these timestamps sit next to the pickup
- * window on the same page, and a custody trail rendered in a different zone
- * would make the hand-offs look like they happened at the wrong time relative
- * to the visit the customer is reading about.
+ * The events worth putting a face on.
+ *
+ * NOT EVERY EVENT WITH AN ACTOR. A customer's own actions ("You accepted the
+ * booking agreement") do not need their own photograph, and back-office staff
+ * are not people the customer is going to meet. These five are the moments
+ * where the answer to "who?" is somebody who will be standing at the door or
+ * driving away with the bags — the only ones where a name and a face change
+ * what the reader knows.
  */
+const NAMED_EVENTS = new Set([
+  "booking.agent_assigned",
+  "booking.agent_reassigned",
+  "pickup.driver_selected",
+  "pickup.reassigned",
+  "pickup.travel_started",
+]);
+
+/** How many events to show before the trail is folded away. */
+const COLLAPSED_COUNT = 3;
+
 export function CustodyTimeline({
   events,
   tz,
   signedUrls,
+  actors,
 }: {
   events: CustodyEvent[];
+  /**
+   * Required, not defaulted: these timestamps sit next to the pickup window on
+   * the same page, and a trail rendered in a different zone would make the
+   * hand-offs look like they happened at the wrong time relative to the visit
+   * the customer is reading about.
+   */
   tz: string;
+  /**
+   * actor user id → name and avatar, for the events in `NAMED_EVENTS`.
+   * Resolved and signed on the server; an id that is not here renders as it
+   * always did.
+   */
+  actors?: Map<string, TimelineActor>;
   /**
    * storage path → signed URL, from `signBagPhotoUrls`.
    *
@@ -103,22 +140,80 @@ export function CustodyTimeline({
    */
   signedUrls: Map<string, string>;
 }) {
+  /*
+   * COLLAPSED BY DEFAULT, and this is a client component for that reason
+   * alone — the trail itself is still rendered on the server.
+   *
+   * A completed booking carries twenty-odd events, each of which used to draw
+   * a 192px proof photo, so the chain of custody was a screen and a half of
+   * scrolling between the map and everything below it. The trail is the
+   * product's whole trust story and it is not going anywhere; what changed is
+   * that it stopped being the first thing in the reader's way. The newest
+   * three answer "what just happened", which is what somebody watching a live
+   * trip actually opens the page for.
+   *
+   * EXPANDS IN PLACE. No navigation, no refetch — every event is already in
+   * the DOM's data, so the button is a state flip rather than a request.
+   */
+  const [expanded, setExpanded] = React.useState(false);
+  const hidden = Math.max(0, events.length - COLLAPSED_COUNT);
+  const visible = expanded || hidden === 0 ? events : events.slice(-COLLAPSED_COUNT);
+
+  const items = visible.map((event) => {
+    const actor =
+      event.actorUserId && NAMED_EVENTS.has(event.eventType)
+        ? actors?.get(event.actorUserId)
+        : undefined;
+    return {
+      id: event.id,
+      title: labelFor(event.eventType),
+      badge: event.actorRole ? (
+        <Badge variant="outline" className="text-[10px]">
+          {event.actorRole}
+        </Badge>
+      ) : undefined,
+      meta: formatInstantInAirportTz(event.createdAt, tz),
+      metaDateTime: event.createdAt.toISOString(),
+      photoUrl: event.photoUrl ? signedUrls.get(event.photoUrl) : undefined,
+      photoAlt: `Evidence for ${labelFor(event.eventType)}`,
+      /* A trail read for its sequence, not scanned for its photos — see
+         `photoAsButton` on the item. */
+      photoAsButton: true,
+      ...(actor
+        ? {
+            actor: {
+              name: actor.name,
+              avatar: (
+                <Avatar size="sm" name={actor.name} src={actor.avatarUrl} alt="" />
+              ),
+            },
+          }
+        : {}),
+      /* "Current" is the newest event on the WHOLE trail, not the newest one
+         on screen — collapsing must not move the marker. */
+      state: (event.id === events[events.length - 1]?.id ? "current" : "complete") as
+        | "current"
+        | "complete",
+    };
+  });
+
   return (
-    <CustodyTimelineView
-      items={events.map((event, i) => ({
-        id: event.id,
-        title: labelFor(event.eventType),
-        badge: event.actorRole ? (
-          <Badge variant="outline" className="text-[10px]">
-            {event.actorRole}
-          </Badge>
-        ) : undefined,
-        meta: formatInstantInAirportTz(event.createdAt, tz),
-        metaDateTime: event.createdAt.toISOString(),
-        photoUrl: event.photoUrl ? signedUrls.get(event.photoUrl) : undefined,
-        photoAlt: `Evidence for ${labelFor(event.eventType)}`,
-        state: i === events.length - 1 ? "current" : "complete",
-      }))}
-    />
+    <div className="flex flex-col gap-3">
+      <CustodyTimelineView items={items} />
+      {hidden > 0 && (
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="w-fit"
+          onClick={() => setExpanded((open) => !open)}
+          aria-expanded={expanded}
+        >
+          {expanded
+            ? "Show less"
+            : `Show full history · ${hidden} earlier ${hidden === 1 ? "event" : "events"}`}
+        </Button>
+      )}
+    </div>
   );
 }

@@ -158,3 +158,68 @@ export const NoDriversYet: Story = {
     label: "Map showing your pickup address",
   },
 };
+
+/**
+ * SEARCHING — the state that used to be a text card and no map at all.
+ *
+ * Three anonymous placeholders around the door while the shortlist is being
+ * built. Open this one to check the things a screenshot cannot:
+ *
+ *  - they are UNCLICKABLE. Tap one; nothing should happen, no cursor change,
+ *    no card. They render as a `span` inside a `pointer-events-none` root, so
+ *    the inertness is structural — if a tap ever does something, the variant
+ *    branch in `driverPin` has been bypassed;
+ *  - they carry no name and no number, and neither does anything around them;
+ *  - the ring still pulses. That is deliberate: the pulse is the map saying
+ *    "something is happening", which is the only thing this state has to say.
+ *
+ * The real pins are generated in the app from the booking id — see
+ * `apps/web/src/lib/ghost-drivers.ts` — so that a page refreshing every few
+ * seconds does not scatter them to new streets. These are hand-placed.
+ */
+export const SearchingForDrivers: Story = {
+  args: {
+    pickup: PICKUP,
+    drivers: [
+      { id: "ghost-0", position: { lat: 40.7561, lng: -73.9903 }, variant: "ghost" },
+      { id: "ghost-1", position: { lat: 40.7455, lng: -73.9812 }, variant: "ghost" },
+      { id: "ghost-2", position: { lat: 40.7522, lng: -73.9975 }, variant: "ghost" },
+    ],
+    className: "h-80",
+    label: "Map showing your pickup address while we find a driver",
+  },
+};
+
+/**
+ * A LAST KNOWN POSITION, not a current one.
+ *
+ * The case that used to empty the map: core nulled any fix past the 90-second
+ * freshness window, so a driver whose phone went into a pocket took the whole
+ * map with them at the moment somebody was watching hardest.
+ *
+ * What to check by hand — the two pins must not be mistakable for each other:
+ *
+ *  - the stale pin is GREY and does NOT pulse. The ring is what says "this is
+ *    now", so keeping it on an old fix would make the one dishonest pin the
+ *    liveliest thing on screen;
+ *  - it is still tappable and still named — it is a real driver, and the age
+ *    is said in words by the caller, not implied by the colour alone;
+ *  - a screen reader announces it as "— last known position". Colour is not
+ *    available to everyone and the distinction is the whole point.
+ */
+export const StalePosition: Story = {
+  args: {
+    pickup: PICKUP,
+    drivers: [
+      { id: "a", position: { lat: 40.7589, lng: -73.9851 }, label: "Marcus" },
+      {
+        id: "b",
+        position: { lat: 40.7411, lng: -73.9897 },
+        label: "Yara",
+        variant: "stale",
+      },
+    ],
+    className: "h-80",
+    label: "Map showing two drivers, one with an old position",
+  },
+};

@@ -33,6 +33,25 @@ export interface CustodyTimelineItem {
   /** Proof photo taken at this hand-off. */
   photoUrl?: string;
   photoAlt?: string;
+  /**
+   * Offer the photo as a "View photo" button rather than a thumbnail.
+   *
+   * Per-item rather than per-timeline because the two consumers want opposite
+   * defaults: the ops console reads a trail by scanning the photos, and the
+   * customer's trip page reads it for the sequence of events with the photos
+   * as evidence they open deliberately.
+   */
+  photoAsButton?: boolean;
+  /**
+   * The person this event is about, when naming them is the point.
+   *
+   * "Agent assigned" tells a customer that a stranger is coming to their door.
+   * "Agent assigned · Ravi", with a face, tells them who — which is the thing
+   * they will actually check against the person who knocks. Only ever set for
+   * the field roles; naming back-office staff on a customer's page is a
+   * different decision and is not this one.
+   */
+  actor?: { name: string; avatar?: React.ReactNode };
   /** Icon slot, used by the horizontal marketing variant. */
   icon?: React.ReactNode;
   state?: CustodyItemState;
@@ -157,17 +176,30 @@ function CustodyTimeline({
               {item.description ? (
                 <div className="text-sm text-muted-foreground">{item.description}</div>
               ) : null}
+              {/*
+                WHO, WITH A FACE. Sits under the timestamp rather than beside
+                the title so a long name cannot push the time onto its own
+                line on a phone.
+              */}
+              {item.actor ? (
+                <span className="mt-0.5 flex items-center gap-1.5 text-xs text-navy-700">
+                  {item.actor.avatar}
+                  <span className="font-medium">{item.actor.name}</span>
+                </span>
+              ) : null}
               {item.photoUrl ? (
                 /* Click to enlarge. These are captured at ~1200px and shown
                    here at 192px, so the detail that makes a proof photo proof
                    — the seal number, a scuff, a broken zip — exists in the
                    file and is unreadable at this size. Same component ops and
-                   the customer use, so both see the same evidence. */
+                   the customer use, so both see the same evidence — the
+                   trigger differs, the dialog does not. */
                 <ImageLightbox
                   src={item.photoUrl}
                   alt={item.photoAlt ?? "Hand-off proof photo"}
                   title={typeof item.title === "string" ? item.title : undefined}
-                  className="mt-1 h-48 w-48"
+                  trigger={item.photoAsButton ? "button" : "thumbnail"}
+                  className={item.photoAsButton ? "mt-1.5" : "mt-1 h-48 w-48"}
                 />
               ) : null}
             </div>

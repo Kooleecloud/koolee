@@ -28,6 +28,23 @@ export interface ImageLightboxProps {
   className?: string;
   /** Thumbnail classes. Defaults to a square cover crop. */
   imageClassName?: string;
+  /**
+   * How the photo is offered before it is opened. Default `"thumbnail"`.
+   *
+   * `"button"` renders a small text control — "View photo" — instead of the
+   * image itself. WHY THAT IS SOMETIMES BETTER: on the customer's trip page a
+   * long custody trail rendered a 192px proof photo at every hand-off, so a
+   * booking with six sealed bags was a screen and a half of thumbnails between
+   * the reader and the next fact. The photos are evidence people open
+   * deliberately, not illustration they read past; a line of text says one is
+   * there and costs six lines instead of six hundred pixels.
+   *
+   * The dialog is identical either way. This changes what the trigger looks
+   * like, never what the evidence is or who can reach it.
+   */
+  trigger?: "thumbnail" | "button";
+  /** Text on the `"button"` trigger. Defaults to "View photo". */
+  triggerLabel?: string;
 }
 
 /**
@@ -49,27 +66,59 @@ function ImageLightbox({
   description,
   className,
   imageClassName,
+  trigger = "thumbnail",
+  triggerLabel = "View photo",
 }: ImageLightboxProps) {
   return (
     <Dialog>
       <DialogTrigger asChild>
-        <button
-          type="button"
-          className={cn(
-            "group relative overflow-hidden rounded-md border transition-opacity hover:opacity-90 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden",
-            className,
-          )}
-          aria-label={`Enlarge: ${alt}`}
-        >
-          {/* A plain img by design: sources are signed storage URLs and
-              local object URLs of unknown dimensions, and this package is
-              framework-agnostic — next/image would tie it to Next. */}
-          <img
-            src={src}
-            alt={alt}
-            className={cn("h-full w-full object-cover", imageClassName)}
-          />
-        </button>
+        {trigger === "button" ? (
+          <button
+            type="button"
+            className={cn(
+              "inline-flex w-fit items-center gap-1.5 rounded-md border border-border px-2 py-1",
+              "text-xs font-medium text-navy-700 transition-colors hover:bg-muted",
+              "focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden",
+              className,
+            )}
+            aria-label={`View photo: ${alt}`}
+          >
+            <svg
+              viewBox="0 0 24 24"
+              width="12"
+              height="12"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <rect x="3" y="3" width="18" height="18" rx="2" />
+              <circle cx="9" cy="9" r="2" />
+              <path d="m21 15-4.35-4.35a2 2 0 0 0-2.83 0L4 21" />
+            </svg>
+            {triggerLabel}
+          </button>
+        ) : (
+          <button
+            type="button"
+            className={cn(
+              "group relative overflow-hidden rounded-md border transition-opacity hover:opacity-90 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden",
+              className,
+            )}
+            aria-label={`Enlarge: ${alt}`}
+          >
+            {/* A plain img by design: sources are signed storage URLs and
+                local object URLs of unknown dimensions, and this package is
+                framework-agnostic — next/image would tie it to Next. */}
+            <img
+              src={src}
+              alt={alt}
+              className={cn("h-full w-full object-cover", imageClassName)}
+            />
+          </button>
+        )}
       </DialogTrigger>
 
       {/* Wider than the default dialog: the point is to see the photo. */}
