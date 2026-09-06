@@ -32,10 +32,10 @@ not the conversation, and not memory.
 | I · Agent app — Today                    | 3     | **3** |
 | J · Agent app — Schedule                 | 6     | **6** |
 | K · Driver position — capture            | 4     | 0     |
-| L · Driver position — never drop a fix   | 2     | 0     |
+| L · Driver position — never drop a fix   | 2     | 1     |
 | M · Driver position — detect and recover | 7     | 0     |
-| N · Stories and tests                    | 4     | 1     |
-| **Total**                                | **56** | **10** |
+| N · Stories and tests                    | 4     | 2     |
+| **Total**                                | **56** | **12** |
 
 ---
 
@@ -200,7 +200,7 @@ inferred.
       Sync — anticipated already at `apps/agent/public/sw.js:8`.
       `recordDriverPosition` already accepts `recordedAt`, so late fixes keep
       their true device time.
-- [ ] **45.** Monotonic ordering guard on the upsert plus a batch endpoint, so a
+- [x] **45.** Monotonic ordering guard on the upsert plus a batch endpoint, so a
       flushed backlog can never rewind the pin. **Lands before 44.**
 
 ### M · Driver position — detect, recover, prevent, measure
@@ -227,7 +227,7 @@ inferred.
       stale-vs-fresh classification, name-interpolated step labels.
 - [x] **55.** Unit: `isDone`/`isSettled`, `groupIntoSections` with cancelled
       input, Today filters.
-- [ ] **56.** Integration: an older fix cannot overwrite a newer one; queue
+- [x] **56.** Integration: an older fix cannot overwrite a newer one; queue
       flush ordering.
 
 ---
@@ -335,3 +335,34 @@ three changed files.
 `packages/core`'s vitest global setup requires Postgres on `127.0.0.1:54322`.
 `dispatch.integration.test.ts` exercises `listAssignedTasks` and should be run
 before this branch merges. The DB is needed for phase 4's migration anyway.
+
+### Phase 2 — the ordering guard (items 45, 56)
+
+**Commit:** `fix(core): an older position fix can no longer overwrite a newer one`
+
+`driver_positions` holds one mutable row per driver, and the upsert had no
+`where` — so the last write landed whatever instant it described. Survivable
+while the only caller was a foreground timer sending one fresh fix at a time;
+not survivable the moment fixes can arrive out of order, which the offline
+queue (item 44) and `sendBeacon` (item 43) both make possible.
+
+`onConflictDoUpdate` now carries `where: lte(driverPositions.recordedAt,
+recordedAt)`. `recordedAt` is the DEVICE's fix time, which is what makes the
+comparison mean anything: arrival order is a fact about the network, fix order
+is a fact about the world.
+
+**`lte`, not `lt`, and it matters.** Two fixes bearing the same instant must
+not be a silent drop — a phone can emit two readings inside a millisecond, and
+every test in the suite runs on a fixed clock where every write carries an
+identical timestamp. Under `lt` the existing "overwrites rather than appends"
+test would have failed, which is how the case was found.
+
+A rejected write is a no-op, never an error: a queue flush that throws on its
+stale entries is a queue that never drains. Pinned by a test.
+
+**Verified.** Docker started and the local stack brought up (`pnpm local`) —
+it needed a second run, the first timed out on `supabase_db_koolee` still
+starting. `driver-selection.integration` 33 passed (3 new: older loses, newer
+wins, loser does not throw). Core unit tier 617 passed / 1 skipped.
+`dispatch.integration` 19 passed — the suite that exercises phase 1's
+`listAssignedTasks` change. `tsc --noEmit` clean.

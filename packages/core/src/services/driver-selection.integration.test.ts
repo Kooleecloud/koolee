@@ -834,6 +834,94 @@ describeIntegration("driver selection (integration)", () => {
     expect(rows[0]).toMatchObject({ lat: 40.71277, lng: -73.95371 });
   });
 
+  /*
+   * NEWER WINS, decided by the database rather than by arrival order.
+   *
+   * `driver_positions` holds one mutable row per driver, so before the
+   * `where` on the upsert the LAST write landed whatever instant it carried.
+   * Harmless while the only caller was a foreground timer sending one fresh
+   * fix at a time; not harmless once fixes can arrive out of order, which
+   * they now can two ways — the offline queue replaying a backlog after a
+   * tunnel, and a `sendBeacon` racing the next `watchPosition` callback.
+   *
+   * Either one parks the van somewhere it was minutes ago, drawn with exactly
+   * the confidence of a live position.
+   */
+  it("refuses to let an older fix overwrite a newer one", async () => {
+    const driver = await makeDriver("Backlog Flusher");
+    const truck = await makeTruck("Van Q", 30);
+    await startShift(config, { staffUserId: driver, truckId: truck.id });
+
+    const newer = new Date(now.getTime() + 60_000);
+    const older = new Date(now.getTime() + 10_000);
+
+    await recordDriverPosition(config, {
+      staffUserId: driver,
+      ...MIDTOWN,
+      recordedAt: newer,
+    });
+    // The queue drains and replays a fix taken fifty seconds earlier.
+    await recordDriverPosition(config, {
+      staffUserId: driver,
+      lat: 40.71277,
+      lng: -73.95371,
+      recordedAt: older,
+    });
+
+    const rows = await db.select().from(driverPositions);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ ...MIDTOWN, recordedAt: newer });
+  });
+
+  it("accepts a newer fix arriving after an older one", async () => {
+    const driver = await makeDriver("Ordinary Pinger");
+    const truck = await makeTruck("Van R", 30);
+    await startShift(config, { staffUserId: driver, truckId: truck.id });
+
+    const older = new Date(now.getTime() + 10_000);
+    const newer = new Date(now.getTime() + 60_000);
+    const moved = { lat: 40.71277, lng: -73.95371 };
+
+    await recordDriverPosition(config, {
+      staffUserId: driver,
+      ...MIDTOWN,
+      recordedAt: older,
+    });
+    await recordDriverPosition(config, {
+      staffUserId: driver,
+      ...moved,
+      recordedAt: newer,
+    });
+
+    const rows = await db.select().from(driverPositions);
+    expect(rows[0]).toMatchObject({ ...moved, recordedAt: newer });
+  });
+
+  /*
+   * A rejected write is a NO-OP, never an error. The caller sent a real fix
+   * that simply lost to a better one, and a queue flush that throws on its
+   * stale entries is a queue that never drains.
+   */
+  it("does not throw when a fix loses to a newer one", async () => {
+    const driver = await makeDriver("Loser Pinger");
+    const truck = await makeTruck("Van T", 30);
+    await startShift(config, { staffUserId: driver, truckId: truck.id });
+
+    await recordDriverPosition(config, {
+      staffUserId: driver,
+      ...MIDTOWN,
+      recordedAt: new Date(now.getTime() + 60_000),
+    });
+    await expect(
+      recordDriverPosition(config, {
+        staffUserId: driver,
+        lat: 40.71277,
+        lng: -73.95371,
+        recordedAt: new Date(now.getTime() + 10_000),
+      }),
+    ).resolves.not.toThrow();
+  });
+
   it("refuses a position from somebody who is not on shift", async () => {
     const driver = await makeDriver("Nina Petrov");
     await expect(

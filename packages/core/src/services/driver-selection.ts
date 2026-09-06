@@ -1,4 +1,4 @@
-import { and, asc, eq, exists, inArray, isNull, sql } from "drizzle-orm";
+import { and, asc, eq, exists, inArray, isNull, lte, sql } from "drizzle-orm";
 import {
   agentZones,
   bookings,
@@ -859,6 +859,39 @@ export async function recordDriverPosition(
   }
 
   const recordedAt = input.recordedAt ?? config.clock.now();
+  /*
+   * NEWER WINS, AND THE DATABASE IS WHAT DECIDES.
+   *
+   * `driver_positions` holds one mutable row per driver, so this upsert is the
+   * only thing standing between the pin and a position from the past. Without
+   * the `where`, the last write lands — whatever instant it describes.
+   *
+   * That was survivable while the only caller was a foreground timer sending
+   * one fresh fix at a time, and it stops being survivable the moment fixes
+   * can arrive out of order. Two ways they now can:
+   *
+   *  - the offline queue replays a backlog after a tunnel, oldest first, on
+   *    top of a live fix that landed while it was draining;
+   *  - two of the driver's own tabs, or a `sendBeacon` racing the next
+   *    `watchPosition` callback, reach the server in the wrong order.
+   *
+   * Either one parks the van somewhere it was minutes ago, drawn with exactly
+   * the confidence of a live position. `recordedAt` is the DEVICE's fix time
+   * (see the column comment), which is what makes the comparison meaningful:
+   * arrival order is a fact about the network, fix order is a fact about the
+   * world.
+   *
+   * A rejected write is a no-op, NOT an error. The caller sent a real fix that
+   * simply lost to a better one, and a queue flush that throws on its stale
+   * entries is a queue that never drains.
+   *
+   * `lte`, NOT `lt`, and the difference is a real case rather than pedantry:
+   * two fixes bearing the SAME instant must not be a silent drop. A phone can
+   * emit two readings inside one millisecond, and every test in this suite
+   * runs on a fixed clock where every write carries an identical timestamp —
+   * under `lt` the second is discarded and the row keeps the first, which is
+   * both surprising and untestable. Equal means "no older", so it lands.
+   */
   await db
     .insert(driverPositions)
     .values({
@@ -870,6 +903,7 @@ export async function recordDriverPosition(
     .onConflictDoUpdate({
       target: driverPositions.staffUserId,
       set: { lat: input.lat, lng: input.lng, recordedAt },
+      where: lte(driverPositions.recordedAt, recordedAt),
     });
 
   /*
