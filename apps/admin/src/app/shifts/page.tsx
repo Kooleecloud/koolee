@@ -14,6 +14,7 @@ import {
   formatInstantInAirportTz,
   listOnBehalfDriverOptions,
   listShifts,
+  listStalePositionShifts,
   listTruckOptions,
   listStaffMembers,
   type ShiftRow,
@@ -51,15 +52,17 @@ export default async function ShiftsPage() {
   let staff: StaffMemberWithIdentity[] = [];
   let onBehalfDrivers: Awaited<ReturnType<typeof listOnBehalfDriverOptions>> = [];
   let onBehalfTrucks: Awaited<ReturnType<typeof listTruckOptions>> = [];
+  let staleShifts: Awaited<ReturnType<typeof listStalePositionShifts>> = [];
   let unavailable = core === null;
 
   if (core) {
     try {
-      [shifts, staff, onBehalfDrivers, onBehalfTrucks] = await Promise.all([
+      [shifts, staff, onBehalfDrivers, onBehalfTrucks, staleShifts] = await Promise.all([
         listShifts(core.db, { limit: 40 }),
         listStaffMembers(core.db),
         listOnBehalfDriverOptions(core.db),
         listTruckOptions(core.db),
+        listStalePositionShifts(core.db),
       ]);
     } catch {
       unavailable = true;
@@ -70,6 +73,8 @@ export default async function ShiftsPage() {
   const recent = shifts.filter((s) => s.endedAt !== null);
   const drivers = staff.filter((s) => s.active && s.role === "agent");
   const bagsOut = open.reduce((sum, s) => sum + s.bagsOnBoard, 0);
+
+  const staleById = new Map(staleShifts.map((row) => [row.shiftId, row] as const));
 
   const nameOf = (shift: ShiftRow) =>
     shift.staffName?.trim() || shift.staffEmail || "Unnamed driver";
@@ -129,6 +134,7 @@ export default async function ShiftsPage() {
           ) : (
             open.map((shift) => {
               const remaining = shift.bagCapacity - shift.bagsOnBoard;
+              const silent = staleById.get(shift.shiftId);
               return (
                 <Card key={shift.shiftId}>
                   <CardHeader className="flex-row items-start justify-between gap-4 space-y-0">
@@ -136,12 +142,32 @@ export default async function ShiftsPage() {
                       <CardTitle className="flex flex-wrap items-center gap-2 text-base">
                         {nameOf(shift)}
                         <Badge variant="success">On shift</Badge>
+                        {/*
+                          THE FLAG DISPATCH NEEDS BEFORE A CUSTOMER CALLS.
+                          An open shift used to look identical whether the
+                          driver's phone was reporting or had been silent for
+                          an hour; the first anybody heard of it was somebody
+                          asking why the pin had stopped. The two states are
+                          kept apart because they want different responses —
+                          "never reported" is a permissions or device problem,
+                          "stopped" is a driver to ring.
+                        */}
+                        {silent ? (
+                          <Badge variant="warning">
+                            {silent.lastSeenAt === null
+                              ? "No location"
+                              : `Location ${silentFor(silent.silentForMs)}`}
+                          </Badge>
+                        ) : null}
                       </CardTitle>
                       <CardDescription>
                         {shift.truckName} · {shift.bagsOnBoard} of {shift.bagCapacity} bag
                         {shift.bagCapacity === 1 ? "" : "s"} used ({remaining} free) ·
                         started{" "}
                         {formatInstantInAirportTz(shift.startedAt, OPS_CONSOLE_TZ)}
+                        {silent?.lastSeenAt
+                          ? ` · last seen ${formatInstantInAirportTz(silent.lastSeenAt, OPS_CONSOLE_TZ)}`
+                          : null}
                       </CardDescription>
                     </div>
                   </CardHeader>
@@ -228,4 +254,18 @@ export default async function ShiftsPage() {
       </div>
     </ConsoleMain>
   );
+}
+
+/**
+ * "silent 12 min" — how long a shift has been unheard, for a badge.
+ *
+ * Rounded to minutes and capped in words at an hour: past that the exact
+ * number stops changing what a dispatcher does, which is ring the driver.
+ */
+function silentFor(ms: number | null): string {
+  if (ms === null) return "unknown";
+  const minutes = Math.round(ms / 60_000);
+  if (minutes < 60) return `silent ${minutes} min`;
+  const hours = Math.round(minutes / 60);
+  return hours === 1 ? "silent 1 hr+" : `silent ${hours} hrs`;
 }

@@ -450,3 +450,15 @@ export {
   reactivatePricingRule,
   type PricingRuleInputValues,
 } from "./pricing-rules";
+
+export {
+  listStalePositionShifts,
+  positionHealthOf,
+  prunePositionPings,
+  POSITION_GAP_MS,
+  POSITION_NUDGE_COOLDOWN_MS,
+  type PositionHealth,
+  type PrunePositionPingsResult,
+  type ShiftPositionHealth,
+  type StaleShift,
+} from "./position-health";

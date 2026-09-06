@@ -35,6 +35,11 @@ import {
   pushToTargets,
   pushToUsers,
 } from "../services/push-subscriptions";
+import {
+  listStalePositionShifts,
+  POSITION_NUDGE_COOLDOWN_MS,
+  prunePositionPings,
+} from "../services/position-health";
 import { assembleBookingConfirmationEmail } from "../services/confirmation-email";
 import { resolveDisplayTz } from "../services/display-tz";
 import { notifyNewlyCoveredWaitlist } from "../waitlist/notify-covered";
@@ -1447,6 +1452,108 @@ export function createKooleeFunctions(
     },
   );
 
+  /**
+   * The driver's location has stopped arriving — tell the driver.
+   *
+   * WHY A PUSH RATHER THAN AN OPS ALERT. Ops cannot fix this one. The gap is
+   * almost always a phone that has locked, backgrounded the app, or had its
+   * location permission revoked, and the only actor who can end it is the
+   * person holding the phone. A push is also the ONLY mechanism that can wake
+   * a backgrounded PWA at all — no service worker has geolocation, so nothing
+   * on the device can recover by itself.
+   *
+   * ONE NUDGE PER GAP. A driver whose phone is genuinely asleep stays flagged
+   * for as long as it is asleep, and a notification every sweep would be a
+   * notification every few minutes for the rest of their shift — which teaches
+   * them to swipe away the one that matters. The tag buckets by shift and by
+   * cooldown window, so a browser collapses repeats within the window and a new
+   * gap half an hour later gets a fresh one.
+   *
+   * A DRIVER WITH NO SUBSCRIPTION IS NOT AN ERROR. `pushToUsers` never throws
+   * and returns zero counts; the console's staleness flag is the fallback and
+   * is always there.
+   */
+  const driverPositionGapNudge = inngest.createFunction(
+    {
+      id: "driver-position-gap-nudge",
+      name: "Nudge drivers whose location has stopped arriving",
+      triggers: [cron("*/5 * * * *")],
+    },
+    async ({ step, logger }) => {
+      return step.run("nudge-silent-drivers", async () => {
+        const config = getConfig();
+        const now = config.clock.now();
+        const stale = await listStalePositionShifts(config.db, now);
+        if (stale.length === 0) return { flagged: 0, nudged: 0 };
+
+        /*
+         * Bucketed so the tag is stable across the sweeps inside one cooldown
+         * window. Two sweeps five minutes apart produce the same tag and the
+         * browser replaces rather than stacks; a gap that survives the window
+         * earns exactly one more.
+         */
+        const bucket = Math.floor(now.getTime() / POSITION_NUDGE_COOLDOWN_MS);
+
+        let nudged = 0;
+        for (const shift of stale) {
+          const result = await pushToUsers(
+            config,
+            [shift.staffUserId],
+            {
+              title: "Koolee can't see your location",
+              body:
+                shift.lastSeenAt === null
+                  ? "Open Koolee and allow location so your customers can see you coming."
+                  : "Open Koolee to start sharing again — your customers can't see you moving.",
+              tag: `position-gap:${shift.shiftId}:${bucket}`,
+            },
+            { urgency: "high" },
+          );
+          if (result.sent > 0) nudged += 1;
+        }
+
+        logger.info(
+          `position gap: ${stale.length} shift(s) silent, ${nudged} driver(s) nudged`,
+        );
+        return { flagged: stale.length, nudged };
+      });
+    },
+  );
+
+  /**
+   * Delete ping rows past the retention window.
+   *
+   * NOT HOUSEKEEPING — part of the feature. `driver_position_pings` takes a row
+   * per driver per 20-45 seconds of every shift, roughly 1,500 per driver-day
+   * and the highest-volume write in the system. The table's own migration says
+   * shipping it without this sweep is how a disk fills up.
+   *
+   * HOURLY AND BATCHED. `prunePositionPings` deletes at most 5,000 rows per
+   * call rather than taking one long lock on a table the pinger is actively
+   * writing to; running hourly gives it far more capacity than the write rate
+   * needs, and a sweep that falls behind shows up as a non-zero count every
+   * hour rather than as a stalled job.
+   */
+  const positionPingRetention = inngest.createFunction(
+    {
+      id: "position-ping-retention",
+      name: "Delete driver position pings past the retention window",
+      triggers: [cron("17 * * * *")],
+    },
+    async ({ step, logger }) => {
+      return step.run("prune-position-pings", async () => {
+        const config = getConfig();
+        const result = await prunePositionPings(config.db, {
+          now: config.clock.now(),
+        });
+        if (result.deleted > 0) {
+          logger.info(`position pings: pruned ${result.deleted} row(s)`);
+        }
+        return result;
+      });
+    },
+  );
+
   return [
     bookingConfirmationEmail,
     pickupReminder,
@@ -1461,6 +1568,8 @@ export function createKooleeFunctions(
     agentAssignedEmail,
     bagsSealedEmail,
     exceptionCustomerEmail,
+    driverPositionGapNudge,
+    positionPingRetention,
   ];
 }
 

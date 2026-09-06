@@ -95,6 +95,7 @@ function OffShift({ trucks }: { trucks: TruckOptionView[] }) {
     {},
   );
   const free = trucks.filter((t) => !t.unavailable);
+  const location = useLocationReadiness();
 
   return (
     <Card className="flex flex-col gap-3 p-4">
@@ -130,6 +131,42 @@ function OffShift({ trucks }: { trucks: TruckOptionView[] }) {
 
           {state.error ? <FormMessage variant="error">{state.error}</FormMessage> : null}
 
+          {/*
+            THE GATE. A shift that starts with location off runs blind for its
+            whole length: the driver sees nothing wrong, every customer on
+            their route sees "Locating…", and the first anybody hears of it is
+            a support call. Thirty seconds before the van moves is the only
+            moment this is cheap to fix.
+
+            It is a PROMPT, not a lock, and the button stays live throughout.
+            Refusing to let somebody clock on would strand a driver whose phone
+            is having a bad morning at a doorstep with bags waiting, which is a
+            worse failure than a missing pin. What it does is make the cost
+            legible and the fix one tap away.
+          */}
+          {location.state !== "ready" && (
+            <div className="flex flex-col gap-2 rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-sm text-navy-700">
+              <span>
+                {location.state === "denied"
+                  ? "Location is off for this site. Start your shift and your customers won't see you coming — turn it on in your browser settings."
+                  : location.state === "unsupported"
+                    ? "This device can't share a location. Everything else works; your customers just won't see you moving."
+                    : "Koolee needs your location so customers can watch you arrive."}
+              </span>
+              {location.state === "prompt" && (
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  onClick={location.request}
+                  loading={location.asking}
+                >
+                  Turn on location
+                </Button>
+              )}
+            </div>
+          )}
+
           <Button type="submit" size="lg" className="w-full" loading={pending}>
             Start shift
           </Button>
@@ -137,4 +174,102 @@ function OffShift({ trucks }: { trucks: TruckOptionView[] }) {
       )}
     </Card>
   );
+}
+
+type LocationState = "checking" | "prompt" | "ready" | "denied" | "unsupported";
+
+/**
+ * Whether this device is ready to report a position, asked BEFORE the shift
+ * rather than discovered during it.
+ *
+ * WHY IT IS HERE AND NOT IN `GpsPinger`. The pinger only mounts once a shift
+ * is open, so by the time it discovers a denied permission the driver is on
+ * the clock, possibly already driving, and the customer's page has already
+ * said "Locating…" for a while. The permission question has one cheap moment
+ * and this is it.
+ *
+ * READS THE PERMISSION WITHOUT ASKING FOR IT. `permissions.query` does not
+ * prompt, so a driver who has already granted location sees nothing at all —
+ * no banner, no button, no interruption to the one screen they use most. The
+ * prompt is only offered to somebody who has not answered yet, and asking is
+ * their tap, never ours: a permission dialog nobody expected is the surest way
+ * to get a permanent "block".
+ *
+ * FIREFOX AND OLDER SAFARI have no `permissions.query` for geolocation. They
+ * land on "prompt" and get the offer, which is the right default — the worst
+ * case is a driver who already granted it seeing one extra button.
+ */
+function useLocationReadiness(): {
+  state: LocationState;
+  asking: boolean;
+  request: () => void;
+} {
+  const [state, setState] = React.useState<LocationState>("checking");
+  const [asking, setAsking] = React.useState(false);
+
+  React.useEffect(() => {
+    /*
+     * Deferred rather than set synchronously, the house pattern here: a
+     * setState in the body of an effect cascades a second render before
+     * paint, and the lint rule that catches it is right.
+     */
+    if (typeof navigator === "undefined" || !navigator.geolocation) {
+      const timer = setTimeout(() => setState("unsupported"), 0);
+      return () => clearTimeout(timer);
+    }
+    if (!navigator.permissions?.query) {
+      const timer = setTimeout(() => setState("prompt"), 0);
+      return () => clearTimeout(timer);
+    }
+
+    let cancelled = false;
+    let detach: (() => void) | null = null;
+
+    void navigator.permissions
+      .query({ name: "geolocation" as PermissionName })
+      .then((result) => {
+        if (cancelled) return;
+        const apply = () =>
+          setState(
+            result.state === "granted"
+              ? "ready"
+              : result.state === "denied"
+                ? "denied"
+                : "prompt",
+          );
+        apply();
+        result.addEventListener("change", apply);
+        detach = () => result.removeEventListener("change", apply);
+      })
+      .catch(() => setState("prompt"));
+
+    return () => {
+      cancelled = true;
+      detach?.();
+    };
+  }, []);
+
+  const request = React.useCallback(() => {
+    if (typeof navigator === "undefined" || !navigator.geolocation) return;
+    setAsking(true);
+    /*
+     * ONE REAL FIX, not just the permission. A granted permission on a phone
+     * that cannot actually see the sky is still a shift that reports nothing,
+     * and the difference matters most indoors — a loading bay, a basement car
+     * park — which is exactly where a driver clocks on.
+     */
+    navigator.geolocation.getCurrentPosition(
+      () => {
+        setAsking(false);
+        setState("ready");
+      },
+      (error) => {
+        setAsking(false);
+        setState(error.code === error.PERMISSION_DENIED ? "denied" : "prompt");
+      },
+      { enableHighAccuracy: false, timeout: 15_000, maximumAge: 60_000 },
+    );
+  }, []);
+
+  return { state, asking, request };
 }

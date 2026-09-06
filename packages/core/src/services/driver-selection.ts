@@ -3,6 +3,7 @@ import {
   agentZones,
   bookings,
   custodyEvents,
+  driverPositionPings,
   driverPositions,
   driverShifts,
   pickupTasks,
@@ -942,6 +943,38 @@ export async function recordDriverPosition(
       target: driverPositions.staffUserId,
       set: { lat: input.lat, lng: input.lng, recordedAt },
       where: lte(driverPositions.recordedAt, recordedAt),
+    });
+
+  /*
+   * THE DIAGNOSTIC TRAIL, written beside the mutable row rather than instead
+   * of it.
+   *
+   * `driver_positions` answers "where is this driver now" and destroys the
+   * previous answer to do it. That is right for the pin and useless for the
+   * question ops actually gets asked — a driver says their location kept
+   * dropping, and until this table there was no way to tell whether it did,
+   * for how long, or on whose phone.
+   *
+   * APPENDED EVEN WHEN THE UPSERT ABOVE DECLINED. A fix that lost the
+   * ordering race is still a real observation, and a replayed backlog is
+   * precisely the evidence worth keeping — the gap between `recorded_at` and
+   * `created_at` is what distinguishes "was in a tunnel" from "stopped
+   * reporting".
+   *
+   * NEVER FATAL. Diagnostics must not cost a driver their live pin: this is
+   * logged and swallowed, the same bargain `touchBookingSignals` makes below.
+   */
+  await db
+    .insert(driverPositionPings)
+    .values({
+      staffUserId: input.staffUserId,
+      driverShiftId: shift.id,
+      lat: input.lat,
+      lng: input.lng,
+      recordedAt,
+    })
+    .catch((error: unknown) => {
+      console.warn("[driver-position] ping log write failed", error);
     });
 
   /*

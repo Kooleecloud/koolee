@@ -33,9 +33,9 @@ not the conversation, and not memory.
 | J · Agent app — Schedule                 | 6     | **6** |
 | K · Driver position — capture            | 4     | **4** |
 | L · Driver position — never drop a fix   | 2     | **2** |
-| M · Driver position — detect and recover | 7     | 2     |
+| M · Driver position — detect and recover | 7     | **7** |
 | N · Stories and tests                    | 4     | 3     |
-| **Total**                                | **56** | **43** |
+| **Total**                                | **56** | **48** |
 
 ---
 
@@ -205,17 +205,17 @@ inferred.
 
 ### M · Driver position — detect, recover, prevent, measure
 
-- [ ] **46.** Server-side gap detection: shift open, no fix for N minutes,
+- [x] **46.** Server-side gap detection: shift open, no fix for N minutes,
       flagged.
-- [ ] **47.** Push nudge to the driver — the only thing that can wake a
+- [x] **47.** Push nudge to the driver — the only thing that can wake a
       backgrounded PWA. Stack already exists (`packages/core/src/notifications/`,
       `apps/agent/public/sw.js:119`).
-- [ ] **48.** Stale-location flag on the admin console's shift view.
+- [x] **48.** Stale-location flag on the admin console's shift view.
 - [x] **49.** In-app status chip: Live / Paused / Blocked, with a one-tap fix.
-- [ ] **50.** Clock-on gate — no shift starts without permission and one
+- [x] **50.** Clock-on gate — no shift starts without permission and one
       successful fix.
 - [x] **51.** `permissions.query().onchange` listener for a mid-shift revoke.
-- [ ] **52.** Append-only ping log with short retention. **Needs a migration —
+- [x] **52.** Append-only ping log with short retention. **Needs a migration —
       SQL shown to TD and lock/index risk flagged before it is applied.**
 
 ### N · Stories and tests
@@ -485,3 +485,50 @@ and position-age). `packages/core` driver-selection integration 34.
 **Not verified: anything visual.** No browser pass yet — the ghost drift, the
 compact track's wrapping, the searching chip over the map and the one-finger
 pan all need real eyes on a real phone.
+
+### Phase 4 — detect, recover, prevent, measure (items 46–48, 50, 52)
+
+**Migration 0036 applied to LOCAL** with TD's explicit approval, after the SQL
+and its risks were shown. `pnpm db:status` → **37 of 37, matched by content
+hash, in sync**. Hosted untouched; it will pick this up through the CI
+migration workflow on merge (MIGRATIONS.md §9.5).
+
+**Commit:** `feat: notice when a driver's location stops arriving`
+
+- **52 — the ping log.** `recordDriverPosition` appends to
+  `driver_position_pings` beside the mutable row. Appended **even when the
+  upsert declines the ordering race**: a fix that lost is still a real
+  observation, and the gap between `recorded_at` and `created_at` is exactly
+  what distinguishes "was in a tunnel" from "stopped reporting". Never fatal —
+  diagnostics must not cost a driver their live pin.
+- **52 — retention.** `prunePositionPings`, batched at 5,000 rows, on an
+  hourly cron at :17. Not housekeeping: ~1,500 rows per driver-day makes this
+  the highest-volume write in the system.
+- **46 — gap detection.** `listStalePositionShifts` + `positionHealthOf` in a
+  new `services/position-health.ts`. `POSITION_GAP_MS` is **4 minutes,
+  deliberately looser than the map's 90-second `POSITION_FRESH_MS`** — 90s is
+  "do not draw this as current", a bar an ordinary phone crosses at every red
+  light in a tunnel. Alerting on it would page ops hourly per driver and be
+  ignored inside a day.
+- **47 — the push nudge.** A 5-minute cron pushing the driver, not ops: the
+  only actor who can end the gap is the person holding the phone, and a push
+  is the only thing that can wake a backgrounded PWA. One nudge per 30-minute
+  cooldown, bucketed into the tag so repeats collapse.
+- **48 — ops visibility.** The admin shifts page flags an open shift as
+  "No location" or "Location silent 12 min", with the last-seen time. Silent
+  and stale stay distinct: one is a device problem to solve before the driver
+  leaves, the other is a driver to ring.
+- **50 — the clock-on gate.** A prompt, **not a lock**. Refusing to let
+  somebody clock on would strand a driver whose phone is having a bad morning
+  at a doorstep with bags waiting — worse than a missing pin. It reads the
+  permission with `permissions.query` (which does not prompt), so a driver who
+  already granted it sees nothing at all, and asking is their tap. It requires
+  one real fix, not just the grant: a granted permission in a basement car
+  park is still a shift that reports nothing.
+
+**Verified.** `packages/core` 622 unit tests (5 new for `positionHealthOf`,
+registration test updated for the two new crons). `tsc --noEmit` and ESLint
+clean on core, agent and admin.
+
+**Not verified:** the two new crons have no integration test, and the ping-log
+write path is only covered indirectly. Worth an integration test before merge.
