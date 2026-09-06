@@ -569,12 +569,51 @@ core 622 (+1 skipped). ESLint clean across web, ui, agent, admin, core.
 
 ## All 56 items are implemented.
 
+## Browser pass — Storybook, over CDP
+
+Driven against the running Storybook rather than screenshotted, because every
+claim below is a DOM fact and a screenshot cannot tell a grey pin from a
+disabled one.
+
+**`LiveMap / SearchingForDrivers`** — 3 markers, all `data-variant="ghost"`;
+computed `pointer-events: none`; no `<button>` inside any of them; empty
+`textContent` (anonymous, as required); `aria-hidden="true"`; the pulse ring
+present; the pickup pin drawn; a live `<canvas>`, so the tile worker is
+loading and the map is genuinely rendering rather than failing silently.
+
+**`LiveMap / StalePosition`** — the two pins are unmistakably different:
+
+| | live | stale |
+| --- | --- | --- |
+| background | `rgb(23,127,166)` sky | `rgb(78,116,163)` navy |
+| pulse ring | yes | **no** |
+| accessible name | "Driver Marcus" | "Driver Yara — **last known position**" |
+| tappable | yes | yes |
+
+**`ProgressTrack / CompactLongName`** at a 375px viewport — track is **44px
+tall**, no horizontal overflow, five equal 69px columns, all five dot wrappers
+at top 16px with labels at 32px, "Konstantina assigned" wrapping inside its own
+column. Rails intact.
+
+> A note against my own first reading: an initial measurement showed the
+> current dot 6px high and I called it a defect. It was not — the selector had
+> matched the `animate-ping` element mid-scale, and `getBoundingClientRect`
+> includes transforms. Measured on the dot wrappers, the row is aligned. Worth
+> recording because the same trap will catch the next person measuring a
+> pulsing marker.
+
+**`CustodyTimeline / NamedActorsWithPhotoButtons`** — "Agent assigned · Ravi"
+with an avatar, "You chose your driver · Yara" with an avatar, one
+`View photo` button (accessible name "View photo: Sealed bag"), and **zero
+`<img>` thumbnails** in the collapsed state.
+
 **What is NOT verified, and should be before merge:**
 
-1. **No browser pass yet.** Nothing visual in this slice has been seen
-   running: the ghost drift, the searching chip over the map, the compact
-   track's wrapping at 375px, the one-finger pan and the desktop wheel
-   behaviour, the collapsed trail, the photo buttons.
+1. **The app itself, end to end.** Storybook covers the components; nothing has
+   run against a seeded booking with a real session — the ghost drift over
+   time, the searching chip's position over a live map, the one-finger pan and
+   desktop wheel on a real device, the collapsed trail on a real trail, the
+   clock-on gate, and the whole agent-app schedule change.
 2. **The IndexedDB queue's storage paths.** No `fake-indexeddb` in the repo;
    adding a dependency is TD's call. The keep/drop/retry rule is unit-tested
    as a pure function; the storage around it is not.
