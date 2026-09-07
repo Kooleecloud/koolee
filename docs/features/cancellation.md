@@ -115,18 +115,30 @@ it separately, and each one was a separate bug.
   still drew a live Navigate link, a live Call button and the whole guided
   flow. It now asks `bookingActionability(...).standing === "terminal"`, the
   same service the card consults and core enforces with.
-- **The day's counts** (F5): `isFinished` is `state === "done"` only, so every
+- **The day's counts** (F5): `isFinished` was `state === "done"` only, so every
   count using "not done" to mean "work" included cancelled stops — "3 to do",
   "· 1 late", "Your route · 3 stops", and the current-stop slot.
-  `isOutstanding` is that predicate, kept separate from `isFinished` because
-  History lists work somebody _did_.
+  `isOutstanding` is that predicate.
+- **Where the stop LIVES** (map-first slice): F5 fixed the counts and left the
+  placement, which turned out to be the bigger problem. A cancelled job was
+  neither `isFinished` (done only) nor `isOutstanding`, so it fell through every
+  bucket into `overdue` — and an old window sorts first, so a cancelled booking
+  from weeks earlier led both the Today rail and the Schedule tab, permanently.
+  `isFinished` is now split: `isDone` is "did somebody perform this", and
+  `isSettled` is "is there anything left to do", which is done **or** cancelled.
+  Cancelled is settled, so it leaves the schedule and appears in **History**,
+  grouped under its own day with a Cancelled badge.
 - **Assignment** (F5): three call sites each carried their own status list and
   none mentioned `cancelled`. `assignmentGate` is now the one answer.
 
-**The stop stays visible** throughout — dimmed, badged, struck through, never
-late, never counted, and still openable. A schedule that quietly loses stops is
-one nobody can reconcile against what they actually did, and the detail page
-behind it is the only place that says who cancelled it.
+**The stop stays findable** throughout — dimmed, badged, never late, never
+counted, and still openable. That requirement is unchanged and is why cancelled
+goes to History rather than being dropped: an agent who remembers being sent to
+that address can still find it, next to the rest of the day it belonged to, and
+a schedule that quietly loses stops is one nobody can reconcile against what
+they actually did. What changed is that it is no longer in a list of things to
+go and do. The detail page behind it is still the only place that says who
+cancelled it.
 
 ---
 

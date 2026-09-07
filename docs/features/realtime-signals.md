@@ -213,7 +213,8 @@ it is ever re-added, **the grant must go with it** — that is this lesson,
 stated once.
 
 `TripLive` sits at **page** level, not inside the driver card. The interval it
-replaces lived in `DriverTracking`, which meant the page went live only after a
+replaces lived in the driver card itself (then called `DriverTracking`, since
+folded into `TripDriverPanel`), which meant the page went live only after a
 driver had been chosen — an agent sealing bags on the doorstep changed nothing
 on the screen the customer was watching.
 

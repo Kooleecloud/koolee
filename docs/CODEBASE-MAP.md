@@ -56,7 +56,8 @@ enforced across marketing, UI, SMS and email ([README §Copy rules](../README.md
 | Waitlist signup       | `waitlist_signups`                   | One (email, ZIP) pair — "this person wants service in this zone." Unique together; `notified_at` stamps the one promised "you're covered" email.                                                                                                                                                                                                                                                                                                                                                                      |
 | Truck                 | `trucks`                             | A van, and how many bags it holds. `reserved_spaces` is **held back from booking capacity** — `bookableSpaces()` in `driver-selection.ts` is the one formula, and four readers share it.                                                                                                                                                                                                                                                                                                                              |
 | Shift                 | `driver_shifts`                      | One person, in one truck, for one stretch of the day. Two partial unique indexes (`WHERE ended_at IS NULL`) make "one open shift per person, one per truck" true under concurrency.                                                                                                                                                                                                                                                                                                                                   |
-| Driver position       | `driver_positions`                   | One **mutable** row per driver, overwritten every 20s while a driver is en route to a door and every 45s once the bags are aboard. Explicitly **not** chain of custody — a position is not evidence.                                                                                                                                                                                                                                                                                                                  |
+| Driver position       | `driver_positions`                   | One **mutable** row per driver, overwritten as the phone reports. Explicitly **not** chain of custody — a position is not evidence.                                                                                                                                                                                                                                                                                                                                                                                   |
+| Position diagnostics  | `driver_position_pings`              | **Append-only, short retention (0036).** Every fix, with the DEVICE's time and the SERVER's write time side by side — the gap between them is what separates "was in a tunnel" from "stopped reporting". Exists so a GPS gap is a hole in a sequence rather than a rumour; still not evidence.                                                                                                                                                                                                                        |
 | Booking signal        | `booking_signals`                    | The realtime **doorbell**: one mutable row per booking, three columns, the only table a browser may read. A change says "something moved"; the payload is never rendered.                                                                                                                                                                                                                                                                                                                                             |
 | Push subscription     | `push_subscriptions`                 | One row per (person, browser install). Unique on `endpoint` **alone**, so a device that changes hands moves to its new owner instead of notifying the old one.                                                                                                                                                                                                                                                                                                                                                        |
 | Agent zone            | `agent_zones`                        | Which ZIPs an agent covers — what auto-assign picks from.                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
@@ -150,28 +151,28 @@ edit, it is usually policy.
 **Schema files** live in [packages/db/src/schema/](../packages/db/src/schema/),
 one file per concern, re-exported through `index.ts`:
 
-| File             | Tables                                                |
-| ---------------- | ----------------------------------------------------- |
-| `identity.ts`    | `users`, `addresses`                                  |
-| `geo.ts`         | `zip_centroids`                                       |
-| `airports.ts`    | `airports`, `airline_cutoffs`                         |
-| `bookings.ts`    | `bookings`, `bags`                                    |
-| `slots.ts`       | `slots` _(legacy — see below)_                        |
-| `slot-blocks.ts` | `slot_blocks`                                         |
-| `custody.ts`     | `custody_events`                                      |
-| `signals.ts`     | `booking_signals` _(the realtime doorbell)_           |
-| `push.ts`        | `push_subscriptions` _(one row per browser install)_  |
-| `tasks.ts`       | `verification_tasks`, `pickup_tasks`                  |
-| `billing.ts`     | `payments`, `pricing_rules`, `payment_webhook_events` |
-| `drafts.ts`      | `booking_drafts`                                      |
-| `uploads.ts`     | `ticket_uploads`                                      |
-| `staff.ts`       | `staff_members`                                       |
-| `otp.ts`         | `otp_send_log`                                        |
-| `ops.ts`         | `trucks`, `driver_shifts`, `driver_positions`         |
-| `agreements.ts`  | `agreement_versions`, `agreement_acceptances`         |
-| `passport.ts`    | `passport_verifications`                              |
-| `waitlist.ts`    | `waitlist_signups`                                    |
-| `zones.ts`       | `agent_zones` _(ZIP coverage auto-assign picks from)_ |
+| File             | Tables                                                                 |
+| ---------------- | ---------------------------------------------------------------------- |
+| `identity.ts`    | `users`, `addresses`                                                   |
+| `geo.ts`         | `zip_centroids`                                                        |
+| `airports.ts`    | `airports`, `airline_cutoffs`                                          |
+| `bookings.ts`    | `bookings`, `bags`                                                     |
+| `slots.ts`       | `slots` _(legacy — see below)_                                         |
+| `slot-blocks.ts` | `slot_blocks`                                                          |
+| `custody.ts`     | `custody_events`                                                       |
+| `signals.ts`     | `booking_signals` _(the realtime doorbell)_                            |
+| `push.ts`        | `push_subscriptions` _(one row per browser install)_                   |
+| `tasks.ts`       | `verification_tasks`, `pickup_tasks`                                   |
+| `billing.ts`     | `payments`, `pricing_rules`, `payment_webhook_events`                  |
+| `drafts.ts`      | `booking_drafts`                                                       |
+| `uploads.ts`     | `ticket_uploads`                                                       |
+| `staff.ts`       | `staff_members`                                                        |
+| `otp.ts`         | `otp_send_log`                                                         |
+| `ops.ts`         | `trucks`, `driver_shifts`, `driver_positions`, `driver_position_pings` |
+| `agreements.ts`  | `agreement_versions`, `agreement_acceptances`                          |
+| `passport.ts`    | `passport_verifications`                                               |
+| `waitlist.ts`    | `waitlist_signups`                                                     |
+| `zones.ts`       | `agent_zones` _(ZIP coverage auto-assign picks from)_                  |
 
 Four files in that directory hold no table: `columns.ts` (the shared column
 builders — `timestamptz`, `primaryId`, `createdAt`, `updatedAt`), `enums.ts`,
@@ -255,9 +256,16 @@ booking_id`, migration `0025`): the version a booking accepts pins for the
   actions from a driver.
 - `driver_positions` is the first HIGH-WRITE, MUTABLE, NON-EVIDENTIARY table in
   the schema, and it looks enough like custody data to be mistaken for it. One
-  row per driver, overwritten every 20–45 seconds, no history. `custody_events`
+  row per driver, overwritten as the phone reports, no history. `custody_events`
   is the evidence; this answers "how far away is my driver right now" and
   nothing else. Its header says so — leave that there.
+- `driver_position_pings` (0036) is its append-only sibling and the highest-write
+  table in the schema: roughly 1,500 rows per driver-day. It exists because the
+  mutable row destroys the previous answer, which made the question ops actually
+  gets asked — "the driver says their location kept dropping" — unanswerable.
+  **Retention is part of the feature, not housekeeping:** `prunePositionPings`
+  runs hourly and batched, and shipping the table without it is how a disk fills
+  up. Also not evidence — same rule, same reason.
 - `pickup_tasks` has two assignment columns and they must never disagree.
   `driver_shift_id` is the real target; `assignee_user_id` is kept because six
   readers key on it (`getAssignedTask`, `listAssignedTasks`,
@@ -968,12 +976,15 @@ driver. A driver with no ETA never wins and stays choosable by hand. It runs the
 SAME `selectDriverAction`, so there is exactly one way to be assigned a driver
 and one set of races.
 
-**A candidate's position must be FRESH to be drawn.** `freshPosition` applies
-the same `POSITION_FRESH_MS` window `getSelectedDriver` has always used, to the
-pin AND to the ETA — `driver_positions` keeps one mutable row per driver with no
-history, so a driver who finished a run yesterday still has yesterday's
-coordinates. A stale ETA is the worse half: it is the number `bestCandidate`
-ranks on. A driver with no fresh fix keeps their card and has no pin.
+**A candidate's ETA must be FRESH; the PIN degrades instead.** `freshPosition`
+applies the `POSITION_FRESH_MS` window to the ETA, because an estimate computed
+from a stale origin is a number indistinguishable from a real one and it is what
+`bestCandidate` ranks on. The pin used to be dropped by the same rule, and that
+emptied the map at the moment somebody was choosing on it — with four quiet
+candidates there was nothing left to draw. `DriverCandidate` now carries
+`position` (last known), `positionIsFresh` and `positionRecordedAt`; a null
+position means one thing only, that this driver has never reported. An aged fix
+is drawn grey and unpulsed with its age in words — `MapDriver.variant`.
 
 **Which is why the driver reports for the WHOLE SHIFT.** `GpsPinger` used to
 run only while a pickup was `in_progress`, and a shortlist candidate is by
@@ -1211,13 +1222,24 @@ console. The agent never edits history — corrections are new events.
 booking's pickup window at assignment time. They are a snapshot for the
 agent's list, not a live join.
 
-**GPS** is foreground-only and deliberately disposable: `GpsPinger` posts
-`navigator.geolocation` to `POST /api/driver-position` for as long as the shift
-is open — 20 s while en route to a doorstep, 45 s otherwise — and
-`driver_positions` keeps one mutable row per driver. A route handler rather than a server action, because a
-server action would revalidate the page on every ping. Permission denied is not
-an error — a non-blocking banner says the customer will not see them coming,
-the pings stop, and everything else works. Nothing written here is chain of
+**GPS** is foreground-only and NO LONGER disposable. `GpsPinger` holds a
+`watchPosition` subscription for as long as the shift is open and throttles what
+reaches `POST /api/driver-position` to the phase cadence — 20 s en route to a
+doorstep, 45 s otherwise. Five things that used to lose a fix are each answered:
+a Wake Lock while a job runs (a phone on a passenger seat locks in thirty
+seconds), an IndexedDB queue drained over Background Sync (a failed send was a
+lost fix), an immediate send on `visibilitychange` (returning to the app used to
+wait out a full tick), a `sendBeacon` on `pagehide`, and a `permissions`
+subscription so a mid-shift revoke is seen at once rather than at the next
+failure. A route handler rather than a server action, because a server action
+would revalidate the page on every ping. Permission denied is not an error — the
+header pill turns red and says so, the pings stop, and everything else works.
+**A locked phone in the background still reports nothing**, and no web API
+changes that: a service worker has no geolocation, Periodic Background Sync is
+Chromium-only and unreliable, and iOS suspends a backgrounded PWA. What the app
+does instead is notice — `listStalePositionShifts` flags a shift unheard for
+four minutes, the console shows it, and a push nudges the driver. Nothing
+written here is chain of
 custody.
 
 **The number to call, and how far away the door is.** Two additions that both

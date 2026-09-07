@@ -1,771 +1,1222 @@
-# Run report 10 — Map-first trip page, agent schedule, driver-position robustness
+# Run report 10 — Slice F3: web push, dispatch timing, email fixes
 
-**Branch:** `feat/live-map-first`, cut from `origin/dev` @ `9d26a71` with
-`--no-track` (`branch.feat/live-map-first.merge` verified empty; `git status -sb`
-shows no upstream). **Commits are made on this branch**, one per phase, at TD's
-explicit instruction.
+**Branch:** `feat/f3-push-and-dispatch-timing`, cut from `origin/dev` @ `a9e17aa`
+with `--no-track`. Verified before any work:
 
-**One session, one branch.** TD asked for everything end-to-end on a single
-branch rather than the three-way split that was offered.
+```
+$ git config --get branch.feat/f3-push-and-dispatch-timing.merge   # empty (exit 1)
+$ git status -sb
+## feat/f3-push-and-dispatch-timing                                # no upstream
+```
 
-**Databases touched: LOCAL ONLY.** Hosted is never contacted. One migration is
-in scope (M7 below); its SQL is shown to TD and approved before it is applied.
+**One session, one branch. NO COMMITS** — each phase is checkpointed here; TD
+commits after review.
 
-**THIS DOCUMENT IS THE TRACKER.** It is updated as each item lands, so the plan
-survives the session. Checkboxes are the source of truth for what is done —
-not the conversation, and not memory.
+**Databases touched: LOCAL ONLY.** `127.0.0.1:54322` for migrations and the
+seed, the disposable `koolee_test` for the integration tier. Hosted is never
+contacted. Hosted steps are TD's, in `docs/features/f3-hosted-setup.md`.
 
----
+**Precondition checked before anything else.** F2 is merged into `dev`
+(PR #32, `a9e17aa`) and `booking_signals` exists — `packages/db/src/schema/signals.ts`,
+migrations `0030_booking_signals.sql` and `0031_booking_signals_grant.sql`, both
+on `origin/dev`. The slice was cleared to start.
 
-## Status
-
-| Group                                    | Items  | Done   |
-| ---------------------------------------- | ------ | ------ |
-| A · Map as permanent hero                | 6      | **6**  |
-| B · Searching state with ghost pins      | 6      | **6**  |
-| C · Driver bar and micro timeline        | 5      | **5**  |
-| D · Custody trail collapse               | 2      | **2**  |
-| E · Timeline detail                      | 3      | **3**  |
-| F · After delivery                       | 2      | **2**  |
-| G · Map gestures                         | 4      | **4**  |
-| H · Stale positions never empty the map  | 2      | **2**  |
-| I · Agent app — Today                    | 3      | **3**  |
-| J · Agent app — Schedule                 | 6      | **6**  |
-| K · Driver position — capture            | 4      | **4**  |
-| L · Driver position — never drop a fix   | 2      | **2**  |
-| M · Driver position — detect and recover | 7      | **7**  |
-| N · Stories and tests                    | 4      | **4**  |
-| **Total**                                | **56** | **56** |
+**Reference POC.** `/Users/tarundadlani/code/personal/chrome-notify`. Its README
+and three docs are copied verbatim to
+[`docs/fixtures/chrome-notify/`](../fixtures/chrome-notify/), with a
+[README-KOOLEE.md](../fixtures/chrome-notify/README-KOOLEE.md) saying what they
+are for and recording the one open question F3 answered. Reference, not code:
+the slice ported the POC's DECISIONS, not its files.
 
 ---
 
-## The seven locked decisions
+## Phase 0 — Email fixes
 
-| #   | Decision              | Chosen                                                       |
-| --- | --------------------- | ------------------------------------------------------------ |
-| 1   | Chain-of-custody card | Collapse into a disclosure below the map                     |
-| 2   | Ghost drivers         | Uber-style — anonymous, inert, no disclaimer text            |
-| 3   | Stale GPS fixes       | Dimmed pin + "last seen N min ago", both surfaces            |
-| 4   | Map lifespan          | `verified_sealed` → `delivered_to_bagdrop`                   |
-| 5   | Agent Today tab       | Today + live overdue; cancelled never appears                |
-| 6   | Agent Schedule tab    | Two tabs; cancelled → History; overdue demoted below Today   |
-| 7   | Position robustness   | Max out the web path; native wrapper explicitly out of scope |
+### 0.1 What was actually wrong
 
----
+Two dispatch points existed for one email and they sent **different emails**.
 
-## Root causes, confirmed in the code on `dev`
+|                 | `booking/confirmed` Inngest function                  | `attachEmailPostBooking` (guest adds email on the confirmed screen) |
+| --------------- | ----------------------------------------------------- | ------------------------------------------------------------------- |
+| Builder         | `buildBookingConfirmationEmail` — branded HTML + text | hand-rolled plain-text body in `services/confirmation-email.ts`     |
+| Subject         | `Pickup confirmed — KOO-7H2QM · DL123 from JFK`       | `Koolee pickup confirmed — DL123 from JFK`                          |
+| Booking ref     | present (the one token support can act on)            | **absent**                                                          |
+| Price breakdown | itemised + total                                      | `$68.00 authorized` only                                            |
+| Pickup address  | present                                               | absent                                                              |
+| Agreement nudge | present                                               | absent                                                              |
+| Trip link       | absolute `https://…/trips/<id>`                       | **`/trips/<id>` — a relative path, in an inbox**                    |
 
-These are the defects the slice exists to fix. Each was read directly, not
-inferred.
+So whoever paid as a guest — precisely the customer with the least context —
+got the materially worse email, with an unclickable link, and nothing in the
+type system or the tests said so.
 
-1. **The map disappears** — three independent gates.
-   `apps/web/src/components/trip-driver.tsx:198` returns a text-only card when
-   the shortlist is empty; `:206` sets `showMap = pickup !== null && pins.length > 0`;
-   `:573` hides the tracking map whenever the driver's fix is stale.
+### 0.2 The shape chosen
 
-2. **Two fingers to pan** — `cooperativeGestures: true`,
-   `packages/ui/src/components/live-map.tsx:427`. Deliberate at the time (it
-   stops the map being a scroll trap mid-page); the cost is now the wrong trade.
+Not "make the second path call the builder", which would have duplicated the
+~50 lines of row-reading and label-formatting that turn a booking row into the
+builder's input. Those reads are where the divergence would come back.
 
-3. **Cancelled stops never leave the agent's active buckets.**
-   `apps/agent/src/lib/job.ts:256` defines `isFinished` as `state === "done"`
-   only, so a cancelled job is neither finished nor outstanding. It therefore
-   falls through `groupIntoSections` (`job.ts:321`) into `overdue` — forever —
-   and onto the Today rail (`apps/agent/src/app/page.tsx:115`, which filters on
-   `state !== "done"`). A cancelled 27 Aug booking sits at the top of both
-   screens indefinitely. The comment at `job.ts:262` states the old intent
-   outright: "a cancelled stop STAYS on the day."
+Instead the assembly is extracted once:
 
-4. **`To do · N` over-counts.** `apps/agent/src/app/tasks/page.tsx:67` sums
-   `sections.overdue.length` raw, including cancelled — contradicting the home
-   screen, which carefully excludes them from every count.
+- **`assembleBookingConfirmationEmail(config, { booking, to, appOrigin })`**
+  ([`services/confirmation-email.ts`](../../packages/core/src/services/confirmation-email.ts))
+  — reads the address and the display zone, formats the window and departure
+  in the BOOKING's tz, maps the persisted `priceBreakdown` to `PriceLine[]`,
+  and returns the `EmailMessage`. No I/O beyond the two reads, no decisions
+  about _whether_ to send.
+- **`sendBookingConfirmationEmail(config, { bookingId, email, appOrigin })`** —
+  loads the booking (throws `NotFoundError` if absent), assembles, sends. The
+  guest path's entry point; unchanged signature plus `appOrigin`.
+- The Inngest function keeps its own skip rules (`booking_missing`,
+  `cancelled`, `no_email`) and its `try/catch` + ops-alert, and now calls the
+  assembler for the message. **Net −49 lines in `jobs/functions.ts`.**
 
-5. **A driver's position can rewind.** `driver_positions` is keyed on
-   `staff_user_id` with no ordering guard (`packages/db/src/schema/ops.ts:174`).
-   Any queue-and-retry design will let an older buffered fix overwrite a newer
-   one and park the van in the past. Must be fixed _before_ L1 ships.
+One builder, one assembler, two dispatch points that differ only in what they
+do when a send fails — which is correct, because they genuinely differ there
+(the job ops-alerts and returns a reason; the Server Action lets its existing
+catch log).
 
-6. **Position gaps are undiagnosable.** One mutable row, no history. Today it
-   is impossible to answer "how long were we blind, and whose phone was it?"
+### 0.3 The absolute URL
 
----
+`tripUrlFor` was a closure inside `createKooleeFunctions`, reachable only from
+the Inngest factory. Lifted to
+[`notifications/links.ts`](../../packages/core/src/notifications/links.ts) as
+`tripUrlFor(appOrigin, bookingId)`, now used by both paths. Core still reads no
+env: `apps/web/src/actions/auth.ts` passes `optionalEnv("NEXT_PUBLIC_APP_URL")`
+at the call site, the same value `lib/inngest.ts` already passes as
+`appOrigin`.
 
-## The plan
+An absent origin yields `undefined`, and the builder omits the CTA entirely
+rather than emitting a relative href — asserted, along with the fact that no
+CTA means Tag Orange appears nowhere in the message.
 
-### A · Map as permanent hero — web trip page
+This file is where Phase 4's deep links (task detail, admin booking) will be
+added, so push and email name the same URLs.
 
-- [x] **1.** Merge `DriverChoice`, `NoDriverYet` and `DriverTracking` into one
-      map-first card. No state renders without a map.
-- [x] **2.** Map gates on pickup coordinates alone, never on `pins.length > 0`.
-- [x] **3.** Map lives from `verified_sealed` through `delivered_to_bagdrop`.
-- [x] **4.** Taller map — it is the view now, roughly `h-[28rem]` on a phone.
-- [x] **5.** Map/List toggle kept, map default. List stays the accessible
-      fallback and the only view that can show a driver with no fix.
-- [x] **6.** Cancelled bookings keep the existing struck-through card.
+### 0.4 Idempotency: traced, and there is no double-send to guard
 
-### B · Searching state with ghost pins
+The prompt asked whether the guest-add-email path and the Inngest confirmation
+can both fire for one booking. **They cannot**, and no guard was added.
 
-- [x] **7.** 2–3 anonymous ghost pins whenever there are no real candidates.
-- [x] **8.** Deterministic placement seeded from the booking id, 400 m – 2 km
-      out — no teleporting across the ~15 s page refresh.
-- [x] **9.** Slow drift plus pulse, reusing the existing 1.2 s marker walk.
-- [x] **10.** Inert and anonymous: no name, ETA, capacity, popup or click target.
-- [x] **11.** Chip reads "Finding drivers near you…", replacing the
-      `NoDriverYet` copy. No disclaimer (decision 2).
-- [x] **12.** Every ghost vanishes in the same render the first real candidate
-      appears. Never mixed.
+The chain, each link verified in the code:
 
-### C · Driver bar and micro timeline
+1. `apps/web/src/app/book/confirmed/page.tsx:81` renders
+   `<ConfirmationEmailCard>` only when `!hasEmail` — where `hasEmail` is
+   `Boolean(userRow?.email ?? authUser?.email)`. A customer who already has an
+   email is **never offered the card**, so `attachEmailPostBooking` is
+   unreachable for them.
+2. That is exactly the case in which the Inngest function returned
+   `{ sent: false, reason: "no_email" }` (`jobs/functions.ts`, the
+   `if (!customer?.email)` branch). It did not send.
+3. That return is a **successful** `step.run` — not a throw — so Inngest
+   memoizes it. A retried run replays the memoized result and never re-reads
+   the now-populated email. There is no "Inngest retries after the guest adds
+   an email" path.
+4. The webhook/return-page race that could produce two events is already
+   collapsed upstream: senders emit with event id `booking-confirmed:<id>`, so
+   Inngest dedupes to one event before any of this.
 
-- [x] **13.** Bar under the map: avatar, "Ravi is on the way", ETA, distance.
-- [x] **14.** New compact `ProgressTrack` variant — single row, small dots,
-      about one line tall.
-- [x] **15.** Five steps, in order: Ravi assigned, On the way, Bags collected,
-      In transit, Delivered. (Written as prose rather than one inline-code
-      span: a code span that wraps inside a list item makes `prettier --write`
-      non-idempotent, so `format:check` fails no matter how many times it is
-      run. That cost one red CI job to work out.)
-- [x] **16.** `PICKUP_STEPS` becomes a function taking the driver's name.
-- [x] **17.** Timeline appears only after a driver is chosen.
+The theoretical window is: guest pays, and adds an email in the sub-second
+before the Inngest run reads `users.email`. That requires the customer to load
+the confirmed page, type an address and submit it faster than the queue
+dispatches a job — and its cost is one duplicate email, not a wrong charge or a
+wrong state. Guarding it would mean a persisted send-marker on `bookings` for a
+race nobody can hit; **not built**, deliberately, and recorded here so the
+question is not re-opened as an unknown.
 
-### D · Custody trail collapse
+### 0.5 Tests
 
-- [x] **18.** Collapsed by default: latest event with timestamp, plus a
-      "Show full history" button.
-- [x] **19.** Expands in place — client-side disclosure, no navigation, no
-      refetch. The full trail is already server-rendered.
+New: [`services/confirmation-email.test.ts`](../../packages/core/src/services/confirmation-email.test.ts)
+(6 cases, `fakeDb` harness — no database needed):
 
-### E · Timeline detail
+- sends the branded template, asserted by the template's subject shape and the
+  presence of `html`;
+- **the trip link is absolute** in both body and HTML, and the old
+  `Track your pickup: /trips/` string appears nowhere — the regression itself;
+- no origin ⇒ no CTA and no `#FF6B35` anywhere;
+- copy rules: `deliver them to your airline's bag drop` present, "check you in"
+  absent from body and HTML;
+- times carry the airport zone abbreviation (`EDT`);
+- a missing booking throws `NotFoundError` rather than emailing a blank.
 
-- [x] **20.** Actor avatar and name on agent/driver events ("Agent assigned ·
-      Ravi"), via the existing `custody_events.actor_user_id`. Ops and admin
-      actors keep the plain role badge — naming back-office staff to a customer
-      is a separate decision.
-- [x] **21.** Photos behind a "View photo" button instead of the always-rendered
-      192 px thumbnail (`packages/ui/src/components/custody-timeline.tsx:161`).
-- [x] **22.** Bags card seal thumbnails get the same button treatment.
+Three of those assertions (`Booking reference:`, `Total: $68.00`,
+`airline's bag drop`) are deliberately the same ones `jobs/functions.test.ts`
+makes of the Inngest path, over an identical fixture: if the two dispatch
+points ever stop sharing an assembler, one of the two suites fails.
 
-### F · After delivery
+### 0.6 Gates
 
-- [x] **23.** No driver card, map or timeline once delivered or completed.
-- [x] **24.** Replaced by "Who handled your bags" — the sealing agent and the
-      delivering driver, both with avatar and name. Both are already loaded on
-      the page; no new query.
+| Gate                                            | Result                                                           |
+| ----------------------------------------------- | ---------------------------------------------------------------- |
+| `turbo typecheck`                               | 6/6 ✅                                                           |
+| `turbo lint`                                    | 6/6 ✅                                                           |
+| `turbo test` (unit)                             | core 492 ✅ · web 119 ✅ · admin 27 ✅ · agent 19 ✅ · ui 102 ✅ |
+| `@koolee/core test:integration` (`koolee_test`) | 248 passed, 3 skipped ✅                                         |
 
-### G · Map gestures
-
-- [x] **25.** `cooperativeGestures: false` — one finger drags.
-- [x] **26.** Pinch zooms; rotation and pitch stay disabled.
-- [x] **27.** `scrollZoom.disable()` so a desktop wheel scrolls the page; the
-      +/− buttons still zoom.
-- [x] **28.** Fixed-height hero, never full-viewport, so there is always page
-      above and below to scroll from.
-
-### H · Stale positions never empty the map
-
-- [x] **29.** Tracking view: dimmed, non-pulsing pin with "last seen N min ago".
-- [x] **30.** Shortlist: a candidate with a stale fix keeps a dimmed pin instead
-      of vanishing.
-
-### I · Agent app — Today
-
-- [x] **31.** Cancelled stops never reach the Today rail (`isOutstanding` in the
-      overdue filter).
-- [x] **32.** Live overdue stays, under a "Running late" heading.
-- [x] **33.** Overdue bounded by actionability — past the airline's bag-drop
-      cutoff a stop becomes a `problem`, not a to-do that climbs forever.
-
-### J · Agent app — Schedule
-
-- [x] **34.** Split the predicate: `isDone` (work that happened) vs `isSettled`
-      (done **or** cancelled).
-- [x] **35.** Cancelled moves to History.
-- [x] **36.** History marks cancelled distinctly — chip plus muted treatment;
-      empty-state copy updated.
-- [x] **37.** To do order: Problems → Today → Upcoming → Running late at the
-      bottom.
-- [x] **38.** `To do · N` stops counting cancelled, sharing one predicate with
-      the home screen.
-- [x] **39.** Overdue tone softened from `alarm` when the stop is not from today.
-
-### K · Driver position — capture
-
-- [x] **40.** `watchPosition` subscription replaces interval polling; POSTs
-      throttled to the existing phase cadences.
-- [x] **41.** Screen Wake Lock while `en_route`/`carrying`, re-acquired on
-      visibility return (the browser drops it on background).
-- [x] **42.** Immediate fix on foreground return and on phase change.
-- [x] **43.** `sendBeacon` final flush on `pagehide`.
-
-### L · Driver position — never drop a captured fix
-
-- [x] **44.** IndexedDB queue flushed through the service worker's Background
-      Sync — anticipated already at `apps/agent/public/sw.js:8`.
-      `recordDriverPosition` already accepts `recordedAt`, so late fixes keep
-      their true device time.
-- [x] **45.** Monotonic ordering guard on the upsert plus a batch endpoint, so a
-      flushed backlog can never rewind the pin. **Lands before 44.**
-
-### M · Driver position — detect, recover, prevent, measure
-
-- [x] **46.** Server-side gap detection: shift open, no fix for N minutes,
-      flagged.
-- [x] **47.** Push nudge to the driver — the only thing that can wake a
-      backgrounded PWA. Stack already exists (`packages/core/src/notifications/`,
-      `apps/agent/public/sw.js:119`).
-- [x] **48.** Stale-location flag on the admin console's shift view.
-- [x] **49.** In-app status chip: Live / Paused / Blocked, with a one-tap fix.
-- [x] **50.** Clock-on gate — no shift starts without permission and one
-      successful fix.
-- [x] **51.** `permissions.query().onchange` listener for a mid-shift revoke.
-- [x] **52.** Append-only ping log with short retention. **Needs a migration —
-      SQL shown to TD and lock/index risk flagged before it is applied.**
-
-### N · Stories and tests
-
-- [x] **53.** Storybook: `SearchingWithGhostDrivers`, `DriverOnTheWayCompact`,
-      `StalePosition`, `CollapsedCustodyTrail`; plus updating the four existing
-      `live-map` stories for the new gesture defaults.
-- [ ] **54.** Unit: ghost generator determinism and distance bounds,
-      stale-vs-fresh classification, name-interpolated step labels.
-- [x] **55.** Unit: `isDone`/`isSettled`, `groupIntoSections` with cancelled
-      input, Today filters.
-- [x] **56.** Integration: an older fix cannot overwrite a newer one; queue
-      flush ordering.
+Files touched: `packages/core/src/services/confirmation-email.ts` (rewritten),
+`packages/core/src/notifications/links.ts` (new),
+`packages/core/src/services/confirmation-email.test.ts` (new),
+`packages/core/src/jobs/functions.ts`, `packages/core/src/notifications/index.ts`,
+`packages/core/src/services/index.ts`, `apps/web/src/actions/auth.ts`.
 
 ---
 
-## Phase order
+## Phase 1 — Deferred agent assignment
 
-Commits land in this order on the one branch. The rationale is that the map is
-built _last_, against positions that actually arrive, rather than first against
-positions that vanish.
+### 1.1 What changed, in one sentence
 
-| Phase | Groups       | Why here                                                       |
-| ----- | ------------ | -------------------------------------------------------------- |
-| 1     | I, J, N55    | Smallest, self-contained, fixes a bug TD is looking at today   |
-| 2     | L45          | The ordering guard — a correctness fix everything else assumes |
-| 3     | K, L44, N56  | Capture and queue                                              |
-| 4     | M            | Detect, recover, prevent, measure (includes the migration)     |
-| 5     | G            | Gestures — smallest UI diff, immediately testable on a phone   |
-| 6     | A, B, H, N53 | Map hero, ghosts, stale pins                                   |
-| 7     | C, F         | Driver bar, micro timeline, delivered state                    |
-| 8     | D, E, N54    | Custody collapse, timeline detail                              |
+`autoAssignOnPaid` now assigns only when the pickup window is inside a
+configurable horizon; a five-minute Inngest sweep assigns the rest as their
+windows come into range.
+
+### 1.2 The horizon
+
+`CoreDefaults.assignmentHorizonHours`, default **48**. Resolved by the apps
+from `ASSIGNMENT_HORIZON_HOURS` and injected through `createRuntime({ defaults })`
+— core reads no env.
+
+The predicate lives in its own module,
+[`services/assignment-horizon.ts`](../../packages/core/src/services/assignment-horizon.ts),
+rather than inside `auto-assign.ts`. Not tidiness: `auto-assign.ts` imports
+`dispatch.ts` for `assignAgentToBooking`, and `dispatch.ts` needs the same
+predicate for the board's at-risk flag — sharing it in either direction would
+have been an import cycle. Three callers, one definition, no cycle.
+
+The env value is parsed in each app's `lib/core.ts`, not in `env.ts`, and a
+non-numeric or non-positive value **warns and falls back to the default**.
+`Number("fourty-eight")` is `NaN`, and `NaN` makes `withinAssignmentHorizon`
+false for every booking — an app that boots and silently stops assigning
+anybody. Parsed in web and admin only; the agent app neither assigns nor
+renders at-risk state.
+
+### 1.3 On-paid behaviour
+
+Inside the horizon: unchanged, byte for byte — the same `autoAssignBooking`
+call, the same task pair, the same system-actor custody event. At the default
+48 hours that is every same-day and next-day booking.
+
+Beyond it: **nothing is created.** The hook reads `pickup_window_start` and
+returns before `autoAssignBooking`. No verification task, no pickup task, no
+custody event, and the booking rests in `paid`.
+
+### 1.4 Task-creation reconciliation — the decision, with evidence
+
+The prompt asked for ONE coherent rule, and recommended deferring both
+creations. **Adopted, and the codebase supports it rather than contradicting
+it.** The evidence:
+
+- `assignAgentToBooking` (`services/dispatch.ts`) creates the verification
+  task and the pickup task **in one transaction**. Deferring the call defers
+  both; the paired-creation invariant is untouched, and the pair can never be
+  half-made. No change was needed inside that function at all.
+- The pickup task is not a driver assignment. Since Tier 4 the driver is
+  chosen by `selectDriver`, which **updates** the existing pickup task row
+  (`driver-selection.ts` — `tx.query.pickupTasks.findFirst`, then
+  `tx.update(pickupTasks).set({ driverShiftId, assigneeUserId })`), throwing
+  `NotFoundError` if the row is absent.
+- So the question is whether deferring the row can ever strand a driver
+  selection. It cannot: `assertSelectable` restricts selection to
+  `DRIVER_SELECTABLE_STATUSES = ["verified_sealed", "awaiting_pickup"]` —
+  **post-sealing**. Sealing requires a completed agent visit, which requires
+  an assigned verification task. A booking whose pickup task has been deferred
+  is by construction still in `paid`, where selection is refused with
+  "a driver is chosen once the bags are sealed" and always was.
+
+Nothing customer-visible changes, and the invariant is preserved by
+construction rather than by remembering to keep two writes in step.
+
+### 1.5 The sweep
+
+`assignEnteringHorizon(config)` → Inngest function `assignment-horizon-sweep`,
+cron `*/5 * * * *` (the same pattern as `capture-due-bookings` and
+`cutoff-risk-monitor`, for the same reason: nothing server-side observes a
+clock crossing a threshold, so the sweep IS the observation).
+
+Selection: `status = 'paid'`, **no verification-task row**,
+`pickup_window_start <= now + horizon`, ordered by window, capped at 200.
+
+Two properties make it safe, both proven against a real database:
+
+- **Already-assigned bookings are invisible by construction.** The
+  `verification_tasks` left-join + `IS NULL` means an admin's early manual
+  assignment is never seen — there is no "never reassign" rule to remember
+  and no way to forget it.
+- **Concurrent runs collapse.** Four sweeps fired simultaneously all
+  `considered: 1`; exactly one landed in `assigned`, the rest in `raced`.
+  The 0019 unique index on `verification_tasks(booking_id)` is the referee and
+  23505 is read as "already assigned", never an error — the same discipline as
+  the two-concurrent-paid test.
+
+Assignment is **sequential** within a batch, deliberately: the candidate
+ranking counts each agent's open tasks, so two bookings assigned in parallel
+would both read the load from before either was written and pile onto the same
+person.
+
+Per-booking `try/catch`, so one uncoverable ZIP cannot stop the batch. A
+booking nobody covers is reported `uncovered` and stays `paid` — the board's
+problem now, correctly, because it is inside the horizon.
+
+### 1.6 At-risk honesty
+
+`getOpsDashboard` and `listBookingsBoard` both took a bare `now: Date`; both
+now take a `BoardContext { now?, assignmentHorizonHours? }`. The admin app
+passes `core.defaults.assignmentHorizonHours` at both call sites, so the
+console and the sweep cannot disagree about where the line is.
+
+- `unassignedToday` gains `pickup_window_start <= now + horizon`.
+- The board's `no_agent` flag gains `withinAssignmentHorizon(...)`.
+
+At the default this changes nothing — every window "today" is inside 48 hours,
+and the board's own at-risk window is 12 hours, which is stricter. **That is
+exactly why it had to be written down.** Set `ASSIGNMENT_HORIZON_HOURS=6` and
+tonight's 11 PM pickup is legitimately unassigned at 9 AM; without these two
+clauses the console would show a red badge for work the sweep is going to do
+at 5 PM, which teaches operators to ignore the badge.
+
+The test proves the distinction is the horizon and nothing else: the **same
+row at the same instant** reads `atRisk: false` under a 1-hour horizon and
+`atRisk: true, no_agent` under a 48-hour one.
+
+### 1.7 Consequences checked
+
+- **"Agent assigned" email** now arrives at horizon entry. No template change:
+  `emitAgentAssigned` fires from `assignAgentToBooking`, which the sweep calls
+  through the ordinary path.
+- **Pre-window reminder — unaffected, cited.** `booking-pickup-reminder`
+  sleeps until `subHours(event.data.pickupStartAt, 2)` — the window from the
+  `booking/confirmed` event, never the assignment — and then re-reads the
+  status against `REMINDER_WORTHY = new Set(["paid", "agent_assigned"])`.
+  Both statuses are reminder-worthy, so deferral cannot suppress a reminder
+  even in the pathological case of a horizon under two hours.
+- **The customer-facing copy was already right.** The trip page renders
+  "Assigned closer to your window" when no agent is attached
+  (`apps/web/src/app/trips/[bookingId]/page.tsx`). That sentence was
+  previously aspirational — assignment happened seconds after payment — and is
+  now literally true. No copy change.
+- **Admin override** is untouched: `autoAssignBooking` from
+  `apps/admin/src/app/bookings/actions.ts` still assigns immediately at any
+  distance, and the sweep skips the result by construction.
+
+### 1.8 Tests
+
+- [`assignment-horizon.test.ts`](../../packages/core/src/services/assignment-horizon.test.ts)
+  — 7 unit cases on the predicate: boundary inclusive (it must agree with the
+  sweep's `<=` SQL to the microsecond), a past window is in-horizon, a null
+  window is never deferred, the configured number is respected, and the
+  default is 48.
+- [`assignment-horizon.integration.test.ts`](../../packages/core/src/services/assignment-horizon.integration.test.ts)
+  — 12 cases against real Postgres: immediate assign inside the horizon;
+  **nothing created** beyond it (both task tables asserted empty); a shortened
+  horizon defers a booking the default would have assigned; the sweep is a
+  no-op before entry and assigns exactly once after; four concurrent sweeps
+  assign once; a re-run sees nothing; an admin's early assignment survives
+  with its actor id intact; an uncovered ZIP is reported not assigned; the
+  at-risk distinction above; and the on-paid hook never throws.
+
+### 1.9 Gates
+
+| Gate                            | Result                                                           |
+| ------------------------------- | ---------------------------------------------------------------- |
+| `turbo typecheck`               | 6/6 ✅                                                           |
+| `turbo lint`                    | 6/6 ✅                                                           |
+| `turbo test` (unit)             | core 499 ✅ · web 119 ✅ · admin 27 ✅ · agent 19 ✅ · ui 102 ✅ |
+| `@koolee/core test:integration` | 260 passed, 3 skipped ✅ (was 248)                               |
+| `turbo build`                   | 3/3 ✅                                                           |
+
+No migration in this phase — deferral is behavioural, and adding a column to
+record "deferred" would be bookkeeping a query already answers.
 
 ---
 
-## Risks carried
+## Phase 2 — Push core (schema, sender, subscription API)
 
-1. **One-finger pan makes the map a scroll trap on phones.** Mitigated by the
-   fixed-height hero (28), but it is a real regression against the reasoning
-   documented at `live-map.tsx:414-426`. TD accepted this knowingly.
-2. **Ghost pins are an implied availability claim.** Anonymous, inert, no ETA
-   and replaced the instant a real driver exists — but "Finding drivers near
-   you" beside drifting vans is still a claim. Phantom vehicles have drawn
-   regulatory complaints against ride-hailing apps. TD chose the no-disclaimer
-   version deliberately (decision 2).
-3. **Dimmed stale pins can sit several blocks from the real van** in city
-   traffic. The "last seen N min ago" label is what keeps it honest.
-4. **Item 52 is a schema change.** SQL shown before it runs, per TD's standing
-   rule.
-5. **A locked phone still stops reporting.** No web API can prevent this: a
-   service worker has no geolocation, Periodic Background Sync is Chromium-only
-   and unreliable, and iOS Safari suspends a backgrounded PWA. Items 46–49
-   shorten, surface and recover the gap; they do not eliminate it. A native
-   wrapper is the only true fix and is explicitly out of scope (decision 7).
+### 2.1 Migration 0032 — GENERATED, NOT APPLIED
 
----
+[`packages/db/drizzle/0032_push_subscriptions.sql`](../../packages/db/drizzle/0032_push_subscriptions.sql).
+Local is at 32/32 by content hash (`pnpm db:status`, target host `127.0.0.1`).
+**`pnpm db:migrate` has not been run** — a migration CLI is a TD-confirms
+command. The SQL and its risks are in the hand-off at the end of this report.
 
-## Out of scope
+Shape: `id`, `user_id` (fk → `users`, cascade), `endpoint`, `p256dh`, `auth`,
+`label`, `app`, `created_at`, `last_seen_at`, `verified_at`.
 
-Native/Capacitor wrapper for true background GPS · route-following pin
-interpolation · realtime custody-event streaming (the `TODO(realtime)` at
-`apps/web/src/components/custody-timeline.tsx:12`) · any change to driver
-ranking or matching.
+**The unique index is on `endpoint` ALONE, not `(user_id, endpoint)`**, and
+that is the one decision in this table worth arguing about. An endpoint
+identifies one browser install globally. Key the index on the pair and a
+device that changes hands gains a SECOND row — the previous owner keeps
+receiving notifications about a stranger's bags, forever, with no UI anywhere
+that would show it. Keyed on `endpoint`, subscribe is an upsert that moves the
+row to the new user. Proven in the integration tier ("a device that changes
+hands MOVES to the new person").
 
----
+`verified_at` exists because of the POC's central finding: `showNotification`
+resolving tells you the notification was _created_, not displayed. macOS with
+Chrome switched off in System Settings reports success at every layer and
+draws nothing. The only trustworthy signal is a human saying "yes, I saw it",
+so there is a column for it.
 
-## Progress log
+**RLS: deliberately nothing.** The table is server-only — no browser client
+ever queries it. 0016's `ensure_rls` event trigger switches RLS on for any new
+`public` table, so it lands with RLS enabled and zero policies, which denies
+`anon` and `authenticated` outright. The §7 rule "a policy grants nothing, add
+the GRANT too" governs CLIENT-READABLE tables (0031, 0016); adding either here
+would widen access nothing needs. Written into the migration header so the
+next reader does not "fix" the omission.
 
-Newest last. One entry per phase, written as the phase lands.
+### 2.2 The `PushSender` seam
 
-### Phase 0 — plan agreed, branch cut
+[`packages/core/src/notifications/push.ts`](../../packages/core/src/notifications/push.ts)
+mirrors `Notifier` exactly: interface, `ConsolePushSender` default,
+`RecordingPushSender` for tests, and `pushSender` on `CoreConfig` /
+`RuntimeOptions`.
 
-`feat/live-map-first` cut from `origin/dev` @ `9d26a71`, `--no-track`, upstream
-verified empty.
+Passed as an INSTANCE rather than a declarative `{ kind: ... }` config — the
+same call the Inngest emitter makes, and for the same reason: the real one
+needs the `web-push` library, and core must not depend on a Node crypto
+library or read three env values.
 
-**A correction to this header, made at push time.** It first recorded the base
-as `bffe2d4`, read off the LOCAL `dev` ref, which was stale — `origin/dev` had
-already advanced to `9d26a71` (the merge of PR #41). The branch was cut from
-`origin/dev`, so the real base is `9d26a71` and this work already carries
-`9caf060`, the wall-clock test fix. The earlier note that the branch "won't
-carry it" was wrong. Worth recording rather than quietly editing: reading a
-base off a local ref that nobody has pulled is an easy way to describe a
-branch incorrectly. Plan written to this file before any code. Seven decisions
-locked with TD across three rounds; the three-way branch split was offered and
-declined in favour of one end-to-end branch.
+The real one is
+[`apps/web/src/lib/web-push-sender.ts`](../../apps/web/src/lib/web-push-sender.ts).
+`web-push` does the two things not worth hand-rolling: the VAPID JWT that
+authenticates Koolee to the push service, and AES128GCM encryption against the
+subscription's own keys (the push service relays ciphertext it cannot read).
 
-### Phase 1 — agent Today and Schedule (items 31–39, 55)
+Decisions inside it:
 
-**Commit:** `feat(agent): cancelled stops leave the schedule for history`
+- **TTL 300s.** A task assignment is worth showing five minutes late. An hour
+  later the person has seen it in the app or the situation has moved on, and a
+  stale alert is worse than none.
+- **`urgency: 'high'`** for tasks and exceptions, `'normal'` for customer
+  milestones.
+- **404/410 prunes; everything else does not.** A 5xx is the provider having a
+  bad afternoon — pruning on it would silently unsubscribe people and nothing
+  would say why. Pinned by a test.
+- **`setVapidDetails` per send, not at module scope.** It is global mutable
+  state in the library, and a module-scope call runs on import in processes
+  that never send anything.
+- **It never throws.** Every call site is an Inngest step whose EMAIL is the
+  real notification.
 
-**The one-line cause.** `isFinished` was `state === "done"`, so a cancelled job
-was neither finished nor outstanding and fell through every bucket into
-`overdue` — where an old window sorts to the top, forever.
+`services/push-subscriptions.ts` holds storage, authorization and the
+`pushToUsers` / `pushToTargets` fan-out (send → prune expired → report).
+Both swallow everything, by contract.
 
-**What changed.**
+The ops audience (`listAdminPushTargets`) is **derived** from active admin
+`staff_members` — no notification-role column, no recipients table. §7: a
+roster on a write path is a thing that has to be kept in step with what it
+counts. Deactivating an admin removes them from the audience on the next send;
+asserted.
 
-- `apps/agent/src/lib/job.ts` — `isFinished` split into `isDone` (work that
-  happened) and `isSettled` (done or cancelled). `finishedJobs` → `settledJobs`.
-  New `hasMissedCutoff`. `groupIntoSections` skips settled, files past-cutoff
-  stops under `problems`, and gained an `unscheduled` bucket.
-- `apps/agent/src/app/page.tsx` — **deleted its own day-bucketing** and now
-  reads `groupIntoSections`, the same function the Schedule uses. This is what
-  made the two screens' counts disagree in the first place. Sections are now
-  Needs attention → route → No time set → Running late; a new local
-  `JobSection` renders the three that are not the route.
-- `apps/agent/src/app/tasks/page.tsx` — History shows settled work, `To do · N`
-  counts `unscheduled`, section order is Problems → Today → Upcoming → No time
-  set → Running late, and Running late dropped from `alarm` to `muted`.
-- `packages/core/src/services/tasks.ts` — `TaskBookingContext` carries
-  `bagDropCutoffAt`, resolved from `airline_cutoffs` in one query for the whole
-  queue (strictest minutes win, matching `cutoffMinutesByRoute`).
-  `listAssignedTasks` takes an optional `now`.
+### 2.3 Env, boot gate, keygen
 
-**A cancelled card was already right.** `JobCard` has drawn cancelled at 75%
-opacity with a "Cancelled" badge since F4, so item 36 needed no card work —
-only History's framing and empty-state copy.
+`VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` / `VAPID_SUBJECT` plus
+`NEXT_PUBLIC_VAPID_PUBLIC_KEY` in `apps/web/src/env.ts`, and a **production
+boot gate** beside the RESEND / OPS_ALERT_EMAIL / ANTHROPIC ones.
 
-**Verified.** `apps/agent` 61 tests pass (38 in `job.test.ts`, up from 30 —
-new coverage for cancelled leaving the schedule, past-cutoff becoming a
-problem, late-but-doable staying overdue, the unscheduled bucket, the three
-predicates, and `hasMissedCutoff` including an undefined-field fixture).
-`tsc --noEmit` clean on `apps/agent` and `packages/core`. ESLint clean on all
-three changed files.
+The gate exists because the fallback is `ConsolePushSender`, which logs and
+**reports success**: without it a production deploy would report every
+notification as sent while no device ever rings. That is the same class of
+silent degradation as the heuristic ticket extractor, and worse here, because
+push is the channel a driver relies on with the tab closed. The
+`NEXT_PUBLIC_` copy is checked separately — a server that can send with a
+browser that can never subscribe is a configuration nobody means, and
+forgetting that one variable is the likely mistake.
 
-**Not verified: core's own suites.** Docker is stopped locally, and
-`packages/core`'s vitest global setup requires Postgres on `127.0.0.1:54322`.
-`dispatch.integration.test.ts` exercises `listAssignedTasks` and should be run
-before this branch merges. The DB is needed for phase 4's migration anyway.
+`pnpm push:vapid` → `apps/web/scripts/generate-vapid.mjs`. It **refuses to
+overwrite** an existing private key and says why: regenerating invalidates
+every row in `push_subscriptions`, every device goes silent while its UI still
+reports "subscribed", and recovery means truncating the table and asking every
+agent, driver and admin to re-enable by hand. It appends rather than writes,
+so it cannot clobber the rest of `.env.local`.
 
-### Phase 2 — the ordering guard (items 45, 56)
+### 2.4 Subscription API — route handlers, not Server Actions
 
-**Commit:** `fix(core): an older position fix can no longer overwrite a newer one`
+`app/api/push/subscribe/route.ts` in all three apps: `POST` subscribe/
+re-register, `PATCH` "I saw it", `DELETE` unsubscribe.
 
-`driver_positions` holds one mutable row per driver, and the upsert had no
-`where` — so the last write landed whatever instant it described. Survivable
-while the only caller was a foreground timer sending one fresh fix at a time;
-not survivable the moment fixes can arrive out of order, which the offline
-queue (item 44) and `sendBeacon` (item 43) both make possible.
+Route handlers are **forced, not preferred**. The service worker's
+`pushsubscriptionchange` handler has to re-register a rotated subscription,
+and a service worker can only `fetch` a URL — no React, no form, no way to
+invoke a Server Action. One endpoint serves the page and the worker so the two
+cannot drift.
 
-`onConflictDoUpdate` now carries `where: lte(driverPositions.recordedAt,
-recordedAt)`. `recordedAt` is the DEVICE's fix time, which is what makes the
-comparison mean anything: arrival order is a fact about the network, fix order
-is a fact about the world.
+Authorization is one sentence: **the user comes from the session, never the
+body.** There is no field in any payload that names a user, so there is
+nothing to forge; core additionally scopes every write by `user_id` so that
+knowing an endpoint (a value that travels through logs and proxies) is not
+enough to silence somebody's device. Web uses `getVerifiedAuthUser`, not
+`getAuthUser`: the funnel's anonymous guests are reaped by
+`cleanup-anonymous-users`, and a subscription bound to one would be deleted
+out from under a device that still believed it was subscribed.
 
-**`lte`, not `lt`, and it matters.** Two fixes bearing the same instant must
-not be a silent drop — a phone can emit two readings inside a millisecond, and
-every test in the suite runs on a fixed clock where every write carries an
-identical timestamp. Under `lt` the existing "overwrites rather than appends"
-test would have failed, which is how the case was found.
+### 2.5 Dependency added
 
-A rejected write is a no-op, never an error: a queue flush that throws on its
-stale entries is a queue that never drains. Pinned by a test.
+`web-push@^3.6.7` + `@types/web-push@^3.6.4`, in **apps/web only** (where the
+Inngest functions send). Transitive: `asn1.js ^5.3.0`, `http_ece 1.2.0`,
+`https-proxy-agent ^7.0.0`, `jws ^4.0.0`, `minimist ^1.2.5`. Same version the
+POC ran on. No breaking-change notes — a first install, not a bump. Lockfile
+passes the supply-chain policy check.
 
-**Verified.** Docker started and the local stack brought up (`pnpm local`) —
-it needed a second run, the first timed out on `supabase_db_koolee` still
-starting. `driver-selection.integration` 33 passed (3 new: older loses, newer
-wins, loser does not throw). Core unit tier 617 passed / 1 skipped.
-`dispatch.integration` 19 passed — the suite that exercises phase 1's
-`listAssignedTasks` change. `tsc --noEmit` clean.
+### 2.6 Tests
 
-### Phase 3 — capture and queue (items 40–44, 49, 51)
+- [`apps/web/src/lib/web-push-sender.test.ts`](../../apps/web/src/lib/web-push-sender.test.ts)
+  (8, `web-push` faked): the wire shape (stored flat, sent nested — the
+  conversion is what breaks), TTL + urgency, 410 **and** 404 prune, a 500 does
+  **not** prune, a non-Error rejection is still swallowed, and zero targets
+  makes no call at all. Plus `createWebPushSender` returning null on any
+  partial configuration rather than a sender that fails every send.
+- [`push-subscriptions.integration.test.ts`](../../packages/core/src/services/push-subscriptions.integration.test.ts)
+  (12, real Postgres): many devices per person; re-subscribe with rotated keys
+  updates in place; **a device that changes hands moves**; cannot delete or
+  verify another user's subscription even knowing the endpoint; a deleted user
+  takes their rows with them; the ops audience is derived and reacts to
+  deactivation; fan-out to every device; prune on expiry; **a throwing sender
+  is swallowed and prunes nothing**; nobody subscribed makes no call.
+- `apps/web/src/env.test.ts` gained the VAPID gate cases and its
+  "complete prod config" fixture gained the four variables.
 
-**Commit:** `feat(agent): keep reporting a driver's position through the gaps`
+### 2.7 Gates
 
-The pinger was `setInterval` around `getCurrentPosition`. Five separate
-reasons that lost a driver's location, each now answered:
-
-| Cause                                | Answer                                |
-| ------------------------------------ | ------------------------------------- |
-| A timer only fires in the foreground | `watchPosition` subscription          |
-| The screen sleeps                    | Wake Lock while `en_route`/`carrying` |
-| A failed send was a lost fix         | IndexedDB queue + Background Sync     |
-| Coming back waited out a full tick   | Send on `visibilitychange`            |
-| A revoked permission was invisible   | `permissions.query().onchange`        |
-
-**New files.** `src/lib/position-queue.ts` (bounded 120-entry IDB queue,
-batch flush, `sendBeacon` helper, exported `flushDisposition` rule) and
-`src/lib/position-queue.test.ts`.
-
-**Changed.** `components/shift/gps-pinger.tsx` rewritten. `api/driver-position`
-accepts one fix or a batch of up to 120, applied oldest-first and sequentially
-(they contend on one row per driver). `public/sw.js` gained a third job: a
-`sync` handler that drains the same IDB store after the tab is gone.
-
-**Throttle vs fix rate — the distinction that keeps the battery cost flat.**
-`watchPosition` delivers whenever the device has news; only one send per phase
-cadence reaches the network. The first callback after (re)subscribing always
-sends, which is what makes a phase change and a foreground return immediate.
-
-**The status chip is always present now (item 49).** The old component
-rendered nothing unless something had already failed, so "is Koolee seeing me?"
-was unanswerable on the happy path. Live / Finding / lost / blocked, with a
-"Try again" that forces a fresh hardware fix. `data-gps-state` is on the
-element so a browser pass can read the real state out of the DOM.
-
-**A contract with no type system across it.** The DB name, store name, sync
-tag, record shape and endpoint are duplicated between `position-queue.ts` and
-`sw.js`, which is served raw and cannot import from the app. Both files carry
-the warning.
-
-**Verified.** `apps/agent` 74 tests pass (5 files). `tsc --noEmit` clean,
-ESLint clean across `src/`, `node --check` on `sw.js`.
-
-**Not verified: the IndexedDB paths themselves.** The repo has no
-`fake-indexeddb` and adding a dependency is TD's call, so the queue's storage
-behaviour needs a browser pass. The rule most worth pinning — keep vs drop vs
-retry, whose three failure modes are each invisible until a driver is in a
-tunnel — was extracted as a pure `flushDisposition` and is unit-tested.
-Background Sync is Chromium-only by design; on Safari and Firefox the queue
-drains on the next successful foreground send.
-
-### Phase 5 — map gestures (items 25–28)
-
-**Commit:** `feat(ui): one finger pans the map`
-
-`cooperativeGestures: true` came out. It was the right trade when the map was
-a garnish above a list somebody actually chose from; it is the wrong one now
-the map is the view. Asking for two fingers to drag is a gesture nothing else
-on a phone requires.
-
-**The scroll trap is bounded, not solved,** and the code says so. The map is a
-fixed-height hero, never full-viewport, so there is always page above and below
-to scroll from — but a thumb landing ON the map now pans the map. That is the
-accepted cost of the change and the reason item 28 is part of this group
-rather than a nicety.
-
-**The desktop half costs nothing, so it is not paid.** With cooperative
-gestures off, the default is that a wheel over the map zooms it — a laptop
-scrolling past the trip page gets caught and dropped into street level. Fixed
-with `scrollZoom.disable()`: the wheel scrolls the page, and zoom stays on the
-+/− buttons where a mouse user looks for it. Touch pinch is a separate handler
-and is unaffected. Rotation and pitch stay disabled as before.
-
-**Verified.** `packages/ui` `tsc --noEmit` and ESLint clean. The four existing
-`live-map` stories updated — the "what to check by hand" list said "one finger
-scrolls the PAGE, two pan the map", which is now the opposite of the truth.
-Needs a real touch-device pass; the Storybook story is the place to do it.
-
-### Phase 6 — the map is the card (items 1–17, 29, 30, part of 54)
-
-**Commit:** `feat(web): the map is the driver card, in every state`
-
-Three cards became one. The map used to be gated on three separate conditions
-— a non-null pickup, a non-empty pin list, a fresh fix — and any one failing
-produced a page with no map. The two most common failures happened at the two
-most anxious moments: before anyone was assigned, and while a chosen driver's
-phone was in a pocket. Only the first gate survives, and only because a
-booking whose address never resolved has genuinely nothing to draw.
-
-**Ghost pins.** `lib/ghost-drivers.ts` — deterministic from the booking id, so
-the page's ~15 s refresh does not scatter them to new streets. 400 m–2 km out,
-spread across the compass, drifting ≤120 m per 8 s step. Anonymous and inert
-_structurally_: `LiveMap` renders `variant: "ghost"` as a `span` inside a
-`pointer-events-none` root, so there is no element for a click listener to
-fire from. They are torn down in the same render a real candidate appears, and
-the drift timer with them.
-
-**Stale pins, both surfaces.** Core stopped nulling an aged position:
-`DriverCandidate` now carries `position` (last known), `positionIsFresh` and
-`positionRecordedAt`. Null means one thing only — never reported. The ETA is
-still refused on a stale origin, because a number computed from one is
-indistinguishable from a real estimate.
-
-**Driver bar and micro timeline.** `ProgressTrack` gained `compact` — one row,
-11px labels, rails intact. The full-size strip stacked into five rows on a
-phone and pushed the map off the screen. `pickupSteps(name)` puts the driver's
-name in the first stage; "At the bag drop" became "Delivered".
-
-**After delivery, the panel goes entirely** (item 23 is half-done here: the
-removal has landed, the "who handled your bags" block has not).
-
-**Verified.** `apps/web` 190 tests (23 new across ghost-drivers, driver-pins
-and position-age). `packages/core` driver-selection integration 34.
-`tsc --noEmit` clean on web, ui, core. ESLint clean.
-
-**Not verified: anything visual.** No browser pass yet — the ghost drift, the
-compact track's wrapping, the searching chip over the map and the one-finger
-pan all need real eyes on a real phone.
-
-### Phase 4 — detect, recover, prevent, measure (items 46–48, 50, 52)
-
-**Migration 0036 applied to LOCAL** with TD's explicit approval, after the SQL
-and its risks were shown. `pnpm db:status` → **37 of 37, matched by content
-hash, in sync**. Hosted untouched; it will pick this up through the CI
-migration workflow on merge (MIGRATIONS.md §9.5).
-
-**Commit:** `feat: notice when a driver's location stops arriving`
-
-- **52 — the ping log.** `recordDriverPosition` appends to
-  `driver_position_pings` beside the mutable row. Appended **even when the
-  upsert declines the ordering race**: a fix that lost is still a real
-  observation, and the gap between `recorded_at` and `created_at` is exactly
-  what distinguishes "was in a tunnel" from "stopped reporting". Never fatal —
-  diagnostics must not cost a driver their live pin.
-- **52 — retention.** `prunePositionPings`, batched at 5,000 rows, on an
-  hourly cron at :17. Not housekeeping: ~1,500 rows per driver-day makes this
-  the highest-volume write in the system.
-- **46 — gap detection.** `listStalePositionShifts` + `positionHealthOf` in a
-  new `services/position-health.ts`. `POSITION_GAP_MS` is **4 minutes,
-  deliberately looser than the map's 90-second `POSITION_FRESH_MS`** — 90s is
-  "do not draw this as current", a bar an ordinary phone crosses at every red
-  light in a tunnel. Alerting on it would page ops hourly per driver and be
-  ignored inside a day.
-- **47 — the push nudge.** A 5-minute cron pushing the driver, not ops: the
-  only actor who can end the gap is the person holding the phone, and a push
-  is the only thing that can wake a backgrounded PWA. One nudge per 30-minute
-  cooldown, bucketed into the tag so repeats collapse.
-- **48 — ops visibility.** The admin shifts page flags an open shift as
-  "No location" or "Location silent 12 min", with the last-seen time. Silent
-  and stale stay distinct: one is a device problem to solve before the driver
-  leaves, the other is a driver to ring.
-- **50 — the clock-on gate.** A prompt, **not a lock**. Refusing to let
-  somebody clock on would strand a driver whose phone is having a bad morning
-  at a doorstep with bags waiting — worse than a missing pin. It reads the
-  permission with `permissions.query` (which does not prompt), so a driver who
-  already granted it sees nothing at all, and asking is their tap. It requires
-  one real fix, not just the grant: a granted permission in a basement car
-  park is still a shift that reports nothing.
-
-**Verified.** `packages/core` 622 unit tests (5 new for `positionHealthOf`,
-registration test updated for the two new crons). `tsc --noEmit` and ESLint
-clean on core, agent and admin.
-
-**Not verified:** the two new crons have no integration test, and the ping-log
-write path is only covered indirectly. Worth an integration test before merge.
-
-### Phase 8 — the trail, the photos, and who handled the bags (items 18–24, 53)
-
-**Commit:** `feat(web): fold the custody trail, and name the people on it`
-
-- **18, 19 — collapsed.** Newest three events, then "Show full history · N
-  earlier events". A completed booking carries twenty-odd, each of which drew
-  a 192px photo, so the trail was a screen and a half between the map and
-  everything below it. Expands in place — every event is already in the
-  component's props, so the button is a state flip, not a request. The
-  "current" marker stays on the newest event of the WHOLE trail, not of what
-  is on screen.
-- **20 — named actors.** `custody_events.actor_user_id` resolved against the
-  two people the page already loads, with the avatars it already signs. No new
-  query. Scoped by `NAMED_EVENTS` to the five field-role moments; an admin who
-  reassigns a pickup is an actor on the real trail and is never named to the
-  customer.
-- **21, 22 — photos behind a button.** `ImageLightbox` gained
-  `trigger="button"`. Same dialog, same keyboard path, same evidence — a 56px
-  crop of a suitcase was never information anyway, since the detail that makes
-  a proof photo proof is the seal number and that always needed the dialog.
-- **23, 24 — after delivery.** The driver panel goes (landed in phase 6); in
-  its place, "Who handled your bags" names the agent who sealed at the door
-  and the driver who delivered to the bag drop, both from data already on the
-  page.
-- **53 — stories.** `SearchingForDrivers` and `StalePosition` on LiveMap,
-  three `Compact` stories on ProgressTrack (including the long-name wrap
-  case), `NamedActorsWithPhotoButtons` on CustodyTimeline. Each carries what
-  to check by hand, because none of it is catchable by typecheck.
-
-**Verified.** `pnpm typecheck` — 6/6 packages. `pnpm test` — 6/6, web 195,
-core 622 (+1 skipped). ESLint clean across web, ui, agent, admin, core.
+| Gate                            | Result                                                           |
+| ------------------------------- | ---------------------------------------------------------------- |
+| `turbo typecheck`               | 6/6 ✅                                                           |
+| `turbo lint`                    | 6/6 ✅                                                           |
+| `turbo test` (unit)             | core 499 ✅ · web 129 ✅ · admin 27 ✅ · agent 19 ✅ · ui 102 ✅ |
+| `@koolee/core test:integration` | 272 passed, 3 skipped ✅ (was 260)                               |
+| `turbo build`                   | 3/3 ✅                                                           |
 
 ---
 
-## All 56 items are implemented.
+## Hand-off — two things TD has to run before Phase 3
 
-## Browser pass — Storybook, over CDP
+### 1. Apply migration 0032 to the LOCAL dev database
 
-Driven against the running Storybook rather than screenshotted, because every
-claim below is a DOM fact and a screenshot cannot tell a grey pin from a
-disabled one.
+```sql
+CREATE TABLE "push_subscriptions" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"user_id" uuid NOT NULL,
+	"endpoint" text NOT NULL,
+	"p256dh" text NOT NULL,
+	"auth" text NOT NULL,
+	"label" varchar(120),
+	"app" varchar(16) NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"last_seen_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"verified_at" timestamp with time zone
+);
+ALTER TABLE "push_subscriptions" ADD CONSTRAINT "push_subscriptions_user_id_users_id_fk"
+  FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;
+CREATE UNIQUE INDEX "push_subscriptions_endpoint_key" ON "push_subscriptions" USING btree ("endpoint");
+CREATE INDEX "push_subscriptions_user_idx" ON "push_subscriptions" USING btree ("user_id");
+```
 
-**`LiveMap / SearchingForDrivers`** — 3 markers, all `data-variant="ghost"`;
-computed `pointer-events: none`; no `<button>` inside any of them; empty
-`textContent` (anonymous, as required); `aria-hidden="true"`; the pulse ring
-present; the pickup pin drawn; a live `<canvas>`, so the tile worker is
-loading and the map is genuinely rendering rather than failing silently.
+Command: `pnpm db:migrate` (targets `127.0.0.1` — verified via `pnpm db:status`).
 
-**`LiveMap / StalePosition`** — the two pins are unmistakably different:
+**Lock / index risk: none.** A fresh `CREATE TABLE` plus two index builds on a
+table with zero rows — nothing to lock out, no rewrite, no scan, no
+`CONCURRENTLY` needed. Reversible with `DROP TABLE push_subscriptions`. It
+touches no existing table: the only reference is an outbound FK to `users`,
+which takes a brief `SHARE ROW EXCLUSIVE` on `users` and validates nothing
+(the new table is empty).
 
-|                 | live                  | stale                                   |
-| --------------- | --------------------- | --------------------------------------- |
-| background      | `rgb(23,127,166)` sky | `rgb(78,116,163)` navy                  |
-| pulse ring      | yes                   | **no**                                  |
-| accessible name | "Driver Marcus"       | "Driver Yara — **last known position**" |
-| tappable        | yes                   | yes                                     |
+The integration tier does **not** need this: its harness migrates the
+disposable `koolee_test` database itself, which is why 272 tests already pass.
+Only the local dev database (and therefore Phase 3's browser verification)
+needs the command run.
 
-**`ProgressTrack / CompactLongName`** at a 375px viewport — track is **44px
-tall**, no horizontal overflow, five equal 69px columns, all five dot wrappers
-at top 16px with labels at 32px, "Konstantina assigned" wrapping inside its own
-column. Rails intact.
+### 2. Generate a local VAPID pair
 
-> A note against my own first reading: an initial measurement showed the
-> current dot 6px high and I called it a defect. It was not — the selector had
-> matched the `animate-ping` element mid-scale, and `getBoundingClientRect`
-> includes transforms. Measured on the dot wrappers, the row is aligned. Worth
-> recording because the same trap will catch the next person measuring a
-> pulsing marker.
-
-**`CustodyTimeline / NamedActorsWithPhotoButtons`** — "Agent assigned · Ravi"
-with an avatar, "You chose your driver · Yara" with an avatar, one
-`View photo` button (accessible name "View photo: Sealed bag"), and **zero
-`<img>` thumbnails** in the collapsed state.
-
-**What is NOT verified, and should be before merge:**
-
-1. **The app itself, end to end.** Storybook covers the components; nothing has
-   run against a seeded booking with a real session — the ghost drift over
-   time, the searching chip's position over a live map, the one-finger pan and
-   desktop wheel on a real device, the collapsed trail on a real trail, the
-   clock-on gate, and the whole agent-app schedule change.
-2. **The IndexedDB queue's storage paths.** No `fake-indexeddb` in the repo;
-   adding a dependency is TD's call. The keep/drop/retry rule is unit-tested
-   as a pure function; the storage around it is not.
-3. **The two new crons and the ping-log write** have no integration test.
-4. **Background Sync is Chromium-only** by design — Safari and Firefox drain
-   the queue on the next successful foreground send instead.
+`pnpm push:vapid` — writes four lines to `apps/web/.env.local` (gitignored)
+and prints the public key. The agent and admin apps each need
+`NEXT_PUBLIC_VAPID_PUBLIC_KEY` set to the same value in their own
+`.env.local`, or nobody can subscribe there. The script refuses to overwrite
+an existing pair; the default subject is `mailto:ops@koolee.cloud` and can be
+overridden with `VAPID_SUBJECT=… pnpm push:vapid`.
 
 ---
 
-## End-to-end pass — the real apps, real data, real session
+## Phase 3 — Service workers, the shared hook, enable UX
 
-Driven with Playwright against all three apps on the local stack, signed in as
-TD's own customer account (`+13322602829`), the seeded admin, and a seeded
-driver. **Three real defects were found and fixed here, none of which any test
-or typecheck in the repo could have caught.**
+TD applied 0032 (`db:status`: 33/33 in sync, target `127.0.0.1`) and ran
+`pnpm push:vapid`, with `NEXT_PUBLIC_VAPID_PUBLIC_KEY` copied into all three
+apps' `.env.local`. Verified before starting: `/api/push/vapid` returns the
+same key on 3000, 3001 and 3002.
 
-### Defect 1 — the trip page 500'd
+### 3.1 Two things found in the existing agent PWA
 
-`"use client"` on `custody-timeline.tsx` (added for the collapse) pulled
-`@koolee/core` → `@koolee/db` → `postgres` into the browser bundle. Module not
-found at request time; **every trip page returned 500**. `tsc` was clean, all
-259 web/ui tests were green, and the Storybook pass could not see it because
-Storybook does not render that file.
+**(a) The agent app already had a service worker** (`public/sw.js`, an
+offline shell). Per the prompt: the push listeners were **merged into it**,
+not shipped as a second worker. That is not tidiness — a scope gets exactly
+ONE worker, so registering a `/push-sw.js` at scope `/` would have REPLACED
+the offline shell and taken it with it, silently. The file now has a two-job
+header and the push listeners below the fetch handler.
 
-Fixed by splitting where the dependency actually is: the mapping stays on the
-server in `custody-timeline.tsx`, and `custody-trail.tsx` owns nothing but the
-`useState` for the collapse. Finished React elements cross the RSC boundary
-fine; a Postgres driver does not.
+**(b) `ServiceWorkerRegistrar` has never registered anything, in any
+environment.** It returned `null` — the exact §7 trap F2 paid for
+(`TripLive`/`LiveTasks`: a client component that returns `null` never mounts
+in a Next 16 / Turbopack production build; its module loads, its body runs,
+its effects never fire). And it _also_ returned early unless
+`NODE_ENV === "production"`. So: nothing in dev by design, nothing in
+production by accident. The offline shell it exists to install has never
+installed.
 
-### Defect 2 — "Agent assigned" had no name
+Fixed the way F2 fixed it — it renders `<span hidden data-sw={state} />`, and
+that attribute is how "did it register?" is answered from the DOM. The dev
+guard is gone too: the worker is network-first for navigations and cache-first
+for only three precached files, so it cannot serve a stale page, and keeping
+the guard would have meant push could never be tested locally.
 
-Item 20 resolved the actor, and on a real booking the actor of
-`booking.agent_assigned` is the ADMIN who assigned (or nobody, for auto-assign
-on paid). The person the customer cares about is the one being assigned, whom
-dispatch puts in `metadata.agentUserId`.
+### 3.2 The hook
 
-Fixed with `subjectOf(event)` — metadata subject first, actor as fallback (still
-correct for `pickup.travel_started`, where the driver IS the actor). No fixture
-in any test had an actor and a subject that differed.
+[`packages/ui/src/lib/use-web-push.ts`](../../packages/ui/src/lib/use-web-push.ts).
+Ported from the POC, dependency-free beyond React.
 
-### Defect 3 — a `Date` in a raw `sql` template
+The VAPID key is **passed in**, not read from the environment: `NEXT_PUBLIC_*`
+is only inlined where it is written as a literal member expression, so a
+shared package reaching for one gets `undefined` in Storybook, in vitest, and
+in any consumer that is not a Next build. Each app reads its own and hands it
+over. The SERVICE WORKER cannot be handed anything — it outlives the page and
+`pushsubscriptionchange` fires when no page is open — so it fetches
+`/api/push/vapid`, added per app. That route is unauthenticated on purpose: it
+is a public key, already in every client bundle, and it authenticates Koolee
+TO the push service rather than the other way round.
 
-Found by the new integration tier, before any browser work. Both
-`listStalePositionShifts` and `prunePositionPings` interpolated a `Date` into a
-`sql` template, which binds a parameter `postgres.js` cannot serialise —
-**both queries threw on every call**. Rewritten with typed builders (`or`,
-`inArray` + a subquery). Typecheck saw nothing wrong.
+Non-negotiables carried over: permission requested ONLY from a gesture,
+`userVisibleOnly: true`, SW registration on mount but never a permission
+prompt, and an existing subscription reused rather than re-subscribed (a
+re-subscribe with a different key throws `InvalidStateError`).
 
-### What was verified running
+**Deliberately absent: a `showLocalNotification` helper.** The POC has one as
+a debug aid. It would be one line here and it would be a trap — it proves the
+worker can draw a notification, which is not the question. The question is
+whether a push sent from Koolee arrives, and only a real send answers it.
 
-| Area                                | Evidence                                                                                                                                                                          |
-| ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Map renders where it used to vanish | A `verified_sealed` booking whose only candidate had a 139-hour-old fix: map + canvas + **stale pin** + pickup pin. Before the slice this was `pins.length === 0` → no map at all |
-| Stale pin (29, 30)                  | `data-variant="stale"`, "Last seen 6 days ago. The grey van is where we saw them last." Popup carries the same line                                                               |
-| Driver bar + micro timeline (13–17) | "Nina is assigned to you" · "Nina assigned — current step / On the way / Bags collected / In transit / Delivered"                                                                 |
-| Choose → track transition           | Selected from the map popup; page moved to the tracking view with the named track                                                                                                 |
-| Custody collapse (18, 19)           | 3 rows + "Show full history · 7 earlier events" → 10 rows + "Show less"                                                                                                           |
-| Named actors (20)                   | "Agent assigned · **Nina**" with avatar, after Defect 2 was fixed                                                                                                                 |
-| Photo buttons (21, 22)              | "View photo" in the trail, "View seal photo" on bags, zero thumbnails                                                                                                             |
-| After delivery (23, 24)             | Completed booking: no map, no driver card, "Who handled your bags" naming the sealing agent and the delivering driver                                                             |
-| One-finger pan (25)                 | CDP touch drag of (−90, −60) moved the marker exactly (290,93) → (200,33). Cooperative-gesture overlay absent                                                                     |
-| Wheel scrolls the page (27)         | Real `mouse.wheel` over the map: `scrollY` 200 → 600, no zoom                                                                                                                     |
-| Agent Today (31–33)                 | "NEEDS ATTENTION · 2" leading; no stale overdue rows                                                                                                                              |
-| Agent Schedule (34–39)              | "To do · 2" / "History · 6"; "OPEN PROBLEMS · 2" leads; **cancelled stops now in History with their badge**                                                                       |
-| GPS pinger + chip (40, 49)          | Granted geolocation → chip `data-gps-state="live"`, "Location live"                                                                                                               |
-| Position write path (46, 48, 52)    | After that ping, the ops console dropped Leo Vargas's stale flag while every other driver still read "No location" / "Location silent 139 hrs"                                    |
-| Clock-on gate (50)                  | Permission granted → **nothing shown** (the designed silent path). Revoked → "Location is off for this site… turn it on in your browser settings", non-blocking                   |
+`unsubscribe` calls the server BEFORE `subscription.unsubscribe()`: the other
+order leaves a row alive whose endpoint 410s forever if the server call fails.
 
-Leo Vargas's shift was ended and restarted to reach the off-shift gate; it is
-back on DEV Truck B with GPS live. No other dev data was changed beyond the two
-bookings deliberately advanced.
+### 3.3 The enable UX
 
-### Still not verified — needs a human
+`PushEnableCard` in `packages/ui` (§7 — lift it when a second app needs it).
+The two staff apps differ by exactly one prop:
 
-1. **Ghost pins in the running app.** Verified in Storybook (3 pins,
-   `pointer-events: none`, no button, no text, `aria-hidden`, pulse) and by
-   seven unit tests. The app trigger is `candidates.length === 0`, which needs
-   **every driver shift ended** — the shortlist widens to out-of-zone drivers
-   before it empties. Not worth mutating six shifts in a shared dev database.
-2. **The clock-on gate's `prompt` branch** with its "Turn on location" button.
-   Playwright grants or denies; it cannot hold a permission at `prompt`.
-3. **Real-device touch feel** — pinch-zoom, and whether the fixed-height hero
-   makes the scroll trap tolerable in a thumb's hand rather than in CDP.
-4. **Push nudge delivery (47).** The cron and the payload are unit-tested;
-   an actual push to a real subscribed device is not.
+- **Agent** (`/account`) passes `verify`, so enabling runs the
+  did-you-see-it check: a real push through the full server pipeline, then a
+  Yes/No, then platform-aware remediation on No (ordered by likelihood, from
+  the POC's debugging notes: the OS per-app switch, Focus/DND, an alert style
+  of "None", enterprise policy; iOS gets the Add-to-Home-Screen instruction
+  instead). "Yes" writes `verified_at`.
+- **Admin** (Overview) does not. An ops person is looking at the board all
+  day and the board is already the channel; the step buys less than it costs.
+  `POST /api/push/test` still exists there for a manual check.
+
+The card's state is `asking`, never `sent` — because "accepted" is all the
+server can honestly report.
+
+**Customer web** gets a soft card on the trip page instead: dismissible,
+remembered per booking in `localStorage`, and shown ONLY inside the window
+`withinPushPromptWindow` allows (within 24h of the pickup window opening,
+until it closes). That test runs on the SERVER, next to the cutoff banner's,
+so the server and browser cannot disagree about whether the card exists. On a
+platform that cannot do push — iOS Safari not added to the Home Screen — it
+renders NOTHING rather than an offer that cannot work.
+
+### 3.4 Browser verification
+
+Two harnesses, because the first one could not answer the question.
+
+**The Playwright MCP is headless, and headless Chromium has no notification
+platform backend.** `registration.getNotifications()` came back EMPTY for a
+notification the page had just created itself — so it could not distinguish
+"nothing was drawn" from "the harness cannot see it". Re-ran headed, driving
+the bundled Chromium (`Chrome/149.0.7827.55`) over raw CDP. There, a probe
+notification created and listed correctly, which is what makes every result
+below trustworthy.
+
+Incidentally this **answers the POC's open question** in `limitations.md`
+("whether `getNotifications()` still lists a notification the OS suppressed is
+untested"): where the platform cannot draw one, it does NOT list it. So
+`getNotifications()` is not a detection signal, and the ask-a-human design is
+the right one.
+
+| Check                                                | Agent (3001)                                                    | Admin (3002)  | Web (3000)               |
+| ---------------------------------------------------- | --------------------------------------------------------------- | ------------- | ------------------------ |
+| `/sw.js` `no-cache` + `Service-Worker-Allowed: /`    | ✅                                                              | ✅            | ✅                       |
+| Worker registers at scope `/`, active                | ✅ (`data-sw="registered"`)                                     | ✅            | ✅                       |
+| Enable card renders, gesture-only                    | ✅                                                              | ✅            | n/a (trip-page card)     |
+| Permission granted → **real FCM subscription**       | ✅                                                              | ✅            | —                        |
+| Server send accepted                                 | ⚠️ **see §6.2 — this was `ConsolePushSender`, not a real send** | ⚠️ same       | —                        |
+| did-you-see-it step appears                          | ✅ (screenshot)                                                 | n/a by design | n/a                      |
+| `push` handler → visible notification, right payload | ✅                                                              | ✅            | ✅                       |
+| Deep-link `data.url` carried                         | ✅ `/tasks/t-abc`                                               | ✅            | ✅ `/trips/b-1`          |
+| Branded icon resolves                                | ✅                                                              | ✅            | ✅ `/icons/icon-192.png` |
+
+**Tag behaviour — the POC's most expensive trap — proven in the real worker:**
+
+- two DIFFERENT tags ⇒ **two** notifications (stack);
+- the SAME tag ⇒ still two, with the second one's title REPLACED
+  (`New visit assigned` → `Bags sealed` on `verification-task:t-2`) — collapse,
+  exactly as documented, which is what Phase 4's per-moment tag strategy
+  depends on;
+- an EMPTY push (`{}`) falls back to title "Koolee", tag "koolee", url "/"
+  without throwing — the "a push with no body is legal" guard works.
+
+**What is NOT proven, and why.** _(Read with §6.2: the agent/admin half of
+this paragraph turned out to be a wrong diagnosis — those sends were never
+real. The customer app and the synthetic-push evidence stand.)_ FCM never
+delivered to the automation profile: the subscription endpoint is FCM's **preprod** environment
+(`fcm.googleapis.com/preprod/wp/…`, which Chrome for Testing uses), the send
+returned success, and nothing arrived. That is the automation build's GCM
+driver, not this code — every link on either side of it is proven above, and
+the same worker raised the identical notification when the push event was
+delivered directly. **The tab-open / other-tab / tab-closed matrix needs one
+manual pass in TD's own Chrome**, listed in the hand-off. `notificationclick`
+focus-or-open is in the same bucket: no protocol command clicks a
+notification.
+
+### 3.5 Gates
+
+| Gate                | Result                                                           |
+| ------------------- | ---------------------------------------------------------------- |
+| `turbo typecheck`   | 6/6 ✅                                                           |
+| `turbo lint`        | 6/6 ✅                                                           |
+| `turbo test` (unit) | core 499 ✅ · web 137 ✅ · admin 27 ✅ · agent 19 ✅ · ui 104 ✅ |
+| `turbo build`       | 3/3 ✅                                                           |
+
+Two lint rules bit and both were real: `no-useless-assignment` on the test
+routes' `let userId = null`, and "setState synchronously within an effect can
+trigger cascading renders" on the registrar and the trip prompt. Both
+restructured rather than suppressed.
 
 ---
 
-## Phase 9 — TD's review pass
+## Phase 4 — Fan-out wiring (moments × push)
 
-Twelve commits of changes asked for after seeing the slice running. Recorded
-here because several reverse a call made earlier in this document, and a
-reader who finds only the original reasoning would reasonably think the code
-had drifted from it.
+### 4.1 Shape
 
-### The trip page
+Push sends live **inside the existing Inngest functions**, as the prompt
+specified — no new events, and the one new function is Phase 1's horizon
+sweep. Each send is its own `step.run`, placed AFTER the email step and never
+inside it. Three reasons, and the third is the one that matters most:
 
-| Change                                              | Note                                                                                                                                                                                                                             |
-| --------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Pickup details + Action needed share a row, 60/40   | Flex, not grid: `TripActionNeeded` returns null for most of a booking's life and a grid would hold its column open. The Action needed title moved inside its card so both columns are the same shape and stretch to equal height |
-| Pickup details is a 2×2 grid                        | Window, Address, Your agent, Your driver. One per row below `sm`. The zone note moved beside the title; "have your bags and passport ready" moved under the agent it belongs to                                                  |
-| The driver cell only renders when there is a driver | Its empty state was three lines of scaffolding for a fact that did not exist yet                                                                                                                                                 |
-| Choose-driver header is one row                     | Title, an (i) holding the prose, then Pick for me and the Map/List switch. `SegmentedControl` gained `whitespace-nowrap` — a tab label must not wrap                                                                             |
-| No driver section until the bags are sealed         | **Stricter than the status.** See the note in the page: an admin override can move a booking to `verified_sealed` without touching a bag, which is what produced a map above a bag reading "not yet sealed"                      |
-| Custody toggle moved into the card header           | Label drops the count: "Show full history" / "Show the latest"                                                                                                                                                                   |
-| Agreement step                                      | Version preamble gone. Two controls, then Read agreement + Download once accepted. Reading happens in a scrolling dialog with Accept at its foot. The done state says nothing at all                                             |
+1. the email is the guaranteed channel and must complete first;
+2. Inngest memoizes steps independently, so a retried email step does not
+   re-send the push and a retried push does not re-send the email;
+3. **the function's return value is still the email's result** — so nothing
+   downstream, and no existing test, learns a new shape.
 
-### The agent app
+`pushToUsers` / `pushToTargets` never throw, so a dead provider cannot fail a
+step either way. Belt and braces are both here on purpose: this is the channel
+that fails silently.
 
-| Change                                      | Note                                                                                                                                                                                     |
-| ------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Location and shift status are header pills  | Visible from every screen, detail behind a tap. Three lights: green live, yellow acquiring-or-lost, red off — **not** "on a trip", which would leave the light amber for most of a shift |
-| Both halves of the shift live in the header | Reverses this document's earlier call that clocking on was too important for a popover. `ShiftBar` is gone; `StartShiftForm` is what remains, sized for the popover                      |
-| Glyph-only logo below `sm`                  | `compactLogo` on `AppHeader`, opt-in. Brand block 230px → 93px on a 390px screen, which is the room the two pills needed                                                                 |
-| The booking ref is a seal-orange pill       | On the job card AND the task detail, from one `BookingRef` component. `bg-tag-400` is 5.43:1 with navy; `tag-500` is 4.27:1 and fails                                                    |
+### 4.2 The table, as built
 
-### The map
+| Moment                                           | Function                      | Push to                                | Tag                                   | Urgency |
+| ------------------------------------------------ | ----------------------------- | -------------------------------------- | ------------------------------------- | ------- |
+| verification task assigned (incl. horizon sweep) | `agent-assigned-email`        | the assigned agent                     | `verification-task:<taskId>` — stacks | high    |
+| agent assigned                                   | same function                 | customer                               | `booking:<id>` + renotify             | normal  |
+| pickup task assigned / driver selected           | `driver-selected-email`       | the shift's driver                     | `pickup-task:<taskId>` — stacks       | high    |
+| driver selected                                  | same function                 | customer                               | `booking:<id>` + renotify             | normal  |
+| bags sealed / choose driver                      | `bags-sealed-email`           | customer                               | `booking:<id>` + renotify             | normal  |
+| delivered to bag drop                            | `bagdrop-delivered-email`     | customer                               | `booking:<id>` + renotify             | normal  |
+| exception raised                                 | `exception-ops-alert-email`   | every active admin with a subscription | `exception:<id>:<ts>` — stacks        | high    |
+| driver pool empty                                | `driver-pool-empty-ops-alert` | same audience                          | `driver-pool-empty:<id>` + renotify   | high    |
 
-| Change                                     | Note                                                                                                                                                                                                              |
-| ------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Ghost pins use the real pin and hold still | The drift made all three set off together in one direction. They pulse instead. Labels are masked initials — `R****` — which is withheld information rather than an invented person                               |
-| Ghost radius 600m–1.6km                    | Was 400m–2km                                                                                                                                                                                                      |
-| Blocking the map while searching           | Built, then **reverted at TD's request** (`b62e429` → `88d7033`). The map stays interactive. The reverted commit holds the `touch-action: pan-y` detail, which is the non-obvious part if it is ever wanted again |
+The horizon sweep needed no wiring of its own: it assigns through
+`assignAgentToBooking`, which emits `booking/agent_assigned` like every other
+path — the same reason the exception emit lives at a choke point (§7).
 
-### Shared
+### 4.3 The two tag decisions, and why they differ
 
-`Dialog` closed in two stages: the overlay had no `duration` so it ran at
-tailwindcss-animate's 150ms default against the content's 200ms, AND the
-content had no `fade-*`/`zoom-*` utility, so it held full opacity for its whole
-200ms and then vanished in one frame. Both fixed; measured mid-close at 0.20
-opacity with the backdrop still present. `Sheet` was checked and is consistent.
+**Every customer milestone shares `booking:<id>`.** "Nina is your agent" is
+REPLACED by "your bags are sealed", which is replaced by "your bags are at the
+bag drop". A lock screen should show where the bags ARE, not a stack of
+everywhere they have been. `renotify: true` is what makes the replacement
+re-alert instead of landing in silence — without it, a same-tag replacement is
+completely silent, which is the POC's most expensive trap and which the Phase 3
+browser run reproduced deliberately.
 
-### Two defects found in this pass
+**Staff work stacks.** A second assigned visit is a second job; a replaced
+notification would be a visit nobody knows about. Same for a driver's second
+pickup.
 
-1. **`ref` as a prop name.** `BookingRef` took `ref`, which is reserved on a
-   React element — `react-hooks/refs` read the whole component as ref access
-   during render. It is `value`.
-2. **A promise the page could not keep.** The driver cell read "Choose yours
-   below" whenever the bags were sealed, including on a booking past its
-   bag-drop cutoff where the panel self-suppresses. Testing
-   `driverSection !== null` looked equivalent and was not — `TripDriverPanel`
-   returns null on its own, so the element is non-null while the screen is
-   empty. One `driverPanelVisible` boolean now decides both.
+**The two ops moments deliberately disagree with each other.** An exception
+gets a unique tag — two bookings in exception are two problems, and collapsing
+would hide the second one entirely, which is the exact failure the alert
+exists to prevent. An empty driver pool gets a stable tag plus renotify — that
+is ONE booking with a staffing problem that keeps recurring until somebody
+rosters a driver, and stacking would bury the console under repeats of one
+fact. (`emitDriverPoolEmpty` already buckets its event id by hour, so "each
+time" is at most hourly.)
+
+### 4.4 Audiences and payloads
+
+"Ops" is **derived**: every active admin in `staff_members` who has a
+subscription. No notification-role column, no recipients table — §7, a roster
+on a write path is a thing that has to be kept in step with what it counts.
+Deactivating an admin drops them on the next send; asserted.
+
+The ops push deliberately does **not** depend on `OPS_ALERT_EMAIL`. It is a
+different channel to different people, and an unset inbox address is no reason
+to leave everyone's phone silent. Asserted with no email configured at all.
+
+**Deep links** come from `notifications/links.ts` (`tripUrlFor`, `taskUrlFor`,
+`adminBookingUrlFor`) — the same module Phase 0 created, so push and email
+name the same URLs. Task ids are looked up rather than carried: the event
+shapes are fixed, and the row is the truth about which visit this is. The
+agent app's `/tasks/[taskId]` resolves a pickup task first and falls back to a
+verification visit, so one route takes both and the URL does not encode the
+kind. `NEXT_PUBLIC_AGENT_APP_URL` / `NEXT_PUBLIC_ADMIN_APP_URL` were added to
+apps/web (that is where the Inngest functions run). Absent → the push still
+goes, without a link: a notification is worth more than its link, and
+`notificationclick` falls back to `/`.
+
+**No sensitive content.** Names and `bookings.ref` only — no address, no ZIP,
+nothing passport-shaped. A push is decrypted onto a lock screen that may be
+face-up on a table. Asserted against the fixture's real street and ZIP.
+Payloads are a few hundred bytes, far under the 4KB limit.
+
+### 4.5 Tests
+
+[`jobs/push-moments.integration.test.ts`](../../packages/core/src/jobs/push-moments.integration.test.ts)
+— 14 cases, and deliberately **not** in the `fakeDb` tier. The whole question
+is _who received it_, and `fakeDb` ignores `where` clauses: every audience
+query would return every row, so a passing test would prove nothing. Sending
+an agent's task notification to a customer is exactly the bug this file
+exists to catch.
+
+Each case seeds a customer, an agent, a driver and two admins, subscribes
+several of them, and asserts the recipient set by resolving subscription ids
+back to users — so "the driver is subscribed and must not be in either send"
+is a real assertion, not an absence.
+
+Covered: both two-audience moments; no address or ZIP in a body; a cancelled
+booking says nothing; the three customer milestones share one tag in order;
+the bag-drop copy never claims check-in; the exception audience is every
+active admin and nobody else with a unique tag; a deactivated admin drops out;
+the pool alert collapses and re-alerts; ops push works with no
+`OPS_ALERT_EMAIL`; nothing is sent when no admin is subscribed; **a throwing
+sender leaves the email sent, the function complete, both steps run, and the
+subscription un-pruned**; the push runs in its own step after the email; and
+with no origins injected the link is omitted rather than sent relative.
+
+`fakeDb` gained `pickupTasks`, `pushSubscriptions` and `staffMembers` so the
+push steps can run in the unit tier and find nobody — with a header saying why
+those two are always left empty there.
+
+### 4.6 Gates
+
+| Gate                            | Result                                                           |
+| ------------------------------- | ---------------------------------------------------------------- |
+| `turbo typecheck`               | 6/6 ✅                                                           |
+| `turbo lint`                    | 6/6 ✅                                                           |
+| `turbo test` (unit)             | core 499 ✅ · web 137 ✅ · admin 27 ✅ · agent 19 ✅ · ui 104 ✅ |
+| `@koolee/core test:integration` | 286 passed, 3 skipped ✅ (was 272)                               |
+| `turbo build`                   | 3/3 ✅                                                           |
+| `pnpm db:status`                | 33/33, in sync ✅                                                |
+
+---
+
+## Phase 5 — Docs and close-out
+
+### 5.1 A concurrency bug the sweep exposed, and the fix
+
+The final integration run failed on **"concurrent sweeps assign exactly once"**
+— a test that had passed earlier in the slice. Three of four sweeps reported
+success. Not flakiness; a real bug, and the timing that revealed it was the
+batch sweep's own.
+
+`autoAssignBooking`'s documented rule is that **it never reassigns**, and that
+was enforced by a check at the TOP of the function — before the pickup-address
+lookup, the covering-agent query and four load-count queries. Several round
+trips. A second sweep could pass that check, watch the winner commit during
+the gap, and then reach `assignAgentToBooking`, which found an existing task
+and took the **UPDATE** branch — moving the booking to a different agent and
+appending a `booking.agent_reassigned` custody event. The 0019 unique index
+cannot referee that, because nobody inserts.
+
+The window pre-dates F3 (the on-paid hook has the same shape); the sweep made
+it reachable, and Phase 1 had promised "concurrent sweep runs safe".
+
+**Fix:** `AssignAgentInput.neverReassign`, set by `autoAssignBooking` only.
+The decision is re-made INSIDE the transaction, against a re-read that can see
+a committed winner, and refusal returns the existing `conflict: true` shape. A
+dispatcher clicking Assign leaves it unset — reassignment is exactly what they
+mean. Two writers that both read before either commits still both INSERT, and
+there the unique index does referee. The early check stays as a cheap exit
+with a comment saying it is not the guard.
+
+The test now also asserts `reassignEvents` is empty — the actual tell — and
+was run three times to be sure. `auto-assign-on-paid` and `dispatch`
+integration suites re-run green.
+
+### 5.2 Docs written
+
+- **[f3-hosted-setup.md](../features/f3-hosted-setup.md)** (new): the 7-step
+  table, migration 0032's lock notes, VAPID generation with the regeneration
+  warning stated as a consequence rather than a caution, the full env table
+  per app with why each is boot-gated, the **enable-and-verify walkthrough**
+  including the four-row tab-open/other-tab/other-app/**tab-closed** smoke
+  test and the `osascript` trick for isolating the OS from the browser, and
+  `ASSIGNMENT_HORIZON_HOURS` with its default and the warning that web and
+  admin must agree.
+- **[notifications.md](../features/notifications.md)**: the matrix gains a
+  **Push** column (SMS column stays parked), plus four new decision sections —
+  collapse-for-customers vs stack-for-staff, nothing sensitive in a payload,
+  why ops push does not depend on `OPS_ALERT_EMAIL`, and why verification is
+  asking a human.
+- **PROJECT-STATUS.md**: snapshot entry, rows 92–96, and four §7 standing
+  constraints — push is never load-bearing; notifications are raised from the
+  service worker (with the tag/`renotify`/`userVisibleOnly`/
+  `pushsubscriptionchange`/`no-cache` corollaries); a scope gets exactly one
+  service worker; an agent is assigned at a horizon.
+- **[CODEBASE-MAP.md](../CODEBASE-MAP.md)**: `push.ts` in the schema table,
+  the `PushSender` seam beside `Notifier`, the horizon paragraph in services
+  (including why the predicate has its own module), `assignment-horizon-sweep`
+  in the functions table, and a note that push rides inside those functions.
+- **[docs/features/README.md](../features/README.md)**: index row.
+
+### 5.3 Final gates
+
+| Gate                            | Result                                                         |
+| ------------------------------- | -------------------------------------------------------------- |
+| `turbo typecheck`               | **6/6** ✅                                                     |
+| `turbo lint`                    | **6/6** ✅                                                     |
+| `turbo test` (unit)             | core 499 · web 137 · admin 27 · agent 19 · ui 104 — **786** ✅ |
+| `@koolee/core test:integration` | **286 passed**, 3 skipped ✅ (248 at slice start)              |
+| `turbo build`                   | **3/3** ✅                                                     |
+| `pnpm db:status`                | **33/33**, in sync, target `127.0.0.1` ✅                      |
+
+### 5.4 Deferred, with reasons
+
+- **The tab-closed delivery matrix in a real browser.** FCM never delivered to
+  the automation profile (Chrome for Testing subscribes to FCM's _preprod_
+  endpoint), so §3.4's table is proven on both sides of that hop and not
+  across it. Needs one manual pass in TD's own Chrome — the four-row smoke
+  test in the hosted-setup doc.
+- **`notificationclick` focus-or-open.** No protocol command clicks a
+  notification. The handler is ported verbatim from the POC and the payload's
+  `data.url` is asserted end to end; the click itself is in the same manual
+  pass.
+- **A dev-only delayed test route.** The prompt sanctioned one for the
+  tab-closed check. Not built: `POST /api/push/test` already sends a real
+  push, and `curl`-ing it from another machine covers the delayed case without
+  shipping a route that must not be enabled in production.
+- **Notification history, per-moment preferences, escalation ladders,
+  SMS, ops-alerter replacement.** Out of scope as stated.
+- **`ASSIGNMENT_HORIZON_HOURS` in apps/agent.** The agent app neither assigns
+  nor renders at-risk state, so it has no use for the value.
+
+---
+
+## Phase 6 — The bug TD found, after the slice reported itself green
+
+**Symptom (TD, in review):** "notifications did not work for me on the agent
+app… I'm not receiving any notifications, like the test notifications."
+
+### 6.1 What was actually wrong
+
+`WebPushSender` lived in `apps/web`. The agent and admin apps therefore had
+**no real sender at all**, and `createCoreConfig` gave them the default —
+`ConsolePushSender`, which logs one line and returns
+`{ sent: targets.length, failed: 0, expired: [] }`.
+
+So `POST /api/push/test` in the agent app:
+
+1. found the user's real subscription,
+2. handed it to a sender that printed to the dev-server terminal,
+3. read `sent: 1, failed: 0` and answered `accepted: true`,
+4. and the card asked **"Did a notification just appear?"** about a push that
+   had never left the Node process.
+
+The one mechanism in this slice built to detect silent non-delivery was itself
+silently non-delivering. Nothing in 786 unit tests, 286 integration tests, six
+typechecks, six lints or three production builds caught it, because **the
+counts are identical either way** — a console fallback and a flawless send are
+indistinguishable in `{ sent, failed }`.
+
+### 6.2 A correction to §3.4 of this report
+
+That section claimed the agent's server send was verified — `{accepted: true,
+targeted: 2, sent: 2, failed: 0}` — and attributed the missing notification to
+FCM's preprod environment not delivering to an automation profile.
+
+**The first half was wrong.** Those counts came from `ConsolePushSender`. The
+FCM _subscription_ was real; the _send_ was not. The preprod hypothesis was a
+plausible story that happened to fit, and it was wrong. The §3.4 table's
+"Server send accepted" row for agent and admin should be read as **not
+verified** until Phase 6.
+
+The general lesson is the specific one: a verification whose only evidence is
+a success count cannot distinguish success from a no-op.
+
+### 6.3 Fixes
+
+| Change                                                                            | Why                                                                                                                                                                                                                    |
+| --------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `WebPushSender` moved to **`@koolee/core/web-push`**                              | One implementation, three consumers. Deliberately NOT in the package barrel: `web-push` is Node-only crypto and anything in `src/index.ts` can reach a client bundle. The `web-push` dependency moved to core with it. |
+| **`PushSender.delivers`** (required on the interface)                             | Makes "a log line is not a delivery" a type-level fact. `ConsolePushSender` = `false`; `WebPushSender` / `RecordingPushSender` = `true`.                                                                               |
+| `/api/push/test` returns **503 `not_configured`** when `!delivers`                | It reports to a HUMAN who is about to be asked whether they saw something. It must refuse rather than pretend.                                                                                                         |
+| All three apps resolve a real sender                                              | Every app that sends needs the private key — and each of the three sends its own self-test.                                                                                                                            |
+| `pnpm push:vapid` writes to **all three** apps                                    | The script created the asymmetry. It is now idempotent: an existing pair found anywhere is reused and distributed, never regenerated. It reports PARTIAL apps by name.                                                 |
+| Agent/admin boot gate on half-configured VAPID                                    | Half-configured is precisely the state that caused this.                                                                                                                                                               |
+| The card distinguishes `not_configured` / `no_subscription` from "did not see it" | "Nothing was sent" and "something was sent and you missed it" have completely different fixes. Conflating them sends people to System Settings over a missing environment variable.                                    |
+| "Send a test notification" available from `confirmed` too                         | It used to vanish the moment you answered Yes — so anyone changing an OS switch afterwards had no way to re-check.                                                                                                     |
+
+### 6.4 Evidence this time — not counts
+
+A count could not distinguish the two states, so the proof does not use one.
+
+1. **A real network round-trip.** Signing with the agent app's keys and
+   posting to a well-formed but non-existent FCM endpoint returns
+   **`410 — push subscription has unsubscribed or expired`**. A console
+   sender cannot produce a push-service status code; it never touches the
+   network.
+2. **The route's own guard is the discriminator.** `/api/push/test` now
+   returns 503 unless `pushSender.delivers`. Against the running agent app it
+   returns **200** — which is only reachable with a real `WebPushSender`
+   wired.
+3. **A regression test that pins the trap itself**
+   (`notifications/push.test.ts`): `ConsolePushSender.delivers === false`
+   _and_ it still returns `{ sent: 1, failed: 0 }`. The second assertion
+   deliberately pins the misleading behaviour, so nobody "fixes" the counts
+   and assumes the problem is gone — the counts are not where the truth is.
+
+### 6.5 One non-reproducing test failure
+
+A single full-suite run failed `passport.integration.test.ts` ("allows a
+replacement while unconfirmed"). It passed in isolation and on two subsequent
+full runs (286/286). The file is untouched by this slice. Recorded rather than
+explained away: two new integration files were added that truncate shared
+tables, and `fileParallelism: false` means the suites run in sequence, so
+leftover fixture rows are the plausible mechanism. **Worth watching** — it is
+not yet proven benign.
+
+### 6.6 Gates
+
+typecheck 6/6 · lint 6/6 · unit 807 · core integration 286 (3 skipped) ·
+builds 3/3 · `db:status` 33/33 in sync.
+
+---
+
+## Phase 7 — Amendment: push kill switch, default OFF
+
+Requested after Phase 6, same branch. Small and surgical: no F3 push code
+removed, no schema change, no subscription pruning, nothing touched in email,
+realtime or deferred assignment.
+
+### 7.1 The switch, and why it is ONE variable
+
+**`NEXT_PUBLIC_PUSH_NOTIFICATIONS_ENABLED`** — `"true"` enables; anything
+else, including unset, is OFF. Default OFF in every environment.
+
+The prompt suggested `PUSH_NOTIFICATIONS_ENABLED` plus possibly a
+`NEXT_PUBLIC_` twin for the client, and asked me to state which pattern the
+apps already use. The precedent is **`NEXT_PUBLIC_LAUNCH_MODE`**: a single
+`NEXT_PUBLIC_` var read on both sides, with an `isComingSoon()` helper. I
+followed it exactly, with one variable rather than two, because **a server
+flag paired with a public twin is two things that can disagree — which is
+precisely the shape of the bug in Phase 6**, where the agent app held the
+public VAPID key but not the private one. "Is push on" is not a secret.
+
+Each app exposes `pushNotificationsEnabled()` beside its existing helpers, and
+the runtime, the boot gate and the client surfaces all read that one function.
+
+### 7.2 What OFF does
+
+1. **Sender.** `createWebPushSender` gained a required `enabled` field,
+   checked **before** the keys — so a fully configured environment still sends
+   nothing when the switch is off. Turning push off must not depend on anybody
+   also remembering to remove the credentials.
+2. **Boot gate waived.** The VAPID gates in all three apps now run only when
+   the flag is on. A production deploy with push disabled and no VAPID vars at
+   all boots clean — asserted, including the unset case.
+3. **Surfaces hidden.** The agent and admin `NotificationsCard`s return `null`;
+   the customer trip page does not render `TripPushPrompt` (the flag is the
+   FIRST term of that condition, so nothing else is evaluated). Offering to
+   enable a channel the server will not send on is worse than offering
+   nothing: the browser's permission prompt is ONE-SHOT, and a person who
+   accepts it for a feature that cannot work has spent it for good.
+4. **Service workers stay registered.** Explicitly NOT gated — the agent PWA's
+   worker also carries the offline shell, and the Phase 3 registration fix
+   must keep working with push off.
+5. **Subscriptions preserved.** Nothing reads or writes `push_subscriptions`
+   differently. Flipping the switch back on resumes delivery to the same
+   devices with nobody re-subscribing.
+
+Email and the in-app realtime signal are untouched throughout — they are the
+guaranteed channels and they carry the product on their own.
+
+### 7.3 Tests
+
+- **Factory** (`notifications/web-push.test.ts`): enabled + full keys →
+  a sender whose `delivers` is `true`; **switch off with every key present →
+  null**; partial config → null; and a null return means the console sender,
+  which does not deliver.
+- **Boot gate** (`apps/web/src/env.test.ts`): prod + push disabled + no VAPID
+  at all → boots; prod + flag unset + no VAPID → boots; prod + flag ON +
+  any VAPID var missing → throws. The "complete prod config" fixture now sets
+  the flag ON, or the existing VAPID assertions would have passed vacuously.
+- **One UI-level assertion per app** (`app-push-flag.test.ts` ×2,
+  `push-flag.test.ts`): the flag defaults OFF and fails CLOSED on a typo
+  (`"yes"`, `"1"`, `"TRUE"` are all off), and the surface consults it. The
+  second is a SOURCE assertion — the technique
+  `packages/ui/src/components/client-directive.test.ts` established — because
+  these app suites run in node with no DOM, no JSX loader and no `@/` alias.
+  Rendering is covered by the browser pass in §3.4.
+- Existing push integration tests are unaffected: they inject
+  `RecordingPushSender` directly and never consult the flag.
+
+### 7.4 Files changed
+
+`packages/core/src/notifications/web-push.ts` (+ its test),
+`apps/{web,agent,admin}/src/env.ts` (schema entry, helper, gate waiver),
+`apps/{web,agent,admin}/src/lib/core.ts` (pass `enabled`),
+`apps/agent/src/app/account/notifications-card.tsx`,
+`apps/admin/src/app/notifications-card.tsx`,
+`apps/web/src/app/trips/[bookingId]/page.tsx`,
+three new flag tests, `apps/web/src/env.test.ts`,
+`docs/features/f3-hosted-setup.md` (the switch documented FIRST, §0),
+`docs/features/notifications.md` (push column annotated off-by-default),
+`PROJECT-STATUS.md` (snapshot, rows 97–98, two §7 constraints).
+
+### 7.5 Gates
+
+| Gate                            | Result                                                         |
+| ------------------------------- | -------------------------------------------------------------- |
+| `turbo typecheck`               | **6/6** ✅                                                     |
+| `turbo lint`                    | **6/6** ✅                                                     |
+| `turbo test` (unit)             | core 513 · web 134 · admin 32 · agent 24 · ui 104 — **807** ✅ |
+| `@koolee/core test:integration` | **286 passed**, 3 skipped ✅                                   |
+| `turbo build`                   | **3/3** ✅                                                     |
+| `pnpm db:status`                | **33/33**, in sync ✅                                          |
+
+---
+
+## Phase 8 — Making the failure diagnosable
+
+TD, after the Phase 6 fix: still no notifications locally.
+
+### 8.1 What the running server actually reports
+
+Checked rather than guessed, against the live dev server, signed in as
+`agent@koolee.local`:
+
+| Question                                | Answer                                                                                  |
+| --------------------------------------- | --------------------------------------------------------------------------------------- |
+| Kill switch live in the server process? | **yes** — the enable card renders                                                       |
+| Real sender wired?                      | **yes** — `/api/push/test` returns 200, and it returns 503 unless `pushSender.delivers` |
+| VAPID keys distributed?                 | **yes** — all four values in all three `.env.local` files                               |
+| What the send reports                   | `{ targeted: 4, sent: 4, failed: 0, pruned: 0 }`                                        |
+
+Four live subscriptions on that user, all accepted by FCM, none rejected.
+A key mismatch would have been `403` and a dead registration `410`, so the
+**server half is correct and the credentials match** — which is as far as
+server-side evidence can go. Whether a given device then displays anything is
+exactly the thing no API reports.
+
+### 8.2 The gap, and closing it
+
+Two failures look identical from the page and have opposite fixes:
+
+- the push **never reached this browser** — a delivery problem (a stale
+  registration, a quit browser, a firewall);
+- it **reached the browser and the OS refused to draw it** — System Settings,
+  Focus, an alert style of "None".
+
+Nothing in the product could tell them apart, so the remediation list was a
+guess in likelihood order and half of it was always wrong.
+
+The POC had the answer and it was dropped as debug scaffolding: the service
+worker `postMessage`s open pages when it raises a notification. Restored in
+all three workers as a `koolee-push` / `push-received` message; `useWebPush`
+exposes `lastPushAt`; the card records `askedAt` when it fires the test, so
+"arrived" means "arrived SINCE we asked" rather than "at some point".
+
+The did-you-see-it flow now branches on it:
+
+- **arrived, and you saw nothing** → "The notification reached this browser" +
+  the macOS/Focus/alert-style list. Delivery works; the device is hiding it.
+- **never arrived** → "it never reached this browser — this is a delivery
+  problem, not a System Settings one" + re-register, quit-browser, firewall.
+
+This does not make `showNotification` honest — it still means CREATED, not
+displayed, and no browser API will ever say otherwise. It splits the problem
+in half, which is the most any in-browser signal can do.
+
+Verified end to end in a headed browser: a push delivered to the worker both
+raised the notification and produced
+`{ source: "koolee-push", type: "push-received", tag: "verification-task:t-9" }`
+on the page.
+
+### 8.3 Gates
+
+typecheck 6/6 · lint 6/6 · unit 807 · core integration 286 (3 skipped) ·
+builds 3/3.
+
+---
+
+## Phase 9 — Local delivery: OPEN, and how to resume it
+
+Push is merging **disabled** (`NEXT_PUBLIC_PUSH_NOTIFICATIONS_ENABLED`
+defaults to `false`), so this blocks nothing. Written down so picking it up
+later costs minutes rather than an afternoon.
+
+### 9.1 What is known
+
+| Fact                                                                   | How it was established                                                    |
+| ---------------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| macOS notifications work on TD's machine                               | A native `osascript` notification appeared                                |
+| The kill switch is live in the running server                          | The enable card renders                                                   |
+| A real `WebPushSender` is wired                                        | `/api/push/test` returns 200; it returns 503 unless `pushSender.delivers` |
+| The keys match the subscriptions                                       | FCM accepted all four — a mismatch is `403`, a dead registration `410`    |
+| The send is a genuine network call                                     | A bogus endpoint signed with the same keys returns a real `410` from FCM  |
+| The service worker raises and reports a push correctly                 | Verified headed, via `ServiceWorker.deliverPushMessage`                   |
+| **No notification arrives on TD's browser**, before or after a restart | Observed                                                                  |
+
+So: everything on either side of the FCM → browser hop is proven, and that hop
+is the only unproven link. The OS is not globally suppressing.
+
+### 9.2 The one datum that was not captured
+
+After the Phase 8 change the card states which half is broken — **"the
+notification reached this browser"** versus **"it never reached this
+browser"**. That branch was not read before we stopped. It is the whole
+diagnosis, and one click produces it.
+
+### 9.3 Resume checklist, in order
+
+1. `NEXT_PUBLIC_PUSH_NOTIFICATIONS_ENABLED=true` in `apps/agent/.env.local`,
+   restart the agent dev server, hard-reload the page (the service worker
+   changed in Phase 8 and has to re-install — DevTools → Application →
+   Service Workers → Update, or Unregister and reload).
+2. Account → **Send a test notification**, and read which branch the card
+   shows. That splits the problem in half:
+   - **"reached this browser"** ⇒ delivery works; it is System Settings →
+     Notifications → _browser_ → Allow (quit the browser fully and reopen),
+     Focus/DND, or an alert style of "None". Check Notification Centre first —
+     if it is sitting there, only the banner was suppressed.
+   - **"never reached this browser"** ⇒ a delivery problem. Go to step 3.
+3. Capture the endpoint from DevTools on the agent app:
+   `(await (await navigator.serviceWorker.ready).pushManager.getSubscription())?.endpoint`
+   - `fcm.googleapis.com/...` ⇒ Chrome/Edge. `web.push.apple.com/...` ⇒
+     Safari, which is unreliable over `http://localhost` (see
+     `docs/fixtures/chrome-notify/limitations.md`) — retry over HTTPS or on
+     hosted before concluding anything.
+   - No subscription at all ⇒ the registration never saved; turn notifications
+     off and on again and watch the `POST /api/push/subscribe` response.
+4. Confirm that endpoint is one of the rows the server is targeting. The send
+   reported `targeted: 4` on `agent@koolee.local`, and three of those are
+   throwaway Chrome-for-Testing profiles from this slice's verification runs
+   (their endpoints carry FCM's `/preprod/` path). If TD's endpoint is not
+   among them, the registration is going to a different user — check which
+   account the browser is signed in as.
+5. Only then consider anything else. A firewall or VPN blocking Chrome's
+   long-lived connection to Google, and a fully-quit browser on macOS (which
+   receives nothing, unlike Safari), are the remaining candidates.
+
+### 9.4 Cleanup worth doing when this resumes
+
+The three verification-run subscriptions on `agent@koolee.local` are noise.
+They will prune themselves the first time FCM returns 410 for them; there is
+no need to touch the table by hand, and **truncating `push_subscriptions` is
+the one action that cannot be undone** without every person re-enabling.
