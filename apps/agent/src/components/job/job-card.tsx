@@ -11,6 +11,7 @@ import {
   type JobPhase,
 } from "@/lib/job";
 
+import { BookingRef } from "./booking-ref";
 import { JobActions } from "./job-actions";
 
 /**
@@ -162,31 +163,9 @@ export function JobCard({
                 A driver reads this number back to a customer to prove they are
                 the person expected. That is the same act the seal performs, so
                 it earns the seal's colour and a line of its own, parallel with
-                the time.
-
-                ON THE SEAL COLOUR, DELIBERATELY. `theme.css` reserves `tag`
-                for primary CTAs and the seal motif and forbids it as
-                decoration — this is the motif, not decoration: the ref and the
-                seal id are the two things a hand-off is checked against.
-
-                `bg-tag-400` with `text-navy-800` measures 5.43:1, past AA for
-                normal text. `tag-500` was the first pick and comes in at
-                4.27:1, which fails — the brand's own orange is the accessible
-                one here, which is a happy accident worth writing down so
-                nobody "fixes" the shade later.
+                the time. Shared with the task detail — see `BookingRef`.
               */}
-              {/*
-                SIZED UP FROM `text-xs`/`py-0.5`. At the smaller size it read
-                as a chip beside the time rather than as the number a driver
-                reads out loud at a door — which is the one job it has. `sm`
-                with real vertical padding puts it at the same weight as the
-                time it sits next to, and `tracking-tight` comes off: mono
-                digits being read aloud want the character separation, not
-                less of it.
-              */}
-              <span className="rounded-md bg-tag-400 px-2.5 py-1 font-mono text-sm font-semibold text-navy-800">
-                {booking.ref}
-              </span>
+              <BookingRef value={booking.ref} />
               <span className="flex flex-wrap items-center justify-end gap-2">
                 {job.state === "cancelled" && (
                   <Badge variant="secondary">Cancelled</Badge>
