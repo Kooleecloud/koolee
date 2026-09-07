@@ -226,13 +226,7 @@ export default async function TripPage({
     version: agreementVersion?.version ?? null,
     title: agreementVersion?.title ?? "Booking agreement",
     bodyMd: agreementVersion?.bodyMd ?? "",
-    effectiveLabel: agreementVersion
-      ? formatInstantInAirportTz(agreementVersion.effectiveFrom, tz)
-      : null,
     accepted: agreementState.accepted,
-    acceptedAtLabel: agreementState.acceptance
-      ? formatInstantInAirportTz(agreementState.acceptance.acceptedAt, tz)
-      : null,
   };
 
   // Signed here, after the booking has already passed the ownership check in

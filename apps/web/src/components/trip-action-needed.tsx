@@ -62,11 +62,7 @@ export interface TripAgreementView {
   version: number | null;
   title: string;
   bodyMd: string;
-  /** Preformatted in the booking's zone (docs/TIME.md). */
-  effectiveLabel: string | null;
   accepted: boolean;
-  /** Preformatted acceptance instant, booking's zone. */
-  acceptedAtLabel: string | null;
 }
 
 export interface TripPassportView {
@@ -288,14 +284,20 @@ function AgreementStep({
         title={agreement.title}
         meta={<Badge variant="success">accepted</Badge>}
       >
-        <p className="text-sm text-muted-foreground">
-          {/* Version pinning: this is the document the booking is bound by,
-              and it stays this one however many versions publish later. */}
-          You accepted version {agreement.version}
-          {agreement.acceptedAtLabel ? ` on ${agreement.acceptedAtLabel}` : ""}. These are
-          the terms for this trip — a later update won&apos;t change them or ask you
-          again.
-        </p>
+        {/*
+          NOTHING SAID HERE ANY MORE. The title, the "accepted" badge and the
+          two buttons are the whole state: a done step does not need a
+          paragraph, and this one spent three lines on the version pinning rule
+          — "a later update won't change them or ask you again" — which is a
+          promise about our publishing process, addressed to a reader who has
+          finished and moved on.
+          
+          THE RECORD IS NOT LOST, only this retelling of it. The accepted
+          version and its timestamp are on the booking, they are what
+          `Download` renders, and they are on the custody trail as
+          `agreement.accepted`. See the version-pinning decision in
+          `agreement-versions`; the behaviour is untouched.
+        */}
         {/*
           THE DOWNLOAD LIVES HERE AND ONLY HERE. Before acceptance there is
           nothing worth keeping a copy of — the document is not yet the terms
