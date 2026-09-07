@@ -165,25 +165,44 @@ export const NoDriversYet: Story = {
  * Three anonymous placeholders around the door while the shortlist is being
  * built. Open this one to check the things a screenshot cannot:
  *
+ *  - they look like REAL PINS — same pill, same truck glyph, same pulse. That
+ *    is the point: an earlier grey dot read as a different kind of object and
+ *    looked, in TD's words, "way more fake" than a placeholder needs to;
+ *  - the LABEL is what separates them. A masked initial — "R****" — is
+ *    visibly withheld information rather than an invented person;
  *  - they are UNCLICKABLE. Tap one; nothing should happen, no cursor change,
- *    no card. They render as a `span` inside a `pointer-events-none` root, so
- *    the inertness is structural — if a tap ever does something, the variant
- *    branch in `driverPin` has been bypassed;
- *  - they carry no name and no number, and neither does anything around them;
- *  - the ring still pulses. That is deliberate: the pulse is the map saying
- *    "something is happening", which is the only thing this state has to say.
+ *    no card. A ghost renders a `span` rather than a `button`, inside a
+ *    `pointer-events-none` root, so the inertness is structural;
+ *  - THEY DO NOT MOVE. They used to drift on a shared counter, which made all
+ *    three set off at the same instant in the same direction. The pulse is the
+ *    motion now.
  *
- * The real pins are generated in the app from the booking id — see
- * `apps/web/src/lib/ghost-drivers.ts` — so that a page refreshing every few
- * seconds does not scatter them to new streets. These are hand-placed.
+ * Positions and labels are generated in the app from the booking id — see
+ * `apps/web/src/lib/ghost-drivers.ts` — so a page refreshing every few seconds
+ * does not scatter them. These are hand-placed.
  */
 export const SearchingForDrivers: Story = {
   args: {
     pickup: PICKUP,
     drivers: [
-      { id: "ghost-0", position: { lat: 40.7561, lng: -73.9903 }, variant: "ghost" },
-      { id: "ghost-1", position: { lat: 40.7455, lng: -73.9812 }, variant: "ghost" },
-      { id: "ghost-2", position: { lat: 40.7522, lng: -73.9975 }, variant: "ghost" },
+      {
+        id: "ghost-0",
+        position: { lat: 40.7561, lng: -73.9903 },
+        label: "R****",
+        variant: "ghost",
+      },
+      {
+        id: "ghost-1",
+        position: { lat: 40.7455, lng: -73.9812 },
+        label: "M****",
+        variant: "ghost",
+      },
+      {
+        id: "ghost-2",
+        position: { lat: 40.7522, lng: -73.9975 },
+        label: "T****",
+        variant: "ghost",
+      },
     ],
     className: "h-80",
     label: "Map showing your pickup address while we find a driver",

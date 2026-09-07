@@ -29,6 +29,12 @@ import type { MapDriver, MapPoint } from "@koolee/ui";
  * would scatter the pins to new streets on every refresh — vans teleporting
  * around the neighbourhood, which reads as broken rather than as busy. Same
  * booking, same pins, every time.
+ *
+ * THEY LOOK LIKE VANS BECAUSE THEY STAND IN FOR VANS. `LiveMap` draws a
+ * `ghost` with the same pill, glyph and pulse a real driver gets — the earlier
+ * grey dot read as a different kind of object and, in TD's words, "way more
+ * fake". What separates them is the label: a masked initial, which is visibly
+ * withheld rather than invented.
  */
 
 /** How many to draw. Enough to read as "a few", too few to read as a count. */
@@ -37,25 +43,37 @@ const GHOST_COUNT = 3;
 /**
  * How far out, in metres.
  *
- * Near enough to be plausibly on their way, far enough that no ghost lands on
- * top of the pickup pin and gets mistaken for it. The lower bound is doing
- * real work: a placeholder overlapping the one pin that means something is
- * worse than no placeholder.
+ * "Not too near, not too far" — TD's framing, and both bounds do real work.
+ * Too close and a placeholder overlaps the one pin that means something; too
+ * far and it is not a driver who could plausibly be coming to this door. 600m
+ * to 1.6km is a few minutes away at city speeds and comfortably inside the
+ * frame the map opens at.
  */
-const MIN_METRES = 400;
-const MAX_METRES = 2_000;
+const MIN_METRES = 600;
+const MAX_METRES = 1_600;
 
 /** Metres per degree of latitude. Close enough at city scale. */
 const METRES_PER_DEGREE = 111_320;
 
 /**
- * How far a ghost wanders per drift step, in metres.
+ * THEY DO NOT MOVE, and this replaced a drift that did.
  *
- * Small. They should look like vehicles idling in traffic, not like vehicles
- * crossing town — a placeholder that covers ground draws the eye to itself and
- * invites somebody to follow it, which is the last thing it should do.
+ * Each ghost used to wander up to 90m per tick, on the reasoning that a still
+ * map reads as a broken one. In practice every pin re-seeded from the same
+ * counter on the same interval, so all three set off at the same instant —
+ * TD's report: "moving all together at the same time, same direction, so it is
+ * so weird". Independent, plausible traffic would need per-pin phases,
+ * headings and speeds, which is a simulation, and a simulation of vans that do
+ * not exist is a lot of machinery pointed at the wrong thing.
+ *
+ * The pulse ring already says "something is happening" — it is the same ring a
+ * real driver's pin carries — and the chip over the map says what. So the pins
+ * hold still and blink, which is honest about being placeholders without
+ * looking broken.
  */
-const DRIFT_METRES = 90;
+
+/** Letters a masked initial can take. No I or O — they read as 1 and 0. */
+const INITIALS = "ABCDEFGHJKLMNPQRSTUVWXYZ";
 
 /** FNV-1a. A stable, well-spread hash of the booking id — not a checksum. */
 function hash(seed: string): number {
@@ -97,15 +115,10 @@ function offset(from: MapPoint, metres: number, bearing: number): MapPoint {
  *
  * @param seed   The booking id. Same booking, same pins, forever.
  * @param pickup The door — everything is placed relative to it.
- * @param step   Drift counter. Hold it at 0 for a still map; increment it on a
- *               timer for the idling motion. Each step is a fresh deterministic
- *               nudge, so a given (seed, step) always produces the same frame
- *               and a re-render mid-drift does not jump.
  */
 export function ghostDrivers(
   seed: string,
   pickup: MapPoint,
-  step = 0,
   count = GHOST_COUNT,
 ): MapDriver[] {
   const base = rng(hash(seed));
@@ -120,20 +133,25 @@ export function ghostDrivers(
     const sector = (i / count) * Math.PI * 2;
     const bearing = sector + base() * ((Math.PI * 2) / count);
     const metres = MIN_METRES + base() * (MAX_METRES - MIN_METRES);
-    const home = offset(pickup, metres, bearing);
+    const position = offset(pickup, metres, bearing);
 
-    // The drift is seeded from the STEP as well, so it is reproducible rather
-    // than accumulated — no rounding walk, and no dependence on how many
-    // renders happened to occur.
-    const wander = rng(hash(`${seed}:${i}:${step}`));
-    const position =
-      step === 0 ? home : offset(home, wander() * DRIFT_METRES, wander() * Math.PI * 2);
+    /*
+     * A MASKED INITIAL, NOT A NAME AND NOT NOTHING.
+     *
+     * The first version passed `label: null` on the rule that a named ghost is
+     * a fabricated person. That rule is right and this does not break it: an
+     * initial followed by asterisks is visibly withheld information rather
+     * than an identity — nobody reads "R****" as somebody's name. What it buys
+     * is the pin looking like the thing it stands in for, which is the whole
+     * point of the placeholder, and it makes the difference between "we are
+     * still looking" and "here is your driver" legible at a glance.
+     */
+    const initial = INITIALS[Math.floor(base() * INITIALS.length)] ?? "K";
 
     ghosts.push({
       id: `ghost-${i}`,
       position,
-      // NO LABEL, EVER. A named ghost is a fabricated person.
-      label: null,
+      label: `${initial}${"*".repeat(4)}`,
       variant: "ghost",
     });
   }

@@ -111,16 +111,6 @@ export interface SelectedDriverView {
   travelStarted: boolean;
 }
 
-/**
- * How often the ghost pins are nudged, in milliseconds.
- *
- * Slow. They are meant to read as vehicles idling in traffic; anything brisk
- * makes them the most eye-catching thing on a screen whose actual job is to
- * say "hold on, we are working". Well inside the page's own refresh, so the
- * motion never stalls waiting for the server.
- */
-const GHOST_DRIFT_MS = 8_000;
-
 export function TripDriverPanel({
   bookingId,
   pickup,
@@ -197,21 +187,12 @@ function ChoosingCard({
   const searching = candidates.length === 0;
 
   /*
-   * THE GHOSTS DRIFT, AND ONLY WHILE THERE IS NOBODY REAL.
-   *
-   * The timer is torn down the moment a candidate arrives, so it cannot go on
-   * animating placeholders underneath a real shortlist — item 12 in the plan,
-   * and the one failure mode that would turn a reassuring animation into a
-   * lie. It is also the reason this state lives here rather than inside the
-   * generator: the generator is pure and testable precisely because it does
-   * not own a clock.
+   * NO DRIFT TIMER ANY MORE. The ghosts used to be nudged on an interval, and
+   * because every pin re-seeded off the same counter they all set off at the
+   * same instant in the same direction — which looked less like traffic than
+   * standing still did. They hold position and pulse now, so there is no
+   * clock here to own. See `ghostDrivers`.
    */
-  const [drift, setDrift] = React.useState(0);
-  useEffect(() => {
-    if (!searching) return;
-    const id = setInterval(() => setDrift((n) => n + 1), GHOST_DRIFT_MS);
-    return () => clearInterval(id);
-  }, [searching]);
 
   // A lost race is not a dead end. `revalidatePath` already ran server-side;
   // this pulls the refreshed shortlist so the customer's next click is a
@@ -233,10 +214,11 @@ function ChoosingCard({
   const allOutOfZone = candidates.length > 0 && candidates.every((c) => c.outOfZone);
   const realPins = driverPins(candidates, focused);
   /*
-   * GHOSTS OR REAL PINS, NEVER BOTH. Mixing them would put an anonymous dot
-   * beside a named van and invite somebody to tap it.
+   * GHOSTS OR REAL PINS, NEVER BOTH — and this matters more now they look
+   * alike. A masked placeholder beside a named van would invite somebody to
+   * tap the one that cannot be tapped.
    */
-  const pins = searching && pickup ? ghostDrivers(bookingId, pickup, drift) : realPins;
+  const pins = searching && pickup ? ghostDrivers(bookingId, pickup) : realPins;
 
   /*
    * A map needs a reference point, and that is the ONLY thing it needs now.

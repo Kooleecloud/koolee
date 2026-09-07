@@ -1241,13 +1241,31 @@ function pickupPin(label: string): HTMLElement {
  */
 function driverPin(driver: MapDriver): HTMLElement {
   const variant = driver.variant ?? "live";
-  if (variant === "ghost") return ghostPin();
+  const ghost = variant === "ghost";
 
   const root = markerRoot();
   root.dataset.selected = driver.selected ? "true" : "false";
   root.dataset.variant = variant;
   // The pin sits above its own ring; both share the root's centre.
   root.classList.add("relative");
+
+  /*
+   * A GHOST IS THE SAME PIN, INERT — TD's second pass on this, and a better
+   * call than the first. It used to be a muted grey dot, which read as a
+   * different KIND of thing and looked, in TD's words, "way more fake" than a
+   * placeholder needs to. What a customer should see is what they are about to
+   * be offered: a van, in the same shape and colour, whose identity is simply
+   * not settled yet. The masked label below is what carries that.
+   *
+   * `pointer-events-none` on the root and `aria-hidden` keep the inertness
+   * STRUCTURAL rather than a rule to remember: there is no element for a click
+   * listener to fire from, and a screen reader is told nothing, because there
+   * is nothing true to tell it.
+   */
+  if (ghost) {
+    root.classList.add("pointer-events-none");
+    root.setAttribute("aria-hidden", "true");
+  }
 
   /*
    * THE RING, and why a map needs one.
@@ -1280,19 +1298,28 @@ function driverPin(driver: MapDriver): HTMLElement {
     root.appendChild(ring);
   }
 
-  const button = document.createElement("button");
-  button.type = "button";
-  button.dataset.pin = "driver";
-  button.setAttribute("aria-pressed", driver.selected ? "true" : "false");
-  const who = driver.label ? `Driver ${driver.label}` : "Koolee driver";
-  // Said out loud, not just drawn grey: a screen reader gets no colour.
-  button.setAttribute(
-    "aria-label",
-    variant === "stale" ? `${who} — last known position` : who,
-  );
+  /*
+   * A SPAN FOR A GHOST, A BUTTON FOR A DRIVER. Same classes, same glyph, same
+   * label slot — but a placeholder must not be focusable or pressable, and
+   * making it a different ELEMENT is stronger than making it ignore its own
+   * click handler.
+   */
+  const button = document.createElement(ghost ? "span" : "button");
+  if (!ghost) {
+    (button as HTMLButtonElement).type = "button";
+    button.dataset.pin = "driver";
+    button.setAttribute("aria-pressed", driver.selected ? "true" : "false");
+    const who = driver.label ? `Driver ${driver.label}` : "Koolee driver";
+    // Said out loud, not just drawn grey: a screen reader gets no colour.
+    button.setAttribute(
+      "aria-label",
+      variant === "stale" ? `${who} — last known position` : who,
+    );
+  }
   button.className = [
     // `relative` so the pill paints above the ring behind it.
-    "relative flex cursor-pointer items-center gap-1 rounded-full border-2 border-white px-2 py-1",
+    "relative flex items-center gap-1 rounded-full border-2 border-white px-2 py-1",
+    ghost ? "cursor-default" : "cursor-pointer",
     "text-xs font-semibold text-white shadow-lg",
     // Only `scale` transitions. NOT `transition-transform`, which would also
     // cover `transform` — the property MapLibre rewrites every frame on the
@@ -1313,48 +1340,6 @@ function driverPin(driver: MapDriver): HTMLElement {
   }
 
   root.appendChild(button);
-  return root;
-}
-
-/**
- * A placeholder where a driver might be — drawn while the shortlist is still
- * being built, so the map is not an empty rectangle.
- *
- * IT IS NOT A DRIVER AND MUST NOT BE MISTAKEN FOR ONE. No name, no ETA, no
- * capacity, nothing tappable. A `span` rather than a `button`, and the whole
- * root is `pointer-events-none`, so the click listener the caller attaches
- * has no element to fire from — the inertness is structural rather than a
- * rule somebody has to remember.
- *
- * Muted slate rather than the sky or tag accents: the two brand colours mean
- * "a real driver" and "your driver" everywhere else on this map, and spending
- * either on a placeholder would make the real ones mean less.
- *
- * It keeps the pulse. That is what it is FOR — the ring is the map saying
- * something is happening, and the searching state is the one moment when that
- * is the only thing the map has to say.
- */
-function ghostPin(): HTMLElement {
-  const root = markerRoot();
-  root.classList.add("relative", "pointer-events-none");
-  root.dataset.variant = "ghost";
-  // Hidden from the accessibility tree entirely: there is nothing here to
-  // announce, and "Koolee driver" would be a claim about a van that does not
-  // exist. The list view is what a screen reader uses to choose.
-  root.setAttribute("aria-hidden", "true");
-
-  const ring = document.createElement("span");
-  ring.className = [
-    "pointer-events-none absolute left-1/2 top-1/2 size-8 -translate-x-1/2 -translate-y-1/2",
-    "rounded-full bg-navy-400/25 animate-pin-ping motion-reduce:hidden",
-  ].join(" ");
-  root.appendChild(ring);
-
-  const dot = document.createElement("span");
-  dot.className = [
-    "relative block size-3 rounded-full border-2 border-white bg-navy-400/70 shadow-md",
-  ].join(" ");
-  root.appendChild(dot);
   return root;
 }
 

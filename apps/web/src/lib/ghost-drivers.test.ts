@@ -42,11 +42,11 @@ describe("ghostDrivers", () => {
    * pickup pin — the one pin on this map that means something — is worse than
    * no placeholder at all.
    */
-  it("keeps every pin between 400m and 2km of the door", () => {
+  it("keeps every pin between 600m and 1.6km of the door", () => {
     for (const ghost of ghostDrivers(BOOKING, PICKUP)) {
       const distance = metresBetween(PICKUP, ghost.position);
-      expect(distance).toBeGreaterThanOrEqual(400);
-      expect(distance).toBeLessThanOrEqual(2_000);
+      expect(distance).toBeGreaterThanOrEqual(600);
+      expect(distance).toBeLessThanOrEqual(1_600);
     }
   });
 
@@ -62,28 +62,36 @@ describe("ghostDrivers", () => {
   });
 
   /*
-   * A named ghost is a fabricated person, which is a different and much worse
-   * thing than an anonymous dot. Asserted rather than trusted to review.
+   * A MASKED INITIAL IS NOT A NAME. The pin looks like the van it stands in
+   * for — same pill, same glyph — so the label is the only thing separating
+   * "still looking" from "here is your driver", and it has to read as withheld
+   * rather than invented. Asserted rather than trusted to review, because a
+   * future tidy-up that drops the asterisks would fabricate a person.
    */
-  it("never carries a name, and always declares itself a ghost", () => {
+  it("labels every ghost with a masked initial, never a name", () => {
     for (const ghost of ghostDrivers(BOOKING, PICKUP)) {
-      expect(ghost.label).toBeNull();
+      expect(ghost.label).toMatch(/^[A-Z]\*{4}$/);
       expect(ghost.variant).toBe("ghost");
     }
   });
 
-  it("drifts a little between steps, and reproducibly", () => {
-    const still = ghostDrivers(BOOKING, PICKUP, 0);
-    const drifted = ghostDrivers(BOOKING, PICKUP, 1);
-    const again = ghostDrivers(BOOKING, PICKUP, 1);
+  it("keeps the masked label stable for a booking", () => {
+    expect(ghostDrivers(BOOKING, PICKUP).map((g) => g.label)).toEqual(
+      ghostDrivers(BOOKING, PICKUP).map((g) => g.label),
+    );
+  });
 
-    expect(drifted.map((g) => g.position)).toEqual(again.map((g) => g.position));
-    expect(drifted[0]!.position).not.toEqual(still[0]!.position);
-
-    // Idling in traffic, not crossing town. A placeholder that covers ground
-    // invites somebody to follow it.
-    const moved = metresBetween(still[0]!.position, drifted[0]!.position);
-    expect(moved).toBeLessThanOrEqual(120);
+  /*
+   * THEY DO NOT MOVE. Each pin used to drift on a shared counter, so all three
+   * set off at the same instant in the same direction — which looked less like
+   * traffic than standing still does. The pulse ring is the motion now.
+   */
+  it("returns the same positions however many times it is called", () => {
+    const a = ghostDrivers(BOOKING, PICKUP);
+    const b = ghostDrivers(BOOKING, PICKUP);
+    const c = ghostDrivers(BOOKING, PICKUP);
+    expect(a.map((g) => g.position)).toEqual(b.map((g) => g.position));
+    expect(b.map((g) => g.position)).toEqual(c.map((g) => g.position));
   });
 
   it("survives a pickup near a pole without producing NaN", () => {
