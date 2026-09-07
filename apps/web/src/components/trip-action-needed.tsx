@@ -11,6 +11,13 @@ import {
   CardContent,
   CardHeader,
   CardTitle,
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
   FormMessage,
   ImageLightbox,
   Markdown,
@@ -241,7 +248,12 @@ function AgreementStep({
     acceptAgreementAction,
     {},
   );
-  const [reading, setReading] = React.useState(false);
+  /*
+   * The dialog's Accept posts this form from outside it — see the note where
+   * the two controls are rendered. Keyed by booking so two of these on one
+   * page could never share an id.
+   */
+  const acceptFormId = `accept-agreement-${bookingId}`;
 
   if (agreement.version === null && !agreement.accepted) {
     /*
@@ -284,11 +296,19 @@ function AgreementStep({
           the terms for this trip — a later update won&apos;t change them or ask you
           again.
         </p>
+        {/*
+          THE DOWNLOAD LIVES HERE AND ONLY HERE. Before acceptance there is
+          nothing worth keeping a copy of — the document is not yet the terms
+          of anything, and offering to save it alongside "Accept" put a second,
+          heavier-looking action next to the one that matters. Once accepted it
+          is the contract for this trip, and keeping it is the reasonable thing
+          to want. TD's call.
+        */}
         <AgreementLinks
           bookingId={bookingId}
-          reading={reading}
-          onToggleReading={() => setReading((v) => !v)}
+          title={agreement.title}
           bodyMd={agreement.bodyMd}
+          canDownload
         />
       </Step>
     );
@@ -313,28 +333,41 @@ function AgreementStep({
       title={agreement.title}
       meta={<Badge variant="warning">needs your OK</Badge>}
     >
-      <p className="text-sm text-muted-foreground">
-        Version {agreement.version}
-        {agreement.effectiveLabel ? `, in effect from ${agreement.effectiveLabel}` : ""}.
-        Your agent can&apos;t collect your bags until this is accepted.
-      </p>
-
+      {/*
+        NO PREAMBLE. This used to open with "Version 7, in effect from Mon 31
+        Aug… Your agent can't collect your bags until this is accepted" — a
+        version number the customer has no use for, a date that is about our
+        publishing rather than their trip, and a warning attached to a step
+        already titled "needs your OK" inside a card titled "Action needed".
+        Three sentences to say what the badge says. The version is recorded the
+        moment they accept, which is when it starts to mean something.
+      */}
       {open && (
         <>
-          <AgreementLinks
-            bookingId={bookingId}
-            reading={reading}
-            onToggleReading={() => setReading((v) => !v)}
-            bodyMd={agreement.bodyMd}
-          />
+          {state.error && <FormMessage>{state.error}</FormMessage>}
 
-          <form action={formAction} className="flex flex-col gap-3">
-            <input type="hidden" name="bookingId" value={bookingId} />
-            {state.error && <FormMessage>{state.error}</FormMessage>}
-            <Button type="submit" loading={pending} className="self-start">
-              I accept this agreement
-            </Button>
-          </form>
+          {/*
+            TWO CONTROLS, and the form is one of them rather than a block below
+            them: read it, or accept it. The accept button inside the dialog
+            posts this same form through `form={acceptFormId}` — the HTML form
+            attribute associates by id across the document, which matters
+            because Radix portals the dialog to `body`, nowhere near here.
+          */}
+          <div className="flex flex-wrap items-center gap-2">
+            <AgreementLinks
+              bookingId={bookingId}
+              title={agreement.title}
+              bodyMd={agreement.bodyMd}
+              acceptFormId={acceptFormId}
+              accepting={pending}
+            />
+            <form id={acceptFormId} action={formAction}>
+              <input type="hidden" name="bookingId" value={bookingId} />
+              <Button type="submit" loading={pending}>
+                Accept
+              </Button>
+            </form>
+          </div>
         </>
       )}
     </Step>
@@ -342,7 +375,15 @@ function AgreementStep({
 }
 
 /**
- * Read it here, or keep a copy.
+ * Read it, and — once it is yours — keep a copy.
+ *
+ * A DIALOG RATHER THAN AN INLINE EXPANDER. The agreement used to unfold in
+ * place behind "Read the agreement", which pushed the Accept button and the
+ * whole passport step below a 96px-tall scroll region: the reader lost the
+ * thing they were being asked to do while they were reading what they were
+ * agreeing to. A dialog holds the document at full height, scrolls on its own,
+ * and puts Accept at the bottom of what was just read — which is the order the
+ * decision actually happens in.
  *
  * THE PDF IS A PRINT VIEW, NOT A GENERATED FILE. `/trips/[id]/agreement` is a
  * server-rendered page of the exact version this booking is bound by, styled
@@ -353,41 +394,71 @@ function AgreementStep({
  */
 function AgreementLinks({
   bookingId,
-  reading,
-  onToggleReading,
+  title,
   bodyMd,
+  acceptFormId,
+  accepting = false,
+  canDownload = false,
 }: {
   bookingId: string;
-  reading: boolean;
-  onToggleReading: () => void;
+  title: string;
   bodyMd: string;
+  /**
+   * The accept form to post from the dialog's footer, when accepting is still
+   * possible. Omitted once accepted — the dialog is then a reader, and a
+   * second Accept for a decision already made is a control that can only
+   * confuse.
+   */
+  acceptFormId?: string;
+  accepting?: boolean;
+  /** Only after acceptance — see the note at the call site. */
+  canDownload?: boolean;
 }) {
   return (
     <>
-      <div className="flex flex-wrap items-center gap-2">
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          aria-expanded={reading}
-          onClick={onToggleReading}
-        >
-          <FileText aria-hidden className="size-4" />
-          {reading ? "Hide the agreement" : "Read the agreement"}
-        </Button>
+      <Dialog>
+        <DialogTrigger asChild>
+          <Button type="button" variant="outline" size="sm">
+            <FileText aria-hidden className="size-4" />
+            Read agreement
+          </Button>
+        </DialogTrigger>
+        {/*
+          Taller and wider than the default: this is a contract, and a document
+          read through a letterbox is a document nobody reads. `max-h` on the
+          body rather than the panel keeps the footer — and therefore Accept —
+          reachable without scrolling the dialog itself.
+        */}
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>{title}</DialogTitle>
+          </DialogHeader>
+          <div className="max-h-[60vh] overflow-y-auto pr-1 text-sm">
+            <Markdown>{bodyMd}</Markdown>
+          </div>
+          <DialogFooter>
+            <DialogClose asChild>
+              <Button type="button" variant="outline">
+                Close
+              </Button>
+            </DialogClose>
+            {acceptFormId ? (
+              <Button type="submit" form={acceptFormId} loading={accepting}>
+                Accept
+              </Button>
+            ) : null}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {canDownload ? (
         <Button asChild variant="ghost" size="sm">
           <a href={`/trips/${bookingId}/agreement`} target="_blank" rel="noopener">
             <Download aria-hidden className="size-4" />
             Download as PDF
           </a>
         </Button>
-      </div>
-
-      {reading && (
-        <div className="max-h-96 overflow-y-auto rounded-lg border border-border p-4">
-          <Markdown>{bodyMd}</Markdown>
-        </div>
-      )}
+      ) : null}
     </>
   );
 }
