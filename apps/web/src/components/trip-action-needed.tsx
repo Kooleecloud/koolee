@@ -415,7 +415,14 @@ function AgreementLinks({
   canDownload?: boolean;
 }) {
   return (
-    <>
+    /*
+      ONE ROW. `Step` lays its children out in a column, so returning these as
+      bare siblings stacked Read agreement above Download — two related
+      controls reading as two separate steps. Wrapped here rather than at the
+      call site because it is true wherever this renders, and the pre-accept
+      row nests it happily: the only thing in it there is the dialog trigger.
+    */
+    <div className="flex flex-wrap items-center gap-2">
       <Dialog>
         <DialogTrigger asChild>
           <Button type="button" variant="outline" size="sm">
@@ -455,11 +462,18 @@ function AgreementLinks({
         <Button asChild variant="ghost" size="sm">
           <a href={`/trips/${bookingId}/agreement`} target="_blank" rel="noopener">
             <Download aria-hidden className="size-4" />
-            Download as PDF
+            {/*
+              "Download", not "Download as PDF". The icon already says what
+              kind of action this is, and naming the format made the button the
+              longest thing in the row while telling the reader something they
+              only care about after they have pressed it. What arrives is
+              whatever their browser saves the print view as.
+            */}
+            Download
           </a>
         </Button>
       ) : null}
-    </>
+    </div>
   );
 }
 
