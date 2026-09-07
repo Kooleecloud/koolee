@@ -175,7 +175,16 @@ export function JobCard({
                 one here, which is a happy accident worth writing down so
                 nobody "fixes" the shade later.
               */}
-              <span className="rounded-md bg-tag-400 px-2 py-0.5 font-mono text-xs font-semibold tracking-tight text-navy-800">
+              {/*
+                SIZED UP FROM `text-xs`/`py-0.5`. At the smaller size it read
+                as a chip beside the time rather than as the number a driver
+                reads out loud at a door — which is the one job it has. `sm`
+                with real vertical padding puts it at the same weight as the
+                time it sits next to, and `tracking-tight` comes off: mono
+                digits being read aloud want the character separation, not
+                less of it.
+              */}
+              <span className="rounded-md bg-tag-400 px-2.5 py-1 font-mono text-sm font-semibold text-navy-800">
                 {booking.ref}
               </span>
               <span className="flex flex-wrap items-center justify-end gap-2">
