@@ -204,25 +204,8 @@ export const SearchingForDrivers: Story = {
         variant: "ghost",
       },
     ],
-    blockInteraction: true,
     className: "h-80",
     label: "Map showing your pickup address while we find a driver",
-  },
-};
-
-/**
- * THE SAME STATE, UNBLOCKED — for comparing the two by hand.
- *
- * Not a state the app ships: it exists so the scrim's effect is visible as a
- * difference rather than as an assertion. Drag this one and the map pans; drag
- * `SearchingForDrivers` and it does not, while a vertical swipe still scrolls
- * the page in both.
- */
-export const SearchingUnblocked: Story = {
-  args: {
-    ...SearchingForDrivers.args,
-    blockInteraction: false,
-    label: "Map showing your pickup address while we find a driver (unblocked)",
   },
 };
 

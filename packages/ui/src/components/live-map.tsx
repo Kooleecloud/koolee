@@ -184,23 +184,6 @@ export interface LiveMapProps {
    * having it.
    */
 
-  /**
-   * Cover the map and swallow every interaction with it.
-   *
-   * FOR A MAP THAT IS NOT YET A CHOOSER. While the shortlist is still being
-   * built there is nothing on the map worth reaching: the pins are
-   * placeholders, the controls would pan a view that is about to be re-framed
-   * around real drivers, and a tap that does nothing teaches somebody the map
-   * is broken. Blocking is kinder than letting them find out.
-   *
-   * IT DOES NOT BLOCK PAGE SCROLL, which is the mistake worth avoiding here.
-   * The scrim carries `touch-action: pan-y`, so a vertical swipe still scrolls
-   * the page even though the same gesture would otherwise pan the map — a
-   * blocker that also trapped the scroll would be worse than the interaction
-   * it removed. On this map that is a strictly better touch story than the
-   * unblocked state, where one finger pans.
-   */
-  blockInteraction?: boolean;
   /** Offer a fullscreen toggle. Worth it wherever the map is a chooser. */
   allowFullscreen?: boolean;
   /**
@@ -338,7 +321,6 @@ export function LiveMap({
   styleUrl = DEFAULT_STYLE_URL,
   workerUrl = DEFAULT_WORKER_URL,
   label,
-  blockInteraction = false,
   allowFullscreen = false,
   frame = true,
   pickupLabel = "Your pickup",
@@ -984,31 +966,6 @@ export function LiveMap({
         data-map-state={ready ? "ready" : "loading"}
         className="size-full overflow-hidden rounded-lg border border-border bg-muted/30"
       />
-      {/*
-        THE SCRIM. Covers the canvas and every MapLibre control with it, which
-        is the point — a zoom button that works on a map you are not meant to
-        be reading yet is the same confusion as a pin that does not respond.
-
-        A FAINT WASH RATHER THAN NOTHING. An invisible blocker leaves a map
-        that looks interactive and is not, which is the worst of the options;
-        the tint is enough to read as "not yet" while leaving the placeholder
-        pins visible, because those pins are the reassurance the state exists
-        to give. No blur, for the same reason.
-
-        `touch-pan-y` is the load-bearing class: it lets a vertical swipe
-        scroll the PAGE while still denying the gesture to the map. Without it
-        this would be a scroll trap, and a worse one than the map's own.
-
-        `aria-hidden` — it says nothing a screen reader needs; the caller's
-        heading and status text carry the state.
-      */}
-      {blockInteraction ? (
-        <div
-          aria-hidden="true"
-          data-map-blocked="true"
-          className="absolute inset-0 z-10 cursor-default touch-pan-y rounded-lg bg-navy-900/5"
-        />
-      ) : null}
       {/*
         Shown from the moment the viewer moves the map, and only then — a
         button on an untouched map is clutter offering to undo something

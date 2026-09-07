@@ -331,14 +331,6 @@ function ChoosingCard({
                   />
                 );
               }}
-              /*
-                NOTHING TO REACH WHILE WE ARE STILL LOOKING. The pins are
-                placeholders, the controls would pan a view about to be
-                re-framed around real drivers, and a tap that does nothing
-                teaches somebody the map is broken. The scrim still lets the
-                page scroll — see `blockInteraction`.
-              */
-              blockInteraction={searching}
               allowFullscreen
               frame={false}
               recenterLabel="Back to my pickup"
