@@ -13,6 +13,7 @@ import {
   bookings,
   createDb,
   custodyEvents,
+  driverPositionPings,
   driverPositions,
   driverShifts,
   pickupTasks,
@@ -109,6 +110,7 @@ describeIntegration("driver selection (integration)", () => {
       DELETE FROM bags;
       DELETE FROM bookings;
       DELETE FROM driver_positions;
+      DELETE FROM driver_position_pings;
       DELETE FROM driver_shifts;
       DELETE FROM trucks;
       DELETE FROM agent_zones;
@@ -768,9 +770,16 @@ describeIntegration("driver selection (integration)", () => {
     expect(live!.position).not.toBeNull();
     expect(live!.eta).not.toBeNull();
 
-    // The same driver, read past the window. Still perfectly choosable — the
-    // CARD remains, which is why the list is not a fallback — but nothing is
-    // drawn and nothing is estimated.
+    /*
+     * The same driver, read past the window.
+     *
+     * THE ETA STILL GOES, AND THE PIN NO LONGER DOES — the two were dropped
+     * together until the map became the whole view. An estimate computed from
+     * a stale origin is a number indistinguishable from a real one, so it is
+     * still refused. A POSITION is different: the caller can draw it grey,
+     * unpulsed, with its age in words, and that is strictly better than four
+     * candidates emptying the map at the moment somebody is choosing on it.
+     */
     const later = createCoreConfig({
       db,
       payments: new FakePaymentProvider(),
@@ -778,8 +787,29 @@ describeIntegration("driver selection (integration)", () => {
     });
     const [stale] = await listCandidateDrivers(later, { bookingId: booking.id });
     expect(stale!.shiftId).toBe(live!.shiftId);
-    expect(stale!.position).toBeNull();
     expect(stale!.eta).toBeNull();
+    expect(stale!.position).not.toBeNull();
+    expect(stale!.positionIsFresh).toBe(false);
+    expect(live!.positionIsFresh).toBe(true);
+  });
+
+  /*
+   * Null position now means exactly one thing: this driver has never reported
+   * at all. Worth its own assertion, because the previous behaviour overloaded
+   * null to mean "never reported OR reported too long ago" and the map had no
+   * way to tell those apart.
+   */
+  it("reports a driver who has never pinged with a null position", async () => {
+    const verifier = await makeDriver("Never Verifier", { canDrive: false });
+    const driver = await makeDriver("Silent Sam");
+    const truck = await makeTruck("Van Silent", 30);
+    await startShift(config, { staffUserId: driver, truckId: truck.id });
+    const { booking } = await sealedBooking(2, verifier);
+
+    const [candidate] = await listCandidateDrivers(config, { bookingId: booking.id });
+    expect(candidate!.position).toBeNull();
+    expect(candidate!.positionIsFresh).toBe(false);
+    expect(candidate!.positionRecordedAt).toBeNull();
   });
 
   it("a fix older than POSITION_FRESH_MS is reported as not fresh", async () => {
@@ -832,6 +862,176 @@ describeIntegration("driver selection (integration)", () => {
     const rows = await db.select().from(driverPositions);
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({ lat: 40.71277, lng: -73.95371 });
+  });
+
+  /*
+   * NEWER WINS, decided by the database rather than by arrival order.
+   *
+   * `driver_positions` holds one mutable row per driver, so before the
+   * `where` on the upsert the LAST write landed whatever instant it carried.
+   * Harmless while the only caller was a foreground timer sending one fresh
+   * fix at a time; not harmless once fixes can arrive out of order, which
+   * they now can two ways — the offline queue replaying a backlog after a
+   * tunnel, and a `sendBeacon` racing the next `watchPosition` callback.
+   *
+   * Either one parks the van somewhere it was minutes ago, drawn with exactly
+   * the confidence of a live position.
+   */
+  it("refuses to let an older fix overwrite a newer one", async () => {
+    const driver = await makeDriver("Backlog Flusher");
+    const truck = await makeTruck("Van Q", 30);
+    await startShift(config, { staffUserId: driver, truckId: truck.id });
+
+    const newer = new Date(now.getTime() + 60_000);
+    const older = new Date(now.getTime() + 10_000);
+
+    await recordDriverPosition(config, {
+      staffUserId: driver,
+      ...MIDTOWN,
+      recordedAt: newer,
+    });
+    // The queue drains and replays a fix taken fifty seconds earlier.
+    await recordDriverPosition(config, {
+      staffUserId: driver,
+      lat: 40.71277,
+      lng: -73.95371,
+      recordedAt: older,
+    });
+
+    const rows = await db.select().from(driverPositions);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ ...MIDTOWN, recordedAt: newer });
+  });
+
+  it("accepts a newer fix arriving after an older one", async () => {
+    const driver = await makeDriver("Ordinary Pinger");
+    const truck = await makeTruck("Van R", 30);
+    await startShift(config, { staffUserId: driver, truckId: truck.id });
+
+    const older = new Date(now.getTime() + 10_000);
+    const newer = new Date(now.getTime() + 60_000);
+    const moved = { lat: 40.71277, lng: -73.95371 };
+
+    await recordDriverPosition(config, {
+      staffUserId: driver,
+      ...MIDTOWN,
+      recordedAt: older,
+    });
+    await recordDriverPosition(config, {
+      staffUserId: driver,
+      ...moved,
+      recordedAt: newer,
+    });
+
+    const rows = await db.select().from(driverPositions);
+    expect(rows[0]).toMatchObject({ ...moved, recordedAt: newer });
+  });
+
+  /*
+   * A rejected write is a NO-OP, never an error. The caller sent a real fix
+   * that simply lost to a better one, and a queue flush that throws on its
+   * stale entries is a queue that never drains.
+   */
+  it("does not throw when a fix loses to a newer one", async () => {
+    const driver = await makeDriver("Loser Pinger");
+    const truck = await makeTruck("Van T", 30);
+    await startShift(config, { staffUserId: driver, truckId: truck.id });
+
+    await recordDriverPosition(config, {
+      staffUserId: driver,
+      ...MIDTOWN,
+      recordedAt: new Date(now.getTime() + 60_000),
+    });
+    await expect(
+      recordDriverPosition(config, {
+        staffUserId: driver,
+        lat: 40.71277,
+        lng: -73.95371,
+        recordedAt: new Date(now.getTime() + 10_000),
+      }),
+    ).resolves.not.toThrow();
+  });
+
+  /* --- the diagnostic trail ------------------------------------------ */
+
+  /*
+   * THE TABLE THAT MAKES A GAP ANSWERABLE. `driver_positions` destroys the
+   * previous answer every time it writes one, so before this the question ops
+   * actually gets asked — "the driver says their location kept dropping" —
+   * had no evidence behind it at all.
+   */
+  it("appends a ping row beside the mutable position row", async () => {
+    const driver = await makeDriver("Trail Maker");
+    const truck = await makeTruck("Van Trail", 30);
+    const shift = await startShift(config, { staffUserId: driver, truckId: truck.id });
+
+    await recordDriverPosition(config, {
+      staffUserId: driver,
+      ...MIDTOWN,
+      recordedAt: new Date(now.getTime() + 10_000),
+    });
+
+    const pings = await db.select().from(driverPositionPings);
+    expect(pings).toHaveLength(1);
+    expect(pings[0]).toMatchObject({
+      staffUserId: driver,
+      driverShiftId: shift.shift.id,
+      lat: MIDTOWN.lat,
+      lng: MIDTOWN.lng,
+    });
+    // One mutable row, many pings — the whole point of having both.
+    expect(await db.select().from(driverPositions)).toHaveLength(1);
+  });
+
+  it("keeps every ping while the position row holds only the newest", async () => {
+    const driver = await makeDriver("Repeat Pinger");
+    const truck = await makeTruck("Van Repeat", 30);
+    await startShift(config, { staffUserId: driver, truckId: truck.id });
+
+    for (let i = 1; i <= 3; i += 1) {
+      await recordDriverPosition(config, {
+        staffUserId: driver,
+        lat: 40.75 + i / 1000,
+        lng: -73.99,
+        recordedAt: new Date(now.getTime() + i * 20_000),
+      });
+    }
+
+    expect(await db.select().from(driverPositionPings)).toHaveLength(3);
+    const [position] = await db.select().from(driverPositions);
+    expect(position!.lat).toBeCloseTo(40.753, 5);
+  });
+
+  /*
+   * APPENDED EVEN WHEN THE UPSERT DECLINES. A fix that lost the ordering race
+   * is still a real observation, and a replayed backlog is precisely the
+   * evidence worth keeping — the distance between the device's fix time and
+   * the server's write time is what says "was in a tunnel" rather than
+   * "stopped reporting". If this ever regresses, the diagnostics go blind for
+   * exactly the outage they exist to explain.
+   */
+  it("records a ping for a fix that lost the ordering race", async () => {
+    const driver = await makeDriver("Late Arrival");
+    const truck = await makeTruck("Van Late", 30);
+    await startShift(config, { staffUserId: driver, truckId: truck.id });
+
+    await recordDriverPosition(config, {
+      staffUserId: driver,
+      ...MIDTOWN,
+      recordedAt: new Date(now.getTime() + 60_000),
+    });
+    await recordDriverPosition(config, {
+      staffUserId: driver,
+      lat: 40.71277,
+      lng: -73.95371,
+      recordedAt: new Date(now.getTime() + 10_000),
+    });
+
+    // The pin did not rewind...
+    const [position] = await db.select().from(driverPositions);
+    expect(position).toMatchObject({ ...MIDTOWN });
+    // ...and the losing fix is still on the record.
+    expect(await db.select().from(driverPositionPings)).toHaveLength(2);
   });
 
   it("refuses a position from somebody who is not on shift", async () => {

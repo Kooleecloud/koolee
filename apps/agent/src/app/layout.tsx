@@ -58,18 +58,40 @@ export default async function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <body className={`${brandFontClassName} min-h-dvh`}>
-        <AppHeader linkComponent={Link} tag="agent" sticky={false} />
-        {children}
-        {session ? <AgentTabBar /> : null}
         {/*
+          THE TWO STATUS PILLS LIVE IN THE HEADER, not in the page.
+
           POSITION IS A FACT ABOUT THE DRIVER, NOT ABOUT THE SCREEN.
           `GpsPinger` used to live on the Today page alone, so opening a task —
           the moment somebody is most likely to be moving — stopped reporting,
           silently, and the customer's map went quiet. In the shell it runs
-          from every page for as long as the shift is open. Off the clock it
-          renders nothing and touches no geolocation API at all.
+          from every page for as long as the shift is open.
+
+          It then rendered its status in the page BODY, which had the same
+          shape of problem one level up: a driver deep in a task could not see
+          whether Koolee was seeing them, or even whether they were clocked
+          on. Both answers now sit in the header, on every screen, with their
+          detail behind a tap. Off the clock this renders nothing and touches
+          no geolocation API at all.
+
+          `sticky` stays false: on a 393px screen a pinned bar is space taken
+          from the job, and the pills are one scroll away rather than absent.
         */}
-        {session ? <ShiftLocation /> : null}
+        <AppHeader
+          linkComponent={Link}
+          tag="agent"
+          sticky={false}
+          /*
+            GLYPH ONLY ON A PHONE. This bar carries the wordmark, the "agent"
+            chip and two status pills, and 393px does not hold all four — the
+            wordmark alone is about 170px. The mark is the one thing here
+            nobody is trying to read, so it is what gives way.
+          */
+          compactLogo
+          actions={session ? <ShiftLocation /> : undefined}
+        />
+        {children}
+        {session ? <AgentTabBar /> : null}
         <ServiceWorkerRegistrar />
         <Toaster position="top-center" />
         <Analytics />

@@ -18,7 +18,16 @@ const DialogOverlay = React.forwardRef<
   <DialogPrimitive.Overlay
     ref={ref}
     className={cn(
-      "fixed inset-0 z-50 bg-black/70 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
+      /*
+       * `duration-200` MATCHES THE CONTENT'S, and its absence was a visible
+       * bug rather than a detail. `animate-out` alone runs at
+       * tailwindcss-animate's 150ms default while the content below is
+       * explicitly 200ms, so on close the backdrop finished first and left the
+       * dialog hanging over a fully-lit page for the last 50ms — reported as
+       * "the backdrop goes away and the modal is still visible". They are one
+       * object as far as the eye is concerned and they have to leave together.
+       */
+      "fixed inset-0 z-50 bg-black/70 duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
       className,
     )}
     {...props}
@@ -35,7 +44,18 @@ const DialogContent = React.forwardRef<
     <DialogPrimitive.Content
       ref={ref}
       className={cn(
-        "fixed left-1/2 top-1/2 z-50 grid w-full max-w-lg -translate-x-1/2 -translate-y-1/2 gap-4 border bg-background p-6 shadow-lg duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out sm:rounded-lg",
+        /*
+         * THE ENTER/EXIT KEYFRAMES WERE MISSING. `animate-in` and
+         * `animate-out` on their own name the direction and nothing else —
+         * without a `fade-*`/`zoom-*` utility there is no opacity or scale to
+         * interpolate, so the panel held full opacity for its whole 200ms and
+         * then vanished in one frame. Combined with the overlay finishing
+         * early, closing read as two separate events instead of one.
+         *
+         * `zoom-*-95` is deliberately slight: a photo lightbox should settle,
+         * not spring.
+         */
+        "fixed left-1/2 top-1/2 z-50 grid w-full max-w-lg -translate-x-1/2 -translate-y-1/2 gap-4 border bg-background p-6 shadow-lg duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=open]:fade-in-0 data-[state=closed]:fade-out-0 data-[state=open]:zoom-in-95 data-[state=closed]:zoom-out-95 sm:rounded-lg",
         className,
       )}
       {...props}

@@ -12,8 +12,28 @@ export const PICKUP_STEPS = [
   "On the way",
   "Bags collected",
   "In transit",
-  "At the bag drop",
+  "Delivered",
 ] as const;
+
+/**
+ * The same five stages, with the driver's name in the first one.
+ *
+ * WHY A FUNCTION NOW. "Driver booked" is a fact about the BOOKING, and this
+ * strip is the driver's journey — the customer has just chosen a specific
+ * person and the track's first stage should say so. "Ravi assigned" turns an
+ * abstract progression into a report about somebody who is coming.
+ *
+ * WHY THE CONSTANT SURVIVES. It is the fallback when there is no name to use —
+ * a driver row with a null `given_name` is ordinary — and the two must stay
+ * the same LENGTH, because `pickupStepIndexFor` returns an index into either.
+ *
+ * "At the bag drop" became "Delivered" in both. The old phrase described a
+ * location; the customer is waiting to hear about an outcome.
+ */
+export function pickupSteps(driverGivenName: string | null): readonly string[] {
+  if (!driverGivenName) return PICKUP_STEPS;
+  return [`${driverGivenName} assigned`, ...PICKUP_STEPS.slice(1)];
+}
 
 /**
  * Where the bags are, as an index into `PICKUP_STEPS`.

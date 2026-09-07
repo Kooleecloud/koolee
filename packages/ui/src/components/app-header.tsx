@@ -25,6 +25,21 @@ export interface AppHeaderProps {
   tag?: string;
   /** Sticky by default, matching MarketingNav. */
   sticky?: boolean;
+  /**
+   * Drop to the glyph alone below `sm`, keeping the wordmark from there up.
+   *
+   * FOR A HEADER THAT HAS OTHER WORK TO DO. The wordmark is about 170px at
+   * `h-8`; the glyph is 32. On a 393px phone that difference is most of the
+   * room the agent app's two status pills need, and a logo is the one thing on
+   * that bar nobody is trying to read. Off by default — a surface with a bare
+   * header has the space and should use it.
+   *
+   * IT IS TWO ELEMENTS, ONE VISIBLE, and that is safe for a screen reader
+   * rather than a duplicate label: Tailwind's `hidden` is `display: none`, so
+   * whichever mark the viewport is not showing is removed from the
+   * accessibility tree entirely. Exactly one "Koolee" is ever announced.
+   */
+  compactLogo?: boolean;
   className?: string;
 }
 
@@ -47,6 +62,7 @@ function AppHeader({
   homeHref = "/",
   tag,
   sticky = true,
+  compactLogo = false,
   className,
 }: AppHeaderProps) {
   const hasMenu = Boolean(links && links.length > 0);
@@ -61,7 +77,14 @@ function AppHeader({
           href={homeHref}
           className="inline-flex items-center gap-2 rounded-md focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
         >
-          <KooleeLogo />
+          {compactLogo ? (
+            <>
+              <KooleeLogo withWordmark={false} className="sm:hidden" />
+              <KooleeLogo className="hidden sm:inline-flex" />
+            </>
+          ) : (
+            <KooleeLogo />
+          )}
           {tag ? (
             <span className="rounded-sm bg-navy-50 px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-wider text-navy-700">
               {tag}

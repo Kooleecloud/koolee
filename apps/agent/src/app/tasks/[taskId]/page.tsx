@@ -27,6 +27,7 @@ import {
 } from "@koolee/core";
 
 import { LiveTasks } from "@/components/live-tasks";
+import { BookingRef } from "@/components/job/booking-ref";
 import { TaskRecord } from "@/components/job/task-record";
 import { TaskStopped } from "@/components/job/task-stopped";
 import { AgentMain } from "@/components/shell/agent-main";
@@ -143,31 +144,43 @@ function DoorstepCard({
 
   return (
     <Card className="flex flex-col gap-3 p-4">
-      <div className="flex flex-col gap-0.5">
-        {/* Window first, name second: the driver already knows roughly who,
-            and is checking whether they are on time. */}
-        <span className="font-display text-2xl font-semibold text-navy-800">
-          {task.scheduledStart
-            ? task.scheduledEnd
-              ? formatHourRangeInAirportTz(task.scheduledStart, task.scheduledEnd, tz)
-              : formatInstantInAirportTz(task.scheduledStart, tz)
-            : "Unscheduled"}
-        </span>
-        {/* The face goes next to the name, not above the window: the driver
-            reads this card in the van to check they are on time, and again at
-            the door to check they have the right person. Same card, two jobs. */}
-        <span className="flex items-center gap-2">
-          <Avatar
-            size="sm"
-            name={customer?.fullName ?? booking.paxName}
-            src={customerAvatarUrl}
-            alt=""
-          />
-          <span className="text-base font-medium">{booking.paxName}</span>
-        </span>
-        {windowNote ? (
-          <span className="text-xs text-muted-foreground">{windowNote}</span>
-        ) : null}
+      {/*
+        THE REF LEADS, BESIDE THE WINDOW — the same treatment the job card
+        gives it, because these are the two screens either side of tapping into
+        a stop and the number has to look like the same thing on both. It used
+        to sit at the very bottom of this card in grey `text-xs`, between the
+        bag count and the flight number: a driver standing at a door reading it
+        back to a customer had to hunt for the smallest text on the screen.
+      */}
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="flex flex-col gap-0.5">
+          {/* Window first, name second: the driver already knows roughly who,
+              and is checking whether they are on time. */}
+          <span className="font-display text-2xl font-semibold text-navy-800">
+            {task.scheduledStart
+              ? task.scheduledEnd
+                ? formatHourRangeInAirportTz(task.scheduledStart, task.scheduledEnd, tz)
+                : formatInstantInAirportTz(task.scheduledStart, tz)
+              : "Unscheduled"}
+          </span>
+          {/* The face goes next to the name, not above the window: the driver
+              reads this card in the van to check they are on time, and again
+              at the door to check they have the right person. Same card, two
+              jobs. */}
+          <span className="flex items-center gap-2">
+            <Avatar
+              size="sm"
+              name={customer?.fullName ?? booking.paxName}
+              src={customerAvatarUrl}
+              alt=""
+            />
+            <span className="text-base font-medium">{booking.paxName}</span>
+          </span>
+          {windowNote ? (
+            <span className="text-xs text-muted-foreground">{windowNote}</span>
+          ) : null}
+        </div>
+        <BookingRef value={booking.ref} />
       </div>
 
       {addressLine ? (
@@ -228,10 +241,12 @@ function DoorstepCard({
         </>
       ) : null}
 
+      {/* The ref has moved to the pill above; the same number twice on one
+          card, in two different weights, is a card that has not decided what
+          matters. */}
       <p className="border-t border-border pt-3 text-xs text-muted-foreground">
-        <span className="font-mono">{booking.ref}</span> · {booking.bagCount} bag
-        {booking.bagCount === 1 ? "" : "s"} · {booking.flightNumber} ·{" "}
-        {booking.departureAirport} · departs{" "}
+        {booking.bagCount} bag{booking.bagCount === 1 ? "" : "s"} · {booking.flightNumber}{" "}
+        · {booking.departureAirport} · departs{" "}
         {formatInstantInAirportTz(booking.departureAt, tz)}
       </p>
     </Card>

@@ -108,6 +108,28 @@ export interface MapDriver {
   /** Rendered inside the pin. A first name, or empty. */
   label?: string | null;
   selected?: boolean;
+  /**
+   * What kind of claim this pin is making. Default `"live"`.
+   *
+   * THE THREE ARE NOT COSMETIC — each says something different about how much
+   * the viewer should trust the dot, and drawing them identically is how a map
+   * lies:
+   *
+   *  - **`live`** — a fresh fix from a real driver. Named, tappable, pulsing.
+   *  - **`stale`** — a real driver's LAST KNOWN position, past the freshness
+   *    window. Still their pin and still tappable, but greyed and with the
+   *    pulse removed, because the pulse is the thing that says "this is now".
+   *    The caller says how old in words beside the map; see `H` in the slice
+   *    plan. This exists because the alternative — dropping the pin — empties
+   *    the map at precisely the moment somebody is watching it hardest.
+   *  - **`ghost`** — NOT A DRIVER. A placeholder drawn while the shortlist is
+   *    still being built, so the map is not an empty rectangle. Anonymous,
+   *    inert and unclickable BY CONSTRUCTION rather than by convention: it
+   *    renders a `span` with `pointer-events-none`, so there is no element for
+   *    a click listener to fire from and no way for one to be selected by
+   *    mistake. It carries no label, and callers must not give it one.
+   */
+  variant?: "live" | "stale" | "ghost";
 }
 
 export interface LiveMapProps {
@@ -412,19 +434,28 @@ export function LiveMap({
         dragRotate: false,
         touchZoomRotate: true,
         /*
-         * ONE FINGER SCROLLS THE PAGE; TWO PAN THE MAP.
+         * ONE FINGER PANS THE MAP. TD's call, and it reverses this file's
+         * previous decision, so both sides are worth writing down.
          *
-         * Without this a map sitting mid-page is a scroll trap on a phone:
-         * a thumb landing anywhere on it pans the map, and the page under it
-         * will not move — so somebody trying to reach the driver list below
-         * is stuck dragging a map they did not want to move. MapLibre shows
-         * its own hint the first time a single finger tries.
+         * `cooperativeGestures: true` used to sit here. It made a single
+         * finger scroll the PAGE and two fingers pan the map, which stopped a
+         * map sitting mid-page from being a scroll trap: a thumb landing on it
+         * could still reach the driver list below.
          *
-         * On desktop it also means the wheel scrolls the page and ctrl+wheel
-         * zooms, which is the behaviour every embedded map has taught people
-         * to expect.
+         * That was the right trade when the map was a garnish above a list
+         * somebody actually chose from. It is the wrong one now the map is the
+         * view — asking for two fingers to drag is a gesture nothing else on a
+         * phone requires, and it made the map feel broken to the person whose
+         * van is on it.
+         *
+         * THE SCROLL TRAP IS REAL AND IS NOT SOLVED, IT IS BOUNDED. The map is
+         * a fixed-height hero, never full-viewport, so there is always page
+         * above and below it to scroll from. A thumb that lands ON the map
+         * will pan the map and not the page; that is now the accepted cost.
+         *
+         * Wheel behaviour is handled separately below — see `scrollZoom`.
          */
-        cooperativeGestures: true,
+        cooperativeGestures: false,
         attributionControl: { compact: true },
       });
     } catch {
@@ -438,7 +469,27 @@ export function LiveMap({
       return () => clearTimeout(timer);
     }
 
+    /*
+     * PINCH ZOOMS, TWISTING DOES NOTHING. A customer watching a van has no
+     * use for a rotated world, and a stray two-finger twist leaves the map at
+     * an angle they cannot undo without a compass control this map does not
+     * render.
+     */
     instance.touchZoomRotate.disableRotation();
+    /*
+     * THE WHEEL SCROLLS THE PAGE, IT DOES NOT ZOOM THE MAP.
+     *
+     * `cooperativeGestures` used to give this for free — with it off, the
+     * default is that a wheel over the map zooms it, so a laptop user
+     * scrolling past the trip page gets caught and dropped into street level
+     * instead of reaching the timeline. That is the desktop half of exactly
+     * the trap we just accepted on touch, and unlike the touch half it costs
+     * nothing to avoid: zoom on desktop stays available on the +/− buttons,
+     * which is where a mouse user looks for it anyway.
+     *
+     * Touch pinch is a separate handler and is untouched by this.
+     */
+    instance.scrollZoom.disable();
     instance.addControl(new NavigationControl({ showCompass: false }), "top-right");
     if (allowFullscreen) {
       instance.addControl(new FullscreenControl(), "top-right");
@@ -567,7 +618,31 @@ export function LiveMap({
       seen.add(driver.id);
       const existing = markers.current.get(driver.id);
 
-      if (existing) {
+      /*
+       * A CHANGE OF VARIANT IS A CHANGE OF ELEMENT, not a change of class.
+       *
+       * The reuse branch below moves a marker and updates its selected state,
+       * which is what makes a van drive rather than blink. It cannot carry a
+       * live pin into a stale one: the ring is a child that stale does not
+       * have, and ghost is a different element entirely. Reusing across that
+       * boundary left a driver whose fix went stale drawn as fresh and
+       * pulsing — the exact lie the variant exists to prevent.
+       *
+       * Recreating costs the walk animation for one frame, on a transition
+       * that happens at most twice a journey.
+       */
+      if (
+        existing &&
+        existing.getElement().dataset.variant !== (driver.variant ?? "live")
+      ) {
+        const frame = moves.current.get(driver.id);
+        if (frame !== undefined) cancelAnimationFrame(frame);
+        moves.current.delete(driver.id);
+        existing.remove();
+        markers.current.delete(driver.id);
+      }
+
+      if (markers.current.has(driver.id) && existing) {
         /*
          * MOVED, NOT REPLACED, and WALKED rather than jumped. Re-creating the
          * marker would teleport the pin and drop any transition; animating
@@ -1158,12 +1233,39 @@ function pickupPin(label: string): HTMLElement {
   return root;
 }
 
-/** A van. Tag orange when chosen, sky otherwise — the brand's own two accents. */
+/**
+ * A van. Tag orange when chosen, sky otherwise — the brand's own two accents.
+ *
+ * Three shapes, one function, because they must stay recognisably the same
+ * object: see `MapDriver.variant` for what each one is claiming.
+ */
 function driverPin(driver: MapDriver): HTMLElement {
+  const variant = driver.variant ?? "live";
+  const ghost = variant === "ghost";
+
   const root = markerRoot();
   root.dataset.selected = driver.selected ? "true" : "false";
+  root.dataset.variant = variant;
   // The pin sits above its own ring; both share the root's centre.
   root.classList.add("relative");
+
+  /*
+   * A GHOST IS THE SAME PIN, INERT — TD's second pass on this, and a better
+   * call than the first. It used to be a muted grey dot, which read as a
+   * different KIND of thing and looked, in TD's words, "way more fake" than a
+   * placeholder needs to. What a customer should see is what they are about to
+   * be offered: a van, in the same shape and colour, whose identity is simply
+   * not settled yet. The masked label below is what carries that.
+   *
+   * `pointer-events-none` on the root and `aria-hidden` keep the inertness
+   * STRUCTURAL rather than a rule to remember: there is no element for a click
+   * listener to fire from, and a screen reader is told nothing, because there
+   * is nothing true to tell it.
+   */
+  if (ghost) {
+    root.classList.add("pointer-events-none");
+    root.setAttribute("aria-hidden", "true");
+  }
 
   /*
    * THE RING, and why a map needs one.
@@ -1179,33 +1281,52 @@ function driverPin(driver: MapDriver): HTMLElement {
    * somebody who asked for less motion is not asking for a subtler version of
    * it, and the map is complete without it.
    */
-  const ring = document.createElement("span");
-  ring.setAttribute("aria-hidden", "true");
-  ring.className = [
-    "pointer-events-none absolute left-1/2 top-1/2 size-9 -translate-x-1/2 -translate-y-1/2",
-    "rounded-full bg-sky-500/40 animate-pin-ping motion-reduce:hidden",
-    "group-data-[selected=true]:bg-tag-500/40",
-  ].join(" ");
-  root.appendChild(ring);
+  /*
+   * A STALE PIN DOES NOT PULSE, and that is the whole point of the variant.
+   * The ring is the map's way of saying "this is now"; keeping it on a fix
+   * that is minutes old would make the one dishonest pin the liveliest thing
+   * on the screen.
+   */
+  if (variant !== "stale") {
+    const ring = document.createElement("span");
+    ring.setAttribute("aria-hidden", "true");
+    ring.className = [
+      "pointer-events-none absolute left-1/2 top-1/2 size-9 -translate-x-1/2 -translate-y-1/2",
+      "rounded-full bg-sky-500/40 animate-pin-ping motion-reduce:hidden",
+      "group-data-[selected=true]:bg-tag-500/40",
+    ].join(" ");
+    root.appendChild(ring);
+  }
 
-  const button = document.createElement("button");
-  button.type = "button";
-  button.dataset.pin = "driver";
-  button.setAttribute("aria-pressed", driver.selected ? "true" : "false");
-  button.setAttribute(
-    "aria-label",
-    driver.label ? `Driver ${driver.label}` : "Koolee driver",
-  );
+  /*
+   * A SPAN FOR A GHOST, A BUTTON FOR A DRIVER. Same classes, same glyph, same
+   * label slot — but a placeholder must not be focusable or pressable, and
+   * making it a different ELEMENT is stronger than making it ignore its own
+   * click handler.
+   */
+  const button = document.createElement(ghost ? "span" : "button");
+  if (!ghost) {
+    (button as HTMLButtonElement).type = "button";
+    button.dataset.pin = "driver";
+    button.setAttribute("aria-pressed", driver.selected ? "true" : "false");
+    const who = driver.label ? `Driver ${driver.label}` : "Koolee driver";
+    // Said out loud, not just drawn grey: a screen reader gets no colour.
+    button.setAttribute(
+      "aria-label",
+      variant === "stale" ? `${who} — last known position` : who,
+    );
+  }
   button.className = [
     // `relative` so the pill paints above the ring behind it.
-    "relative flex cursor-pointer items-center gap-1 rounded-full border-2 border-white px-2 py-1",
+    "relative flex items-center gap-1 rounded-full border-2 border-white px-2 py-1",
+    ghost ? "cursor-default" : "cursor-pointer",
     "text-xs font-semibold text-white shadow-lg",
     // Only `scale` transitions. NOT `transition-transform`, which would also
     // cover `transform` — the property MapLibre rewrites every frame on the
     // parent, and which a child inherits nothing of but which it is far too
     // easy to reintroduce here by habit.
     "transition-[scale] duration-150",
-    "bg-sky-600 hover:scale-110",
+    variant === "stale" ? "bg-navy-400 hover:scale-110" : "bg-sky-600 hover:scale-110",
     "group-data-[selected=true]:bg-tag-500 group-data-[selected=true]:scale-110",
     "focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring",
   ].join(" ");

@@ -224,9 +224,11 @@ describe("createKooleeFunctions — registration", () => {
       "booking-pickup-reminder",
       "cutoff-risk-monitor",
       "driver-pool-empty-ops-alert",
+      "driver-position-gap-nudge",
       "driver-selected-email",
       "exception-customer-email",
       "exception-ops-alert-email",
+      "position-ping-retention",
       "waitlist-zone-opened-sweep",
     ]);
     // Two functions, one event. Ops gets the reason; the customer does not.
@@ -238,6 +240,14 @@ describe("createKooleeFunctions — registration", () => {
     ]);
     expect(fn(h, "cutoff-risk-monitor").crons).toEqual(["*/5 * * * *"]);
     expect(fn(h, "assignment-horizon-sweep").crons).toEqual(["*/5 * * * *"]);
+    /*
+     * The gap nudge shares the five-minute cadence: a driver's location
+     * stopping is worth noticing on the same beat as a booking at risk.
+     * Retention runs hourly and off the hour, so it never contends with the
+     * :00 pile-up.
+     */
+    expect(fn(h, "driver-position-gap-nudge").crons).toEqual(["*/5 * * * *"]);
+    expect(fn(h, "position-ping-retention").crons).toEqual(["17 * * * *"]);
     expect(fn(h, "waitlist-zone-opened-sweep").crons).toEqual([
       "TZ=America/New_York 0 10 * * *",
     ]);

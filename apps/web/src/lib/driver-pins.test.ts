@@ -14,7 +14,12 @@ const at = (lat: number, lng: number) => ({ lat, lng });
 function candidate(
   over: Partial<PinnableCandidate> & { shiftId: string },
 ): PinnableCandidate {
-  return { givenName: "Driver", position: at(40.75, -73.99), ...over };
+  return {
+    givenName: "Driver",
+    position: at(40.75, -73.99),
+    positionIsFresh: true,
+    ...over,
+  };
 }
 
 describe("driverPins", () => {
@@ -33,12 +38,14 @@ describe("driverPins", () => {
         position: { lat: 40.76, lng: -73.98 },
         label: "Marcus",
         selected: false,
+        variant: "live",
       },
       {
         id: "s-2",
         position: { lat: 40.74, lng: -73.99 },
         label: "Yara",
         selected: false,
+        variant: "live",
       },
     ]);
   });
@@ -109,5 +116,34 @@ describe("driverPins", () => {
   it("carries a missing name through rather than inventing one", () => {
     const pins = driverPins([candidate({ shiftId: "a", givenName: null })], null);
     expect(pins[0]!.label).toBeNull();
+  });
+});
+
+/* --- the driver whose fix has aged ---------------------------------- */
+
+/*
+ * NOT THE SAME CASE AS NO FIX AT ALL, and conflating them is what emptied the
+ * map. Core used to null a stale position, so a shortlist of four drivers who
+ * had all gone quiet drew nothing — at exactly the moment somebody was trying
+ * to choose one on a map.
+ */
+describe("driverPins and stale fixes", () => {
+  it("keeps a stale driver's pin, marked stale", () => {
+    const pins = driverPins(
+      [candidate({ shiftId: "s-1", positionIsFresh: false })],
+      null,
+    );
+    expect(pins).toHaveLength(1);
+    expect(pins[0]!.variant).toBe("stale");
+  });
+
+  it("still drops a driver who has never reported at all", () => {
+    const pins = driverPins([candidate({ shiftId: "s-1", position: null })], null);
+    expect(pins).toHaveLength(0);
+  });
+
+  it("marks a fresh driver live", () => {
+    const pins = driverPins([candidate({ shiftId: "s-1" })], null);
+    expect(pins[0]!.variant).toBe("live");
   });
 });

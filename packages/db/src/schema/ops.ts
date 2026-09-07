@@ -189,9 +189,83 @@ export const driverPositions = pgTable(
   ],
 );
 
+/**
+ * Every position a driver's phone reported, kept briefly.
+ *
+ * WHY THIS EXISTS. `driver_positions` above holds ONE row per driver and keeps
+ * no history, which makes the most important operational question about this
+ * whole subsystem unanswerable: a driver says their location kept dropping,
+ * and there is no way to tell whether it did, for how long, how often, or on
+ * whose phone. The only evidence was a customer noticing a pin had stopped.
+ *
+ * With this, a gap is a hole in a sequence rather than a rumour — which is
+ * what `driver_position_pings` is for and the ONLY thing it is for.
+ *
+ * STILL NOT EVIDENCE, and the distinction from `custody_events` is exactly
+ * the one the note above draws. This is a browser geolocation ping at street
+ * resolution with no photo, no seal and no actor beside it. Do not cite it in
+ * a dispute, do not build a customer-facing timeline from it, and do not let
+ * it grow into a route-history feature by accident. It is diagnostics.
+ *
+ * RETENTION IS THE POINT, NOT AN AFTERTHOUGHT. A row per driver per 20 to 45
+ * seconds of every shift is the highest-volume write in the system by a wide
+ * margin, and it is disposable within days — a gap nobody investigated inside
+ * a week is a gap nobody is going to. Rows older than the retention window are
+ * deleted by a scheduled job; `recorded_at` is indexed for exactly that sweep
+ * as well as for reading one driver's day.
+ *
+ * TWO TIMESTAMPS, AND BOTH EARN THEIR KEEP. `recorded_at` is when the DEVICE
+ * fixed the position; `received_at` is when the server wrote it. Equal, near
+ * enough, on a healthy ping. Far apart on a replay out of the offline queue —
+ * which is the signal that says "this driver was in a tunnel for four
+ * minutes" rather than "this driver stopped reporting", and those two need
+ * very different responses from ops.
+ */
+export const driverPositionPings = pgTable(
+  "driver_position_pings",
+  {
+    id: primaryId(),
+    staffUserId: uuid("staff_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    /**
+     * The shift this ping belongs to.
+     *
+     * Denormalised deliberately: the alternative is joining on a time range
+     * against `driver_shifts` for every read, and a shift that was force-ended
+     * mid-ping makes that join ambiguous at exactly the moment somebody is
+     * trying to work out what happened. `recordDriverPosition` already has the
+     * shift id in hand — it looks one up to authorise the write at all — so
+     * this costs nothing to store.
+     *
+     * `cascade`, matching the row it describes: a deleted shift's diagnostics
+     * are of no use to anybody.
+     */
+    driverShiftId: uuid("driver_shift_id")
+      .notNull()
+      .references(() => driverShifts.id, { onDelete: "cascade" }),
+    lat: doublePrecision("lat").notNull(),
+    lng: doublePrecision("lng").notNull(),
+    /** When the DEVICE fixed the position. */
+    recordedAt: timestamptz("recorded_at").notNull(),
+    /** When the SERVER stored it. Lags `recorded_at` on a queue replay. */
+    receivedAt: createdAt(),
+  },
+  (t) => [
+    /* One driver's day, in order — the read every investigation starts with. */
+    index("driver_position_pings_staff_recorded_idx").on(t.staffUserId, t.recordedAt),
+    /* The retention sweep, which scans by age across every driver. */
+    index("driver_position_pings_recorded_at_idx").on(t.recordedAt),
+    check("driver_position_pings_lat_range_check", sql`${t.lat} between -90 and 90`),
+    check("driver_position_pings_lng_range_check", sql`${t.lng} between -180 and 180`),
+  ],
+);
+
 export type Truck = typeof trucks.$inferSelect;
 export type NewTruck = typeof trucks.$inferInsert;
 export type DriverShift = typeof driverShifts.$inferSelect;
 export type NewDriverShift = typeof driverShifts.$inferInsert;
 export type DriverPosition = typeof driverPositions.$inferSelect;
 export type NewDriverPosition = typeof driverPositions.$inferInsert;
+export type DriverPositionPing = typeof driverPositionPings.$inferSelect;
+export type NewDriverPositionPing = typeof driverPositionPings.$inferInsert;

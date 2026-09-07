@@ -245,33 +245,106 @@ export interface JobDay {
 }
 
 export interface JobSections {
+  /**
+   * Needs a human: a failed phase, or a stop whose bag-drop cutoff has passed
+   * and which therefore cannot be completed at all.
+   */
   problems: Job[];
+  /**
+   * Late but still doable — the window has passed, the cutoff has not.
+   *
+   * RENDERED LAST despite sorting first, which is the point. These are real
+   * work and must not be hidden, but a stop from three days ago is not what a
+   * driver opens the app to find out about; today's next stop is. The section
+   * order on the page is Problems → Today → Upcoming → these.
+   */
   overdue: Job[];
   today: Job[];
   upcoming: JobDay[];
+  /**
+   * Assigned with no window on it.
+   *
+   * ITS OWN BUCKET rather than folded into `today`, which is where it used to
+   * go. Today's screen draws its stops as a ROUTE — an ordered sequence — and
+   * a stop with no time has no position in one; slotting it in puts a made-up
+   * position on the single job whose position is genuinely unknown. Both
+   * screens now render it under its own heading, which is also how the two
+   * came to agree: they share this function instead of each filtering the day
+   * their own way.
+   */
+  unscheduled: Job[];
 }
 
-/** Everything terminal: what History shows and the schedule does not. */
-export function isFinished(job: Job): boolean {
+/**
+ * Work that somebody actually DID. History's "completed" half.
+ *
+ * Kept separate from `isSettled` because they answer different questions and
+ * a single predicate cannot do both: this one is "did this happen", and the
+ * count of a driver's finished stops must never include ones that were called
+ * off.
+ */
+export function isDone(job: Job): boolean {
   return job.state === "done";
+}
+
+/**
+ * Nothing left to do here, whether or not anybody did it.
+ *
+ * WHAT THIS REPLACES AND WHY. `isFinished` was `state === "done"` alone, and
+ * a cancelled stop is not done — so it was neither finished nor outstanding
+ * and fell through every bucket into `overdue`, where it stayed FOREVER.
+ * TD's report: a driver's Today rail and Schedule both led with cancelled
+ * bookings from 27 and 30 August, sorted to the top because overdue sorts
+ * first and their windows are the oldest in the queue.
+ *
+ * The old comment argued a cancelled stop must stay on the day so an agent who
+ * remembers being sent to that address can find it. That reasoning is intact
+ * and is why cancelled goes to HISTORY rather than being dropped: it is still
+ * findable, next to the rest of the day it belonged to, in the one place that
+ * is not a list of things to go and do.
+ */
+export function isSettled(job: Job): boolean {
+  return job.state === "done" || job.state === "cancelled";
+}
+
+/**
+ * This stop's deadline has passed and it can no longer happen.
+ *
+ * NOT THE SAME AS OVERDUE. A pickup stays genuinely doable — and genuinely
+ * urgent — long past its window, right up to the airline's bag-drop cutoff;
+ * that is exactly why late stops are surfaced rather than hidden. One minute
+ * past the cutoff the stop is not late work, it is work that cannot be done,
+ * and a to-do list where those two look identical is a list a driver has to
+ * think their way through instead of reading.
+ *
+ * Null cutoff means the route has no rule on record, and an unknown deadline
+ * is never treated as a passed one — the stop stays actionable and a human
+ * decides.
+ */
+export function hasMissedCutoff(job: Job, now: Date): boolean {
+  const cutoff = job.booking.bagDropCutoffAt;
+  // Truthiness, not `!== null`: a Date is always truthy, and this guard also
+  // absorbs an `undefined` from a booking context assembled before the field
+  // existed. A screen a driver depends on mid-shift must not throw because one
+  // row is shaped like last week's.
+  if (!cutoff) return false;
+  return now.getTime() >= cutoff.getTime();
 }
 
 /**
  * Whether this stop is still asking the driver for something.
  *
- * THE DISTINCTION THIS EXISTS TO MAKE, and the bug from missing it. A
- * cancelled stop STAYS on the day — F4's call, and the right one: a schedule
- * that quietly loses stops is one nobody can reconcile against what they
- * actually did, and a driver who remembers being sent to that address needs
- * to find it. But staying visible is not the same as being work, and every
- * count on the Today screen was using "not done" as its definition of work.
+ * THE DISTINCTION THIS EXISTS TO MAKE, and the bug from missing it. A driver
+ * with two live jobs and one cancelled one read "3 to do", saw "· 1 late" for
+ * a stop nobody was going to, and got a route headed "3 stops" — every one of
+ * those numbers wrong in the same way, because each used "not done" as its
+ * definition of work.
  *
- * So a driver with two live jobs and one cancelled one read "3 to do", saw
- * "· 1 late" for a stop nobody was going to, and got a route headed "3 stops".
- * Every one of those numbers was wrong in the same way.
- *
- * `isFinished` stays as it was: History lists work that HAPPENED, and a
- * cancelled booking is not a job anybody did.
+ * The inverse of `isSettled`, and deliberately written out rather than
+ * expressed as `!isSettled(job)`: the two are read in opposite places (this
+ * one on Today's counts, that one on History's list) and keeping both explicit
+ * is what makes a future third state — paused, say — impossible to add to one
+ * without being forced to think about the other.
  */
 export function isOutstanding(job: Job): boolean {
   return job.state !== "done" && job.state !== "cancelled";
@@ -303,19 +376,36 @@ export function groupIntoSections(
   const overdue: Job[] = [];
   const today: Job[] = [];
   const later: Job[] = [];
+  const unscheduled: Job[] = [];
 
   for (const job of jobs) {
-    if (isFinished(job)) continue;
+    /*
+     * SETTLED, NOT DONE. Cancelled leaves the schedule here and reappears in
+     * History — see `isSettled`. This one-word change is what stops a stop
+     * from last month leading a driver's day forever.
+     */
+    if (isSettled(job)) continue;
     if (job.state === "problem") {
+      problems.push(job);
+      continue;
+    }
+    /*
+     * A STOP PAST ITS CUTOFF IS A PROBLEM, NOT A CHORE. It cannot be done, so
+     * it does not belong in a list of things to go and do — and it must not
+     * be silently dropped either, because somebody has to tell the customer.
+     * `problems` already leads the screen and already reads as "needs a human",
+     * which is exactly the handling this wants.
+     */
+    if (hasMissedCutoff(job, now)) {
       problems.push(job);
       continue;
     }
 
     const bounds = dayBounds(now, job.tz);
-    // No scheduled time is not "someday": somebody has to look at it, and the
-    // only bucket where it will actually be seen is today's.
+    // No scheduled time is not "someday" — somebody still has to look at it —
+    // but it is not part of an ordered route either. See `unscheduled`.
     if (!job.startsAt) {
-      today.push(job);
+      unscheduled.push(job);
       continue;
     }
     if (job.startsAt < bounds.start) overdue.push(job);
@@ -333,12 +423,19 @@ export function groupIntoSections(
     else upcoming.push({ key, jobs: [job] });
   }
 
-  return { problems, overdue, today, upcoming };
+  return { problems, overdue, today, upcoming, unscheduled };
 }
 
-/** Finished work, most recent first — the History tab's list. */
-export function finishedJobs(jobs: readonly Job[]): Job[] {
+/**
+ * Everything settled, most recent first — the History tab's list.
+ *
+ * BOTH DONE AND CANCELLED, which is the change. History is "the days you have
+ * already worked", and a stop that was called off is part of one of them; the
+ * card marks it cancelled so it is never mistaken for work performed. The
+ * count of work actually done is `isDone`, not the length of this list.
+ */
+export function settledJobs(jobs: readonly Job[]): Job[] {
   return jobs
-    .filter(isFinished)
+    .filter(isSettled)
     .sort((a, b) => (b.startsAt?.getTime() ?? 0) - (a.startsAt?.getTime() ?? 0));
 }

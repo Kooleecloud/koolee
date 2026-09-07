@@ -1,16 +1,19 @@
 /* eslint-disable no-undef */
 /**
- * Hand-rolled service worker for the Koolee agent PWA. TWO JOBS:
+ * Hand-rolled service worker for the Koolee agent PWA. THREE JOBS:
  *
  *  1. Offline SHELL — pre-caches the offline fallback page and serves it when
  *     a navigation fails. It deliberately does NOT cache API responses or
- *     queue mutations; offline custody capture needs a durable outbox
- *     (IndexedDB + background sync), which is separate work.
- *  2. WEB PUSH — see the second half of this file.
+ *     queue custody mutations; offline custody capture needs a durable outbox
+ *     of its own, which is still separate work.
+ *  2. WEB PUSH — see the middle of this file.
+ *  3. POSITION FLUSH — drains the driver-position queue on a Background Sync
+ *     event, which is how a fix taken in a tunnel reaches the server after the
+ *     tab is gone. See the third section.
  *
- * The push listeners are MERGED here rather than shipped as a second worker,
+ * The listeners are MERGED here rather than shipped as separate workers,
  * because a scope can only have one: registering `/push-sw.js` at scope `/`
- * would REPLACE this one and take the offline shell with it. One file, two
+ * would REPLACE this one and take the offline shell with it. One file, three
  * concerns, and nothing silently uninstalls anything.
  *
  * Bump CACHE_VERSION whenever the precache list changes.
@@ -237,4 +240,117 @@ self.addEventListener("pushsubscriptionchange", (event) => {
       }
     })(),
   );
+});
+
+/* ------------------------------------------------------------------ */
+/* 3. Driver-position flush                                            */
+/* ------------------------------------------------------------------ */
+
+/**
+ * A CONTRACT WITH `src/lib/position-queue.ts`, and nothing checks it.
+ *
+ * This file is served raw rather than bundled, so it cannot import from the
+ * app and there is no type system spanning the two. The database name, the
+ * store name, the sync tag, the record shape and the endpoint are duplicated
+ * here on purpose; change one side and you must change the other. Both files
+ * carry this warning.
+ */
+const POSITION_DB_NAME = "koolee-positions";
+const POSITION_STORE_NAME = "queue";
+const POSITION_SYNC_TAG = "koolee-position-flush";
+const POSITION_ENDPOINT = "/api/driver-position";
+
+function openPositionDb() {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(POSITION_DB_NAME, 1);
+    // No `onupgradeneeded`: the PAGE owns the schema. A worker that created an
+    // empty store here would race the page's own upgrade and win, leaving the
+    // app writing into a database version it did not expect.
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+/**
+ * Send everything held, oldest first, in one request; delete only what the
+ * server accepted.
+ *
+ * Mirrors `flush()` in `position-queue.ts`, including its retry rule: a 5xx
+ * or a dead connection leaves the queue intact for the next attempt, while a
+ * 4xx drops the batch — a body the server will always refuse must not become
+ * a queue that never empties.
+ */
+async function flushPositionQueue() {
+  let db;
+  try {
+    db = await openPositionDb();
+  } catch {
+    return;
+  }
+  if (!db.objectStoreNames.contains(POSITION_STORE_NAME)) {
+    db.close();
+    return;
+  }
+
+  const read = db.transaction(POSITION_STORE_NAME, "readonly");
+  const store = read.objectStore(POSITION_STORE_NAME);
+  const keysRequest = store.getAllKeys();
+  const valuesRequest = store.getAll();
+
+  const { keys, fixes } = await new Promise((resolve) => {
+    read.oncomplete = () =>
+      resolve({ keys: keysRequest.result || [], fixes: valuesRequest.result || [] });
+    read.onerror = () => resolve({ keys: [], fixes: [] });
+    read.onabort = () => resolve({ keys: [], fixes: [] });
+  });
+
+  if (fixes.length === 0) {
+    db.close();
+    return;
+  }
+
+  let response;
+  try {
+    response = await fetch(POSITION_ENDPOINT, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ fixes }),
+    });
+  } catch {
+    db.close();
+    // THROWN, not swallowed: rejecting the `sync` event is what asks the
+    // browser to try again later with its own backoff. Returning quietly
+    // would mark the sync succeeded and drop the backlog on the floor.
+    throw new Error("position flush failed");
+  }
+
+  if (!response.ok && response.status >= 500) {
+    db.close();
+    throw new Error(`position flush rejected: ${response.status}`);
+  }
+
+  const write = db.transaction(POSITION_STORE_NAME, "readwrite");
+  const writeStore = write.objectStore(POSITION_STORE_NAME);
+  for (const key of keys) writeStore.delete(key);
+  await new Promise((resolve) => {
+    write.oncomplete = resolve;
+    write.onerror = resolve;
+    write.onabort = resolve;
+  });
+  db.close();
+}
+
+/**
+ * Background Sync: the browser fires this when it believes the network is
+ * back, whether or not any tab is open.
+ *
+ * CHROMIUM ONLY. Safari and Firefox never fire it, and there is no polyfill
+ * worth having — on those browsers the queue drains on the page's next
+ * successful send instead, which is the guarantee the app had before the
+ * queue existed, minus the lost fixes. Nothing here is load-bearing for
+ * correctness; it is how a gap gets shorter, not how it gets noticed.
+ */
+self.addEventListener("sync", (event) => {
+  if (event.tag !== POSITION_SYNC_TAG) return;
+  event.waitUntil(flushPositionQueue());
 });

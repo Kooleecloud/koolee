@@ -1,8 +1,9 @@
-import { and, asc, eq, exists, inArray, isNull, sql } from "drizzle-orm";
+import { and, asc, eq, exists, inArray, isNull, lte, sql } from "drizzle-orm";
 import {
   agentZones,
   bookings,
   custodyEvents,
+  driverPositionPings,
   driverPositions,
   driverShifts,
   pickupTasks,
@@ -135,12 +136,27 @@ export interface DriverCandidate {
    * the same bargain every ride-hail app strikes and the reason the pool is
    * filtered before it is drawn.
    *
-   * It is a 45-second-old foreground ping, not a track: `driver_positions`
-   * holds ONE mutable row per driver and keeps no history (schema/ops.ts).
-   * Null the moment a phone goes into a pocket, which the map renders as an
-   * absent pin rather than a stale one.
+   * It is a foreground ping, not a track: `driver_positions` holds ONE mutable
+   * row per driver and keeps no history (schema/ops.ts).
+   *
+   * THE LAST KNOWN POSITION, FRESH OR NOT. It used to be nulled once it aged
+   * past `POSITION_FRESH_MS`, which meant a driver whose phone went into a
+   * pocket simply left the map — and with four candidates that could empty the
+   * map entirely at the moment somebody was choosing on it. Null now means
+   * only one thing: this driver has never reported at all.
    */
   position: Coordinates | null;
+  /**
+   * Whether `position` may be presented as where the driver IS.
+   *
+   * False with a non-null position is the case that matters, and it is
+   * ordinary rather than exceptional: we know where they were, and it is too
+   * old to draw as current. The map renders those grey and unpulsed with the
+   * age in words; see `MapDriver.variant`.
+   */
+  positionIsFresh: boolean;
+  /** When that fix was taken, for saying how old it is. */
+  positionRecordedAt: Date | null;
 }
 
 interface EligibleRow {
@@ -408,14 +424,24 @@ async function shortlistEtas(
  * hours ago, with exactly the confidence of a live one.
  *
  * Same window as `getSelectedDriver` (`POSITION_FRESH_MS`), because "is this
- * where they are" cannot have two answers on one page. A driver with no fresh
- * fix keeps their CARD and simply has no pin — they are perfectly choosable,
- * and the list is the view that says so.
+ * where they are" cannot have two answers on one page.
+ *
+ * USED FOR THE ETA, AND NO LONGER FOR THE PIN. An estimate computed from a
+ * stale origin is a number that looks exactly like a real one, so it is still
+ * dropped here. The PIN now degrades instead of vanishing — see
+ * `positionIsFresh` on `DriverCandidate` — because an empty map at the moment
+ * somebody is choosing is worse than a grey pin that says how old it is.
  */
 function freshPosition(row: EligibleRow, now: Date): Coordinates | null {
   if (row.driverPositionAt === null) return null;
   if (now.getTime() - row.driverPositionAt.getTime() > POSITION_FRESH_MS) return null;
   return toCoordinates(row.driverLat, row.driverLng);
+}
+
+/** Whether that fix is recent enough to present as where the driver IS. */
+function positionIsFresh(row: EligibleRow, now: Date): boolean {
+  if (row.driverPositionAt === null) return false;
+  return now.getTime() - row.driverPositionAt.getTime() <= POSITION_FRESH_MS;
 }
 
 function toCandidate(
@@ -436,7 +462,14 @@ function toCandidate(
     availableCapacity: bookableSpaces(row, row.bagsOnBoard),
     outOfZone,
     eta,
-    position: freshPosition(row, now),
+    /*
+     * LAST KNOWN, fresh or not — the caller decides how to draw it. Paired
+     * with `positionIsFresh`, which is the only thing that says whether it may
+     * be presented as current.
+     */
+    position: toCoordinates(row.driverLat, row.driverLng),
+    positionIsFresh: positionIsFresh(row, now),
+    positionRecordedAt: row.driverPositionAt,
   };
 }
 
@@ -558,6 +591,7 @@ export async function selectDriver(
         staffActive: staffMembers.active,
         driverLat: driverPositions.lat,
         driverLng: driverPositions.lng,
+        driverPositionAt: driverPositions.recordedAt,
       })
       .from(driverShifts)
       .innerJoin(trucks, eq(trucks.id, driverShifts.truckId))
@@ -659,6 +693,11 @@ export async function selectDriver(
       eta,
       // Re-read under the lock along with everything else on this row.
       position: toCoordinates(row.driverLat, row.driverLng),
+      positionIsFresh:
+        row.driverPositionAt !== null &&
+        config.clock.now().getTime() - row.driverPositionAt.getTime() <=
+          POSITION_FRESH_MS,
+      positionRecordedAt: row.driverPositionAt,
     };
 
     return { candidate, releasedShiftId, custodyEventId: selectedEvent?.id ?? null };
@@ -859,6 +898,39 @@ export async function recordDriverPosition(
   }
 
   const recordedAt = input.recordedAt ?? config.clock.now();
+  /*
+   * NEWER WINS, AND THE DATABASE IS WHAT DECIDES.
+   *
+   * `driver_positions` holds one mutable row per driver, so this upsert is the
+   * only thing standing between the pin and a position from the past. Without
+   * the `where`, the last write lands — whatever instant it describes.
+   *
+   * That was survivable while the only caller was a foreground timer sending
+   * one fresh fix at a time, and it stops being survivable the moment fixes
+   * can arrive out of order. Two ways they now can:
+   *
+   *  - the offline queue replays a backlog after a tunnel, oldest first, on
+   *    top of a live fix that landed while it was draining;
+   *  - two of the driver's own tabs, or a `sendBeacon` racing the next
+   *    `watchPosition` callback, reach the server in the wrong order.
+   *
+   * Either one parks the van somewhere it was minutes ago, drawn with exactly
+   * the confidence of a live position. `recordedAt` is the DEVICE's fix time
+   * (see the column comment), which is what makes the comparison meaningful:
+   * arrival order is a fact about the network, fix order is a fact about the
+   * world.
+   *
+   * A rejected write is a no-op, NOT an error. The caller sent a real fix that
+   * simply lost to a better one, and a queue flush that throws on its stale
+   * entries is a queue that never drains.
+   *
+   * `lte`, NOT `lt`, and the difference is a real case rather than pedantry:
+   * two fixes bearing the SAME instant must not be a silent drop. A phone can
+   * emit two readings inside one millisecond, and every test in this suite
+   * runs on a fixed clock where every write carries an identical timestamp —
+   * under `lt` the second is discarded and the row keeps the first, which is
+   * both surprising and untestable. Equal means "no older", so it lands.
+   */
   await db
     .insert(driverPositions)
     .values({
@@ -870,6 +942,39 @@ export async function recordDriverPosition(
     .onConflictDoUpdate({
       target: driverPositions.staffUserId,
       set: { lat: input.lat, lng: input.lng, recordedAt },
+      where: lte(driverPositions.recordedAt, recordedAt),
+    });
+
+  /*
+   * THE DIAGNOSTIC TRAIL, written beside the mutable row rather than instead
+   * of it.
+   *
+   * `driver_positions` answers "where is this driver now" and destroys the
+   * previous answer to do it. That is right for the pin and useless for the
+   * question ops actually gets asked — a driver says their location kept
+   * dropping, and until this table there was no way to tell whether it did,
+   * for how long, or on whose phone.
+   *
+   * APPENDED EVEN WHEN THE UPSERT ABOVE DECLINED. A fix that lost the
+   * ordering race is still a real observation, and a replayed backlog is
+   * precisely the evidence worth keeping — the gap between `recorded_at` and
+   * `created_at` is what distinguishes "was in a tunnel" from "stopped
+   * reporting".
+   *
+   * NEVER FATAL. Diagnostics must not cost a driver their live pin: this is
+   * logged and swallowed, the same bargain `touchBookingSignals` makes below.
+   */
+  await db
+    .insert(driverPositionPings)
+    .values({
+      staffUserId: input.staffUserId,
+      driverShiftId: shift.id,
+      lat: input.lat,
+      lng: input.lng,
+      recordedAt,
+    })
+    .catch((error: unknown) => {
+      console.warn("[driver-position] ping log write failed", error);
     });
 
   /*

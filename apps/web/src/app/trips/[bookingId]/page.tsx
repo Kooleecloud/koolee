@@ -36,7 +36,7 @@ import {
   type AssignedAgent,
 } from "@koolee/core";
 
-import { CustodyTimeline } from "@/components/custody-timeline";
+import { CustodyTimeline, type TimelineActor } from "@/components/custody-timeline";
 import { TripCancel, TripCancelledNotice } from "@/components/trip-cancel";
 import { TripLive } from "@/components/trip-live";
 import { TripPushPrompt } from "@/components/trip-push-prompt";
@@ -50,14 +50,14 @@ import {
   type TripPassportView,
 } from "@/components/trip-action-needed";
 import {
-  DriverChoice,
-  DriverTracking,
+  TripDriverPanel,
   type DriverCandidateView,
   type SelectedDriverView,
 } from "@/components/trip-driver";
 import { signAvatarUrlsForBooking, signShortlistAvatarUrl } from "@/lib/avatars";
 import { flightRouteLabel, flightRouteText } from "@/lib/flight-label";
 import { pickupStepIndexFor } from "@/lib/pickup-progress";
+import { positionAgoLabel } from "@/lib/position-age";
 import { signBagPhotoUrls } from "@/lib/bag-photos";
 import { tryGetCore } from "@/lib/core";
 import { tagBooking } from "@/lib/sentry";
@@ -161,6 +161,33 @@ export default async function TripPage({
     bookingId: booking.id,
     subjectUserIds: [assignedAgent?.userId, selectedDriver?.staffUserId],
   });
+  /*
+   * THE FACES ON THE TRAIL, from the two people already loaded for this page.
+   *
+   * NO EXTRA QUERY, and that is the whole reason it is built here rather than
+   * inside the timeline component: `assignedAgent` and `selectedDriver` are
+   * already resolved for the pickup card and the driver panel, and their
+   * avatars are already signed by the call above. What was missing was the
+   * link from a `custody_events.actor_user_id` back to them.
+   *
+   * SCOPED TO THE TWO FIELD ROLES. An admin who reassigns a pickup is an
+   * actor on this trail and is deliberately not named to the customer —
+   * `NAMED_EVENTS` in the timeline is the other half of that rule.
+   */
+  const timelineActors = new Map<string, TimelineActor>();
+  if (assignedAgent?.userId && assignedAgent.givenName) {
+    timelineActors.set(assignedAgent.userId, {
+      name: assignedAgent.givenName,
+      avatarUrl: relatedAvatars.get(assignedAgent.userId) ?? null,
+    });
+  }
+  if (selectedDriver?.staffUserId && selectedDriver.givenName) {
+    timelineActors.set(selectedDriver.staffUserId, {
+      name: selectedDriver.givenName,
+      avatarUrl: relatedAvatars.get(selectedDriver.staffUserId) ?? null,
+    });
+  }
+
   const agentAvatarUrl = assignedAgent
     ? (relatedAvatars.get(assignedAgent.userId) ?? null)
     : null;
@@ -199,13 +226,7 @@ export default async function TripPage({
     version: agreementVersion?.version ?? null,
     title: agreementVersion?.title ?? "Booking agreement",
     bodyMd: agreementVersion?.bodyMd ?? "",
-    effectiveLabel: agreementVersion
-      ? formatInstantInAirportTz(agreementVersion.effectiveFrom, tz)
-      : null,
     accepted: agreementState.accepted,
-    acceptedAtLabel: agreementState.acceptance
-      ? formatInstantInAirportTz(agreementState.acceptance.acceptedAt, tz)
-      : null,
   };
 
   // Signed here, after the booking has already passed the ownership check in
@@ -265,9 +286,16 @@ export default async function TripPage({
       outOfZone: candidate.outOfZone,
       etaLabel: formatEtaMinutes(candidate.eta),
       hasEta: candidate.eta !== null,
-      // For the map. Null is ordinary — a phone in a pocket stops reporting —
-      // and such a driver keeps their card while having no pin.
+      /*
+       * LAST KNOWN, fresh or not. Null now means only "has never reported",
+       * so the map can tell a driver who is quiet from one who was never
+       * there — and draw the quiet one grey instead of not at all.
+       */
       position: candidate.position,
+      positionIsFresh: candidate.positionIsFresh,
+      positionAgoLabel: candidate.positionIsFresh
+        ? null
+        : positionAgoLabel(candidate.positionRecordedAt, new Date()),
     })),
   );
 
@@ -315,15 +343,21 @@ export default async function TripPage({
           selectedDriver.travelStartedAt !== null,
         ),
         /*
-         * Only a FRESH fix reaches the map. `driver_positions` keeps one
-         * mutable row per driver with no history, so a driver who has been
-         * chosen but has not set off yet — or whose phone went into a pocket
-         * — still has a position on file, possibly from yesterday's job.
-         * Drawing that puts a van on a street it left hours ago, looking
-         * exactly as live as a real one. Stale degrades to what this card
-         * said before there was a map: a distance, and "Position updating".
+         * THE LAST KNOWN FIX REACHES THE MAP, FRESH OR NOT.
+         *
+         * It used to be nulled once stale, on the reasoning that drawing a
+         * position from yesterday's job puts a van on a street it left hours
+         * ago looking exactly as live as a real one. That reasoning is intact
+         * — which is why the pin is drawn GREY and unpulsed, with its age in
+         * words beside it, rather than presented as current. What changed is
+         * the alternative: hiding it emptied the map at the moment somebody
+         * was watching it hardest, which is the failure TD reported.
          */
-        position: selectedDriver.positionIsFresh ? selectedDriver.position : null,
+        position: selectedDriver.position,
+        positionIsFresh: selectedDriver.positionIsFresh,
+        positionAgoLabel: selectedDriver.positionIsFresh
+          ? null
+          : positionAgoLabel(selectedDriver.positionRecordedAt, new Date()),
         // Distinguishes "nobody is coming yet" from "we have lost sight of
         // somebody who is". Both render as no map; only one is a problem.
         travelStarted: selectedDriver.travelStartedAt !== null,
@@ -384,30 +418,108 @@ export default async function TripPage({
   const cancellation =
     booking.status === "cancelled" ? cancellationFromTimeline(timeline) : null;
 
-  const driverSection = driverView ? (
-    <DriverTracking
-      driver={driverView}
-      live={
-        booking.status !== "delivered_to_bagdrop" &&
-        booking.status !== "completed" &&
-        booking.status !== "cancelled"
-      }
-      // The card stays on a cancelled booking, struck through rather than
-      // removed: the leg existed, and a page that forgets it is a page that
-      // cannot answer "who was coming?".
-      cancelled={booking.status === "cancelled"}
-      pickup={pickupPoint}
-      pickupAddressLine={pickupAddressLine}
-    />
-  ) : canChooseDriver ? (
-    <DriverChoice
+  /*
+   * THE MAP'S LIFESPAN: sealed through delivered, and no further.
+   *
+   * Once the bags are at the bag drop there is no van to watch, no ETA to
+   * count down and no stage left to reach — so the whole panel goes, rather
+   * than lingering as a map of where somebody used to be. What answers the
+   * remaining question ("who handled my bags?") is the handover block further
+   * down, which names both people. A cancelled booking KEEPS the card, struck
+   * through: the leg existed, and a page that forgets it cannot answer "who
+   * was coming?".
+   */
+  const bagsDelivered =
+    booking.status === "delivered_to_bagdrop" || booking.status === "completed";
+
+  /*
+   * WHO HANDLED YOUR BAGS, once the watching is over.
+   *
+   * The driver panel answers "where are my bags" and stops being able to the
+   * moment they are delivered. What replaces it is the question that outlives
+   * the trip: two people came into contact with somebody's luggage, and the
+   * page should be able to name both of them — the agent who sealed at the
+   * door, and the driver who handed them to the airline.
+   *
+   * BOTH ARE ALREADY LOADED. No query is added; this is the same
+   * `assignedAgent` and `selectedDriver` the page has had all along, and the
+   * same signed avatars.
+   */
+  const handledBy = bagsDelivered
+    ? [
+        assignedAgent?.givenName
+          ? {
+              key: "agent",
+              role: "Sealed your bags at your door",
+              name: assignedAgent.givenName,
+              avatarUrl: agentAvatarUrl,
+            }
+          : null,
+        driverView?.givenName
+          ? {
+              key: "driver",
+              role: `Delivered them to ${booking.airlineIata} bag drop`,
+              name: driverView.givenName,
+              avatarUrl: driverView.avatarUrl,
+            }
+          : null,
+      ].filter((entry): entry is NonNullable<typeof entry> => entry !== null)
+    : [];
+
+  /*
+   * NOTHING ABOUT A DRIVER UNTIL THE BAGS ARE ACTUALLY SEALED — TD's call, and
+   * a stricter test than the status alone on purpose.
+   *
+   * The verification agent is auto-assigned the moment a booking is paid, days
+   * before anybody knocks. Through all of that the customer has no driver to
+   * choose and nothing to watch, so a map and a shortlist would answer a
+   * question they have not asked yet. The status machine already says as much:
+   * `verified_sealed` is the gate, and `completeVerification` refuses to reach
+   * it while any bag is unsealed (`agent-visit.ts`).
+   *
+   * SO WHY CHECK THE BAGS AS WELL. Because a status is a claim and a seal is
+   * the fact, and the admin override can separate them — it moves a booking
+   * through the state machine without touching a bag. That override is a
+   * legitimate tool (an agent seals and photographs, then their phone dies
+   * before the scan lands) but its cost was a page reading "Verified and
+   * sealed" above a bag reading "not yet sealed", with a driver shortlist on
+   * top of both.
+   *
+   * THE TRADE, WRITTEN DOWN: an override alone can no longer hand the customer
+   * a driver. Ops asserting reality now has to be matched by bag rows that
+   * carry seals. That is the right way round — the seal is the product — but it
+   * does mean a force-completed booking waits for those rows. Surfacing the
+   * mismatch to ops is the follow-up; quietly working around it here is not.
+   */
+  const bagsSealed = bags.length > 0 && bags.every((bag) => bag.sealId !== null);
+
+  /*
+   * WHETHER THE DRIVER PANEL WILL ACTUALLY DRAW ANYTHING.
+   *
+   * Note the last clause: `TripDriverPanel` returns null on its own when there
+   * is neither a chosen driver nor an open shortlist, so holding a non-null
+   * ELEMENT is not the same as having something on screen. The Pickup details
+   * grid needs the real answer, because it promises "Choose yours below" — and
+   * testing `driverSection !== null` gets that wrong every time the panel
+   * self-suppresses, which is exactly what a booking past its bag-drop cutoff
+   * does. One boolean, read by both.
+   */
+  const driverPanelVisible =
+    !bagsDelivered && bagsSealed && (driverView !== null || canChooseDriver);
+
+  const driverSection = !driverPanelVisible ? null : (
+    <TripDriverPanel
       bookingId={booking.id}
-      candidates={candidateViews}
       pickup={pickupPoint}
       pickupAddressLine={pickupAddressLine}
+      choosing={canChooseDriver}
+      candidates={candidateViews}
       bestShiftId={best?.shiftId ?? null}
+      selected={driverView}
+      live={booking.status !== "cancelled"}
+      cancelled={booking.status === "cancelled"}
     />
-  ) : null;
+  );
 
   // Bag and custody photos live in a private bucket and are stored as paths;
   // they need signing before any <img> can load them. Safe to sign here: the
@@ -477,13 +589,6 @@ export default async function TripPage({
         />
       )}
 
-      <TripActionNeeded
-        bookingId={booking.id}
-        agreement={agreementView}
-        passport={passportView}
-        actionable={preVisit}
-      />
-
       {/* Only on pickup day, and only while the booking is still live. The
           window test is here rather than in the client component so the
           server and the browser cannot disagree about whether the card
@@ -496,88 +601,219 @@ export default async function TripPage({
           new Date(),
         ) && <TripPushPrompt bookingId={booking.id} />}
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="font-display text-base">Pickup details</CardTitle>
-          <CardDescription>
-            Times are local to {booking.departureAirport}. Please have your bags and your
-            passport ready when your agent arrives.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <dl className="grid gap-4 text-sm sm:grid-cols-3">
-            <div>
-              <dt className="text-muted-foreground">Window</dt>
-              <dd className="mt-1 font-medium">
-                {booking.pickupWindowStart && booking.pickupWindowEnd
-                  ? formatWindowInAirportTz(
-                      booking.pickupWindowStart,
-                      booking.pickupWindowEnd,
-                      tz,
-                    )
-                  : booking.pickupWindowStart
-                    ? formatInstantInAirportTz(booking.pickupWindowStart, tz)
-                    : "Not scheduled yet"}
-              </dd>
-            </div>
-            <div>
-              <dt className="text-muted-foreground">Address</dt>
-              <dd className="mt-1 font-medium">
-                {pickupAddress ? (
-                  <>
-                    {pickupAddress.line1}
-                    {pickupAddress.line2 ? `, ${pickupAddress.line2}` : ""}
-                    <br />
-                    {pickupAddress.city}, {pickupAddress.state} {pickupAddress.zip}
-                  </>
-                ) : (
-                  "—"
-                )}
-              </dd>
-            </div>
-            <div>
-              <dt className="text-muted-foreground">Agent</dt>
-              <dd className="mt-1 font-medium">
-                {assignedAgent ? (
-                  <span className="flex items-center gap-2">
-                    <Avatar
-                      size="sm"
-                      name={assignedAgent.givenName}
-                      src={agentAvatarUrl}
-                      alt=""
-                    />
-                    <span>
-                      {/* Real space, not margin: without it the accessible/text
+      {/*
+        THE FACTS AND THE ASKS, SIDE BY SIDE — 60/40 on a wide screen.
+        Stacked below `lg`, where two columns of this content would each be
+        too narrow to read.
+
+        FLEX RATHER THAN GRID, and that is the load-bearing choice.
+        `TripActionNeeded` returns `null` the moment nothing is outstanding,
+        which is most of a booking's life. A grid would hold its 40% column
+        open and leave a hole beside Pickup details on every trip past its
+        visit. Here the sizing lives on the component itself, so when it
+        disappears its basis goes with it and `grow` lets Pickup details take
+        the whole row — no page-side duplicate of "is there anything to do",
+        which would be a second copy of a rule that already lives in one
+        place.
+      */}
+      <div className="flex flex-col gap-6 lg:flex-row lg:items-stretch">
+        <Card className="w-full lg:grow lg:basis-3/5">
+          {/*
+            THE ZONE NOTE SITS BESIDE THE TITLE, not under it. It is a footnote
+            about how to read the times below, and as a full-width description
+            it took a line of its own and pushed the facts down. On the right of
+            the title it is available and out of the way.
+
+            The "have your bags and passport ready" half moved OUT of here
+            entirely — it is an instruction about one of the two visits, so it
+            now sits with the agent who performs that visit. A note attached to
+            the thing it is about does not have to name it.
+          */}
+          <CardHeader className="flex-row flex-wrap items-baseline justify-between gap-x-4 gap-y-1 space-y-0">
+            <CardTitle className="font-display text-base">Pickup details</CardTitle>
+            <CardDescription className="shrink-0">
+              Times are local to {booking.departureAirport}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {/*
+              TWO BY TWO, so all four facts get a full column's width. Three
+              columns left the address wrapping mid-street and the agent cells
+              squeezed to nothing; the fourth cell was missing entirely, which
+              is what made three feel like the natural number.
+            */}
+            <dl className="grid gap-x-6 gap-y-5 text-sm sm:grid-cols-2">
+              <div>
+                <dt className="text-muted-foreground">Window</dt>
+                <dd className="mt-1 font-medium">
+                  {booking.pickupWindowStart && booking.pickupWindowEnd
+                    ? formatWindowInAirportTz(
+                        booking.pickupWindowStart,
+                        booking.pickupWindowEnd,
+                        tz,
+                      )
+                    : booking.pickupWindowStart
+                      ? formatInstantInAirportTz(booking.pickupWindowStart, tz)
+                      : "Not scheduled yet"}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground">Address</dt>
+                <dd className="mt-1 font-medium">
+                  {pickupAddress ? (
+                    <>
+                      {pickupAddress.line1}
+                      {pickupAddress.line2 ? `, ${pickupAddress.line2}` : ""}
+                      <br />
+                      {pickupAddress.city}, {pickupAddress.state} {pickupAddress.zip}
+                    </>
+                  ) : (
+                    "—"
+                  )}
+                </dd>
+              </div>
+              {/*
+                THE TWO PEOPLE, NAMED BY WHAT THEY DO — and the vocabulary is
+                the page's own rather than new words invented for this grid.
+                Everywhere else the customer already reads "your agent" for the
+                person who checks ID and seals bags at the door, and "your
+                driver" for the one who takes them to the airline: the custody
+                trail says both, and the card below is titled "Your driver".
+                Calling this cell a "pickup agent" would fight that three
+                inches further down the page.
+
+                The subtitle under each is what actually distinguishes them, so
+                a customer meeting the words for the first time does not have to
+                infer the difference.
+              */}
+              <div>
+                <dt className="text-muted-foreground">Your agent</dt>
+                <dd className="mt-1 font-medium">
+                  {assignedAgent ? (
+                    <span className="flex items-center gap-2">
+                      <Avatar
+                        size="sm"
+                        name={assignedAgent.givenName}
+                        src={agentAvatarUrl}
+                        alt=""
+                      />
+                      <span>
+                        {/* Real space, not margin: without it the accessible/text
                           content read "Leo· confirmed" (#51). */}
-                      {assignedAgent.givenName ?? "Assigned"}{" "}
-                      <span className="font-normal text-muted-foreground">
-                        {AGENT_STATUS_COPY[assignedAgent.taskStatus]}
+                        {assignedAgent.givenName ?? "Assigned"}{" "}
+                        <span className="font-normal text-muted-foreground">
+                          {AGENT_STATUS_COPY[assignedAgent.taskStatus]}
+                        </span>
                       </span>
                     </span>
-                  </span>
-                ) : (
-                  <span className="font-normal text-muted-foreground">
-                    Assigned closer to your window
-                  </span>
-                )}
-              </dd>
-            </div>
-          </dl>
-        </CardContent>
-      </Card>
+                  ) : (
+                    <span className="font-normal text-muted-foreground">
+                      Assigned closer to your window
+                    </span>
+                  )}
+                </dd>
+                {/*
+                  THE INSTRUCTION LIVES WITH THE VISIT IT IS ABOUT. It used to
+                  be half of the card's description, where it applied to
+                  "your agent" without saying which one — and once there were
+                  two people in this grid that was a real ambiguity rather than
+                  a wording nicety. Dropped once the visit is done: telling
+                  somebody to have their bags ready for a knock that already
+                  happened is noise.
+                */}
+                <dd className="mt-1.5 text-xs text-muted-foreground">
+                  Checks your ID and seals your bags at the door.
+                  {preVisit ? " Please have your bags and passport ready." : ""}
+                </dd>
+              </div>
+              {/*
+                ONLY WHEN THERE IS SOMEBODY TO NAME. The empty version of this
+                cell said "You'll choose once your bags are sealed" over a line
+                explaining what a driver does — three lines of scaffolding for
+                a fact that does not exist yet, on the card that is supposed to
+                be the four things a customer needs. The grid is three cells
+                until a driver is chosen, which is honest: there are three
+                facts. TD's call.
+              */}
+              {driverView ? (
+                <div>
+                  <dt className="text-muted-foreground">Your driver</dt>
+                  <dd className="mt-1 font-medium">
+                    <span className="flex items-center gap-2">
+                      <Avatar
+                        size="sm"
+                        name={driverView.givenName}
+                        src={driverView.avatarUrl}
+                        alt=""
+                      />
+                      <span>
+                        {driverView.givenName ?? "Chosen"}{" "}
+                        <span className="font-normal text-muted-foreground">
+                          · {driverView.truckName}
+                        </span>
+                      </span>
+                    </span>
+                  </dd>
+                </div>
+              ) : null}
+            </dl>
+          </CardContent>
+        </Card>
+
+        {/* Sizes ITSELF — see the note on the row above and the `className`
+            prop's own note. Absent entirely once nothing is outstanding. */}
+        <TripActionNeeded
+          bookingId={booking.id}
+          agreement={agreementView}
+          passport={passportView}
+          actionable={preVisit}
+          className="w-full lg:basis-2/5"
+        />
+      </div>
 
       {driverSection}
 
-      <div className="grid items-start gap-6 lg:grid-cols-[3fr_2fr]">
+      {/*
+        Only once there is nothing left to watch, and only when there is
+        somebody to name. A booking delivered by a driver whose row has since
+        lost its name renders nothing rather than "Delivered by —".
+      */}
+      {handledBy.length > 0 && (
         <Card>
           <CardHeader>
-            <CardTitle className="font-display text-base">Chain of custody</CardTitle>
-            <CardDescription>Every hand-off, recorded as it happens.</CardDescription>
+            <CardTitle className="font-display text-base">
+              Who handled your bags
+            </CardTitle>
+            <CardDescription>
+              Every hand-off was recorded. The full trail is below.
+            </CardDescription>
           </CardHeader>
           <CardContent>
-            <CustodyTimeline events={timeline} tz={tz} signedUrls={signedUrls} />
+            <ul className="grid gap-4 sm:grid-cols-2">
+              {handledBy.map((person) => (
+                <li key={person.key} className="flex items-center gap-3">
+                  <Avatar size="lg" name={person.name} src={person.avatarUrl} alt="" />
+                  <div className="min-w-0">
+                    <p className="font-medium">{person.name}</p>
+                    <p className="text-sm text-muted-foreground">{person.role}</p>
+                  </div>
+                </li>
+              ))}
+            </ul>
           </CardContent>
         </Card>
+      )}
+
+      <div className="grid items-start gap-6 lg:grid-cols-[3fr_2fr]">
+        {/* Renders its own Card — the show/hide toggle lives in that card's
+            header, so the header and the list have to share one component.
+            See `CustodyTrail`. */}
+        <CustodyTimeline
+          events={timeline}
+          tz={tz}
+          signedUrls={signedUrls}
+          actors={timelineActors}
+        />
 
         <div className="flex flex-col gap-6">
           <Card>
@@ -601,22 +837,7 @@ export default async function TripPage({
                       key={bag.id}
                       className="flex items-center gap-3 rounded-lg border border-border p-2"
                     >
-                      {photo ? (
-                        <ImageLightbox
-                          src={photo}
-                          alt={`Bag ${bag.ordinal}`}
-                          title={`Bag ${bag.ordinal}`}
-                          description={
-                            bag.sealId ? `seal ${bag.sealId}` : "not yet sealed"
-                          }
-                          className="h-14 w-14 shrink-0"
-                        />
-                      ) : (
-                        <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-md border border-dashed text-[10px] text-muted-foreground">
-                          no photo
-                        </span>
-                      )}
-                      <span className="flex min-w-0 flex-col gap-0.5">
+                      <span className="flex min-w-0 flex-1 flex-col gap-1">
                         <span className="font-medium">Bag {bag.ordinal}</span>
                         <span className="font-mono text-xs break-all">
                           {bag.sealId ? (
@@ -626,6 +847,28 @@ export default async function TripPage({
                           )}
                           {bag.weightKg ? ` · ${bag.weightKg} kg` : null}
                         </span>
+                        {/*
+                          A BUTTON, NOT A THUMBNAIL — the same change the
+                          custody trail gets. A 56px crop of a suitcase is not
+                          information: every bag looks like every other bag at
+                          that size, and the detail that makes the photo
+                          evidence (the seal number on the tag) needs the
+                          dialog either way. The line of text says a photo
+                          exists and gets out of the way of the seal id, which
+                          is the thing on this row somebody actually reads.
+                        */}
+                        {photo ? (
+                          <ImageLightbox
+                            src={photo}
+                            alt={`Bag ${bag.ordinal}`}
+                            title={`Bag ${bag.ordinal}`}
+                            description={
+                              bag.sealId ? `seal ${bag.sealId}` : "not yet sealed"
+                            }
+                            trigger="button"
+                            triggerLabel="View seal photo"
+                          />
+                        ) : null}
                       </span>
                     </li>
                   );
