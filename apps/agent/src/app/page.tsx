@@ -2,24 +2,12 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { ArrowRight, CalendarDays } from "lucide-react";
 import { Button, Card, DatabaseNotConfigured, EmptyState } from "@koolee/ui";
-import {
-  airportLocalDay,
-  airportLocalDayBounds,
-  formatTimeInAirportTz,
-  getActiveShift,
-  listAssignedTasks,
-  listTruckOptions,
-} from "@koolee/core";
+import { airportLocalDay, airportLocalDayBounds, listAssignedTasks } from "@koolee/core";
 
 import { JobCard } from "@/components/job/job-card";
 import { JourneyList } from "@/components/job/journey-list";
 import { LiveTasks } from "@/components/live-tasks";
 import { AgentMain } from "@/components/shell/agent-main";
-import {
-  ShiftBar,
-  type ActiveShiftView,
-  type TruckOptionView,
-} from "@/components/shift/shift-bar";
 import {
   groupIntoSections,
   groupJobs,
@@ -52,8 +40,6 @@ export default async function AgentHomePage() {
   const core = tryGetCore();
   let jobs: Job[] = [];
   let unavailable = core === null;
-  let activeShift: ActiveShiftView | null = null;
-  let trucks: TruckOptionView[] = [];
 
   if (core) {
     try {
@@ -63,37 +49,12 @@ export default async function AgentHomePage() {
     }
   }
 
-  // The shift block is only ever fetched for staff cleared to drive, so an
-  // agent who never drives pays nothing for it.
-  if (core && identity.canDrive && !unavailable) {
-    try {
-      const [shift, truckRows] = await Promise.all([
-        getActiveShift(core.db, session.userId),
-        listTruckOptions(core.db),
-      ]);
-      trucks = truckRows.map((truck) => ({
-        id: truck.id,
-        name: truck.name,
-        bagCapacity: truck.bagCapacity,
-        unavailable: truck.heldByUserId !== null && truck.heldByUserId !== session.userId,
-      }));
-      if (shift) {
-        // The shift's own start renders in the zone of the work, like every
-        // other time in this app — the driver's phone zone is never used.
-        const tz = jobs[0]?.tz ?? "America/New_York";
-        activeShift = {
-          truckName: shift.truck.name,
-          bagCapacity: shift.truck.bagCapacity,
-          bagsOnBoard: shift.bagsOnBoard,
-          startedAtLabel: formatTimeInAirportTz(shift.shift.startedAt, tz),
-        };
-      }
-    } catch {
-      // A shift block that cannot load must not take the day's work with it.
-      activeShift = null;
-      trucks = [];
-    }
-  }
+  /*
+   * NO SHIFT BLOCK HERE ANY MORE. Both halves of clocking on and off live in
+   * the header's `ShiftPill`, which fetches the shift and the truck list
+   * itself — so this screen is only the day's work, and the shift is visible
+   * from every screen instead of just this one.
+   */
 
   const now = new Date();
   /*
@@ -168,18 +129,6 @@ export default async function AgentHomePage() {
         <h1 className="font-display text-3xl font-semibold text-navy-800">Today</h1>
         <p className="text-sm text-muted-foreground">{summary}</p>
       </header>
-
-      {/*
-        ONLY THE OFF-SHIFT HALF LIVES HERE NOW. Clocking on needs a truck
-        picker and the location gate, and it is the whole point of this screen
-        when nobody is working — it stays big and stays put. The ON-shift
-        state moved to the header pill, where it is visible from every screen
-        instead of just this one, with its metadata and End shift behind a tap.
-        `ShiftBar` renders nothing when a shift is already open.
-      */}
-      {identity.canDrive && !unavailable ? (
-        <ShiftBar active={activeShift} trucks={trucks} />
-      ) : null}
 
       {unavailable ? (
         <DatabaseNotConfigured />

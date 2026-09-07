@@ -732,10 +732,19 @@ export default async function TripPage({
                   {preVisit ? " Please have your bags and passport ready." : ""}
                 </dd>
               </div>
-              <div>
-                <dt className="text-muted-foreground">Your driver</dt>
-                <dd className="mt-1 font-medium">
-                  {driverView ? (
+              {/*
+                ONLY WHEN THERE IS SOMEBODY TO NAME. The empty version of this
+                cell said "You'll choose once your bags are sealed" over a line
+                explaining what a driver does — three lines of scaffolding for
+                a fact that does not exist yet, on the card that is supposed to
+                be the four things a customer needs. The grid is three cells
+                until a driver is chosen, which is honest: there are three
+                facts. TD's call.
+              */}
+              {driverView ? (
+                <div>
+                  <dt className="text-muted-foreground">Your driver</dt>
+                  <dd className="mt-1 font-medium">
                     <span className="flex items-center gap-2">
                       <Avatar
                         size="sm"
@@ -750,32 +759,9 @@ export default async function TripPage({
                         </span>
                       </span>
                     </span>
-                  ) : (
-                    <span className="font-normal text-muted-foreground">
-                      {/*
-                        READS OFF `driverSection`, NOT off the seals, and the
-                        difference is a promise this cell would otherwise
-                        break. "Choose yours below" has to mean there IS a
-                        chooser below — and there is not when the airline's bag
-                        drop has already closed, which hides the panel through
-                        `actionability` no matter what the bags say. Caught by
-                        opening a booking whose cutoff had passed: sealed bags,
-                        no driver, and a cell inviting the customer to choose
-                        from a list that was not on the page.
-                      */}
-                      {driverPanelVisible
-                        ? "Choose yours below"
-                        : bagsSealed
-                          ? "Not assigned"
-                          : "You'll choose once your bags are sealed"}
-                    </span>
-                  )}
-                </dd>
-                <dd className="mt-1.5 text-xs text-muted-foreground">
-                  Collects your sealed bags and delivers them to your airline&rsquo;s bag
-                  drop.
-                </dd>
-              </div>
+                  </dd>
+                </div>
+              ) : null}
             </dl>
           </CardContent>
         </Card>

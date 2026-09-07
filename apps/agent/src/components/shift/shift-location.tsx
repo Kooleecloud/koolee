@@ -1,7 +1,12 @@
-import { formatTimeInAirportTz, getActiveShift, listAssignedTasks } from "@koolee/core";
+import {
+  formatTimeInAirportTz,
+  getActiveShift,
+  listAssignedTasks,
+  listTruckOptions,
+} from "@koolee/core";
 
 import { tryGetCore } from "@/lib/core";
-import { getAgentSession } from "@/lib/session";
+import { getAgentIdentity } from "@/lib/session";
 import { GpsPinger, type GpsPingerPhase } from "./gps-pinger";
 import { ShiftPill } from "./shift-pill";
 
@@ -42,14 +47,40 @@ import { ShiftPill } from "./shift-pill";
  * read below degrades to "no shift", which is the same as being off the clock.
  */
 export async function ShiftLocation() {
-  const session = await getAgentSession();
-  if (!session) return null;
+  const identity = await getAgentIdentity();
+  if (!identity) return null;
+  const { session } = identity;
 
   const core = tryGetCore();
   if (!core) return null;
 
   const shift = await getActiveShift(core.db, session.userId).catch(() => null);
-  if (!shift) return null;
+
+  /*
+   * OFF SHIFT, THE PILL IS THE WAY ON. No position is reported and no
+   * geolocation API is touched — `GpsPinger` is simply not rendered — but the
+   * shift control is, because both halves of clocking in and out now live in
+   * the header rather than one on Today and one up here.
+   *
+   * Only for staff cleared to drive. That is convenience, not enforcement:
+   * `startShift` refuses on the server for anybody else.
+   */
+  if (!shift) {
+    if (!identity.canDrive) return null;
+    const truckRows = await listTruckOptions(core.db).catch(() => []);
+    return (
+      <ShiftPill
+        active={null}
+        trucks={truckRows.map((truck) => ({
+          id: truck.id,
+          name: truck.name,
+          bagCapacity: truck.bagCapacity,
+          unavailable:
+            truck.heldByUserId !== null && truck.heldByUserId !== session.userId,
+        }))}
+      />
+    );
+  }
 
   /*
    * WHICH LEG, read off the BOOKING rather than the task — the two are
@@ -85,6 +116,7 @@ export async function ShiftLocation() {
     <div className="flex items-center gap-2">
       <GpsPinger phase={phase} />
       <ShiftPill
+        trucks={[]}
         active={{
           truckName: shift.truck.name,
           bagCapacity: shift.truck.bagCapacity,

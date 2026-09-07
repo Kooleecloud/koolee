@@ -2,8 +2,7 @@
 
 import * as React from "react";
 import { useActionState } from "react";
-import { Truck } from "lucide-react";
-import { Button, Card, FormMessage, Label, Select } from "@koolee/ui";
+import { Button, FormMessage, Label, Select } from "@koolee/ui";
 
 import { startShiftAction, type ShiftActionState } from "@/app/shift-actions";
 
@@ -35,27 +34,18 @@ export interface ActiveShiftView {
   startedAtLabel: string;
 }
 
-export function ShiftBar({
-  active,
-  trucks,
-}: {
-  active: ActiveShiftView | null;
-  trucks: TruckOptionView[];
-}) {
-  /*
-   * NOTHING WHILE A SHIFT IS OPEN. The on-shift card — truck, capacity, start
-   * time, End shift — moved into the header's `ShiftPill`, where it is
-   * visible from every screen rather than from Today alone, and where the
-   * three facts a driver checks occasionally sit behind the one tap instead of
-   * taking the top of the screen they work from.
-   *
-   * `OnShift` is gone rather than hidden; the pill is its replacement.
-   */
-  if (active) return null;
-  return <OffShift trucks={trucks} />;
-}
-
-function OffShift({ trucks }: { trucks: TruckOptionView[] }) {
+/**
+ * Clocking on: the truck, the location gate, and the button.
+ *
+ * NO CARD OF ITS OWN ANY MORE. It used to be the top of Today; it is now the
+ * body of the header's off-shift popover, so both halves of the shift live in
+ * the same place and a driver looks in one spot to clock on or off — TD's
+ * call. The trade is discoverability: a header pill is smaller than a
+ * full-width card, so a driver's first shift is a slightly less obvious thing
+ * to find. Symmetry won, and the pill says "Start shift" in words rather than
+ * relying on an icon.
+ */
+export function StartShiftForm({ trucks }: { trucks: TruckOptionView[] }) {
   const [state, formAction, pending] = useActionState<ShiftActionState, FormData>(
     startShiftAction,
     {},
@@ -64,12 +54,7 @@ function OffShift({ trucks }: { trucks: TruckOptionView[] }) {
   const location = useLocationReadiness();
 
   return (
-    <Card className="flex flex-col gap-3 p-4">
-      <div className="flex flex-wrap items-center gap-2">
-        <Truck aria-hidden="true" className="size-4 shrink-0 text-navy-500" />
-        <span className="font-medium">Not on shift</span>
-      </div>
-
+    <div className="flex flex-col gap-3">
       {trucks.length === 0 ? (
         <p className="text-sm text-muted-foreground">
           No trucks are set up yet. Ops adds them in the console.
@@ -138,7 +123,7 @@ function OffShift({ trucks }: { trucks: TruckOptionView[] }) {
           </Button>
         </form>
       )}
-    </Card>
+    </div>
   );
 }
 
