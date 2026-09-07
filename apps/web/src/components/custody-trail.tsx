@@ -1,30 +1,35 @@
 "use client";
 
 import * as React from "react";
-import { Button, CustodyTimeline as CustodyTimelineView } from "@koolee/ui";
+import {
+  Button,
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+  CustodyTimeline as CustodyTimelineView,
+} from "@koolee/ui";
 import type { CustodyTimelineItem } from "@koolee/ui";
 
 /**
- * The collapse, and NOTHING else.
+ * The chain-of-custody card, and the only client state on it.
  *
- * WHY THIS FILE EXISTS AT ALL, and it is not a style preference. The collapse
- * needs `useState`, so the component that owns it must be a client component.
- * The obvious move — putting `"use client"` at the top of
- * `custody-timeline.tsx` — looked fine and typechecked clean, and it broke the
- * trip page with a 500: that file imports `formatInstantInAirportTz` from
- * `@koolee/core`, whose barrel reaches `@koolee/db` and then `postgres`, and
- * a server-only driver dragged into a client bundle is a module-not-found at
- * request time.
+ * WHY THE WHOLE CARD LIVES HERE and not just the list. The toggle sits in the
+ * card's HEADER, opposite the title, and it has to share state with the list
+ * in the body — so the header and the body have to be inside one component
+ * that owns that state. Leaving the card on the page and passing a callback
+ * down would mean two components rendering one card, which is the arrangement
+ * that makes a header and its content drift apart.
  *
- * NOTHING TYPECHECKS THAT. `tsc` resolves the types happily; only the bundler
- * knows, and only when the page is actually requested. It was caught by
- * opening the page in a browser and by nothing else in the toolchain.
- *
- * So the split is drawn where the dependency is: everything that needs core —
- * formatting a timestamp in the airport's zone, resolving an actor, signing a
- * photo URL — happens on the SERVER in `custody-timeline.tsx`, which hands
- * this component finished `CustodyTimelineItem`s. React elements pass through
- * the RSC boundary as props perfectly well; a Postgres driver does not.
+ * WHY IT IS A CLIENT COMPONENT AT ALL, and the trap to avoid. Everything that
+ * needs `@koolee/core` — formatting a timestamp in the airport's zone,
+ * resolving an actor, signing a photo URL — stays on the SERVER in
+ * `custody-timeline.tsx`, which hands this component finished items. Marking
+ * that file `"use client"` instead drags core, `@koolee/db` and `postgres`
+ * into the browser bundle and 500s the whole trip page at request time; it
+ * typechecks clean and cost one such 500 to find. React elements cross the RSC
+ * boundary as props perfectly well. A Postgres driver does not.
  */
 export function CustodyTrail({
   items,
@@ -41,10 +46,10 @@ export function CustodyTrail({
    * screen and a half of scrolling between the map and everything below it.
    * The trail is the product's whole trust story and is not going anywhere;
    * what changed is that it stopped being the first thing in the reader's way.
-   * The newest three answer "what just happened", which is what somebody
+   * The newest few answer "what just happened", which is what somebody
    * watching a live trip actually opens the page for.
    *
-   * EXPANDS IN PLACE — every event is already in props, so the button is a
+   * EXPANDS IN PLACE — every event is already in props, so the toggle is a
    * state flip rather than a request.
    */
   const [expanded, setExpanded] = React.useState(false);
@@ -52,22 +57,42 @@ export function CustodyTrail({
   const visible = expanded || hidden === 0 ? items : items.slice(-collapsedCount);
 
   return (
-    <div className="flex flex-col gap-3">
-      <CustodyTimelineView items={visible} />
-      {hidden > 0 && (
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          className="w-fit"
-          onClick={() => setExpanded((open) => !open)}
-          aria-expanded={expanded}
-        >
-          {expanded
-            ? "Show less"
-            : `Show full history · ${hidden} earlier ${hidden === 1 ? "event" : "events"}`}
-        </Button>
-      )}
-    </div>
+    <Card>
+      {/*
+        THE TOGGLE SITS IN THE HEADER, opposite the title — TD's call, and it
+        reads better than the button that used to sit under the list: a control
+        below a collapsed list looks like it belongs to the last event rather
+        than to the section, and after expanding it walked off down the page
+        with the content it had just revealed. In the header it does not move.
+      */}
+      <CardHeader className="flex-row items-start justify-between gap-4 space-y-0">
+        <div className="flex flex-col gap-1.5">
+          <CardTitle className="font-display text-base">Chain of custody</CardTitle>
+          <CardDescription>Every hand-off, recorded as it happens.</CardDescription>
+        </div>
+        {/*
+          NO COUNT IN THE LABEL. "Show full history · 7 earlier events" made
+          the reader do arithmetic to find out what they were being offered,
+          and the number moved every time the trail grew — a control whose
+          label changes under you is one you have to re-read. Two words, and
+          the list below is where the events are counted.
+        */}
+        {hidden > 0 && (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="shrink-0"
+            onClick={() => setExpanded((open) => !open)}
+            aria-expanded={expanded}
+          >
+            {expanded ? "Show the latest" : "Show full history"}
+          </Button>
+        )}
+      </CardHeader>
+      <CardContent>
+        <CustodyTimelineView items={visible} />
+      </CardContent>
+    </Card>
   );
 }

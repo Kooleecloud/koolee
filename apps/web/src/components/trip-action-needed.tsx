@@ -12,6 +12,7 @@ import {
   FormMessage,
   ImageLightbox,
   Markdown,
+  cn,
 } from "@koolee/ui";
 import { downscalePhoto } from "@koolee/ui/lib/photo";
 
@@ -71,11 +72,22 @@ export function TripActionNeeded({
   passport,
   /** False once the visit has happened — nothing here is actionable then. */
   actionable,
+  className,
 }: {
   bookingId: string;
   agreement: TripAgreementView;
   passport: TripPassportView;
   actionable: boolean;
+  /**
+   * Sizing from the page, because this component DISAPPEARS.
+   *
+   * It shares a row with Pickup details at 40/60, and it returns `null` the
+   * moment there is nothing outstanding. Wrapping it in a sized element on
+   * the page would leave a 40% hole on every booking past its visit; putting
+   * the width here means the element and its column vanish together and the
+   * card beside it grows to fill the row. See the row in the trip page.
+   */
+  className?: string;
 }) {
   const agreementDone = agreement.accepted || !actionable;
   const passportDone = passport.status !== "pending";
@@ -115,7 +127,7 @@ export function TripActionNeeded({
     (agreement.accepted || noAgreementPublished ? 0 : 1) + (passportDone ? 0 : 1);
 
   return (
-    <section className="flex flex-col gap-4">
+    <section className={cn("flex flex-col gap-4", className)}>
       <div className="flex items-center gap-3">
         <h2 className="font-display text-lg">
           {agreement.accepted || noAgreementPublished

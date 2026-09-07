@@ -554,13 +554,6 @@ export default async function TripPage({
         />
       )}
 
-      <TripActionNeeded
-        bookingId={booking.id}
-        agreement={agreementView}
-        passport={passportView}
-        actionable={preVisit}
-      />
-
       {/* Only on pickup day, and only while the booking is still live. The
           window test is here rather than in the client component so the
           server and the browser cannot disagree about whether the card
@@ -573,75 +566,102 @@ export default async function TripPage({
           new Date(),
         ) && <TripPushPrompt bookingId={booking.id} />}
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="font-display text-base">Pickup details</CardTitle>
-          <CardDescription>
-            Times are local to {booking.departureAirport}. Please have your bags and your
-            passport ready when your agent arrives.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <dl className="grid gap-4 text-sm sm:grid-cols-3">
-            <div>
-              <dt className="text-muted-foreground">Window</dt>
-              <dd className="mt-1 font-medium">
-                {booking.pickupWindowStart && booking.pickupWindowEnd
-                  ? formatWindowInAirportTz(
-                      booking.pickupWindowStart,
-                      booking.pickupWindowEnd,
-                      tz,
-                    )
-                  : booking.pickupWindowStart
-                    ? formatInstantInAirportTz(booking.pickupWindowStart, tz)
-                    : "Not scheduled yet"}
-              </dd>
-            </div>
-            <div>
-              <dt className="text-muted-foreground">Address</dt>
-              <dd className="mt-1 font-medium">
-                {pickupAddress ? (
-                  <>
-                    {pickupAddress.line1}
-                    {pickupAddress.line2 ? `, ${pickupAddress.line2}` : ""}
-                    <br />
-                    {pickupAddress.city}, {pickupAddress.state} {pickupAddress.zip}
-                  </>
-                ) : (
-                  "—"
-                )}
-              </dd>
-            </div>
-            <div>
-              <dt className="text-muted-foreground">Agent</dt>
-              <dd className="mt-1 font-medium">
-                {assignedAgent ? (
-                  <span className="flex items-center gap-2">
-                    <Avatar
-                      size="sm"
-                      name={assignedAgent.givenName}
-                      src={agentAvatarUrl}
-                      alt=""
-                    />
-                    <span>
-                      {/* Real space, not margin: without it the accessible/text
+      {/*
+        THE FACTS AND THE ASKS, SIDE BY SIDE — 60/40 on a wide screen.
+        Stacked below `lg`, where two columns of this content would each be
+        too narrow to read.
+
+        FLEX RATHER THAN GRID, and that is the load-bearing choice.
+        `TripActionNeeded` returns `null` the moment nothing is outstanding,
+        which is most of a booking's life. A grid would hold its 40% column
+        open and leave a hole beside Pickup details on every trip past its
+        visit. Here the sizing lives on the component itself, so when it
+        disappears its basis goes with it and `grow` lets Pickup details take
+        the whole row — no page-side duplicate of "is there anything to do",
+        which would be a second copy of a rule that already lives in one
+        place.
+      */}
+      <div className="flex flex-col items-start gap-6 lg:flex-row">
+        <Card className="w-full lg:grow lg:basis-3/5">
+          <CardHeader>
+            <CardTitle className="font-display text-base">Pickup details</CardTitle>
+            <CardDescription>
+              Times are local to {booking.departureAirport}. Please have your bags and
+              your passport ready when your agent arrives.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <dl className="grid gap-4 text-sm sm:grid-cols-3">
+              <div>
+                <dt className="text-muted-foreground">Window</dt>
+                <dd className="mt-1 font-medium">
+                  {booking.pickupWindowStart && booking.pickupWindowEnd
+                    ? formatWindowInAirportTz(
+                        booking.pickupWindowStart,
+                        booking.pickupWindowEnd,
+                        tz,
+                      )
+                    : booking.pickupWindowStart
+                      ? formatInstantInAirportTz(booking.pickupWindowStart, tz)
+                      : "Not scheduled yet"}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground">Address</dt>
+                <dd className="mt-1 font-medium">
+                  {pickupAddress ? (
+                    <>
+                      {pickupAddress.line1}
+                      {pickupAddress.line2 ? `, ${pickupAddress.line2}` : ""}
+                      <br />
+                      {pickupAddress.city}, {pickupAddress.state} {pickupAddress.zip}
+                    </>
+                  ) : (
+                    "—"
+                  )}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground">Agent</dt>
+                <dd className="mt-1 font-medium">
+                  {assignedAgent ? (
+                    <span className="flex items-center gap-2">
+                      <Avatar
+                        size="sm"
+                        name={assignedAgent.givenName}
+                        src={agentAvatarUrl}
+                        alt=""
+                      />
+                      <span>
+                        {/* Real space, not margin: without it the accessible/text
                           content read "Leo· confirmed" (#51). */}
-                      {assignedAgent.givenName ?? "Assigned"}{" "}
-                      <span className="font-normal text-muted-foreground">
-                        {AGENT_STATUS_COPY[assignedAgent.taskStatus]}
+                        {assignedAgent.givenName ?? "Assigned"}{" "}
+                        <span className="font-normal text-muted-foreground">
+                          {AGENT_STATUS_COPY[assignedAgent.taskStatus]}
+                        </span>
                       </span>
                     </span>
-                  </span>
-                ) : (
-                  <span className="font-normal text-muted-foreground">
-                    Assigned closer to your window
-                  </span>
-                )}
-              </dd>
-            </div>
-          </dl>
-        </CardContent>
-      </Card>
+                  ) : (
+                    <span className="font-normal text-muted-foreground">
+                      Assigned closer to your window
+                    </span>
+                  )}
+                </dd>
+              </div>
+            </dl>
+          </CardContent>
+        </Card>
+
+        {/* Sizes ITSELF — see the note on the row above and the `className`
+            prop's own note. Absent entirely once nothing is outstanding. */}
+        <TripActionNeeded
+          bookingId={booking.id}
+          agreement={agreementView}
+          passport={passportView}
+          actionable={preVisit}
+          className="w-full lg:basis-2/5"
+        />
+      </div>
 
       {driverSection}
 
@@ -677,20 +697,15 @@ export default async function TripPage({
       )}
 
       <div className="grid items-start gap-6 lg:grid-cols-[3fr_2fr]">
-        <Card>
-          <CardHeader>
-            <CardTitle className="font-display text-base">Chain of custody</CardTitle>
-            <CardDescription>Every hand-off, recorded as it happens.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <CustodyTimeline
-              events={timeline}
-              tz={tz}
-              signedUrls={signedUrls}
-              actors={timelineActors}
-            />
-          </CardContent>
-        </Card>
+        {/* Renders its own Card — the show/hide toggle lives in that card's
+            header, so the header and the list have to share one component.
+            See `CustodyTrail`. */}
+        <CustodyTimeline
+          events={timeline}
+          tz={tz}
+          signedUrls={signedUrls}
+          actors={timelineActors}
+        />
 
         <div className="flex flex-col gap-6">
           <Card>
