@@ -82,8 +82,18 @@ Consequences that look like bugs and are not:
 - **Nothing published ⇒ the gate is CLOSED.** An empty `agreement_versions`
   satisfying the gate would mean a database that lost its agreement rows
   silently stops requiring agreements.
-- **Every surface shows the PINNED version**, not the newest — customer, agent
-  and ops alike, because that is the document the booking is bound by.
+- **Every surface that shows a version shows the PINNED one**, not the newest —
+  because that is the document the booking is bound by. The agent app, the ops
+  console and the printable agreement at `/trips/[id]/agreement` all name it.
+  **The customer's trip page deliberately does not.** It used to open the
+  agreement step with "Version 7, in effect from Mon 31 Aug, 2:47 PM EDT" and
+  close it, once accepted, with "You accepted version 7 on … a later update
+  won't change them or ask you again" — a version number the reader has no use
+  for, a date about our publishing rather than their trip, and a promise about
+  process addressed to somebody who had finished. Both are gone (TD's call).
+  The PINNING is unchanged and remains enforced in core; what changed is that
+  the customer reads the document rather than being told its metadata, and the
+  version travels with the copy they can download.
 
 `agreement_acceptances` is **append-only at the database** (trigger, migration 0022) for the same reason `custody_events` is: it is evidence that a named
 person agreed to specific terms at a specific instant. There is no correcting

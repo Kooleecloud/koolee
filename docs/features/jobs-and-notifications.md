@@ -10,10 +10,10 @@
 **Eight functions, all served from `apps/web` at `/api/inngest`** — but defined
 in two places, and the split is deliberate:
 
-| Defined in                                                                       | Which                                                                                                                                  | Why there                                                                     |
-| -------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
-| [packages/core/src/jobs/functions.ts](../../packages/core/src/jobs/functions.ts) | Booking confirmation email, pickup reminder, exception ops-alert email, waitlist zone-opened sweep, cutoff-risk monitor, agent no-show | Pure domain jobs — no app credentials needed (email config is injected)       |
-| [apps/web/src/lib/inngest.ts](../../apps/web/src/lib/inngest.ts)                 | Capture-due sweep, anonymous/draft GC                                                                                                  | Need **Stripe** and **service-role** credentials, which only `apps/web` holds |
+| Defined in                                                                       | Which                                                                                                                                                                                      | Why there                                                                     |
+| -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------- |
+| [packages/core/src/jobs/functions.ts](../../packages/core/src/jobs/functions.ts) | Booking confirmation email, pickup reminder, exception ops-alert email, waitlist zone-opened sweep, cutoff-risk monitor, agent no-show, driver position gap nudge, position ping retention | Pure domain jobs — no app credentials needed (email config is injected)       |
+| [apps/web/src/lib/inngest.ts](../../apps/web/src/lib/inngest.ts)                 | Capture-due sweep, anonymous/draft GC                                                                                                                                                      | Need **Stripe** and **service-role** credentials, which only `apps/web` holds |
 
 🧭 That split _is_ the credential boundary showing up in the job layer: a job
 that needs a secret is defined in the app that owns the secret, not in core.
@@ -119,6 +119,49 @@ already in custody. See [payments.md §4](payments.md#4-capture--deferred-and-of
 
 Daily at **04:00 America/New_York**: `expireBookingDrafts` +
 `cleanupAnonymousUsers`.
+
+### 2.9 — Driver position gap nudge
+
+Every **5 minutes**, `listStalePositionShifts`
+([services/position-health.ts](../../packages/core/src/services/position-health.ts))
+finds open shifts whose driver has been unheard for `POSITION_GAP_MS`, and each
+one gets a push.
+
+**It pushes the DRIVER, not ops** — the only actor who can end the gap is the
+person holding the phone, and a push is the only mechanism that can wake a
+backgrounded PWA at all.
+
+**`POSITION_GAP_MS` is four minutes, deliberately looser than the map's
+90-second `POSITION_FRESH_MS`.** Ninety seconds is the bar for "do not draw this
+pin as current", which an ordinary phone crosses at a red light in a tunnel;
+alerting on it would page several times an hour per driver and be ignored inside
+a day.
+
+**One nudge per gap.** A phone that is genuinely asleep stays flagged for as
+long as it is asleep, so the tag buckets by shift and by
+`POSITION_NUDGE_COOLDOWN_MS` (30 min) — the browser collapses repeats inside the
+window, and a gap that outlives it earns exactly one more. A driver with no
+subscription is not an error; `pushToUsers` returns zero counts and the console's
+staleness flag is the fallback.
+
+A shift that has NEVER reported counts, and is the worse case: a driver who
+clocked on with location denied produces no `driver_positions` row at all, so the
+query is a `left join` and not an inner one.
+
+### 2.10 — Position ping retention
+
+Hourly at **:17**, `prunePositionPings` deletes `driver_position_pings` rows past
+the retention window (7 days by default).
+
+**Not housekeeping — part of the feature.** That table takes a row per driver per
+20–45 seconds of every shift, roughly 1,500 per driver-day, which makes it the
+highest-volume write in the schema; shipping it without this sweep is how a disk
+fills up, and migration 0036's own header says so.
+
+**Batched at 5,000 rows.** One unbounded `DELETE` over a week of rows takes a
+long lock on the table the pinger is actively writing to. A sweep that falls
+behind therefore shows up as a non-zero count next hour rather than as a stalled
+job holding a lock. Off the hour so it never contends with the :00 pile-up.
 
 ---
 
