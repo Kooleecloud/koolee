@@ -169,10 +169,16 @@ export default async function AgentHomePage() {
         <p className="text-sm text-muted-foreground">{summary}</p>
       </header>
 
+      {/*
+        ONLY THE OFF-SHIFT HALF LIVES HERE NOW. Clocking on needs a truck
+        picker and the location gate, and it is the whole point of this screen
+        when nobody is working — it stays big and stays put. The ON-shift
+        state moved to the header pill, where it is visible from every screen
+        instead of just this one, with its metadata and End shift behind a tap.
+        `ShiftBar` renders nothing when a shift is already open.
+      */}
       {identity.canDrive && !unavailable ? (
-        <>
-          <ShiftBar active={activeShift} trucks={trucks} />
-        </>
+        <ShiftBar active={activeShift} trucks={trucks} />
       ) : null}
 
       {unavailable ? (

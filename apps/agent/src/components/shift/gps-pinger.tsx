@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { Button, Popover, PopoverContent, PopoverTrigger, cn } from "@koolee/ui";
 
 import {
   beaconLastFix,
@@ -405,60 +406,135 @@ export function GpsPinger({ phase }: { phase: GpsPingerPhase | null }) {
 }
 
 /**
- * What the driver is told, and what they can do about it.
+ * THE THREE LIGHTS, and why they are these three.
  *
- * IT IS ALWAYS PRESENT, which is the change. The old component rendered
- * nothing at all unless something had already failed, so "is Koolee seeing
- * me?" was unanswerable on the happy path — and a driver who had never seen
- * the banner had no way to know whether that meant working or not looking.
- * A quiet line that says Live is what makes the loud one mean something.
+ * TD asked for green / yellow / red and suggested yellow might mean "on a
+ * trip". It should not, and this is the one place worth disagreeing: this
+ * indicator answers ONE question — can Koolee see you? — and a driver mid-job
+ * is the case where the answer matters most and had better be green. Colouring
+ * an ordinary working state amber would mean the light sits at "warning" for
+ * most of every shift, which is how a driver learns to ignore it. The job's
+ * own state is already on the screen underneath, in the route.
  *
- * `data-gps-state` is on the element deliberately: it makes the transport's
- * real state readable from the DOM in a browser pass, which is how the
- * `null`-return bug in `TripLive` was eventually pinned down.
+ * So yellow is the genuinely useful middle: WE ARE NOT SEEING YOU RIGHT NOW,
+ * AND NOTHING IS SWITCHED OFF. That covers the two states between working and
+ * broken — still acquiring the first fix after clock-on, and a fix that has
+ * gone quiet in a car park or a tunnel. Both come back on their own, neither
+ * is anybody's fault, and both are worth a glance rather than an alarm.
+ *
+ *   green   live         — sending, and the server accepted it
+ *   yellow  idle/stalled — acquiring, or lost and expected back
+ *   red     denied/unsupported — off, and only the driver can change it
+ */
+const LIGHTS: Record<
+  GpsPingerState,
+  { tone: string; label: string; note: string; recoverable: boolean }
+> = {
+  live: {
+    tone: "bg-success",
+    label: "Live",
+    note: "Your location is going through. Customers waiting on you can see you move.",
+    recoverable: false,
+  },
+  idle: {
+    tone: "bg-warning",
+    label: "Finding",
+    note: "Looking for your position. This usually takes a few seconds after you clock on — nothing is switched off.",
+    recoverable: true,
+  },
+  stalled: {
+    tone: "bg-warning",
+    label: "No signal",
+    note: "We had your location and have lost it — a car park, a tunnel, or a moment with no data. It comes back on its own. Until it does, customers can't see you moving.",
+    recoverable: true,
+  },
+  denied: {
+    tone: "bg-destructive",
+    label: "Off",
+    note: "Location is blocked for this site, so no customer can see you coming. Everything else works. Turn it back on in your browser's site settings for this page.",
+    recoverable: true,
+  },
+  unsupported: {
+    tone: "bg-destructive",
+    label: "Off",
+    note: "This device can't share a location at all, so customers won't see you moving. Everything else about your shift works as normal.",
+    recoverable: false,
+  },
+};
+
+/**
+ * The light in the header, and the note behind it.
+ *
+ * IN THE HEADER because it is a fact about the whole shift, not about one
+ * screen — TD's call, and the right one: it used to sit in the page body,
+ * where a driver deep in a task could not see it. The header is on every
+ * screen, so the answer to "is Koolee seeing me?" is always one glance away.
+ *
+ * OPENS ON HOVER *AND* ON TAP. A phone has no hover, and this app is a phone
+ * app first; a desktop reviewer has no tap. Controlling the popover's open
+ * state rather than letting it manage itself is what lets one component do
+ * both, and keyboard focus opens it too.
+ *
+ * `data-gps-state` stays on the trigger: it makes the transport's real state
+ * readable from the DOM in a browser pass, which is how more than one bug in
+ * this subsystem has been pinned down.
  */
 function GpsStatus({ state, onRetry }: { state: GpsPingerState; onRetry: () => void }) {
-  if (state === "idle" || state === "live") {
-    return (
-      <p
-        data-gps-state={state}
-        className="flex items-center gap-2 text-xs text-muted-foreground"
-      >
-        <span
-          aria-hidden="true"
-          className={
-            state === "live"
-              ? "size-1.5 rounded-full bg-success"
-              : "size-1.5 rounded-full bg-muted-foreground/40"
-          }
-        />
-        {state === "live" ? "Location live" : "Finding your location…"}
-      </p>
-    );
-  }
+  const [open, setOpen] = React.useState(false);
+  const light = LIGHTS[state];
 
   return (
-    <div
-      role="status"
-      data-gps-state={state}
-      className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-sm text-navy-700"
-    >
-      <span>
-        {state === "denied"
-          ? "Location is off for this site, so your customer can't see you coming. Turn it on in your browser settings — everything else works as normal."
-          : state === "unsupported"
-            ? "This device can't share a location, so your customer won't see you coming. Everything else works as normal."
-            : "We've lost your location. Your customer can't see you moving — everything else works as normal."}
-      </span>
-      {state !== "unsupported" && (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
         <button
           type="button"
-          onClick={onRetry}
-          className="rounded-md border border-navy-300 px-2 py-1 text-xs font-medium text-navy-800"
+          data-gps-state={state}
+          aria-label={`Location: ${light.label}`}
+          onMouseEnter={() => setOpen(true)}
+          onMouseLeave={() => setOpen(false)}
+          onFocus={() => setOpen(true)}
+          className="inline-flex items-center gap-1.5 rounded-full border border-border px-2 py-1 text-[11px] font-medium text-navy-700 transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden"
         >
-          Try again
+          <span
+            aria-hidden="true"
+            className={cn(
+              "size-2 shrink-0 rounded-full",
+              light.tone,
+              // Only the healthy light breathes. A pulsing warning reads as an
+              // alarm, and neither yellow state is an emergency.
+              state === "live" && "animate-pulse motion-reduce:animate-none",
+            )}
+          />
+          {light.label}
         </button>
-      )}
-    </div>
+      </PopoverTrigger>
+      {/*
+        `onOpenAutoFocus` prevented: the popover opens on HOVER, and stealing
+        focus from whatever the driver was doing because their thumb brushed
+        the header would be worse than the note is useful.
+      */}
+      <PopoverContent
+        align="end"
+        className="w-72 text-sm"
+        onOpenAutoFocus={(event) => event.preventDefault()}
+      >
+        <p className="font-medium">Location: {light.label}</p>
+        <p className="mt-1 text-muted-foreground">{light.note}</p>
+        {light.recoverable && (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="mt-3 w-full"
+            onClick={() => {
+              onRetry();
+              setOpen(false);
+            }}
+          >
+            Try again now
+          </Button>
+        )}
+      </PopoverContent>
+    </Popover>
   );
 }

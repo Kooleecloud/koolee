@@ -3,13 +3,9 @@
 import * as React from "react";
 import { useActionState } from "react";
 import { Truck } from "lucide-react";
-import { Badge, Button, Card, FormMessage, Label, Select } from "@koolee/ui";
+import { Button, Card, FormMessage, Label, Select } from "@koolee/ui";
 
-import {
-  endShiftAction,
-  startShiftAction,
-  type ShiftActionState,
-} from "@/app/shift-actions";
+import { startShiftAction, type ShiftActionState } from "@/app/shift-actions";
 
 /**
  * Clock on, clock off — the first thing a driver touches and the last.
@@ -46,47 +42,17 @@ export function ShiftBar({
   active: ActiveShiftView | null;
   trucks: TruckOptionView[];
 }) {
-  return active ? <OnShift active={active} /> : <OffShift trucks={trucks} />;
-}
-
-function OnShift({ active }: { active: ActiveShiftView }) {
-  const [state, formAction, pending] = useActionState<ShiftActionState, FormData>(
-    endShiftAction,
-    {},
-  );
-  const remaining = active.bagCapacity - active.bagsOnBoard;
-
-  return (
-    <Card className="flex flex-col gap-3 p-4">
-      <div className="flex flex-wrap items-center gap-2">
-        <Truck aria-hidden="true" className="size-4 shrink-0 text-navy-500" />
-        <span className="font-medium">{active.truckName}</span>
-        <Badge variant="success">On shift</Badge>
-      </div>
-
-      <p className="text-sm text-muted-foreground">
-        {active.bagsOnBoard} of {active.bagCapacity}{" "}
-        {active.bagCapacity === 1 ? "space" : "spaces"} used · room for {remaining} more{" "}
-        {remaining === 1 ? "bag" : "bags"} · started {active.startedAtLabel}
-      </p>
-
-      {/* The blocked-end message names the bookings still on the truck — it
-          arrives from core already written for a driver, so it is shown as-is. */}
-      {state.error ? <FormMessage variant="error">{state.error}</FormMessage> : null}
-
-      <form action={formAction}>
-        <Button
-          type="submit"
-          variant="outline"
-          size="lg"
-          className="w-full"
-          loading={pending}
-        >
-          End shift
-        </Button>
-      </form>
-    </Card>
-  );
+  /*
+   * NOTHING WHILE A SHIFT IS OPEN. The on-shift card — truck, capacity, start
+   * time, End shift — moved into the header's `ShiftPill`, where it is
+   * visible from every screen rather than from Today alone, and where the
+   * three facts a driver checks occasionally sit behind the one tap instead of
+   * taking the top of the screen they work from.
+   *
+   * `OnShift` is gone rather than hidden; the pill is its replacement.
+   */
+  if (active) return null;
+  return <OffShift trucks={trucks} />;
 }
 
 function OffShift({ trucks }: { trucks: TruckOptionView[] }) {

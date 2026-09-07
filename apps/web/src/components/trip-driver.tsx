@@ -14,6 +14,9 @@ import {
   CardTitle,
   FormMessage,
   LiveMap,
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
   ProgressTrack,
   SegmentedControl,
   cn,
@@ -254,46 +257,63 @@ function ChoosingCard({
   return (
     // `overflow-hidden` so the flush map takes the CARD's corner radius.
     <Card className="overflow-hidden">
-      <CardHeader>
-        <CardTitle className="font-display text-base">
-          {searching ? "Finding your driver" : "Choose your driver"}
-        </CardTitle>
-        <CardDescription>
-          {searching
-            ? "Your bags are sealed and ready. We're matching you with a driver nearby — this page updates on its own."
-            : allOutOfZone
-              ? "Everyone close by is full right now, so these drivers are coming from a little further out — they will take a bit longer to reach you."
-              : "Your bags are sealed and ready. Pick whoever suits you; they will collect your bags and deliver them to your airline's bag drop."}
-        </CardDescription>
+      {/*
+        ONE ROW: what this is, then what you can do about it.
 
-        {showMap && showing === "map" && !searching && (
-          <CardDescription>
-            Tap a van to see who it is and choose them.
-            {unpinned > 0
-              ? " Some drivers have not reported a position yet — they are all in the list."
-              : staleCount > 0
-                ? " A greyed van is a last known position, not a live one."
-                : " Nothing is booked until you choose."}
-          </CardDescription>
-        )}
-
-        {/*
-          THE TOGGLE ONLY EXISTS WHEN THERE IS A LIST WORTH SWITCHING TO.
-          While searching there is nothing in it, so offering the tab would be
-          offering an empty screen.
-        */}
-        {showMap && !searching && (
-          <SegmentedControl
-            items={[
-              { value: "map" as const, label: "Map" },
-              { value: "list" as const, label: `List · ${candidates.length}` },
-            ]}
-            value={view}
-            onChange={setView}
-            label="Map or list"
-            className="mt-3 sm:max-w-56"
+        The header used to carry three stacked paragraphs of explanation, a
+        "Pick the best for me" card and the Map/List toggle, and the card that
+        was supposed to be a map had half a screen of chrome above it. TD's
+        call: the title and the controls on one line, and the prose behind an
+        (i) — a customer who has read it once does not need it again, and one
+        who has not can ask.
+      */}
+      <CardHeader className="flex-row flex-wrap items-center justify-between gap-3 space-y-0">
+        <div className="flex items-center gap-2">
+          <CardTitle className="font-display text-base">
+            {searching ? "Finding your driver" : "Choose your driver"}
+          </CardTitle>
+          <DriverInfo
+            searching={searching}
+            allOutOfZone={allOutOfZone}
+            showingMap={showMap && showing === "map"}
+            unpinned={unpinned}
+            staleCount={staleCount}
           />
-        )}
+        </div>
+
+        {/* `shrink-0` so the pair wraps as a UNIT under the title rather than
+            being compressed until its labels break. */}
+        <div className="flex shrink-0 items-center gap-2">
+          {/*
+            PICK FOR ME sits BEFORE the view switch, so the two controls read
+            in the order somebody uses them: decide not to choose, or choose
+            how to look. Only offered when there is something to compare —
+            with one driver it would be a second button doing exactly what the
+            first one does.
+          */}
+          {bestShiftId && candidates.length > 1 && (
+            <PickTheBest
+              bookingId={bookingId}
+              shiftId={bestShiftId}
+              driver={byShift.get(bestShiftId) ?? null}
+            />
+          )}
+
+          {/* Only exists when there is a list worth switching to. While
+              searching there is nothing in it. */}
+          {showMap && !searching && (
+            <SegmentedControl
+              items={[
+                { value: "map" as const, label: "Map" },
+                { value: "list" as const, label: `List · ${candidates.length}` },
+              ]}
+              value={view}
+              onChange={setView}
+              label="Map or list"
+              className="w-auto shrink-0"
+            />
+          )}
+        </div>
       </CardHeader>
 
       <CardContent className="flex flex-col gap-4 px-0 pb-0">
@@ -302,16 +322,6 @@ function ChoosingCard({
             <FormMessage variant="error">{state.error}</FormMessage>
           </div>
         ) : null}
-
-        {bestShiftId && candidates.length > 1 && (
-          <div className="px-6">
-            <PickTheBest
-              bookingId={bookingId}
-              shiftId={bestShiftId}
-              driver={byShift.get(bestShiftId) ?? null}
-            />
-          </div>
-        )}
 
         {showing === "map" ? (
           <div className="relative">
@@ -416,6 +426,76 @@ function ChoosingCard({
 }
 
 /**
+ * Everything the header used to say out loud.
+ *
+ * WHY IT IS BEHIND A BUTTON. Three paragraphs sat stacked above the map: what
+ * sealing means, how to tap a van, what a grey van means, and whether anything
+ * was booked yet. All of it true and all of it read once — after which it was
+ * half a screen between a customer and the map they came for. A customer who
+ * has not read it can ask; one who has should not have to scroll past it every
+ * time the page refreshes.
+ *
+ * IT STILL SAYS THE CONDITIONAL THINGS. The out-of-zone case and the grey-pin
+ * case are not decoration — they explain a longer ETA and a stale position —
+ * so they are assembled here rather than dropped.
+ */
+function DriverInfo({
+  searching,
+  allOutOfZone,
+  showingMap,
+  unpinned,
+  staleCount,
+}: {
+  searching: boolean;
+  allOutOfZone: boolean;
+  showingMap: boolean;
+  unpinned: number;
+  staleCount: number;
+}) {
+  const [open, setOpen] = React.useState(false);
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          aria-label="About choosing your driver"
+          onMouseEnter={() => setOpen(true)}
+          onMouseLeave={() => setOpen(false)}
+          onFocus={() => setOpen(true)}
+          className="inline-flex size-5 shrink-0 items-center justify-center rounded-full border border-border text-[11px] font-semibold text-muted-foreground transition-colors hover:bg-muted hover:text-navy-800 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden"
+        >
+          i
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="start"
+        className="w-72 text-sm"
+        onOpenAutoFocus={(event) => event.preventDefault()}
+      >
+        <p>
+          {searching
+            ? "Your bags are sealed and ready. We're matching you with a driver nearby — this page updates on its own."
+            : allOutOfZone
+              ? "Everyone close by is full right now, so these drivers are coming from a little further out — they will take a bit longer to reach you."
+              : "Your bags are sealed and ready. Pick whoever suits you; they will collect your bags and deliver them to your airline's bag drop."}
+        </p>
+        {showingMap && !searching && (
+          <p className="mt-2 text-muted-foreground">
+            Tap a van to see who it is and choose them.
+            {unpinned > 0
+              ? " Some drivers have not reported a position yet — they are all in the list."
+              : staleCount > 0
+                ? " A greyed van is a last known position, not a live one."
+                : " Nothing is booked until you choose."}
+          </p>
+        )}
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+/**
  * The label over the searching map.
  *
  * IT SAYS WHAT IS HAPPENING, NOT WHAT IS THERE. "Finding drivers near you" is
@@ -465,22 +545,40 @@ function PickTheBest({
     if (state.stale) router.refresh();
   }, [state.stale, router]);
 
+  /*
+   * A BUTTON IN THE HEADER, not a card in the body.
+   *
+   * It used to be a tinted panel carrying a sentence — "In a hurry? We'll pick
+   * Marcus — closest to you, about 25 min" — which named who it would choose
+   * and why, so pressing it was a choice rather than a surrender. That
+   * reasoning is intact and the sentence moved into the button's TITLE rather
+   * than being lost: the control is two words on the same line as the view
+   * switch, and hovering or focusing it still says who and why before it is
+   * pressed. On a phone, where there is no hover, the shortlist below is the
+   * answer to "who would that be?".
+   */
+  const promise = driver?.givenName
+    ? `We'll pick ${driver.givenName}${driver.hasEta ? ` — closest to you, ${driver.etaLabel}` : " — closest to you"}`
+    : "We'll pick whoever is closest to you";
+
   return (
-    <form action={formAction} className="flex flex-col gap-2">
+    <form action={formAction}>
       <input type="hidden" name="bookingId" value={bookingId} />
       <input type="hidden" name="shiftId" value={shiftId} />
-      {state.error ? <FormMessage variant="error">{state.error}</FormMessage> : null}
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-tag-200 bg-tag-50/50 p-3">
-        <p className="text-sm">
-          <span className="font-medium">In a hurry?</span> We&rsquo;ll pick{" "}
-          {driver?.givenName ?? "whoever"}
-          {driver?.hasEta ? ` — closest to you, ${driver.etaLabel}` : " — closest to you"}
-          .
-        </p>
-        <Button type="submit" variant="secondary" size="sm" loading={pending}>
-          Pick the best for me
-        </Button>
-      </div>
+      {/* A refusal has to appear even though the control is now one line: the
+          toast-less alternative is a button that silently does nothing. */}
+      {state.error ? (
+        <p className="mr-2 inline text-xs text-destructive">{state.error}</p>
+      ) : null}
+      <Button
+        type="submit"
+        variant="secondary"
+        size="sm"
+        loading={pending}
+        title={promise}
+      >
+        Pick for me
+      </Button>
     </form>
   );
 }

@@ -9,6 +9,8 @@ import {
   Button,
   Card,
   CardContent,
+  CardHeader,
+  CardTitle,
   FormMessage,
   ImageLightbox,
   Markdown,
@@ -127,22 +129,30 @@ export function TripActionNeeded({
     (agreement.accepted || noAgreementPublished ? 0 : 1) + (passportDone ? 0 : 1);
 
   return (
-    <section className={cn("flex flex-col gap-4", className)}>
-      <div className="flex items-center gap-3">
-        <h2 className="font-display text-lg">
+    /*
+     * THE TITLE IS INSIDE THE CARD NOW, and that is a layout fix rather than a
+     * taste one. It used to be an `<h2>` above the card, which made this column
+     * structurally different from Pickup details beside it — a heading, then a
+     * card, against a card alone — so the two cards started at different
+     * heights and the row read as broken at the top. Same shape both sides,
+     * and the flex row can stretch them to a common height.
+     */
+    <Card className={cn("flex flex-col", className)}>
+      <CardHeader className="flex-row items-center gap-3 space-y-0">
+        <CardTitle className="font-display text-base">
           {agreement.accepted || noAgreementPublished
             ? "Before your pickup"
             : "Action needed"}
-        </h2>
+        </CardTitle>
         {!agreement.accepted && !noAgreementPublished && actionable && (
           <Badge variant="warning">1 thing to do</Badge>
         )}
         {(agreement.accepted || noAgreementPublished) && remaining > 0 && actionable && (
           <Badge variant="secondary">1 optional step left</Badge>
         )}
-      </div>
+      </CardHeader>
 
-      <Card>
+      <div className="flex-1">
         <CardContent className="flex flex-col gap-0 divide-y divide-border p-0">
           <AgreementStep
             bookingId={bookingId}
@@ -157,8 +167,8 @@ export function TripActionNeeded({
             open={openStep === "passport"}
           />
         </CardContent>
-      </Card>
-    </section>
+      </div>
+    </Card>
   );
 }
 

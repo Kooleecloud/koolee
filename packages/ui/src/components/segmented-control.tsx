@@ -90,7 +90,15 @@ export function SegmentedControl<T extends string>({
          * shadow reads as "this one is on top" without relying on hue.
          */
         const classes = cn(
-          "flex-1 rounded-md px-3 py-1.5 text-center text-sm font-medium transition-colors",
+          /*
+           * `whitespace-nowrap` because a TAB LABEL MUST NOT WRAP. Squeezed
+           * into a narrow container — a card header sharing a row with a title
+           * and another control — "List · 4" broke across two lines and made
+           * the whole strip two rows tall. A tab is a label, not a paragraph:
+           * if there is not enough room it should stay one line and let the
+           * container decide what to do.
+           */
+          "flex-1 rounded-md px-3 py-1.5 text-center text-sm font-medium whitespace-nowrap transition-colors",
           "focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring",
           selected ? "bg-card text-navy-800 shadow-lift" : "text-muted-foreground",
         );

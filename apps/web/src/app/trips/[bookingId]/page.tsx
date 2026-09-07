@@ -581,7 +581,7 @@ export default async function TripPage({
         which would be a second copy of a rule that already lives in one
         place.
       */}
-      <div className="flex flex-col items-start gap-6 lg:flex-row">
+      <div className="flex flex-col gap-6 lg:flex-row lg:items-stretch">
         <Card className="w-full lg:grow lg:basis-3/5">
           <CardHeader>
             <CardTitle className="font-display text-base">Pickup details</CardTitle>

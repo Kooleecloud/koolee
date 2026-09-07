@@ -1,12 +1,17 @@
-import { getActiveShift, listAssignedTasks } from "@koolee/core";
+import { formatTimeInAirportTz, getActiveShift, listAssignedTasks } from "@koolee/core";
 
 import { tryGetCore } from "@/lib/core";
 import { getAgentSession } from "@/lib/session";
 import { GpsPinger, type GpsPingerPhase } from "./gps-pinger";
+import { ShiftPill } from "./shift-pill";
 
 /**
+ * The header's two status pills, and the pinger that feeds one of them.
+ *
  * Reports this driver's position for as long as their shift is open — from
- * every screen in the app.
+ * every screen in the app — and renders the two things a working driver should
+ * be able to see without navigating anywhere: whether Koolee can see them, and
+ * whether they are clocked on.
  *
  * WHY IT IS IN THE LAYOUT. `GpsPinger` used to be mounted on the Today page
  * alone, so the moment a driver opened a task — which is the moment they are
@@ -68,5 +73,25 @@ export async function ShiftLocation() {
       ? "carrying"
       : "on_shift";
 
-  return <GpsPinger phase={phase} />;
+  /*
+   * The shift's own start renders in the zone of the WORK, like every other
+   * time in this app — the driver's phone zone is never used. Falls back to
+   * Eastern when this driver has no jobs to take a zone from, which is the
+   * same fallback the Today page used when this block lived there.
+   */
+  const tz = tasks?.pickup[0]?.tz ?? tasks?.verification[0]?.tz ?? "America/New_York";
+
+  return (
+    <div className="flex items-center gap-2">
+      <GpsPinger phase={phase} />
+      <ShiftPill
+        active={{
+          truckName: shift.truck.name,
+          bagCapacity: shift.truck.bagCapacity,
+          bagsOnBoard: shift.bagsOnBoard,
+          startedAtLabel: formatTimeInAirportTz(shift.shift.startedAt, tz),
+        }}
+      />
+    </div>
+  );
 }
