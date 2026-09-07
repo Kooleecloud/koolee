@@ -711,3 +711,61 @@ bookings deliberately advanced.
    makes the scroll trap tolerable in a thumb's hand rather than in CDP.
 4. **Push nudge delivery (47).** The cron and the payload are unit-tested;
    an actual push to a real subscribed device is not.
+
+---
+
+## Phase 9 — TD's review pass
+
+Twelve commits of changes asked for after seeing the slice running. Recorded
+here because several reverse a call made earlier in this document, and a
+reader who finds only the original reasoning would reasonably think the code
+had drifted from it.
+
+### The trip page
+
+| Change                                              | Note                                                                                                                                                                                                                             |
+| --------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Pickup details + Action needed share a row, 60/40   | Flex, not grid: `TripActionNeeded` returns null for most of a booking's life and a grid would hold its column open. The Action needed title moved inside its card so both columns are the same shape and stretch to equal height |
+| Pickup details is a 2×2 grid                        | Window, Address, Your agent, Your driver. One per row below `sm`. The zone note moved beside the title; "have your bags and passport ready" moved under the agent it belongs to                                                  |
+| The driver cell only renders when there is a driver | Its empty state was three lines of scaffolding for a fact that did not exist yet                                                                                                                                                 |
+| Choose-driver header is one row                     | Title, an (i) holding the prose, then Pick for me and the Map/List switch. `SegmentedControl` gained `whitespace-nowrap` — a tab label must not wrap                                                                             |
+| No driver section until the bags are sealed         | **Stricter than the status.** See the note in the page: an admin override can move a booking to `verified_sealed` without touching a bag, which is what produced a map above a bag reading "not yet sealed"                      |
+| Custody toggle moved into the card header           | Label drops the count: "Show full history" / "Show the latest"                                                                                                                                                                   |
+| Agreement step                                      | Version preamble gone. Two controls, then Read agreement + Download once accepted. Reading happens in a scrolling dialog with Accept at its foot. The done state says nothing at all                                             |
+
+### The agent app
+
+| Change                                      | Note                                                                                                                                                                                     |
+| ------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Location and shift status are header pills  | Visible from every screen, detail behind a tap. Three lights: green live, yellow acquiring-or-lost, red off — **not** "on a trip", which would leave the light amber for most of a shift |
+| Both halves of the shift live in the header | Reverses this document's earlier call that clocking on was too important for a popover. `ShiftBar` is gone; `StartShiftForm` is what remains, sized for the popover                      |
+| Glyph-only logo below `sm`                  | `compactLogo` on `AppHeader`, opt-in. Brand block 230px → 93px on a 390px screen, which is the room the two pills needed                                                                 |
+| The booking ref is a seal-orange pill       | On the job card AND the task detail, from one `BookingRef` component. `bg-tag-400` is 5.43:1 with navy; `tag-500` is 4.27:1 and fails                                                    |
+
+### The map
+
+| Change                                     | Note                                                                                                                                                                                                              |
+| ------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Ghost pins use the real pin and hold still | The drift made all three set off together in one direction. They pulse instead. Labels are masked initials — `R****` — which is withheld information rather than an invented person                               |
+| Ghost radius 600m–1.6km                    | Was 400m–2km                                                                                                                                                                                                      |
+| Blocking the map while searching           | Built, then **reverted at TD's request** (`b62e429` → `88d7033`). The map stays interactive. The reverted commit holds the `touch-action: pan-y` detail, which is the non-obvious part if it is ever wanted again |
+
+### Shared
+
+`Dialog` closed in two stages: the overlay had no `duration` so it ran at
+tailwindcss-animate's 150ms default against the content's 200ms, AND the
+content had no `fade-*`/`zoom-*` utility, so it held full opacity for its whole
+200ms and then vanished in one frame. Both fixed; measured mid-close at 0.20
+opacity with the backdrop still present. `Sheet` was checked and is consistent.
+
+### Two defects found in this pass
+
+1. **`ref` as a prop name.** `BookingRef` took `ref`, which is reserved on a
+   React element — `react-hooks/refs` read the whole component as ref access
+   during render. It is `value`.
+2. **A promise the page could not keep.** The driver cell read "Choose yours
+   below" whenever the bags were sealed, including on a booking past its
+   bag-drop cutoff where the panel self-suppresses. Testing
+   `driverSection !== null` looked equivalent and was not — `TripDriverPanel`
+   returns null on its own, so the element is non-null while the screen is
+   empty. One `driverPanelVisible` boolean now decides both.
