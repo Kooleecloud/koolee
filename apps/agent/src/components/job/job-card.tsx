@@ -151,23 +151,60 @@ export function JobCard({
             </span>
             <span className="truncate text-base font-medium">{booking.paxName}</span>
           </div>
-          <span className="flex shrink-0 items-center gap-2">
-            {job.state === "cancelled" && <Badge variant="secondary">Cancelled</Badge>}
-            {job.state === "problem" && (
-              <Badge variant="destructive">
-                <CircleAlert aria-hidden="true" className="mr-1 size-3" />
-                Problem
-              </Badge>
-            )}
-            {job.state === "active" && <Badge variant="warning">In progress</Badge>}
-            {/* A cancelled stop is never "Late". Its window passing is not a
+          <span className="flex shrink-0 items-start gap-2">
+            <span className="flex flex-col items-end gap-1.5">
+              {/*
+                THE REF IS VERIFICATION, NOT METADATA — TD's call, and it
+                changes what this card is for. It used to sit in the footer
+                line at `text-xs text-muted-foreground`, between the bag count
+                and the flight number: the smallest, greyest thing on a card
+                whose whole job is to get the right driver to the right door.
+                A driver reads this number back to a customer to prove they are
+                the person expected. That is the same act the seal performs, so
+                it earns the seal's colour and a line of its own, parallel with
+                the time.
+
+                ON THE SEAL COLOUR, DELIBERATELY. `theme.css` reserves `tag`
+                for primary CTAs and the seal motif and forbids it as
+                decoration — this is the motif, not decoration: the ref and the
+                seal id are the two things a hand-off is checked against.
+
+                `bg-tag-400` with `text-navy-800` measures 5.43:1, past AA for
+                normal text. `tag-500` was the first pick and comes in at
+                4.27:1, which fails — the brand's own orange is the accessible
+                one here, which is a happy accident worth writing down so
+                nobody "fixes" the shade later.
+              */}
+              <span className="rounded-md bg-tag-400 px-2 py-0.5 font-mono text-xs font-semibold tracking-tight text-navy-800">
+                {booking.ref}
+              </span>
+              <span className="flex flex-wrap items-center justify-end gap-2">
+                {job.state === "cancelled" && (
+                  <Badge variant="secondary">Cancelled</Badge>
+                )}
+                {job.state === "problem" && (
+                  <Badge variant="destructive">
+                    <CircleAlert aria-hidden="true" className="mr-1 size-3" />
+                    Problem
+                  </Badge>
+                )}
+                {job.state === "active" && <Badge variant="warning">In progress</Badge>}
+                {/* A cancelled stop is never "Late". Its window passing is not a
                 thing anybody needs to chase. */}
-            {late &&
-              job.state !== "problem" &&
-              job.state !== "active" &&
-              job.state !== "cancelled" && <Badge variant="warning">Late</Badge>}
-            {job.state === "done" && <Badge variant="success">Done</Badge>}
-            <ChevronRight aria-hidden="true" className="size-5 text-muted-foreground" />
+                {late &&
+                  job.state !== "problem" &&
+                  job.state !== "active" &&
+                  job.state !== "cancelled" && <Badge variant="warning">Late</Badge>}
+                {job.state === "done" && <Badge variant="success">Done</Badge>}
+              </span>
+            </span>
+            {/* Centred against the ref pill rather than the whole stack: a
+                disclosure chevron belongs beside the first line, not floating
+                against however many badges a stop happens to have. */}
+            <ChevronRight
+              aria-hidden="true"
+              className="mt-0.5 size-5 text-muted-foreground"
+            />
           </span>
         </div>
 
@@ -186,10 +223,11 @@ export function JobCard({
           ))}
         </ul>
 
+        {/* The ref has moved up to the pill; repeating it here would be the
+            same number twice on one card, in two different weights. */}
         <p className="text-xs text-muted-foreground">
-          <span className="font-mono">{booking.ref}</span> · {booking.bagCount} bag
-          {booking.bagCount === 1 ? "" : "s"} · {booking.flightNumber} ·{" "}
-          {booking.departureAirport}
+          {booking.bagCount} bag{booking.bagCount === 1 ? "" : "s"} ·{" "}
+          {booking.flightNumber} · {booking.departureAirport}
         </p>
       </Link>
 
