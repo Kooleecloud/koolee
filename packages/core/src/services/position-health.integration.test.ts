@@ -104,7 +104,11 @@ describeIntegration("position health (integration)", () => {
   ): Promise<{ userId: string; shiftId: string }> {
     const [user] = await db
       .insert(users)
-      .values({ email: `${name.replace(/\s+/g, "-").toLowerCase()}@koolee.test`, role: "agent", fullName: name })
+      .values({
+        email: `${name.replace(/\s+/g, "-").toLowerCase()}@koolee.test`,
+        role: "agent",
+        fullName: name,
+      })
       .returning();
     await db
       .insert(staffMembers)

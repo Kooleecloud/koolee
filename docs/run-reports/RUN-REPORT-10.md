@@ -19,37 +19,37 @@ not the conversation, and not memory.
 
 ## Status
 
-| Group                                    | Items | Done  |
-| ---------------------------------------- | ----- | ----- |
-| A · Map as permanent hero                | 6     | **6** |
-| B · Searching state with ghost pins      | 6     | **6** |
-| C · Driver bar and micro timeline        | 5     | **5** |
-| D · Custody trail collapse               | 2     | **2** |
-| E · Timeline detail                      | 3     | **3** |
-| F · After delivery                       | 2     | **2** |
-| G · Map gestures                         | 4     | **4** |
-| H · Stale positions never empty the map  | 2     | **2** |
-| I · Agent app — Today                    | 3     | **3** |
-| J · Agent app — Schedule                 | 6     | **6** |
-| K · Driver position — capture            | 4     | **4** |
-| L · Driver position — never drop a fix   | 2     | **2** |
-| M · Driver position — detect and recover | 7     | **7** |
-| N · Stories and tests                    | 4     | **4** |
+| Group                                    | Items  | Done   |
+| ---------------------------------------- | ------ | ------ |
+| A · Map as permanent hero                | 6      | **6**  |
+| B · Searching state with ghost pins      | 6      | **6**  |
+| C · Driver bar and micro timeline        | 5      | **5**  |
+| D · Custody trail collapse               | 2      | **2**  |
+| E · Timeline detail                      | 3      | **3**  |
+| F · After delivery                       | 2      | **2**  |
+| G · Map gestures                         | 4      | **4**  |
+| H · Stale positions never empty the map  | 2      | **2**  |
+| I · Agent app — Today                    | 3      | **3**  |
+| J · Agent app — Schedule                 | 6      | **6**  |
+| K · Driver position — capture            | 4      | **4**  |
+| L · Driver position — never drop a fix   | 2      | **2**  |
+| M · Driver position — detect and recover | 7      | **7**  |
+| N · Stories and tests                    | 4      | **4**  |
 | **Total**                                | **56** | **56** |
 
 ---
 
 ## The seven locked decisions
 
-| #   | Decision                | Chosen                                                       |
-| --- | ----------------------- | ------------------------------------------------------------ |
-| 1   | Chain-of-custody card   | Collapse into a disclosure below the map                     |
-| 2   | Ghost drivers           | Uber-style — anonymous, inert, no disclaimer text            |
-| 3   | Stale GPS fixes         | Dimmed pin + "last seen N min ago", both surfaces            |
-| 4   | Map lifespan            | `verified_sealed` → `delivered_to_bagdrop`                   |
-| 5   | Agent Today tab         | Today + live overdue; cancelled never appears                |
-| 6   | Agent Schedule tab      | Two tabs; cancelled → History; overdue demoted below Today   |
-| 7   | Position robustness     | Max out the web path; native wrapper explicitly out of scope |
+| #   | Decision              | Chosen                                                       |
+| --- | --------------------- | ------------------------------------------------------------ |
+| 1   | Chain-of-custody card | Collapse into a disclosure below the map                     |
+| 2   | Ghost drivers         | Uber-style — anonymous, inert, no disclaimer text            |
+| 3   | Stale GPS fixes       | Dimmed pin + "last seen N min ago", both surfaces            |
+| 4   | Map lifespan          | `verified_sealed` → `delivered_to_bagdrop`                   |
+| 5   | Agent Today tab       | Today + live overdue; cancelled never appears                |
+| 6   | Agent Schedule tab    | Two tabs; cancelled → History; overdue demoted below Today   |
+| 7   | Position robustness   | Max out the web path; native wrapper explicitly out of scope |
 
 ---
 
@@ -83,7 +83,7 @@ inferred.
 5. **A driver's position can rewind.** `driver_positions` is keyed on
    `staff_user_id` with no ordering guard (`packages/db/src/schema/ops.ts:174`).
    Any queue-and-retry design will let an older buffered fix overwrite a newer
-   one and park the van in the past. Must be fixed *before* L1 ships.
+   one and park the van in the past. Must be fixed _before_ L1 ships.
 
 6. **Position gaps are undiagnosable.** One mutable row, no history. Today it
    is impossible to answer "how long were we blind, and whose phone was it?"
@@ -120,8 +120,11 @@ inferred.
 - [x] **13.** Bar under the map: avatar, "Ravi is on the way", ETA, distance.
 - [x] **14.** New compact `ProgressTrack` variant — single row, small dots,
       about one line tall.
-- [x] **15.** Five steps: `Ravi assigned → On the way → Bags collected →
-      In transit → Delivered`.
+- [x] **15.** Five steps, in order: Ravi assigned, On the way, Bags collected,
+      In transit, Delivered. (Written as prose rather than one inline-code
+      span: a code span that wraps inside a list item makes `prettier --write`
+      non-idempotent, so `format:check` fails no matter how many times it is
+      run. That cost one red CI job to work out.)
 - [x] **16.** `PICKUP_STEPS` becomes a function taking the driver's name.
 - [x] **17.** Timeline appears only after a driver is chosen.
 
@@ -235,19 +238,19 @@ inferred.
 ## Phase order
 
 Commits land in this order on the one branch. The rationale is that the map is
-built *last*, against positions that actually arrive, rather than first against
+built _last_, against positions that actually arrive, rather than first against
 positions that vanish.
 
-| Phase | Groups        | Why here                                                       |
-| ----- | ------------- | -------------------------------------------------------------- |
-| 1     | I, J, N55     | Smallest, self-contained, fixes a bug TD is looking at today   |
-| 2     | L45           | The ordering guard — a correctness fix everything else assumes |
-| 3     | K, L44, N56   | Capture and queue                                              |
-| 4     | M             | Detect, recover, prevent, measure (includes the migration)     |
-| 5     | G             | Gestures — smallest UI diff, immediately testable on a phone   |
-| 6     | A, B, H, N53  | Map hero, ghosts, stale pins                                   |
-| 7     | C, F          | Driver bar, micro timeline, delivered state                    |
-| 8     | D, E, N54     | Custody collapse, timeline detail                              |
+| Phase | Groups       | Why here                                                       |
+| ----- | ------------ | -------------------------------------------------------------- |
+| 1     | I, J, N55    | Smallest, self-contained, fixes a bug TD is looking at today   |
+| 2     | L45          | The ordering guard — a correctness fix everything else assumes |
+| 3     | K, L44, N56  | Capture and queue                                              |
+| 4     | M            | Detect, recover, prevent, measure (includes the migration)     |
+| 5     | G            | Gestures — smallest UI diff, immediately testable on a phone   |
+| 6     | A, B, H, N53 | Map hero, ghosts, stale pins                                   |
+| 7     | C, F         | Driver bar, micro timeline, delivered state                    |
+| 8     | D, E, N54    | Custody collapse, timeline detail                              |
 
 ---
 
@@ -383,13 +386,13 @@ wins, loser does not throw). Core unit tier 617 passed / 1 skipped.
 The pinger was `setInterval` around `getCurrentPosition`. Five separate
 reasons that lost a driver's location, each now answered:
 
-| Cause                                     | Answer                                   |
-| ----------------------------------------- | ---------------------------------------- |
-| A timer only fires in the foreground      | `watchPosition` subscription             |
-| The screen sleeps                         | Wake Lock while `en_route`/`carrying`    |
-| A failed send was a lost fix              | IndexedDB queue + Background Sync        |
-| Coming back waited out a full tick        | Send on `visibilitychange`               |
-| A revoked permission was invisible        | `permissions.query().onchange`           |
+| Cause                                | Answer                                |
+| ------------------------------------ | ------------------------------------- |
+| A timer only fires in the foreground | `watchPosition` subscription          |
+| The screen sleeps                    | Wake Lock while `en_route`/`carrying` |
+| A failed send was a lost fix         | IndexedDB queue + Background Sync     |
+| Coming back waited out a full tick   | Send on `visibilitychange`            |
+| A revoked permission was invisible   | `permissions.query().onchange`        |
 
 **New files.** `src/lib/position-queue.ts` (bounded 120-entry IDB queue,
 batch flush, `sendBeacon` helper, exported `flushDisposition` rule) and
@@ -468,7 +471,7 @@ booking whose address never resolved has genuinely nothing to draw.
 **Ghost pins.** `lib/ghost-drivers.ts` — deterministic from the booking id, so
 the page's ~15 s refresh does not scatter them to new streets. 400 m–2 km out,
 spread across the compass, drifting ≤120 m per 8 s step. Anonymous and inert
-*structurally*: `LiveMap` renders `variant: "ghost"` as a `span` inside a
+_structurally_: `LiveMap` renders `variant: "ghost"` as a `span` inside a
 `pointer-events-none` root, so there is no element for a click listener to
 fire from. They are torn down in the same render a real candidate appears, and
 the drift timer with them.
@@ -592,12 +595,12 @@ loading and the map is genuinely rendering rather than failing silently.
 
 **`LiveMap / StalePosition`** — the two pins are unmistakably different:
 
-| | live | stale |
-| --- | --- | --- |
-| background | `rgb(23,127,166)` sky | `rgb(78,116,163)` navy |
-| pulse ring | yes | **no** |
-| accessible name | "Driver Marcus" | "Driver Yara — **last known position**" |
-| tappable | yes | yes |
+|                 | live                  | stale                                   |
+| --------------- | --------------------- | --------------------------------------- |
+| background      | `rgb(23,127,166)` sky | `rgb(78,116,163)` navy                  |
+| pulse ring      | yes                   | **no**                                  |
+| accessible name | "Driver Marcus"       | "Driver Yara — **last known position**" |
+| tappable        | yes                   | yes                                     |
 
 **`ProgressTrack / CompactLongName`** at a 375px viewport — track is **44px
 tall**, no horizontal overflow, five equal 69px columns, all five dot wrappers
@@ -673,23 +676,23 @@ Found by the new integration tier, before any browser work. Both
 
 ### What was verified running
 
-| Area | Evidence |
-| --- | --- |
+| Area                                | Evidence                                                                                                                                                                          |
+| ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Map renders where it used to vanish | A `verified_sealed` booking whose only candidate had a 139-hour-old fix: map + canvas + **stale pin** + pickup pin. Before the slice this was `pins.length === 0` → no map at all |
-| Stale pin (29, 30) | `data-variant="stale"`, "Last seen 6 days ago. The grey van is where we saw them last." Popup carries the same line |
-| Driver bar + micro timeline (13–17) | "Nina is assigned to you" · "Nina assigned — current step / On the way / Bags collected / In transit / Delivered" |
-| Choose → track transition | Selected from the map popup; page moved to the tracking view with the named track |
-| Custody collapse (18, 19) | 3 rows + "Show full history · 7 earlier events" → 10 rows + "Show less" |
-| Named actors (20) | "Agent assigned · **Nina**" with avatar, after Defect 2 was fixed |
-| Photo buttons (21, 22) | "View photo" in the trail, "View seal photo" on bags, zero thumbnails |
-| After delivery (23, 24) | Completed booking: no map, no driver card, "Who handled your bags" naming the sealing agent and the delivering driver |
-| One-finger pan (25) | CDP touch drag of (−90, −60) moved the marker exactly (290,93) → (200,33). Cooperative-gesture overlay absent |
-| Wheel scrolls the page (27) | Real `mouse.wheel` over the map: `scrollY` 200 → 600, no zoom |
-| Agent Today (31–33) | "NEEDS ATTENTION · 2" leading; no stale overdue rows |
-| Agent Schedule (34–39) | "To do · 2" / "History · 6"; "OPEN PROBLEMS · 2" leads; **cancelled stops now in History with their badge** |
-| GPS pinger + chip (40, 49) | Granted geolocation → chip `data-gps-state="live"`, "Location live" |
-| Position write path (46, 48, 52) | After that ping, the ops console dropped Leo Vargas's stale flag while every other driver still read "No location" / "Location silent 139 hrs" |
-| Clock-on gate (50) | Permission granted → **nothing shown** (the designed silent path). Revoked → "Location is off for this site… turn it on in your browser settings", non-blocking |
+| Stale pin (29, 30)                  | `data-variant="stale"`, "Last seen 6 days ago. The grey van is where we saw them last." Popup carries the same line                                                               |
+| Driver bar + micro timeline (13–17) | "Nina is assigned to you" · "Nina assigned — current step / On the way / Bags collected / In transit / Delivered"                                                                 |
+| Choose → track transition           | Selected from the map popup; page moved to the tracking view with the named track                                                                                                 |
+| Custody collapse (18, 19)           | 3 rows + "Show full history · 7 earlier events" → 10 rows + "Show less"                                                                                                           |
+| Named actors (20)                   | "Agent assigned · **Nina**" with avatar, after Defect 2 was fixed                                                                                                                 |
+| Photo buttons (21, 22)              | "View photo" in the trail, "View seal photo" on bags, zero thumbnails                                                                                                             |
+| After delivery (23, 24)             | Completed booking: no map, no driver card, "Who handled your bags" naming the sealing agent and the delivering driver                                                             |
+| One-finger pan (25)                 | CDP touch drag of (−90, −60) moved the marker exactly (290,93) → (200,33). Cooperative-gesture overlay absent                                                                     |
+| Wheel scrolls the page (27)         | Real `mouse.wheel` over the map: `scrollY` 200 → 600, no zoom                                                                                                                     |
+| Agent Today (31–33)                 | "NEEDS ATTENTION · 2" leading; no stale overdue rows                                                                                                                              |
+| Agent Schedule (34–39)              | "To do · 2" / "History · 6"; "OPEN PROBLEMS · 2" leads; **cancelled stops now in History with their badge**                                                                       |
+| GPS pinger + chip (40, 49)          | Granted geolocation → chip `data-gps-state="live"`, "Location live"                                                                                                               |
+| Position write path (46, 48, 52)    | After that ping, the ops console dropped Leo Vargas's stale flag while every other driver still read "No location" / "Location silent 139 hrs"                                    |
+| Clock-on gate (50)                  | Permission granted → **nothing shown** (the designed silent path). Revoked → "Location is off for this site… turn it on in your browser settings", non-blocking                   |
 
 Leo Vargas's shift was ended and restarted to reach the off-shift gate; it is
 back on DEV Truck B with GPS live. No other dev data was changed beyond the two

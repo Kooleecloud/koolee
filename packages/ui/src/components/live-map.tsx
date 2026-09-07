@@ -631,7 +631,10 @@ export function LiveMap({
        * Recreating costs the walk animation for one frame, on a transition
        * that happens at most twice a journey.
        */
-      if (existing && existing.getElement().dataset.variant !== (driver.variant ?? "live")) {
+      if (
+        existing &&
+        existing.getElement().dataset.variant !== (driver.variant ?? "live")
+      ) {
         const frame = moves.current.get(driver.id);
         if (frame !== undefined) cancelAnimationFrame(frame);
         moves.current.delete(driver.id);
@@ -1296,9 +1299,7 @@ function driverPin(driver: MapDriver): HTMLElement {
     // parent, and which a child inherits nothing of but which it is far too
     // easy to reintroduce here by habit.
     "transition-[scale] duration-150",
-    variant === "stale"
-      ? "bg-navy-400 hover:scale-110"
-      : "bg-sky-600 hover:scale-110",
+    variant === "stale" ? "bg-navy-400 hover:scale-110" : "bg-sky-600 hover:scale-110",
     "group-data-[selected=true]:bg-tag-500 group-data-[selected=true]:scale-110",
     "focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring",
   ].join(" ");

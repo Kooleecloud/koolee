@@ -233,8 +233,7 @@ function ChoosingCard({
    * GHOSTS OR REAL PINS, NEVER BOTH. Mixing them would put an anonymous dot
    * beside a named van and invite somebody to tap it.
    */
-  const pins =
-    searching && pickup ? ghostDrivers(bookingId, pickup, drift) : realPins;
+  const pins = searching && pickup ? ghostDrivers(bookingId, pickup, drift) : realPins;
 
   /*
    * A map needs a reference point, and that is the ONLY thing it needs now.

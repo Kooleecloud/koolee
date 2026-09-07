@@ -64,7 +64,9 @@ async function queued(): Promise<PositionFix[]> {
  * test still passes at runtime, which is the worst of both.
  */
 function respondWith(status: number) {
-  return vi.fn(async (_url: string, _init?: RequestInit) => new Response(null, { status }));
+  return vi.fn(
+    async (_url: string, _init?: RequestInit) => new Response(null, { status }),
+  );
 }
 
 beforeEach(async () => {

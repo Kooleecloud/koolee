@@ -36,10 +36,7 @@ import {
   type AssignedAgent,
 } from "@koolee/core";
 
-import {
-  CustodyTimeline,
-  type TimelineActor,
-} from "@/components/custody-timeline";
+import { CustodyTimeline, type TimelineActor } from "@/components/custody-timeline";
 import { TripCancel, TripCancelledNotice } from "@/components/trip-cancel";
 import { TripLive } from "@/components/trip-live";
 import { TripPushPrompt } from "@/components/trip-push-prompt";
@@ -667,12 +664,7 @@ export default async function TripPage({
             <ul className="grid gap-4 sm:grid-cols-2">
               {handledBy.map((person) => (
                 <li key={person.key} className="flex items-center gap-3">
-                  <Avatar
-                    size="lg"
-                    name={person.name}
-                    src={person.avatarUrl}
-                    alt=""
-                  />
+                  <Avatar size="lg" name={person.name} src={person.avatarUrl} alt="" />
                   <div className="min-w-0">
                     <p className="font-medium">{person.name}</p>
                     <p className="text-sm text-muted-foreground">{person.role}</p>

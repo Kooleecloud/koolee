@@ -19,9 +19,12 @@ describe("flushDisposition", () => {
    * A body the server will always refuse must not become permanent luggage,
    * re-sent on every network change for the rest of the shift.
    */
-  it.each([400, 401, 409, 413, 422])("drops a permanently refused batch (%i)", (status) => {
-    expect(flushDisposition(status)).toBe("delete");
-  });
+  it.each([400, 401, 409, 413, 422])(
+    "drops a permanently refused batch (%i)",
+    (status) => {
+      expect(flushDisposition(status)).toBe("delete");
+    },
+  );
 
   /*
    * THE CASE THE QUEUE EXISTS FOR. A server having a moment must not cost the

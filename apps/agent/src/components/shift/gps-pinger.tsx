@@ -417,13 +417,7 @@ export function GpsPinger({ phase }: { phase: GpsPingerPhase | null }) {
  * real state readable from the DOM in a browser pass, which is how the
  * `null`-return bug in `TripLive` was eventually pinned down.
  */
-function GpsStatus({
-  state,
-  onRetry,
-}: {
-  state: GpsPingerState;
-  onRetry: () => void;
-}) {
+function GpsStatus({ state, onRetry }: { state: GpsPingerState; onRetry: () => void }) {
   if (state === "idle" || state === "live") {
     return (
       <p

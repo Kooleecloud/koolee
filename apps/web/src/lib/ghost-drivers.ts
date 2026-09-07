@@ -86,7 +86,9 @@ function offset(from: MapPoint, metres: number, bearing: number): MapPoint {
   // Koolee airport is within a thousand miles of one, but a NaN coordinate
   // takes the whole map down rather than one pin, so it is not left to luck.
   const lng =
-    Math.abs(lngScale) < 1 ? from.lng : from.lng + (metres * Math.sin(bearing)) / lngScale;
+    Math.abs(lngScale) < 1
+      ? from.lng
+      : from.lng + (metres * Math.sin(bearing)) / lngScale;
   return { lat, lng };
 }
 
@@ -124,7 +126,8 @@ export function ghostDrivers(
     // than accumulated — no rounding walk, and no dependence on how many
     // renders happened to occur.
     const wander = rng(hash(`${seed}:${i}:${step}`));
-    const position = step === 0 ? home : offset(home, wander() * DRIFT_METRES, wander() * Math.PI * 2);
+    const position =
+      step === 0 ? home : offset(home, wander() * DRIFT_METRES, wander() * Math.PI * 2);
 
     ghosts.push({
       id: `ghost-${i}`,
