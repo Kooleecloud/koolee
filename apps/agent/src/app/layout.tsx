@@ -81,6 +81,13 @@ export default async function RootLayout({
           linkComponent={Link}
           tag="agent"
           sticky={false}
+          /*
+            GLYPH ONLY ON A PHONE. This bar carries the wordmark, the "agent"
+            chip and two status pills, and 393px does not hold all four — the
+            wordmark alone is about 170px. The mark is the one thing here
+            nobody is trying to read, so it is what gives way.
+          */
+          compactLogo
           actions={session ? <ShiftLocation /> : undefined}
         />
         {children}
