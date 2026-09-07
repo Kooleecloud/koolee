@@ -472,7 +472,48 @@ export default async function TripPage({
       ].filter((entry): entry is NonNullable<typeof entry> => entry !== null)
     : [];
 
-  const driverSection = bagsDelivered ? null : (
+  /*
+   * NOTHING ABOUT A DRIVER UNTIL THE BAGS ARE ACTUALLY SEALED — TD's call, and
+   * a stricter test than the status alone on purpose.
+   *
+   * The verification agent is auto-assigned the moment a booking is paid, days
+   * before anybody knocks. Through all of that the customer has no driver to
+   * choose and nothing to watch, so a map and a shortlist would answer a
+   * question they have not asked yet. The status machine already says as much:
+   * `verified_sealed` is the gate, and `completeVerification` refuses to reach
+   * it while any bag is unsealed (`agent-visit.ts`).
+   *
+   * SO WHY CHECK THE BAGS AS WELL. Because a status is a claim and a seal is
+   * the fact, and the admin override can separate them — it moves a booking
+   * through the state machine without touching a bag. That override is a
+   * legitimate tool (an agent seals and photographs, then their phone dies
+   * before the scan lands) but its cost was a page reading "Verified and
+   * sealed" above a bag reading "not yet sealed", with a driver shortlist on
+   * top of both.
+   *
+   * THE TRADE, WRITTEN DOWN: an override alone can no longer hand the customer
+   * a driver. Ops asserting reality now has to be matched by bag rows that
+   * carry seals. That is the right way round — the seal is the product — but it
+   * does mean a force-completed booking waits for those rows. Surfacing the
+   * mismatch to ops is the follow-up; quietly working around it here is not.
+   */
+  const bagsSealed = bags.length > 0 && bags.every((bag) => bag.sealId !== null);
+
+  /*
+   * WHETHER THE DRIVER PANEL WILL ACTUALLY DRAW ANYTHING.
+   *
+   * Note the last clause: `TripDriverPanel` returns null on its own when there
+   * is neither a chosen driver nor an open shortlist, so holding a non-null
+   * ELEMENT is not the same as having something on screen. The Pickup details
+   * grid needs the real answer, because it promises "Choose yours below" — and
+   * testing `driverSection !== null` gets that wrong every time the panel
+   * self-suppresses, which is exactly what a booking past its bag-drop cutoff
+   * does. One boolean, read by both.
+   */
+  const driverPanelVisible =
+    !bagsDelivered && bagsSealed && (driverView !== null || canChooseDriver);
+
+  const driverSection = !driverPanelVisible ? null : (
     <TripDriverPanel
       bookingId={booking.id}
       pickup={pickupPoint}
@@ -583,15 +624,31 @@ export default async function TripPage({
       */}
       <div className="flex flex-col gap-6 lg:flex-row lg:items-stretch">
         <Card className="w-full lg:grow lg:basis-3/5">
-          <CardHeader>
+          {/*
+            THE ZONE NOTE SITS BESIDE THE TITLE, not under it. It is a footnote
+            about how to read the times below, and as a full-width description
+            it took a line of its own and pushed the facts down. On the right of
+            the title it is available and out of the way.
+
+            The "have your bags and passport ready" half moved OUT of here
+            entirely — it is an instruction about one of the two visits, so it
+            now sits with the agent who performs that visit. A note attached to
+            the thing it is about does not have to name it.
+          */}
+          <CardHeader className="flex-row flex-wrap items-baseline justify-between gap-x-4 gap-y-1 space-y-0">
             <CardTitle className="font-display text-base">Pickup details</CardTitle>
-            <CardDescription>
-              Times are local to {booking.departureAirport}. Please have your bags and
-              your passport ready when your agent arrives.
+            <CardDescription className="shrink-0">
+              Times are local to {booking.departureAirport}
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <dl className="grid gap-4 text-sm sm:grid-cols-3">
+            {/*
+              TWO BY TWO, so all four facts get a full column's width. Three
+              columns left the address wrapping mid-street and the agent cells
+              squeezed to nothing; the fourth cell was missing entirely, which
+              is what made three feel like the natural number.
+            */}
+            <dl className="grid gap-x-6 gap-y-5 text-sm sm:grid-cols-2">
               <div>
                 <dt className="text-muted-foreground">Window</dt>
                 <dd className="mt-1 font-medium">
@@ -621,8 +678,22 @@ export default async function TripPage({
                   )}
                 </dd>
               </div>
+              {/*
+                THE TWO PEOPLE, NAMED BY WHAT THEY DO — and the vocabulary is
+                the page's own rather than new words invented for this grid.
+                Everywhere else the customer already reads "your agent" for the
+                person who checks ID and seals bags at the door, and "your
+                driver" for the one who takes them to the airline: the custody
+                trail says both, and the card below is titled "Your driver".
+                Calling this cell a "pickup agent" would fight that three
+                inches further down the page.
+
+                The subtitle under each is what actually distinguishes them, so
+                a customer meeting the words for the first time does not have to
+                infer the difference.
+              */}
               <div>
-                <dt className="text-muted-foreground">Agent</dt>
+                <dt className="text-muted-foreground">Your agent</dt>
                 <dd className="mt-1 font-medium">
                   {assignedAgent ? (
                     <span className="flex items-center gap-2">
@@ -646,6 +717,63 @@ export default async function TripPage({
                       Assigned closer to your window
                     </span>
                   )}
+                </dd>
+                {/*
+                  THE INSTRUCTION LIVES WITH THE VISIT IT IS ABOUT. It used to
+                  be half of the card's description, where it applied to
+                  "your agent" without saying which one — and once there were
+                  two people in this grid that was a real ambiguity rather than
+                  a wording nicety. Dropped once the visit is done: telling
+                  somebody to have their bags ready for a knock that already
+                  happened is noise.
+                */}
+                <dd className="mt-1.5 text-xs text-muted-foreground">
+                  Checks your ID and seals your bags at the door.
+                  {preVisit ? " Please have your bags and passport ready." : ""}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground">Your driver</dt>
+                <dd className="mt-1 font-medium">
+                  {driverView ? (
+                    <span className="flex items-center gap-2">
+                      <Avatar
+                        size="sm"
+                        name={driverView.givenName}
+                        src={driverView.avatarUrl}
+                        alt=""
+                      />
+                      <span>
+                        {driverView.givenName ?? "Chosen"}{" "}
+                        <span className="font-normal text-muted-foreground">
+                          · {driverView.truckName}
+                        </span>
+                      </span>
+                    </span>
+                  ) : (
+                    <span className="font-normal text-muted-foreground">
+                      {/*
+                        READS OFF `driverSection`, NOT off the seals, and the
+                        difference is a promise this cell would otherwise
+                        break. "Choose yours below" has to mean there IS a
+                        chooser below — and there is not when the airline's bag
+                        drop has already closed, which hides the panel through
+                        `actionability` no matter what the bags say. Caught by
+                        opening a booking whose cutoff had passed: sealed bags,
+                        no driver, and a cell inviting the customer to choose
+                        from a list that was not on the page.
+                      */}
+                      {driverPanelVisible
+                        ? "Choose yours below"
+                        : bagsSealed
+                          ? "Not assigned"
+                          : "You'll choose once your bags are sealed"}
+                    </span>
+                  )}
+                </dd>
+                <dd className="mt-1.5 text-xs text-muted-foreground">
+                  Collects your sealed bags and delivers them to your airline&rsquo;s bag
+                  drop.
                 </dd>
               </div>
             </dl>
