@@ -6,7 +6,8 @@ import { format } from "date-fns";
  * Every time a driver sees is in the BOOKING's airport zone, never the
  * phone's. These mirror core's `format*InAirportTz` exactly (same patterns,
  * same "EDT" suffix from Intl) so the app and the web agree to the character.
- * Phase 4 lifts them into a shared package; until then they live here.
+ * Twins rather than imports, because core does not ship to a phone;
+ * `time-parity.test.ts` holds each one to core's output.
  */
 
 export function zoneAbbrev(instant: Date, tz: string): string {

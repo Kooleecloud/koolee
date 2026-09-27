@@ -350,6 +350,9 @@ importers:
       '@koolee/config':
         specifier: workspace:*
         version: link:../../packages/config
+      '@koolee/core':
+        specifier: workspace:*
+        version: link:../../packages/core
       '@types/aes-js':
         specifier: ^3.1.4
         version: 3.1.4
