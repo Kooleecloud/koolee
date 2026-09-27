@@ -10,7 +10,8 @@ import {
   type MeResponse,
 } from "@koolee/api-contract";
 
-import { useMe, useSession } from "@/auth/session";
+import { useSession } from "@/auth/session";
+import { NotificationsCard } from "@/components/push/notifications-card";
 import {
   Avatar,
   Badge,
@@ -50,7 +51,15 @@ import { onQueueChange, queuedActionCount } from "@/offline/actions";
  * ending a session mid-shift because you meant to go back is a bad afternoon.
  */
 export default function AccountScreen() {
-  const me = useMe();
+  const { state } = useSession();
+  // Signing out re-renders this screen once with the session already gone,
+  // before the gate swaps it for the login screen — `useMe` would throw
+  // there and show a render error for the moment between the two.
+  if (state.status !== "signed_in") return null;
+  return <AccountBody me={state.me} />;
+}
+
+function AccountBody({ me }: { me: MeResponse }) {
   const { signOut } = useSession();
   const [permission, setPermission] = React.useState<LocationPermissionState | null>(
     null,
@@ -127,10 +136,9 @@ export default function AccountScreen() {
         </CardContent>
       </Card>
 
-      {/* TODO(phase-5): Notifications card — native push registration
-          (`POST /api/v1/push/register`) replaces the web's PushEnableCard.
-          Sits above "Working offline" on purpose: it has an action, and the
+      {/* Above "Working offline" on purpose: it has an action, and the
           offline card is a statement of fact. */}
+      <NotificationsCard />
 
       <Card testID="account-location">
         <CardHeader>

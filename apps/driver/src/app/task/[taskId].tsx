@@ -21,6 +21,7 @@ import {
 } from "@/components/ui";
 import { VisitFlow } from "@/components/visit/visit-flow";
 import { ApiRequestError, NetworkError, TRANSPORT_FALLBACK } from "@/lib/api";
+import { useLiveTask } from "@/realtime/live-tasks";
 
 /**
  * `/task/[taskId]?kind=verification|pickup` — the web's `tasks/[taskId]`
@@ -131,6 +132,21 @@ function VerificationScreen({
   const paymentCleared =
     detail.paymentStatus === "authorized" || detail.paymentStatus === "captured";
 
+  // The customer can accept the agreement while the driver is at the door:
+  // the gate opens in front of them instead of on a pull. Subscribed right
+  // up to the moment the job stops, so a cancellation lands live too.
+  useLiveTask({
+    taskId: task.id,
+    kind: "verification",
+    bookingId: booking.id,
+    stage: stopped
+      ? "visit:stopped"
+      : detail.identityGate.passed
+        ? "gate:open"
+        : "gate:blocked",
+    enabled: !done && !stopped,
+  });
+
   return (
     <>
       {/* The web's sr-only h1: off-screen for sight, a heading for a reader. */}
@@ -217,6 +233,14 @@ function PickupScreen({
   const stopped = actionability.standing === "terminal";
   const done = task.status === "done";
   const exception = booking.status === "exception" || task.status === "failed";
+
+  useLiveTask({
+    taskId,
+    kind: "pickup",
+    bookingId: booking.id,
+    stage: stopped ? "pickup:stopped" : detail.shift ? "pickup:mine" : "pickup:unclaimed",
+    enabled: !done && !stopped,
+  });
 
   return (
     <>
