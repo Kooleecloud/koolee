@@ -2,6 +2,8 @@ import * as React from "react";
 import { Image, Modal, Pressable, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
+import { emulatorHost } from "@/lib/env";
+
 import { Button } from "./button";
 import { Text } from "./text";
 
@@ -48,7 +50,7 @@ export function ImageLightbox({
         className={`overflow-hidden rounded-md border border-border active:opacity-90 ${className ?? ""}`}
       >
         <Image
-          source={{ uri: src }}
+          source={{ uri: emulatorHost(src) }}
           accessibilityLabel={alt}
           resizeMode="cover"
           className="h-full w-full"
@@ -74,7 +76,7 @@ export function ImageLightbox({
             {/* `contain`, and it takes the remaining height so a portrait
                 photo cannot push the close button off-screen. */}
             <Image
-              source={{ uri: src }}
+              source={{ uri: emulatorHost(src) }}
               accessibilityLabel={alt}
               resizeMode="contain"
               className="w-full flex-1 rounded-md"

@@ -2,6 +2,8 @@ import * as React from "react";
 import { Image, View } from "react-native";
 import { User } from "lucide-react-native";
 
+import { emulatorHost } from "@/lib/env";
+
 import { avatarLabelFor, initialsFor, tintFor } from "./avatar-fallback";
 import { Text } from "./text";
 
@@ -74,7 +76,7 @@ export function Avatar({ name, src, alt, size = "md", className, testID }: Avata
     >
       {showImage && src ? (
         <Image
-          source={{ uri: src }}
+          source={{ uri: emulatorHost(src) }}
           resizeMode="cover"
           className="h-full w-full"
           onError={() => setFailedSrc(src)}
