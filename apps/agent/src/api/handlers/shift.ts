@@ -16,9 +16,10 @@ import type { ApiContext } from "../context";
 import { toJson } from "../json";
 
 /**
- * Shift handlers — the same thin adapters as `app/shift-actions.ts`, minus
- * the form. Everything that decides whether a shift may open or close lives
- * in core; these only shape the answer.
+ * Shift handlers — THE implementation, shared by the `/api/v1/shift` routes
+ * and `app/shift-actions.ts`, which only parses the form before calling in
+ * here. Everything that decides whether a shift may open or close lives in
+ * core; these only shape the answer.
  */
 
 export function serializeActiveShift(active: CoreActiveShift | null): ActiveShift | null {

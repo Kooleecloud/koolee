@@ -22,11 +22,12 @@ import { ApiHttpError, refused } from "../errors";
 import { assertObjectExists, assertPathUnderPrefix } from "../storage";
 
 /**
- * The verification visit's steps — the same thin adapters as
- * `app/tasks/[taskId]/actions.ts`, minus the form and the upload. The app
- * has already put the photo in Storage under its own session; the route's
- * only job with it is to prove the key is the right shape and the object is
- * really there before core writes it into the custody trail.
+ * The verification visit's steps — THE implementation, shared by the
+ * `/api/v1` routes and the web app's server actions
+ * (`app/tasks/[taskId]/actions.ts`), which only parse a form and upload the
+ * photo before calling in here. Whichever client put the photo in Storage,
+ * the handler's only job with it is to prove the key is the right shape and
+ * the object is really there before core writes it into the custody trail.
  *
  * Errors are never folded into the body: a core refusal becomes a 422, a
  * thrown CoreError is mapped by the route wrapper.

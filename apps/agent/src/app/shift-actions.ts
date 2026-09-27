@@ -1,19 +1,22 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { endShift, startShift } from "@koolee/core";
+import { startShiftRequestSchema } from "@koolee/api-contract";
 
+import { resolveActionContext } from "@/api/context";
+import { endDriverShift, startDriverShift } from "@/api/handlers/shift";
 import { actionErrorMessage } from "@/lib/action-error";
-import { getCore } from "@/lib/core";
-import { requireAgentSession } from "@/lib/session";
 
 /**
  * Starting and ending a shift.
  *
- * Thin adapters, like the visit actions. Everything that decides whether a
- * shift may open or close lives in core — the capability check, the truck's
- * availability, and the refusal to clock off with bags still on board — because
- * a server action stays a reachable POST whatever the UI renders.
+ * Form adapters over the SAME handlers the native app reaches through
+ * `/api/v1/shift/start` and `/api/v1/shift/end` (`src/api/handlers/shift.ts`),
+ * so a shift opens and closes through one code path whichever client the
+ * driver holds. Everything that decides whether a shift may open or close
+ * lives in core — the capability check, the truck's availability, and the
+ * refusal to clock off with bags still on board — because a server action
+ * stays a reachable POST whatever the UI renders.
  */
 
 export interface ShiftActionState {
@@ -22,7 +25,7 @@ export interface ShiftActionState {
 }
 
 function fail(error: unknown, fallback: string): ShiftActionState {
-  // One rule, two action files. See `lib/action-error.ts`.
+  // One rule, every action file. See `lib/action-error.ts`.
   return { error: actionErrorMessage(error, fallback, "[shift]") };
 }
 
@@ -30,12 +33,15 @@ export async function startShiftAction(
   _prev: ShiftActionState,
   form: FormData,
 ): Promise<ShiftActionState> {
-  const truckId = String(form.get("truckId") ?? "");
-  if (!truckId) return { error: "Pick a truck first." };
+  // The contract wants a uuid; the only way a form fails that is "nothing
+  // picked", so the sentence stays the driver's, not zod's.
+  const body = startShiftRequestSchema.safeParse({
+    truckId: String(form.get("truckId") ?? ""),
+  });
+  if (!body.success) return { error: "Pick a truck first." };
 
   try {
-    const session = await requireAgentSession();
-    await startShift(getCore(), { staffUserId: session.userId, truckId });
+    await startDriverShift(await resolveActionContext(), body.data.truckId);
     revalidatePath("/", "layout");
     return { ok: true };
   } catch (error) {
@@ -48,8 +54,7 @@ export async function endShiftAction(
   _form: FormData,
 ): Promise<ShiftActionState> {
   try {
-    const session = await requireAgentSession();
-    await endShift(getCore(), { staffUserId: session.userId });
+    await endDriverShift(await resolveActionContext());
     revalidatePath("/", "layout");
     return { ok: true };
   } catch (error) {
