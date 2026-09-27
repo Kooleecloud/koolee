@@ -2,7 +2,12 @@ import { describe, expect, it } from "vitest";
 
 import { createCoreConfig } from "../config";
 import { FakePaymentProvider } from "../payments/fake";
-import { ConsolePushSender, RecordingPushSender } from "./push";
+import {
+  ConsoleExpoPushSender,
+  ConsolePushSender,
+  RecordingExpoPushSender,
+  RecordingPushSender,
+} from "./push";
 
 /**
  * The fallback must never be mistaken for a delivery.
@@ -54,5 +59,34 @@ describe("PushSender.delivers", () => {
       pushSender: new RecordingPushSender(),
     });
     expect(config.pushSender.delivers).toBe(true);
+  });
+});
+
+describe("ExpoPushSender.delivers — the same trap, second channel", () => {
+  it("the console fallback says it does NOT deliver, while reporting a successful send", async () => {
+    const sender = new ConsoleExpoPushSender();
+    expect(sender.delivers).toBe(false);
+    expect(await sender.send(["ExponentPushToken[x]"], payload)).toEqual({
+      sent: 1,
+      failed: 0,
+      invalid: [],
+    });
+  });
+
+  it("a config with no injected Expo sender falls back to a non-delivering one", () => {
+    const config = createCoreConfig({
+      db: null as never,
+      payments: new FakePaymentProvider(),
+    });
+    expect(config.expoPushSender.delivers).toBe(false);
+  });
+
+  it("an injected Expo sender is trusted to deliver", () => {
+    const config = createCoreConfig({
+      db: null as never,
+      payments: new FakePaymentProvider(),
+      expoPushSender: new RecordingExpoPushSender(),
+    });
+    expect(config.expoPushSender.delivers).toBe(true);
   });
 });

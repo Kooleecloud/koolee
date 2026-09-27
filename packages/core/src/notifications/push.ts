@@ -152,3 +152,93 @@ export class RecordingPushSender implements PushSender {
     this.sends.length = 0;
   }
 }
+
+/* ------------------------------------------------------------------------ */
+/* Expo push — the native driver app's channel                              */
+/* ------------------------------------------------------------------------ */
+
+/**
+ * The second channel. A native install holds an Expo push token — one
+ * opaque string, `ExponentPushToken[…]` — instead of an endpoint and two
+ * keys, and Expo's relay (not Koolee) talks to APNs and FCM. Same payload,
+ * same urgency vocabulary, same rule that nothing here is load-bearing; the
+ * only difference on this side of the seam is what a target IS.
+ */
+export interface ExpoPushSendResult {
+  sent: number;
+  failed: number;
+  /**
+   * Tokens Expo reported as `DeviceNotRegistered` — the app was uninstalled
+   * or notifications were revoked. The caller disables them: unlike a web
+   * subscription the row is KEPT, so the same install re-registering later
+   * clears the flag instead of duplicating.
+   */
+  invalid: string[];
+  /**
+   * The distinct error codes the relay answered with — Expo's own
+   * (`InvalidCredentials`, `DeviceNotRegistered`, `MessageRateExceeded`, …),
+   * plus `RequestFailed` for a chunk that never got an answer. Diagnostics:
+   * the test push uses them to tell "Koolee's credentials are missing" from
+   * "check your phone". Absent from senders that cannot fail (console,
+   * recording).
+   */
+  errorCodes?: string[];
+}
+
+export interface ExpoPushSender {
+  /** Same contract as `PushSender.delivers`: false for the console fallback. */
+  readonly delivers: boolean;
+
+  send(
+    tokens: readonly string[],
+    payload: PushPayload,
+    options?: { urgency?: PushUrgency },
+  ): Promise<ExpoPushSendResult>;
+}
+
+/**
+ * Default implementation: logs and returns. Used whenever push is switched
+ * off, which includes every fresh clone — and, like `ConsolePushSender`, it
+ * REPORTS SUCCESS. Check `delivers` before telling a human anything.
+ */
+export class ConsoleExpoPushSender implements ExpoPushSender {
+  readonly delivers = false;
+
+  readonly #prefix: string;
+
+  constructor(prefix = "expo-push") {
+    this.#prefix = prefix;
+  }
+
+  send(tokens: readonly string[], payload: PushPayload): Promise<ExpoPushSendResult> {
+    console.log(
+      `[${this.#prefix}] → ${tokens.length} device(s) [${payload.tag}] ` +
+        `${payload.title}: ${payload.body}`,
+    );
+    return Promise.resolve({ sent: tokens.length, failed: 0, invalid: [] });
+  }
+}
+
+/** Records everything sent, for assertions. */
+export class RecordingExpoPushSender implements ExpoPushSender {
+  readonly delivers = true;
+
+  readonly sends: {
+    tokens: string[];
+    payload: PushPayload;
+    urgency: PushUrgency | undefined;
+  }[] = [];
+
+  send(
+    tokens: readonly string[],
+    payload: PushPayload,
+    options?: { urgency?: PushUrgency },
+  ): Promise<ExpoPushSendResult> {
+    this.sends.push({ tokens: [...tokens], payload, urgency: options?.urgency });
+    return Promise.resolve({ sent: tokens.length, failed: 0, invalid: [] });
+  }
+
+  reset(): void {
+    this.sends.length = 0;
+  }
+}
