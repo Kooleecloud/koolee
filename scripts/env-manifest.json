@@ -123,6 +123,10 @@
         {
           "name": "ASSIGNMENT_HORIZON_HOURS",
           "why": "Must MATCH apps/admin, or the console's badges disagree with the sweep."
+        },
+        {
+          "name": "EXPO_ACCESS_TOKEN",
+          "why": "Optional, secret. The Inngest functions run here, so this is the app that pushes to the native driver app. The Expo relay works without it; with it, the EAS project refuses pushes from anyone else."
         }
       ],
       "forbidden": []
@@ -169,7 +173,11 @@
         { "name": "SENTRY_ORG", "why": "Build time." },
         { "name": "SENTRY_PROJECT", "why": "Build time. This app's slug." },
         { "name": "SENTRY_AUTH_TOKEN", "why": "Build time, secret." },
-        { "name": "ASSIGNMENT_HORIZON_HOURS", "why": "Must MATCH apps/web." }
+        { "name": "ASSIGNMENT_HORIZON_HOURS", "why": "Must MATCH apps/web." },
+        {
+          "name": "EXPO_ACCESS_TOKEN",
+          "why": "Optional, secret. Only matters with push on; the Expo relay works without it."
+        }
       ],
       "forbidden": []
     },
@@ -205,7 +213,11 @@
         { "name": "NEXT_PUBLIC_SENTRY_DSN", "why": "Its OWN project." },
         { "name": "SENTRY_ORG", "why": "Build time." },
         { "name": "SENTRY_PROJECT", "why": "Build time. This app's slug." },
-        { "name": "SENTRY_AUTH_TOKEN", "why": "Build time, secret." }
+        { "name": "SENTRY_AUTH_TOKEN", "why": "Build time, secret." },
+        {
+          "name": "EXPO_ACCESS_TOKEN",
+          "why": "Optional, secret. Only matters with push on; the Expo relay works without it."
+        }
       ],
       "forbidden": [
         {

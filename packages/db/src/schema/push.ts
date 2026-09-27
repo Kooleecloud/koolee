@@ -97,3 +97,52 @@ export type NewPushSubscription = typeof pushSubscriptions.$inferInsert;
 /** Which app a subscription was created from. */
 export const PUSH_APPS = ["web", "agent", "admin"] as const;
 export type PushApp = (typeof PUSH_APPS)[number];
+
+/**
+ * Expo push tokens for the NATIVE driver app — a second channel beside Web
+ * Push, not a variant of it.
+ *
+ * A Web Push subscription is an endpoint plus two encryption keys; an Expo
+ * push token is one opaque string (`ExponentPushToken[…]`) that Expo's relay
+ * resolves to APNs or FCM. They share nothing but the person, so this is its
+ * own table rather than nullable columns on `push_subscriptions`.
+ *
+ * SAME OWNERSHIP RULE AS WEB PUSH: the token is unique on its own, and
+ * registering it again moves the row to whoever is signed in now — a phone
+ * that changes hands must stop receiving the previous driver's jobs.
+ *
+ * `disabled_at` is set when Expo reports `DeviceNotRegistered` for the token
+ * (app uninstalled, permission revoked); the row is kept so a re-register
+ * from the same install clears it rather than duplicating.
+ *
+ * Server-only: registered through the bearer `/api/v1/push/register` route,
+ * read by the fan-out in core. RLS on, no policy, no grant.
+ */
+export const driverPushTokens = pgTable(
+  "driver_push_tokens",
+  {
+    id: primaryId(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    /** `ExponentPushToken[xxxxxxxx]`. */
+    token: text("token").notNull(),
+    /** "ios" | "android" — the platform Expo will route to. */
+    platform: varchar("platform", { length: 16 }).notNull(),
+    /** Free text shown back to the person managing their devices. */
+    deviceLabel: varchar("device_label", { length: 120 }),
+    createdAt: createdAt(),
+    lastSeenAt: timestamptz("last_seen_at").notNull().defaultNow(),
+    disabledAt: timestamptz("disabled_at"),
+  },
+  (t) => [
+    uniqueIndex("driver_push_tokens_token_key").on(t.token),
+    index("driver_push_tokens_user_idx").on(t.userId),
+  ],
+);
+
+export type DriverPushToken = typeof driverPushTokens.$inferSelect;
+export type NewDriverPushToken = typeof driverPushTokens.$inferInsert;
+
+export const PUSH_PLATFORMS = ["ios", "android"] as const;
+export type PushPlatform = (typeof PUSH_PLATFORMS)[number];

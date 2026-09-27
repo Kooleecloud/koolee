@@ -24,8 +24,12 @@ export { ResendNotifier, ResendSendError } from "./resend";
 export * from "./emails";
 export { adminBookingUrlFor, taskUrlFor, tripUrlFor } from "./links";
 export {
+  ConsoleExpoPushSender,
   ConsolePushSender,
+  RecordingExpoPushSender,
   RecordingPushSender,
+  type ExpoPushSendResult,
+  type ExpoPushSender,
   type PushPayload,
   type PushSendResult,
   type PushSender,

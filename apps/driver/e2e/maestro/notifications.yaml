@@ -1,0 +1,41 @@
+# Account → Notifications: turn them on through the OS prompt, which
+# registers this phone's Expo token (POST /api/v1/push/register) and sends
+# the test push (POST /api/v1/push/test). Without store credentials the
+# token request fails and the card says why; with push switched off on the
+# server the test answers "not set up on this environment". WRITES a
+# driver_push_tokens row to the local database.
+appId: cloud.koolee.driver
+---
+- runFlow: _home.yaml
+- tapOn:
+    id: "tab-account"
+- scrollUntilVisible:
+    element:
+      id: "account-notifications"
+    direction: DOWN
+    timeout: 15000
+- takeScreenshot: notifications-before
+- runFlow:
+    when:
+      visible:
+        id: "notifications-enable"
+    commands:
+      - tapOn:
+          id: "notifications-enable"
+      - runFlow:
+          when:
+            visible: "Allow"
+          commands:
+            - tapOn: "Allow"
+      - extendedWaitUntil:
+          visible:
+            id: "notifications-on|notifications-error"
+          timeout: 30000
+- waitForAnimationToEnd:
+    timeout: 10000
+- scrollUntilVisible:
+    element:
+      id: "account-notifications"
+    direction: DOWN
+    timeout: 15000
+- takeScreenshot: notifications-after

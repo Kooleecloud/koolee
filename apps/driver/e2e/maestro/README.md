@@ -34,6 +34,15 @@ maestro --device "$IOS" test "${ENV[@]}" sign-in.yaml screens.yaml visit.yaml
 maestro --device emulator-5554 test -e METRO_URL=http%3A%2F%2F10.0.2.2%3A8081 open-dev-client.yaml
 ```
 
+`notifications.yaml` turns notifications on from the Account tab through the
+OS prompt; it WRITES a `driver_push_tokens` row. On the iOS simulator the
+token is real and the test push is refused by Expo until the EAS project has
+APNs credentials (the card says so); on the Android emulator there is no token
+until Firebase is configured (CHECKLIST C). A push can be simulated on iOS with
+`xcrun simctl push <udid> cloud.koolee.driver payload.json` — put the server's
+`data` under `"body"` (for example `{"tag": "pickup-task:<task id>"}`), then
+open it from Notification Center: tap the notification, then "Open".
+
 `pickup.yaml` WRITES to the local database (the set-off is a custody event);
 point `PICKUP_TASK_ID` at a throwaway local booking whose flight has not
 left. `open-task.yaml` opens any task by id (`TASK_ID`, `TASK_KIND`, `SHOT`).

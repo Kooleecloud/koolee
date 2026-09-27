@@ -9,7 +9,12 @@ import {
   type Notifier,
   type OpsAlerter,
 } from "./notifications/notifier";
-import { ConsolePushSender, type PushSender } from "./notifications/push";
+import {
+  ConsoleExpoPushSender,
+  ConsolePushSender,
+  type ExpoPushSender,
+  type PushSender,
+} from "./notifications/push";
 import type { PaymentProvider } from "./payments/types";
 import {
   NotCheckedValidityChecker,
@@ -110,6 +115,12 @@ export interface CoreConfig {
    */
   pushSender: PushSender;
   /**
+   * Expo push seam — the native driver app's channel, beside web push, not
+   * instead of it. Same default and the same rule: `ConsoleExpoPushSender`
+   * logs and reports success, and a failed send is never load-bearing.
+   */
+  expoPushSender: ExpoPushSender;
+  /**
    * Domain event emission (queue seam). Noop unless the app's runtime passes
    * a real one — see packages/core/src/events/emitter.ts for why the adapter
    * cannot live here.
@@ -139,6 +150,7 @@ export interface CoreConfigInput {
   ticketExtractor?: TicketExtractor;
   notifier?: Notifier;
   pushSender?: PushSender;
+  expoPushSender?: ExpoPushSender;
   emitter?: EventEmitter;
   dispatcher?: NotificationDispatcher;
   opsAlerter?: OpsAlerter;
@@ -156,6 +168,7 @@ export function createCoreConfig(input: CoreConfigInput): CoreConfig {
     ticketExtractor: input.ticketExtractor ?? new HeuristicTicketExtractor(),
     notifier: input.notifier ?? new ConsoleNotifier(),
     pushSender: input.pushSender ?? new ConsolePushSender(),
+    expoPushSender: input.expoPushSender ?? new ConsoleExpoPushSender(),
     emitter: input.emitter ?? new NoopEmitter(),
     dispatcher: input.dispatcher ?? new NoopDispatcher(),
     opsAlerter: input.opsAlerter ?? new ConsoleOpsAlerter(),

@@ -22,16 +22,16 @@ done — not the conversation, and not memory.
 
 ## Status
 
-| Phase                                               | Branch                        | PR  | State       |
-| --------------------------------------------------- | ----------------------------- | --- | ----------- |
-| 1 · API layer (bearer routes in apps/agent)         | `feat/native-p1-api-layer`    | —   | in progress |
-| 2 · Location cadence + retention                    | (same branch as 1)            | —   | pending     |
-| 3 · Native shell: login, shift, background location | `feat/native-p3-shell`        | —   | in progress |
-| 4 · Native UI kit + every driver screen             | `feat/native-p4-screens`      | —   | pending     |
-| 5 · Push + realtime                                 | `feat/native-p5-push`         | —   | pending     |
-| 6 · Admin live driver map                           | `feat/native-p6-admin-map`    | —   | pending     |
-| 7 · Distribution prep                               | `feat/native-p7-distribution` | —   | pending     |
-| 8 · Web agent app onto the shared handlers          | `feat/native-p8-web-handlers` | —   | pending     |
+| Phase                                               | Branch                        | PR  | State     |
+| --------------------------------------------------- | ----------------------------- | --- | --------- |
+| 1 · API layer (bearer routes in apps/agent)         | `feat/native-p1-api-layer`    | #44 | merged    |
+| 2 · Location cadence + retention                    | (same branch as 1)            | #44 | merged    |
+| 3 · Native shell: login, shift, background location | `feat/native-p3-shell`        | #45 | merged    |
+| 4 · Native UI kit + every driver screen             | `feat/native-p4-screens`      | #47 | merged    |
+| 5 · Push + realtime                                 | `feat/native-p5-push`         | —   | in review |
+| 6 · Admin live driver map                           | `feat/native-p6-admin-map`    | —   | pending   |
+| 7 · Distribution prep                               | `feat/native-p7-distribution` | —   | pending   |
+| 8 · Web agent app onto the shared handlers          | `feat/native-p8-web-handlers` | #46 | merged    |
 
 ---
 
@@ -106,9 +106,9 @@ done — not the conversation, and not memory.
 
 ## Phase 5 · Push + realtime
 
-- [ ] 5.1 Expo push token registration route + storage (migration)
-- [ ] 5.2 Expo push sender as a second channel in core notifications
-- [ ] 5.3 Realtime subscriptions in the app (task assignment / booking signals), filtered per driver
+- [x] 5.1 Expo push token registration: `driver_push_tokens` (0038 — unique on the token, so a phone that changes hands moves to whoever signs in; a dead token is disabled, not deleted), `POST`/`DELETE /api/v1/push/register`, and `POST /api/v1/push/test` for the Account tab's "did you see it?" check (refuses `not_configured` / `no_subscription` like the web's, and when the relay says no it says WHY: `setup` for missing APNs/FCM credentials, `device`, `relay`). The app registers from Account → Notifications only (the OS prompt is one-shot, as on the web), re-registers silently on every signed-in launch, and unregisters on sign-out while the session still works.
+- [x] 5.2 Expo push as a second channel in core: `ExpoRelayPushSender` behind `@koolee/core/expo-push` (Node-only, like web push), `ConsoleExpoPushSender` by default, gated by the same `NEXT_PUBLIC_PUSH_NOTIFICATIONS_ENABLED`; `pushToUsers` fans out to web subscriptions AND Expo tokens, each isolated from the other's failures; `DeviceNotRegistered` tickets and receipts disable the token; refusals are logged once per code. The location nudge now counts an Expo send as a nudge. Every job push already carries a `pickup-task:<id>` / `verification-task:<id>` tag, so a tap opens the right task with no payload change.
+- [x] 5.3 Realtime in the app: a native twin of `useBookingSignal` (filtered per booking — never unfiltered — debounced, refetch on connect and on return to the foreground), watched from the tab layout for the whole list ("New job assigned to you.") and on the task screen for its booking ("Identity confirmed — you can seal the bags now.", "This pickup is yours — the customer picked you."). It skips changes the driver made themselves: their own 5 s pings touch the signal of every booking they carry, and without the skip the list and the open task refetched every five seconds.
 
 ## Phase 6 · Admin live driver map
 
@@ -132,6 +132,7 @@ done — not the conversation, and not memory.
 | #    | Purpose                                                          | SQL recorded | Applied locally                   | Hosted          |
 | ---- | ---------------------------------------------------------------- | ------------ | --------------------------------- | --------------- |
 | 0037 | `api_idempotency_keys` — replay-safe mutating routes for the app | below        | dev + `koolee_test` (test:env:up) | ⏳ CHECKLIST F1 |
+| 0038 | `driver_push_tokens` — the native app's Expo push tokens         | below        | dev + `koolee_test`               | ⏳ CHECKLIST F1 |
 
 ### 0037 · `api_idempotency_keys`
 
@@ -158,6 +159,32 @@ CREATE INDEX "api_idempotency_keys_created_at_idx" ON "api_idempotency_keys" USI
 ALTER TABLE "public"."api_idempotency_keys" ENABLE ROW LEVEL SECURITY;
 ```
 
+### 0038 · `driver_push_tokens`
+
+Pure `CREATE TABLE` with two indexes on the new, empty table — no lock on
+anything that has rows, no scan, one `DROP TABLE` to reverse. RLS on
+explicitly, no policy, no grant (server-only: registered through the bearer
+route, read by the fan-out). Generated by drizzle-kit from
+`packages/db/src/schema/push.ts`; the RLS statement is a hand-written custom
+addition.
+
+```sql
+CREATE TABLE "driver_push_tokens" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"user_id" uuid NOT NULL,
+	"token" text NOT NULL,
+	"platform" varchar(16) NOT NULL,
+	"device_label" varchar(120),
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"last_seen_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"disabled_at" timestamp with time zone
+);
+ALTER TABLE "driver_push_tokens" ADD CONSTRAINT "driver_push_tokens_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;
+CREATE UNIQUE INDEX "driver_push_tokens_token_key" ON "driver_push_tokens" USING btree ("token");
+CREATE INDEX "driver_push_tokens_user_idx" ON "driver_push_tokens" USING btree ("user_id");
+ALTER TABLE "public"."driver_push_tokens" ENABLE ROW LEVEL SECURITY;
+```
+
 ---
 
 ## Log
@@ -168,3 +195,5 @@ ALTER TABLE "public"."api_idempotency_keys" ENABLE ROW LEVEL SECURITY;
 - 2026-09-27 — Routes landed via a 4-implementer + 4-reviewer workflow (refute-first). Reviewers fixed: whole DB rows leaking on the wire (pricing, agreement body, customer IP/UA) → server-side projection; shape-only route tests → wrapper-driven tests that prove schema binding and handler wiring; non-uuid task ids reaching Postgres as 500 → 404 guard; parity test missing CANCELLATION_ACTORS. I added the assignment check before the storage probe in `sealBag` (a stranger gets 404, never a 400 that reveals whether an object exists) and raised the agent vitest timeout for cold core imports. Full suite green; agent production build running.
 - 2026-09-27 — Phase 3 on the iOS simulator (iPhone 18 Pro, iOS 27, Xcode 27): `apps/driver` builds with xcodebuild after `expo prebuild`, loads from Metro through the dev client, signs in the seeded agent against the LOCAL Supabase + the agent dev server on :3011, renders Today with the shift card and real jobs (Sora/Inter, brand tokens via the theme script). The location flow through the real system prompts ("Allow While Using App" → "Change to Always Allow") started the background task; with simulated positions the server logged `POST /api/v1/positions 200` three times in the foreground and FOUR MORE with the app on the home screen — the blocker this project exists for, closed on iOS. Toolchain lessons recorded in memory (Metro without CI=1, xcodebuild instead of `expo run:ios`, Maestro for taps, `react-native-css-interop` as a direct dependency under pnpm isolation).
 - 2026-09-27 — Phase 3 on Android (Pixel 7 API 35 emulator, JDK 17, command-line SDK, no Android Studio): Gradle built the debug APK (fetching NDK r27 + CMake on its own), the app signed in against the local stack through the emulator's `10.0.2.2` host alias (dev builds rewrite `localhost` to it — `adb reverse` was silently dropped on every Maestro reconnect and the resulting ECONNREFUSED had been reading as "wrong password"), the system flow "While using the app" → Settings → "Allow all the time" ended in Location: Live with the foreground service up (`isForeground=true`, notification channel `koolee-driver-location`), five position batches reached the server in the foreground and ELEVEN more with the app on the home screen. EAS: `@koolee-cloud/koolee-driver` linked; development builds for Android (APK) and iOS simulator finished in the cloud.
+- 2026-09-27 — Phase 4 on both simulators. Bugs the devices found that no unit test could: `crypto.randomUUID` does not exist on Hermes, so every step died before its request with "check your connection" (`newId()` now builds a v4 uuid from `getRandomValues`); the tab bar's fixed height ignored the home-indicator inset on both platforms; signed photo URLs pointed at the server's `127.0.0.1`, so every avatar on the Android emulator fell back to initials; a malformed task id reached Postgres and came back 500 (now 404); and — the one that would have cost real positions — two location batches landing together interleaved in expo-sqlite's non-exclusive `withTransactionAsync`, the second's ROLLBACK undid the first's transaction and the task failed with "cannot rollback - no transaction is active" (appends are now single INSERT statements, `busy_timeout` for the headless task's second connection). Offline replay proven end to end on Android. A parity test now holds the app's time formatters to core's across five zones and the DST transitions.
+- 2026-09-27 — Phase 5 on both simulators, against the local agent server with push switched on. iOS: Account → Notifications → "Turn on notifications" → the OS prompt → a real Expo token → `POST /api/v1/push/register 201` → the test push reached Expo's relay, which refused it `InvalidCredentials — Could not find APNs credentials for cloud.koolee.driver`, and the card said exactly that (Koolee's side, nothing to change on the phone) instead of sending the driver to Settings — the whole pipeline proven up to Apple, which needs CHECKLIST A3. A push simulated with `xcrun simctl push` (the server's own `pickup-task:<id>` tag) opened the pickup from Notification Center. Sign-out sent `DELETE /api/v1/push/register`; signing back in re-registered silently. Android: the prompt, then no token until Firebase exists ("Unable to get Firebase Messaging instance" → CHECKLIST C), and the card says that too. Realtime `SUBSCRIBED` on both platforms for the list and for the open task, with the driver's own ping signals skipped. Found on the way: signing out re-rendered the Account tab with the session already gone and `useMe` threw a render error — fixed in this branch. Observed, not changed: the WEB agent app has the same own-ping refresh (`router.refresh()` on every one of the driver's own pings for a carried booking); worth the same skip when the web gets its next change.

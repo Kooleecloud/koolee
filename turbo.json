@@ -32,7 +32,8 @@
         "ANTHROPIC_API_KEY",
         "TICKET_EXTRACTION_DEBUG",
         "SENTRY_DSN",
-        "CRON_SECRET"
+        "CRON_SECRET",
+        "EXPO_ACCESS_TOKEN"
       ]
     },
     "dev": {

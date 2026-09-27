@@ -13,7 +13,7 @@ import type { EventEmitter } from "./events/emitter";
 import { createTicketExtractor, type TicketExtractorConfig } from "./extraction/factory";
 import { createNotifier, type NotifierConfig } from "./notifications/factory";
 import type { Notifier, OpsAlerter } from "./notifications/notifier";
-import type { PushSender } from "./notifications/push";
+import type { ExpoPushSender, PushSender } from "./notifications/push";
 import { createPaymentProvider, type PaymentProviderConfig } from "./payments/factory";
 
 /**
@@ -51,6 +51,11 @@ export interface RuntimeOptions {
    * Omitted → `ConsolePushSender`.
    */
   pushSender?: PushSender;
+  /**
+   * Expo push sender, an INSTANCE for the same reason: the real one needs
+   * `expo-server-sdk` (Node-only). Omitted → `ConsoleExpoPushSender`.
+   */
+  expoPushSender?: ExpoPushSender;
   /**
    * Declarative emitter selection for the credential-free choices. The real
    * queue adapter needs an event key and a client, so apps pass it as an
@@ -95,6 +100,9 @@ export function createRuntime(options: RuntimeOptions): CoreConfig {
         ? { notifier: createNotifier(options.notifications) }
         : {}),
     ...(options.pushSender === undefined ? {} : { pushSender: options.pushSender }),
+    ...(options.expoPushSender === undefined
+      ? {}
+      : { expoPushSender: options.expoPushSender }),
     ...(options.emitter !== undefined
       ? { emitter: options.emitter }
       : options.events !== undefined

@@ -88,6 +88,13 @@ const schema = z.object({
   /** `mailto:` or `https:`. Apple REFUSES a push whose subject is neither. */
   VAPID_SUBJECT: optionalString,
   NEXT_PUBLIC_VAPID_PUBLIC_KEY: optionalString,
+  /**
+   * EAS access token for the Expo push relay (the native driver app's
+   * channel). OPTIONAL even with push on: Expo delivers without it, and
+   * setting one only makes the EAS project refuse pushes that do not carry
+   * it — "enhanced push security", CHECKLIST E1. Secret; server only.
+   */
+  EXPO_ACCESS_TOKEN: optionalString,
 
   /**
    * How many hours before a pickup window an agent is assigned to it.
@@ -173,6 +180,7 @@ const raw = {
   VAPID_PRIVATE_KEY: process.env.VAPID_PRIVATE_KEY,
   VAPID_SUBJECT: process.env.VAPID_SUBJECT,
   NEXT_PUBLIC_VAPID_PUBLIC_KEY: process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY,
+  EXPO_ACCESS_TOKEN: process.env.EXPO_ACCESS_TOKEN,
   NEXT_PUBLIC_PUSH_NOTIFICATIONS_ENABLED:
     process.env.NEXT_PUBLIC_PUSH_NOTIFICATIONS_ENABLED,
   ASSIGNMENT_HORIZON_HOURS: process.env.ASSIGNMENT_HORIZON_HOURS,
@@ -204,6 +212,8 @@ export class MissingEnvError extends Error {
 }
 
 const HINTS: Partial<Record<EnvKey, string>> = {
+  EXPO_ACCESS_TOKEN:
+    "expo.dev → Account settings → Access tokens. Optional; enable enhanced push security on the EAS project when set.",
   DATABASE_URL:
     "Supabase → Project Settings → Database → Connection pooling (Transaction mode, port 6543).",
   STRIPE_SECRET_KEY: "Stripe Dashboard → Developers → API keys. Needed for refunds.",

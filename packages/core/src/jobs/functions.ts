@@ -1510,7 +1510,9 @@ export function createKooleeFunctions(
             },
             { urgency: "high" },
           );
-          if (result.sent > 0) nudged += 1;
+          // Either channel counts: a driver on the native app holds an Expo
+          // token and no web subscription.
+          if (result.sent + result.expoSent > 0) nudged += 1;
         }
 
         logger.info(

@@ -4,6 +4,7 @@ import { apiRoutes, meResponseSchema, type MeResponse } from "@koolee/api-contra
 import { apiFetch, ApiRequestError } from "@/lib/api";
 import { supabase } from "@/lib/supabase";
 import { stopTracking } from "@/location/tracking";
+import { disablePush } from "@/push/notifications";
 
 import {
   CAPTCHA_FAILED_COPY,
@@ -127,6 +128,9 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 
   const signOut = React.useCallback(async () => {
     await stopTracking().catch(() => undefined);
+    // While the session still works: the DELETE needs its bearer token. A
+    // phone that stays registered would keep hearing this driver's jobs.
+    await disablePush().catch(() => undefined);
     await supabase.auth.signOut().catch(() => undefined);
     setState({ status: "signed_out" });
   }, []);

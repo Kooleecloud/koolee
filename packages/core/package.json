@@ -5,6 +5,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./web-push": "./src/notifications/web-push.ts",
+    "./expo-push": "./src/notifications/expo-push.ts",
     "./booking": "./src/booking/index.ts",
     "./slots": "./src/slots/index.ts",
     "./pricing": "./src/pricing/index.ts",
@@ -33,6 +34,7 @@
     "@koolee/db": "workspace:*",
     "date-fns": "^4.1.0",
     "drizzle-orm": "^0.45.2",
+    "expo-server-sdk": "^7.2.0",
     "inngest": "^4.14.0",
     "stripe": "^22.4.0",
     "unpdf": "^1.8.0",

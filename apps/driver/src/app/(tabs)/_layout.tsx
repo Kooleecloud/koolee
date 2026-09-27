@@ -1,9 +1,15 @@
+import * as React from "react";
 import { Tabs } from "expo-router";
 import { CalendarDays, CircleUser, Navigation } from "lucide-react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useToast } from "@/components/ui";
+import { groupJobs } from "@/lib/job";
+import { useTasks } from "@/lib/queries";
 import { useReplay } from "@/offline/use-replay";
+import { syncPushRegistration } from "@/push/notifications";
+import { useNotificationRouting } from "@/push/use-notification-routing";
+import { useLiveTaskList } from "@/realtime/live-tasks";
 
 /** The three tabs, and three is the ceiling — same as the web agent app. */
 export default function TabsLayout() {
@@ -16,6 +22,22 @@ export default function TabsLayout() {
   useReplay({
     onActionFailed: (failure) => toast.error(`${failure.label} — ${failure.message}`),
   });
+
+  // The same reasoning makes this the one mount of the list's live signal,
+  // of what a tapped notification opens, and of the silent re-register a
+  // signed-in launch owes the push token (tokens rotate; this layout only
+  // exists while signed in).
+  const tasks = useTasks();
+  const jobs = React.useMemo(
+    () => (tasks.data ? groupJobs(tasks.data) : null),
+    [tasks.data],
+  );
+  const bookingIds = React.useMemo(() => jobs?.map((job) => job.bookingId) ?? [], [jobs]);
+  useLiveTaskList({ bookingIds, jobCount: jobs?.length ?? null });
+  useNotificationRouting();
+  React.useEffect(() => {
+    void syncPushRegistration();
+  }, []);
 
   return (
     <Tabs

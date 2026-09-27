@@ -49,6 +49,13 @@ export const API_ERROR_CODES = [
   "idempotency_mismatch",
   /** Server dependency down (database, storage). Retry later. */
   "unavailable",
+  /**
+   * Push is switched off on this environment: nothing was sent, and nothing
+   * is wrong with the phone. `POST /push/test` only.
+   */
+  "not_configured",
+  /** This person has no registered device to send to. `POST /push/test` only. */
+  "no_subscription",
   "internal",
 ] as const;
 
@@ -80,6 +87,8 @@ export const API_ERROR_STATUS: Record<ApiErrorCode, number> = {
   idempotency_in_progress: 409,
   idempotency_mismatch: 422,
   unavailable: 503,
+  not_configured: 503,
+  no_subscription: 409,
   internal: 500,
 };
 
