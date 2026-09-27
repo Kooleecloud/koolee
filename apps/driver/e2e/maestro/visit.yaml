@@ -1,0 +1,41 @@
+# Opens a verification visit FROM THE SCHEDULE (the card's own navigation)
+# and walks its screen without writing anything.
+# VISIT_REF: the booking ref of a visit assigned to the signed-in agent.
+appId: cloud.koolee.driver
+---
+- runFlow: _home.yaml
+- tapOn:
+    id: "tab-schedule"
+# The tab keeps its view AND its scroll position across visits: bring the
+# toggle back into view, then pick "To do" — a visit still to do is only on
+# that side.
+- scrollUntilVisible:
+    element:
+      id: "schedule-view-todo"
+    direction: UP
+    timeout: 15000
+- tapOn:
+    id: "schedule-view-todo"
+- scrollUntilVisible:
+    element:
+      id: "(job-card|stop)-${VISIT_REF}"
+    direction: DOWN
+    timeout: 20000
+- tapOn:
+    id: "(job-card|stop)-${VISIT_REF}"
+- extendedWaitUntil:
+    visible:
+      id: "task-screen"
+    timeout: 30000
+- takeScreenshot: visit-top
+- scroll
+- takeScreenshot: visit-middle
+- scroll
+- takeScreenshot: visit-bottom
+- scrollUntilVisible:
+    element:
+      id: "task-back"
+    direction: UP
+    timeout: 15000
+- tapOn:
+    id: "task-back"

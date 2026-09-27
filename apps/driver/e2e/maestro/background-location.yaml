@@ -1,0 +1,6 @@
+# Sends the app to the home screen so position batches can be counted while
+# it is backgrounded (drive the simulated location from the host meanwhile:
+# `xcrun simctl location <udid> set <lat>,<lng>` or `adb emu geo fix <lng> <lat>`).
+appId: cloud.koolee.driver
+---
+- pressKey: Home

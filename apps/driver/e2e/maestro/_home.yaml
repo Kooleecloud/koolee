@@ -1,0 +1,17 @@
+# Shared start: leave any task screen so the tab bar is showing. Every
+# screen-level flow runs this first, so a flow that stopped half-way on a
+# task screen never breaks the next one.
+appId: cloud.koolee.driver
+---
+- runFlow:
+    when:
+      visible:
+        id: "task-screen"
+    commands:
+      - scrollUntilVisible:
+          element:
+            id: "task-back"
+          direction: UP
+          timeout: 15000
+      - tapOn:
+          id: "task-back"
