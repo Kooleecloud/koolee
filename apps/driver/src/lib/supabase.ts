@@ -5,7 +5,7 @@ import { AppState } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as aesjs from "aes-js";
 import * as SecureStore from "expo-secure-store";
-import { createClient } from "@supabase/supabase-js";
+import { createClient, isAuthRetryableFetchError } from "@supabase/supabase-js";
 
 import { env } from "./env";
 
@@ -81,10 +81,34 @@ AppState.addEventListener("change", (state) => {
   else void supabase.auth.stopAutoRefresh();
 });
 
-/** The bearer token for `/api/v1`, refreshed by supabase-js when expired. */
-export async function accessToken(): Promise<string | null> {
+/**
+ * What the app holds for `/api/v1` right now.
+ *
+ * THREE STATES, because two of them look identical from `getSession()`. Past
+ * its real expiry an access token has to be refreshed before it can be sent,
+ * and a refresh needs the network: offline, supabase-js answers "no session"
+ * AND a retryable fetch error, while keeping the session in storage for the
+ * next attempt. Read as "signed out", that became a local 401 before any
+ * request left the phone — and the position queue drops a batch on a 4xx, so
+ * an hour in a car park with an expired token threw the whole backlog away.
+ * It is `offline`: keep everything, try again when there is signal.
+ */
+export type TokenResult =
+  { token: string } | { token: null; reason: "signed_out" | "offline" };
+
+export async function accessTokenResult(): Promise<TokenResult> {
   const {
     data: { session },
+    error,
   } = await supabase.auth.getSession();
-  return session?.access_token ?? null;
+  if (session) return { token: session.access_token };
+  if (error && isAuthRetryableFetchError(error))
+    return { token: null, reason: "offline" };
+  return { token: null, reason: "signed_out" };
+}
+
+/** The bearer token for `/api/v1`, or null when there is none to send. */
+export async function accessToken(): Promise<string | null> {
+  const result = await accessTokenResult();
+  return result.token;
 }

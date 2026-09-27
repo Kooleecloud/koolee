@@ -95,7 +95,21 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
         ...(captchaToken ? { options: { captchaToken } } : {}),
       });
       if (error || !data.user) {
-        return isCaptchaError(error?.message) ? CAPTCHA_FAILED_COPY : SIGN_IN_FAILED_COPY;
+        if (__DEV__)
+          console.warn(
+            "[auth] sign-in failed",
+            error?.status,
+            error?.name,
+            error?.message,
+          );
+        if (isCaptchaError(error?.message)) return CAPTCHA_FAILED_COPY;
+        // A dead network is not a wrong password. GoTrue's client wraps a
+        // failed fetch in AuthRetryableFetchError (status 0) — say so,
+        // instead of telling a driver with no signal to check their password.
+        if (error && (error.status === 0 || /fetch|network/i.test(error.message))) {
+          return "Couldn't reach Koolee. Check your connection and try again.";
+        }
+        return SIGN_IN_FAILED_COPY;
       }
       try {
         const me = await apiFetch(meResponseSchema, apiRoutes.me());

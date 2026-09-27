@@ -8,7 +8,7 @@ import {
 } from "@koolee/api-contract";
 
 import { env } from "./env";
-import { accessToken } from "./supabase";
+import { accessTokenResult } from "./supabase";
 
 /**
  * The one way this app talks to `/api/v1`.
@@ -66,7 +66,7 @@ export async function apiFetch<T>(
   path: string,
   init: ApiRequestInit = {},
 ): Promise<T> {
-  const token = init.token === undefined ? await accessToken() : init.token;
+  const token = init.token === undefined ? await currentToken() : init.token;
   if (!token)
     throw new ApiRequestError(
       401,
@@ -115,6 +115,20 @@ export async function apiFetch<T>(
     throw new ApiRequestError(response.status, null, TRANSPORT_FALLBACK);
   }
   return parsed.data;
+}
+
+/**
+ * The token to send, or null when the driver is genuinely signed out. A token
+ * that could not be refreshed for lack of signal is a transport failure —
+ * `NetworkError`, which every queue keeps — never a 401 raised on the phone.
+ */
+async function currentToken(): Promise<string | null> {
+  const result = await accessTokenResult();
+  if (result.token !== null) return result.token;
+  if (result.reason === "offline") {
+    throw new NetworkError(new Error("Session refresh needs a connection."));
+  }
+  return null;
 }
 
 function safeJson(text: string): unknown {

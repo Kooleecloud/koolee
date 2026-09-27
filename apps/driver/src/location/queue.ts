@@ -6,7 +6,9 @@ import {
   type PositionFix,
 } from "@koolee/api-contract";
 
-import { apiFetch, isRetryable } from "@/lib/api";
+import { apiFetch } from "@/lib/api";
+
+import { positionBatchDisposition } from "./disposition";
 
 /**
  * The on-device queue — SQLite, WAL mode, two tables.
@@ -17,10 +19,11 @@ import { apiFetch, isRetryable } from "@/lib/api";
  * is the one store both the task and the screens can share safely.
  *
  * POSITIONS: append every fix, send oldest-first in batches of up to 120
- * (the server's cap), keep a rolling hour (720 fixes at 5 s). The disposition
- * rule is the web queue's: a 2xx or ANY 4xx deletes the batch — a 409
- * not_on_shift will never succeed later, so retrying it forever is a bug —
- * while a 5xx or no network keeps it for the next flush.
+ * (the server's cap), keep a rolling hour (720 fixes at 5 s). A 2xx deletes
+ * the batch; what a failure does is `positionBatchDisposition` — no signal, a
+ * 5xx or a 401 keep it for the next flush, a 409 not_on_shift or a 400 drop
+ * it (they will never succeed, and retrying them forever would block the
+ * fixes behind them).
  *
  * ACTIONS: the driver's steps taken offline (phase 4 fills the writers).
  * Each row carries the `Idempotency-Key` it was minted with, so a replay whose
@@ -147,21 +150,14 @@ async function doFlush(): Promise<FlushResult> {
       await handle.runAsync("DELETE FROM position_queue WHERE id <= ?", last.id);
       result.sent += rows.length;
     } catch (error) {
-      if (isRetryable(error)) {
+      if (positionBatchDisposition(error) === "keep") {
         result.deferred = true;
         return result;
       }
-      // A 4xx: off shift, a bad fix, a dead token. It will not get better by
+      // Off shift or a fix the server refuses: it will not get better by
       // waiting, and holding it would block every fix behind it.
       await handle.runAsync("DELETE FROM position_queue WHERE id <= ?", last.id);
       result.dropped += rows.length;
-      if (
-        error instanceof Error &&
-        "status" in error &&
-        (error as { status: number }).status === 401
-      ) {
-        return result;
-      }
     }
   }
 }
