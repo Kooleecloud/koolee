@@ -26,6 +26,7 @@ import {
 import type * as core from "@koolee/core";
 
 import type { ApiContext } from "../context";
+import { ApiHttpError } from "../errors";
 import { readTaskDetail, readTasks } from "./tasks";
 
 vi.mock("@koolee/core", async (importOriginal) => ({
@@ -350,6 +351,27 @@ function taskBooking() {
     bagDropCutoffAt: new Date("2026-09-28T17:00:00.000Z"),
   };
 }
+
+/* ------------------------------------------------------------------ */
+/* readTaskDetail — a task id that is not a uuid                        */
+/* ------------------------------------------------------------------ */
+
+describe("readTaskDetail (malformed id)", () => {
+  it.each(["undefined", "", "not-a-uuid"])(
+    "answers 404 for %j without asking the database",
+    async (taskId) => {
+      for (const kind of ["verification", "pickup"] as const) {
+        const err = await readTaskDetail(fakeCtx(), taskId, kind).catch(
+          (e: unknown) => e,
+        );
+        expect(err).toBeInstanceOf(ApiHttpError);
+        expect((err as ApiHttpError).status).toBe(404);
+      }
+      expect(getVisitContext).not.toHaveBeenCalled();
+      expect(getPickupContext).not.toHaveBeenCalled();
+    },
+  );
+});
 
 /* ------------------------------------------------------------------ */
 /* readTaskDetail — verification                                        */
