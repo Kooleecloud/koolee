@@ -1,0 +1,26 @@
+# Loads the JS bundle from Metro into an installed development build.
+# METRO_URL: http%3A%2F%2Flocalhost%3A8081 (iOS simulator) or
+#            http%3A%2F%2F10.0.2.2%3A8081 (Android emulator).
+appId: cloud.koolee.driver
+---
+- openLink: "koolee-driver://expo-development-client/?url=${METRO_URL}"
+- runFlow:
+    when:
+      visible: "Open"
+    commands:
+      - tapOn: "Open"
+- extendedWaitUntil:
+    visible:
+      id: "login-email|tab-today"
+    timeout: 90000
+    optional: true
+- runFlow:
+    when:
+      visible: "Continue"
+    commands:
+      - tapOn: "Continue"
+- runFlow:
+    when:
+      visible: "Close"
+    commands:
+      - tapOn: "Close"

@@ -8,6 +8,7 @@ import {
 } from "@koolee/api-contract";
 
 import { apiFetch } from "./api";
+import { newId } from "./ids";
 
 /**
  * Server state, through TanStack Query. Keys are the route names; a mutation
@@ -49,7 +50,7 @@ export function useStartShift() {
       apiFetch(shiftResponseSchema, apiRoutes.shiftStart(), {
         method: "POST",
         body: { truckId },
-        idempotencyKey: crypto.randomUUID(),
+        idempotencyKey: newId(),
       }),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: keys.shift });
@@ -65,7 +66,7 @@ export function useEndShift() {
       apiFetch(okSchema, apiRoutes.shiftEnd(), {
         method: "POST",
         body: {},
-        idempotencyKey: crypto.randomUUID(),
+        idempotencyKey: newId(),
       }),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: keys.shift });

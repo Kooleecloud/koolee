@@ -6,7 +6,10 @@ import {
   type PositionFix,
 } from "@koolee/api-contract";
 
-import { apiFetch, isRetryable } from "@/lib/api";
+import { apiFetch } from "@/lib/api";
+
+import { positionBatchDisposition } from "./disposition";
+import { positionInserts } from "./position-rows";
 
 /**
  * The on-device queue — SQLite, WAL mode, two tables.
@@ -17,10 +20,11 @@ import { apiFetch, isRetryable } from "@/lib/api";
  * is the one store both the task and the screens can share safely.
  *
  * POSITIONS: append every fix, send oldest-first in batches of up to 120
- * (the server's cap), keep a rolling hour (720 fixes at 5 s). The disposition
- * rule is the web queue's: a 2xx or ANY 4xx deletes the batch — a 409
- * not_on_shift will never succeed later, so retrying it forever is a bug —
- * while a 5xx or no network keeps it for the next flush.
+ * (the server's cap), keep a rolling hour (720 fixes at 5 s). A 2xx deletes
+ * the batch; what a failure does is `positionBatchDisposition` — no signal, a
+ * 5xx or a 401 keep it for the next flush, a 409 not_on_shift or a 400 drop
+ * it (they will never succeed, and retrying them forever would block the
+ * fixes behind them).
  *
  * ACTIONS: the driver's steps taken offline (phase 4 fills the writers).
  * Each row carries the `Idempotency-Key` it was minted with, so a replay whose
@@ -41,8 +45,14 @@ export function db(): Promise<SQLite.SQLiteDatabase> {
   if (!dbPromise) {
     dbPromise = (async () => {
       const handle = await SQLite.openDatabaseAsync(DB_NAME);
+      // busy_timeout: on Android a location batch that arrives while the app
+      // is not running is handled in a HEADLESS JS context with its own
+      // connection to this file. Two connections writing at once is ordinary
+      // there, and without a timeout the loser fails at once with
+      // SQLITE_BUSY instead of waiting a few milliseconds for the lock.
       await handle.execAsync(`
         PRAGMA journal_mode = WAL;
+        PRAGMA busy_timeout = 5000;
         CREATE TABLE IF NOT EXISTS position_queue (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           lat REAL NOT NULL,
@@ -67,28 +77,32 @@ export function db(): Promise<SQLite.SQLiteDatabase> {
   return dbPromise;
 }
 
+/**
+ * Appends a batch. NO BEGIN/COMMIT, on purpose: expo-sqlite's
+ * `withTransactionAsync` is not exclusive, and two batches landing together
+ * (Android hands the task a backlog in quick succession; the foreground
+ * start records a fix of its own) interleaved on the one connection — the
+ * second BEGIN failed, its ROLLBACK undid the FIRST batch's transaction, and
+ * the first then died with "cannot rollback - no transaction is active",
+ * its fixes gone. Seen on the emulator. Each INSERT is one statement and
+ * atomic on its own; the trim is a separate statement, and a trim that lands
+ * late only means the queue holds a few rows past the cap until the next.
+ */
 export async function enqueuePositions(fixes: readonly PositionFix[]): Promise<void> {
   if (fixes.length === 0) return;
   const handle = await db();
-  await handle.withTransactionAsync(async () => {
-    for (const fix of fixes) {
-      await handle.runAsync(
-        "INSERT INTO position_queue (lat, lng, recorded_at) VALUES (?, ?, ?)",
-        fix.lat,
-        fix.lng,
-        fix.recordedAt ?? new Date().toISOString(),
-      );
-    }
-    // Rolling window: drop the oldest past the cap. An hour of backlog is
-    // plenty of evidence; beyond that the pin is what matters, and it only
-    // ever shows the newest fix anyway.
-    await handle.runAsync(
-      `DELETE FROM position_queue WHERE id <= (
-         SELECT id FROM position_queue ORDER BY id DESC LIMIT 1 OFFSET ?
-       )`,
-      MAX_POSITIONS,
-    );
-  });
+  for (const { sql, params } of positionInserts(fixes)) {
+    await handle.runAsync(sql, params);
+  }
+  // Rolling window: drop the oldest past the cap. An hour of backlog is
+  // plenty of evidence; beyond that the pin is what matters, and it only
+  // ever shows the newest fix anyway.
+  await handle.runAsync(
+    `DELETE FROM position_queue WHERE id <= (
+       SELECT id FROM position_queue ORDER BY id DESC LIMIT 1 OFFSET ?
+     )`,
+    MAX_POSITIONS,
+  );
 }
 
 export async function queuedPositionCount(): Promise<number> {
@@ -147,21 +161,14 @@ async function doFlush(): Promise<FlushResult> {
       await handle.runAsync("DELETE FROM position_queue WHERE id <= ?", last.id);
       result.sent += rows.length;
     } catch (error) {
-      if (isRetryable(error)) {
+      if (positionBatchDisposition(error) === "keep") {
         result.deferred = true;
         return result;
       }
-      // A 4xx: off shift, a bad fix, a dead token. It will not get better by
+      // Off shift or a fix the server refuses: it will not get better by
       // waiting, and holding it would block every fix behind it.
       await handle.runAsync("DELETE FROM position_queue WHERE id <= ?", last.id);
       result.dropped += rows.length;
-      if (
-        error instanceof Error &&
-        "status" in error &&
-        (error as { status: number }).status === 401
-      ) {
-        return result;
-      }
     }
   }
 }

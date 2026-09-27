@@ -19,6 +19,7 @@ import {
   passportVerificationSchema,
   pickupTaskSchema,
   taskBookingContextSchema,
+  uuid,
   verificationTaskSchema,
   type AssignedTasksResponse,
   type PickupDetail,
@@ -28,6 +29,7 @@ import {
 } from "@koolee/api-contract";
 
 import type { ApiContext } from "../context";
+import { ApiHttpError } from "../errors";
 import { toJson, type Jsonified } from "../json";
 import { signUrl } from "../storage";
 
@@ -71,6 +73,14 @@ export async function readTaskDetail(
   taskId: string,
   kind: TaskKind,
 ): Promise<TaskDetailResponse> {
+  // A task id that is not a uuid never reaches Postgres: the uuid cast would
+  // throw (22P02) and surface as a 500 with a stack trace, where the truth is
+  // simply "no such task" — the same answer the step handlers give. Found on
+  // the simulator: a deep link built from a missing id asked for
+  // `/tasks/undefined`.
+  if (!uuid.safeParse(taskId).success) {
+    throw new ApiHttpError("not_found", "That task doesn't exist.");
+  }
   if (kind === "pickup") {
     const context = await getPickupContext(ctx.core.db, ctx.session, taskId);
     return { kind: "pickup", pickup: await assemblePickupDetail(ctx, context) };

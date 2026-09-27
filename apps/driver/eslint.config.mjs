@@ -5,6 +5,8 @@ export default [
   ...reactConfig,
   {
     // React Native has no DOM; these are the globals Metro provides.
-    languageOptions: { globals: { __DEV__: "readonly", fetch: "readonly", FormData: "readonly" } },
+    languageOptions: {
+      globals: { __DEV__: "readonly", fetch: "readonly", FormData: "readonly" },
+    },
   },
 ];

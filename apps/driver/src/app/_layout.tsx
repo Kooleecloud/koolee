@@ -16,6 +16,7 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import { SessionProvider, useSession } from "@/auth/session";
+import { ToastProvider } from "@/components/ui";
 import { Sentry } from "@/lib/sentry";
 
 void SplashScreen.preventAutoHideAsync();
@@ -42,12 +43,14 @@ function RootLayout() {
 
   return (
     <SafeAreaProvider>
-      <QueryClientProvider client={queryClient}>
-        <SessionProvider>
-          <StatusBar style="dark" />
-          <AuthGate />
-        </SessionProvider>
-      </QueryClientProvider>
+      <ToastProvider>
+        <QueryClientProvider client={queryClient}>
+          <SessionProvider>
+            <StatusBar style="dark" />
+            <AuthGate />
+          </SessionProvider>
+        </QueryClientProvider>
+      </ToastProvider>
     </SafeAreaProvider>
   );
 }
@@ -77,6 +80,7 @@ function AuthGate() {
     >
       <Stack.Screen name="login" />
       <Stack.Screen name="(tabs)" />
+      <Stack.Screen name="task/[taskId]" />
     </Stack>
   );
 }

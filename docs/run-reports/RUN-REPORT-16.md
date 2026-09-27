@@ -99,10 +99,10 @@ done — not the conversation, and not memory.
 
 ## Phase 4 · Native UI kit + screens
 
-- [ ] 4.1 `packages/ui-native`: Card family, Button, Badge, Input, Label, Select, Popover, Avatar, PageHeader, EmptyState, PageSkeleton, ContentColumn, FormMessage — same names/props, same tokens
-- [ ] 4.2 Screens ported one-for-one: tasks list, task detail, visit flow (camera passport capture), pickup flow (camera seal scan + manual), account, offline state, login, reset
-- [ ] 4.3 Offline ACTION queue with idempotent replay
-- [ ] 4.4 Every screen verified on both simulators
+- [x] 4.1 Native UI kit — in `apps/driver/src/components/ui` rather than a `packages/ui-native` package (it has one consumer). The web kit's names, props and token classes; the mapping table is the kit's README. Popover and PageHeader were not ported on purpose (the shift pill became a card; screens set their own title).
+- [x] 4.2 Screens one-for-one: Today, Schedule (To do / History), Account (photo, location, offline), the task screen with the visit flow (arrive → agreement + passport photo and confirm → seal each bag: photo, camera scan or typed seal, weight → complete) and the pickup flow (set off → check each seal: scan or type → load → deliver or hand over), the stopped and overdue states, flag-a-problem on both, login with "Forgot your password?" opening the web reset page (decision 8). Times render in the airport zone through twins of core's formatters, held to core's output by `time-parity.test.ts` — not the planned `packages/time`: core does not ship to a phone and the twins are a dozen lines.
+- [x] 4.3 Offline ACTION queue with idempotent replay: `runStep` mints the key before the first attempt, queues the step when there is no signal (and a photo step keeps its local file, uploaded at replay), `useReplay` sends the queue oldest-first with the same key when the signal or the app comes back.
+- [x] 4.4 Verified on both simulators with the Maestro flows in `apps/driver/e2e/maestro`: the three tabs, a visit opened from the schedule, a stopped visit, an overdue pickup, a pickup set-off (a real custody event), a seal that cannot match (the refusal verbatim, `409`, nothing loaded), the problem form; on Android, "I've arrived" tapped with the network off showed "Saved — will send when you have signal.", reached nobody, and landed (`200`) when the network came back — the visit then read "Arrived — visit started".
 
 ## Phase 5 · Push + realtime
 

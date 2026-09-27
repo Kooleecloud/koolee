@@ -1,7 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
-vi.mock("./supabase", () => ({ accessToken: vi.fn(async () => "tok") }));
+const tokens = vi.hoisted(() => ({
+  result: vi.fn(async (): Promise<unknown> => ({ token: "tok" })),
+}));
+vi.mock("./supabase", () => ({ accessTokenResult: () => tokens.result() }));
 vi.mock("./env", () => ({ env: { apiUrl: "http://api.test" } }));
 
 import { apiFetch, ApiRequestError, isRetryable, NetworkError } from "./api";
@@ -76,6 +79,24 @@ describe("apiFetch", () => {
       (e: unknown) => e,
     );
     expect(isRetryable(down)).toBe(true);
+  });
+
+  it("treats an unrefreshable token with no signal as offline, not signed out", async () => {
+    tokens.result.mockResolvedValueOnce({ token: null, reason: "offline" });
+    const err = await apiFetch(schema, "/api/v1/positions", { body: {} }).catch(
+      (e: unknown) => e,
+    );
+    expect(err).toBeInstanceOf(NetworkError);
+    expect(isRetryable(err)).toBe(true);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("answers a local 401 only when the driver is genuinely signed out", async () => {
+    tokens.result.mockResolvedValueOnce({ token: null, reason: "signed_out" });
+    const err = await apiFetch(schema, "/api/v1/me").catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ApiRequestError);
+    expect((err as ApiRequestError).status).toBe(401);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("refuses a 2xx whose body does not match the contract", async () => {
