@@ -1,0 +1,29 @@
+# Expo
+.expo/
+dist/
+web-build/
+expo-env.d.ts
+
+# Native projects are generated (continuous native generation) — never commit them
+/ios
+/android
+.kotlin/
+*.orig.*
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+
+# Metro
+.metro-health-check*
+
+# local env (eas env:pull)
+.env*.local
+
+# typescript
+*.tsbuildinfo
+
+# Firebase config lands here from the checklist; keep it out of git
+google-services.json
+GoogleService-Info.plist

@@ -28,7 +28,25 @@
 
 ## D. Expo / EAS (already logged in as owner of `koolee-cloud`)
 
-- [ ] D1. Nothing to do until the builds exist; the run creates the project and profiles.
+- [ ] D1. Delete the stray project `@tdadlani/koolee-driver` (https://expo.dev/accounts/tdadlani/projects/koolee-driver): the first non-interactive `eas init` picked the personal account before `owner` was set. The real project is `@koolee-cloud/koolee-driver` (id `1bcbeffe-3a97-43bd-89a4-f9b785456f7f`), already linked in `apps/driver/app.json`.
+- [ ] D2. Set the build-time environment for each EAS environment (values are the hosted ones you already have in Vercel for the agent app; `EXPO_PUBLIC_*` values are public by design):
+
+  ```bash
+  cd apps/driver
+  for ENV in development preview; do
+    npx eas-cli env:create $ENV --name EXPO_PUBLIC_API_URL --value https://dev.agent.koolee.cloud --visibility plaintext --non-interactive
+    npx eas-cli env:create $ENV --name EXPO_PUBLIC_SUPABASE_URL --value https://jpvlzoikcivxepgyrkho.supabase.co --visibility plaintext --non-interactive
+    npx eas-cli env:create $ENV --name EXPO_PUBLIC_SUPABASE_ANON_KEY --value <dev anon key> --visibility sensitive --non-interactive
+    npx eas-cli env:create $ENV --name EXPO_PUBLIC_TURNSTILE_SITE_KEY --value <the agent app's site key> --visibility plaintext --non-interactive
+    npx eas-cli env:create $ENV --name EXPO_PUBLIC_CHANNEL --value $ENV --visibility plaintext --non-interactive
+  done
+  # production: same five names with the production agent origin, the prod Supabase project (dblfbpxorleurqdlkylz) and its anon key
+  ```
+
+  If `env:create` is not a command in your eas-cli version, the dashboard (Project → Environment variables) does the same. Hand back: "done".
+
+- [x] D3. Android keystore — not needed: EAS generated one during the run's first non-interactive cloud build (build `509aa8bb`, finished). Nothing to do.
+- [ ] D4. Add `SENTRY_AUTH_TOKEN` as an EAS secret (`npx eas-cli env:create production --name SENTRY_AUTH_TOKEN --value <token> --visibility secret`) once the Sentry project exists (H1), so release builds upload source maps.
 
 ## E. Vercel env for the agent app (both Preview and Production scopes)
 
