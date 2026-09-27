@@ -22,5 +22,9 @@ export default defineConfig({
   test: {
     environment: "node",
     include: ["src/**/*.test.ts"],
+    // Route tests import @koolee/core, whose cold load (drizzle, the Inngest
+    // client, the Anthropic SDK) can take longer than the 5 s default under
+    // a full-suite run. The tests themselves are milliseconds.
+    testTimeout: 20_000,
   },
 });

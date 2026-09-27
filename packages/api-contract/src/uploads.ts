@@ -39,7 +39,11 @@ export const UPLOAD_BUCKETS = {
 } as const;
 
 /** A fresh object key under the right prefix. Never reuse one: a retake is a NEW object. */
-export function passportPhotoPath(bookingId: string, id: string, mime: ImageMimeType): string {
+export function passportPhotoPath(
+  bookingId: string,
+  id: string,
+  mime: ImageMimeType,
+): string {
   return `${UPLOAD_BUCKETS.passportPhotos.prefix(bookingId)}${id}.${EXTENSION_BY_MIME_TYPE[mime]}`;
 }
 export function bagPhotoPath(bagId: string, id: string, mime: ImageMimeType): string {

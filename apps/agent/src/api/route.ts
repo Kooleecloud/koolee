@@ -127,7 +127,7 @@ export function apiRoute<TBody = undefined, TOut = unknown>(
       }
     }
 
-    let status = 200;
+    let status: number;
     let payload: unknown;
     try {
       const result = await handler(ctx, { body, params, request, url });

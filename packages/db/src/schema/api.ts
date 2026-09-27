@@ -1,4 +1,12 @@
-import { index, integer, jsonb, pgTable, primaryKey, text, varchar } from "drizzle-orm/pg-core";
+import {
+  index,
+  integer,
+  jsonb,
+  pgTable,
+  primaryKey,
+  text,
+  varchar,
+} from "drizzle-orm/pg-core";
 import { uuid } from "drizzle-orm/pg-core";
 
 import { createdAt, timestamptz } from "./columns";

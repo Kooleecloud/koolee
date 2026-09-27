@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type * as Core from "@koolee/core";
 import { z } from "zod";
 import { ConflictError, NotAuthorizedError, NotFoundError } from "@koolee/core";
 
@@ -15,7 +16,7 @@ vi.mock("@/api/context", () => ({
   resolveApiContext: (...args: unknown[]) => mocks.resolve(...args),
 }));
 vi.mock("@koolee/core", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@koolee/core")>()),
+  ...(await importOriginal<typeof Core>()),
   claimIdempotencyKey: (...args: unknown[]) => mocks.claim(...args),
   completeIdempotencyKey: (...args: unknown[]) => mocks.complete(...args),
   releaseIdempotencyKey: (...args: unknown[]) => mocks.release(...args),

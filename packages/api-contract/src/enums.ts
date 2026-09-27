@@ -22,7 +22,13 @@ export const BOOKING_STATUSES = [
 export const bookingStatusSchema = z.enum(BOOKING_STATUSES);
 export type BookingStatus = z.infer<typeof bookingStatusSchema>;
 
-export const TASK_STATUSES = ["pending", "assigned", "in_progress", "done", "failed"] as const;
+export const TASK_STATUSES = [
+  "pending",
+  "assigned",
+  "in_progress",
+  "done",
+  "failed",
+] as const;
 export const taskStatusSchema = z.enum(TASK_STATUSES);
 export type TaskStatus = z.infer<typeof taskStatusSchema>;
 
@@ -44,7 +50,11 @@ export const PASSPORT_VERIFICATION_STATUSES = [
 ] as const;
 export const passportVerificationStatusSchema = z.enum(PASSPORT_VERIFICATION_STATUSES);
 
-export const PASSPORT_VALIDITY_CHECK_STATUSES = ["not_checked", "passed", "failed"] as const;
+export const PASSPORT_VALIDITY_CHECK_STATUSES = [
+  "not_checked",
+  "passed",
+  "failed",
+] as const;
 export const passportValidityCheckStatusSchema = z.enum(PASSPORT_VALIDITY_CHECK_STATUSES);
 
 export const USER_ROLES = ["customer", "agent", "driver", "admin"] as const;

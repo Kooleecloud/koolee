@@ -56,8 +56,12 @@ describe("api contract", () => {
       photoPath: "bags/6f1f8a2e-6c3e-4d4d-9c4a-1f0c1e2d3a4b/x.jpg",
     };
     expect(sealBagRequestSchema.safeParse(base).success).toBe(true);
-    expect(sealBagRequestSchema.safeParse({ ...base, photoPath: "" }).success).toBe(false);
-    expect(sealBagRequestSchema.safeParse({ ...base, weightKg: 120 }).success).toBe(false);
+    expect(sealBagRequestSchema.safeParse({ ...base, photoPath: "" }).success).toBe(
+      false,
+    );
+    expect(sealBagRequestSchema.safeParse({ ...base, weightKg: 120 }).success).toBe(
+      false,
+    );
     expect(sealBagRequestSchema.safeParse({ ...base, sealId: "  " }).success).toBe(false);
   });
 
@@ -66,12 +70,15 @@ describe("api contract", () => {
     expect(positionsRequestSchema.safeParse(fix).success).toBe(true);
     expect(positionsRequestSchema.safeParse({ fixes: [fix] }).success).toBe(true);
     expect(
-      positionsRequestSchema.safeParse({ fixes: Array.from({ length: 121 }, () => fix) }).success,
+      positionsRequestSchema.safeParse({ fixes: Array.from({ length: 121 }, () => fix) })
+        .success,
     ).toBe(false);
   });
 
   it("discriminates task detail by kind", () => {
-    expect(taskDetailResponseSchema.safeParse({ kind: "verification" }).success).toBe(false);
+    expect(taskDetailResponseSchema.safeParse({ kind: "verification" }).success).toBe(
+      false,
+    );
     expect(taskDetailResponseSchema.safeParse({ kind: "nope" }).success).toBe(false);
   });
 

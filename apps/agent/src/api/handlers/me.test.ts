@@ -1,10 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type * as Core from "@koolee/core";
 import { meResponseSchema } from "@koolee/api-contract";
 
 const mocks = vi.hoisted(() => ({ getActiveShift: vi.fn() }));
 
 vi.mock("@koolee/core", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@koolee/core")>()),
+  ...(await importOriginal<typeof Core>()),
   getActiveShift: (...a: unknown[]) => mocks.getActiveShift(...a),
 }));
 

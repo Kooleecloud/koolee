@@ -15,7 +15,8 @@ export const apiRoutes = {
   task: (taskId: string, kind: TaskKind) =>
     `${API_PREFIX}/tasks/${encodeURIComponent(taskId)}?kind=${kind}`,
   visit: {
-    arrive: (taskId: string) => `${API_PREFIX}/tasks/${encodeURIComponent(taskId)}/visit/arrive`,
+    arrive: (taskId: string) =>
+      `${API_PREFIX}/tasks/${encodeURIComponent(taskId)}/visit/arrive`,
     capturePassport: (taskId: string) =>
       `${API_PREFIX}/tasks/${encodeURIComponent(taskId)}/visit/capture-passport`,
     confirmPassport: (taskId: string) =>
@@ -28,7 +29,8 @@ export const apiRoutes = {
       `${API_PREFIX}/tasks/${encodeURIComponent(taskId)}/visit/exception`,
   },
   pickup: {
-    start: (taskId: string) => `${API_PREFIX}/tasks/${encodeURIComponent(taskId)}/pickup/start`,
+    start: (taskId: string) =>
+      `${API_PREFIX}/tasks/${encodeURIComponent(taskId)}/pickup/start`,
     scanSeal: (taskId: string) =>
       `${API_PREFIX}/tasks/${encodeURIComponent(taskId)}/pickup/scan-seal`,
     deliver: (taskId: string) =>
