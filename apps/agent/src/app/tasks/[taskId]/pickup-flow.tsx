@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { VISIT_EXCEPTION_NOTE_MAX_LENGTH } from "@koolee/api-contract";
 import { useActionState } from "react";
 import { Check, PackageCheck } from "lucide-react";
 import {
@@ -413,7 +414,12 @@ function ExceptionCard({ view, coords }: { view: PickupView; coords: Coords }) {
             <Label htmlFor="note">
               Anything else (required for &ldquo;something else&rdquo;)
             </Label>
-            <Input id="note" name="note" autoComplete="off" />
+            <Input
+              id="note"
+              name="note"
+              autoComplete="off"
+              maxLength={VISIT_EXCEPTION_NOTE_MAX_LENGTH}
+            />
           </div>
           <div className="flex gap-2">
             <Button

@@ -18,12 +18,14 @@ import type { ApiContext } from "../context";
 import { ApiHttpError, refused } from "../errors";
 
 /**
- * The pickup run — the same thin adapters as the pickup half of
- * `app/tasks/[taskId]/actions.ts`, minus the form. Every step is idempotent
- * in core, so a driver whose first tap timed out after the write landed gets
- * `ok` again on the retry. A core `{ ok: false, error }` is a refusal with a
- * sentence for the driver and travels as 422; a thrown `CoreError` (a seal
- * mismatch is a `ConflictError`) propagates to the wrapper's mapping.
+ * The pickup run — THE implementation, shared by the `/api/v1` routes and
+ * the pickup half of `app/tasks/[taskId]/actions.ts` (plus
+ * `app/journey-actions.ts`), which only parse a form before calling in here.
+ * Every step is idempotent in core, so a driver whose first tap timed out
+ * after the write landed gets `ok` again on the retry. A core
+ * `{ ok: false, error }` is a refusal with a sentence for the driver and
+ * travels as 422 (a server action shows it verbatim); a thrown `CoreError`
+ * (a seal mismatch is a `ConflictError`) propagates to the caller's mapping.
  */
 
 /**
