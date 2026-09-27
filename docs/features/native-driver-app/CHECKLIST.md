@@ -12,14 +12,21 @@
 - [ ] A1. Enrol at developer.apple.com (Organisation enrolment needs a D-U-N-S number; Individual is faster). ~1–3 days.
 - [ ] A2. Once approved, run `npx eas-cli credentials --platform ios` in `apps/driver` and sign in with the Apple ID when prompted. EAS creates the distribution certificate and provisioning profiles. Hand back: "done".
 - [ ] A3. Create an APNs key: Certificates, Identifiers & Profiles → Keys → + → enable Apple Push Notifications service → download the `.p8`. Upload it with `npx eas-cli credentials --platform ios` → Push Notifications. Hand back: "done".
-- [ ] A4. Request Unlisted App Distribution: https://developer.apple.com/contact/request/unlisted-app/ — the request text is in `docs/features/native-driver-app/STORE-COPY.md`. Takes days; do this as soon as A1 clears.
-- [ ] A5. In App Store Connect create the app record (bundle id `cloud.koolee.driver`), fill the privacy questions using `STORE-COPY.md`.
+- [ ] A4. Request Unlisted App Distribution: https://developer.apple.com/contact/request/unlisted-app/ — paste the answers from [STORE-COPY.md §2.1](STORE-COPY.md#21-unlisted-app-distribution-request). It takes days, so do it as soon as A1 clears.
+- [ ] A5. In App Store Connect, create the app record (bundle id `cloud.koolee.driver`, name "Koolee Driver"). Then fill in:
+  - App Privacy from [§2.3](STORE-COPY.md#23-app-privacy-app-store-connect--app-privacy);
+  - App Review Information from [§2.2](STORE-COPY.md#22-app-review-notes-app-store-connect--app-review-information) (create the reviewer account it describes);
+  - the listing from §1, with screenshots per §4.
+- [ ] A6. Before the first submission, add a staff section to the privacy policy at `koolee.cloud/privacy`. Both stores check that it covers what this app collects, and today it describes customers only. There is a draft to review in [STORE-COPY.md §5](STORE-COPY.md#5-privacy-policy--staff-section-draft-for-review). It is legal copy, so it is not live anywhere yet.
+- [ ] A7. First iPhone build, after A2, A3 and D2 (production values): `cd apps/driver && npx eas-cli build --platform ios --profile production`, then `npx eas-cli submit --platform ios --latest`. The build goes to App Store Connect; once A4 is approved, release it as Unlisted.
 
 ## B. Google Play developer account (blocks Play listing and Play-signed builds)
 
 - [ ] B1. Register at play.google.com/console ($25 one-time). Identity verification can take days.
-- [ ] B2. Create the app (package `cloud.koolee.driver`), choose "Unlisted" under Advanced settings → Managed publishing / or Internal testing + closed track (see `STORE-COPY.md`).
-- [ ] B3. Service account for `eas submit`: Play Console → Setup → API access → create a service account with "Release manager", download its JSON key, then run `npx eas-cli submit --platform android --profile production` once with `--key <json>` so EAS stores it. Hand back: "done".
+- [ ] B2. Create the app (package `cloud.koolee.driver`, "Koolee Driver", free, app not game). Play has no "Unlisted" setting for a public account. Ship on the **Internal testing** track: up to 100 drivers by email, with no review wait after the first release. Move to Closed testing past 100. The trade-offs are in [STORE-COPY.md §3.1](STORE-COPY.md#31-how-it-ships).
+- [ ] B3. App content → the declarations. Paste the answers from [STORE-COPY.md §3.2–3.5](STORE-COPY.md#32-location-permissions-declaration-app-content--sensitive-permissions--location): location permission, foreground service (type Location), data safety, app access (reviewer account), ads, target audience, content rating. The background-location and foreground-service declarations both need a **short video**: 30 s, unlisted on YouTube. §3.2 says what it must show.
+- [ ] B4. First release. Play requires the very first bundle of a new app to be uploaded by hand. A production Android build has already been proven on EAS (RUN-REPORT-16, phase 7), but it was built before D2's production values existed, so it can't sign anyone in. After D2, rebuild with `cd apps/driver && npx eas-cli build --platform android --profile production`, download the `.aab` from the build page, and upload it to Internal testing → Create release. B5 then makes every later release `npx eas-cli submit --platform android --latest`.
+- [ ] B5. Service account for `eas submit`: Play Console → Setup → API access → create a service account with "Release manager", download its JSON key, then run `npx eas-cli submit --platform android --profile production` once with `--key <json>` so EAS stores it. Hand back: "done".
 
 ## C. Firebase (Android push only, free, no Play account needed)
 
@@ -47,7 +54,7 @@
   If `env:create` is not a command in your eas-cli version, the dashboard (Project → Environment variables) does the same. Hand back: "done".
 
 - [x] D3. Android keystore — not needed: EAS generated one during the run's first non-interactive cloud build (build `509aa8bb`, finished). Nothing to do.
-- [ ] D4. Add `SENTRY_AUTH_TOKEN` as an EAS secret (`npx eas-cli env:create production --name SENTRY_AUTH_TOKEN --value <token> --visibility secret`) once the Sentry project exists (H1), so release builds upload source maps.
+- [ ] D4. Once the Sentry project exists (H1), add `SENTRY_AUTH_TOKEN` as an EAS secret: `npx eas-cli env:create production --name SENTRY_AUTH_TOKEN --value <token> --visibility secret` (and for `preview` too). In the same change, **delete `"env": { "SENTRY_DISABLE_AUTO_UPLOAD": "true" }` from `apps/driver/eas.json`** (build → base) so release builds upload source maps. Until the token exists, that line is what keeps release builds from failing: the first production build failed at `SentryUpload` with "Auth token is required".
 
 ## E. Vercel env for the agent app (both Preview and Production scopes)
 

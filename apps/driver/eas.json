@@ -6,7 +6,8 @@
   "build": {
     "base": {
       "node": "24.15.0",
-      "pnpm": "11.18.0"
+      "pnpm": "11.18.0",
+      "env": { "SENTRY_DISABLE_AUTO_UPLOAD": "true" }
     },
     "development": {
       "extends": "base",
