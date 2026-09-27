@@ -210,6 +210,62 @@ export const SearchingForDrivers: Story = {
 };
 
 /**
+ * THE OPS CONSOLE'S FLEET MAP — every driver on shift, and NO DOOR.
+ *
+ * The first map in the product with no pickup pin: an operator is watching
+ * the whole fleet, and there is no single address for the vans to be relative
+ * to. This story is the one to open when touching the `pickup`-optional path
+ * in `live-map.tsx`, because every other story has a door and would hide a
+ * regression in it.
+ *
+ * What to check by hand:
+ *  - NO bag pin anywhere, and no "Your pickup" popup to find;
+ *  - the frame fits the four vans on its own (no `initialCenter` needed while
+ *    there are drivers), with the stale one included — a greyed pin still
+ *    counts as somewhere worth seeing;
+ *  - the label is name AND truck, because on a fleet map the truck is what a
+ *    dispatcher is looking for as often as the person;
+ *  - drag the map: the recenter button says "Show every driver", not "Back to
+ *    my pickup" — the destination is the fleet, and the caller names it.
+ */
+export const AdminFleet: Story = {
+  args: {
+    drivers: [
+      { id: "s1", position: { lat: 40.7589, lng: -73.9851 }, label: "Marcus · Van 2" },
+      { id: "s2", position: { lat: 40.7282, lng: -73.9942 }, label: "Yara · Van 5" },
+      { id: "s3", position: { lat: 40.7794, lng: -73.9632 }, label: "Ben · Sprinter" },
+      {
+        id: "s4",
+        position: { lat: 40.7061, lng: -74.0087 },
+        label: "Priya · Van 1",
+        variant: "stale",
+      },
+    ],
+    initialCenter: PICKUP,
+    recenterLabel: "Show every driver",
+    className: "h-96",
+    label: "Map of every driver on shift right now",
+  },
+};
+
+/**
+ * The fleet map before anybody clocks on: no door, no drivers, so the map
+ * opens on `initialCenter` (the service area) rather than a blank ocean. The
+ * admin page does not actually mount the map in this state — it says "nobody
+ * is out" in words — but the component must still cope, because a fleet can
+ * empty out under an open page when the last shift ends.
+ */
+export const AdminFleetEmpty: Story = {
+  args: {
+    drivers: [],
+    initialCenter: PICKUP,
+    recenterLabel: "Show every driver",
+    className: "h-80",
+    label: "Map of the service area with nobody on shift",
+  },
+};
+
+/**
  * A LAST KNOWN POSITION, not a current one.
  *
  * The case that used to empty the map: core nulled any fix past the 90-second

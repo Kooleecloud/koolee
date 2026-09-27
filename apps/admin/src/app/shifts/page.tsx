@@ -12,11 +12,14 @@ import {
 } from "@koolee/ui";
 import {
   formatInstantInAirportTz,
+  listLiveDrivers,
   listOnBehalfDriverOptions,
   listShifts,
   listStalePositionShifts,
   listTruckOptions,
   listStaffMembers,
+  POSITION_GAP_MS,
+  type LiveDriver,
   type ShiftRow,
   type StaffMemberWithIdentity,
 } from "@koolee/core";
@@ -26,6 +29,7 @@ import { OPS_CONSOLE_TZ } from "@/lib/airport-tz";
 import { tryGetCore } from "@/lib/core";
 import { getAdminSession } from "@/lib/session";
 
+import { DriversMap } from "./drivers-map";
 import { CanDriveToggle, ForceEndShiftForm, StartShiftOnBehalfForm } from "./shift-forms";
 
 export const metadata = { title: "Shifts" };
@@ -53,17 +57,23 @@ export default async function ShiftsPage() {
   let onBehalfDrivers: Awaited<ReturnType<typeof listOnBehalfDriverOptions>> = [];
   let onBehalfTrucks: Awaited<ReturnType<typeof listTruckOptions>> = [];
   let staleShifts: Awaited<ReturnType<typeof listStalePositionShifts>> = [];
+  let liveDrivers: LiveDriver[] = [];
   let unavailable = core === null;
+  // One clock for the render: the badge, the map's first health verdict and
+  // the client's hydration all read the same instant.
+  const now = new Date();
 
   if (core) {
     try {
-      [shifts, staff, onBehalfDrivers, onBehalfTrucks, staleShifts] = await Promise.all([
-        listShifts(core.db, { limit: 40 }),
-        listStaffMembers(core.db),
-        listOnBehalfDriverOptions(core.db),
-        listTruckOptions(core.db),
-        listStalePositionShifts(core.db),
-      ]);
+      [shifts, staff, onBehalfDrivers, onBehalfTrucks, staleShifts, liveDrivers] =
+        await Promise.all([
+          listShifts(core.db, { limit: 40 }),
+          listStaffMembers(core.db),
+          listOnBehalfDriverOptions(core.db),
+          listTruckOptions(core.db),
+          listStalePositionShifts(core.db, now),
+          listLiveDrivers(core.db, now),
+        ]);
     } catch {
       unavailable = true;
     }
@@ -89,6 +99,44 @@ export default async function ShiftsPage() {
             : `${open.length} out right now · ${bagsOut} bag${bagsOut === 1 ? "" : "s"} on the road`
         }
       />
+
+      {/*
+        THE MAP FIRST. "Who is out" is the page's question and a map answers
+        it faster than a list — and it is the only thing here that shows
+        WHERE a quiet driver was when they went quiet, which is what the
+        customer on the phone is about to ask.
+
+        The client recomputes health from `recordedAt` as the minutes pass,
+        so it is handed the same gap the server judged by; the two must not
+        drift or the badge on the card below and the pin's colour would
+        disagree about the same driver.
+      */}
+      {!unavailable && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">On the road now</CardTitle>
+            <CardDescription>
+              Last known position of every driver on shift. A pin goes grey once the phone
+              has been quiet for {Math.round(POSITION_GAP_MS / 60_000)} minutes.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <DriversMap
+              initial={liveDrivers.map((driver) => ({
+                shiftId: driver.shiftId,
+                staffUserId: driver.staffUserId,
+                fullName: driver.fullName,
+                truckName: driver.truckName,
+                bagsOnBoard: driver.bagsOnBoard,
+                position: driver.position,
+                recordedAt: driver.recordedAt?.toISOString() ?? null,
+              }))}
+              gapMs={POSITION_GAP_MS}
+              renderedAt={now.getTime()}
+            />
+          </CardContent>
+        </Card>
+      )}
 
       {/*
         Above the list, because it is what an operator came here to DO when
