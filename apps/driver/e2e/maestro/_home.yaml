@@ -1,10 +1,12 @@
 # Shared start: leave any task screen so the tab bar is showing. Every
 # screen-level flow runs this first, so a flow that stopped half-way on a
-# task screen never breaks the next one.
+# task screen never breaks the next one. REPEATED, because deep links stack
+# task screens: a visit opened on top of a pickup backs out to the pickup.
 appId: cloud.koolee.driver
 ---
-- runFlow:
-    when:
+- repeat:
+    times: 5
+    while:
       visible:
         id: "task-screen"
     commands:
