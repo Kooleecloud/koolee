@@ -310,7 +310,8 @@ function PermissionNotice({
   return (
     <View className="rounded-md border border-border bg-muted/40 px-3 py-2">
       <Text className="text-sm text-navy-700">
-        Koolee needs your location for the whole shift so customers can watch you arrive.
+        Koolee shares your location with dispatch and your customers for the whole shift,
+        even when the app is closed or the phone is locked, so they can watch you arrive.
         You'll be asked when you clock on.
       </Text>
     </View>
