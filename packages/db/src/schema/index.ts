@@ -20,4 +20,5 @@ export * from "./tasks";
 export * from "./ops";
 export * from "./billing";
 export * from "./waitlist";
+export * from "./api";
 export * from "./relations";

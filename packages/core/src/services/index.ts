@@ -335,6 +335,7 @@ export {
   getSelectedDriver,
   listCandidateDrivers,
   POSITION_FRESH_MS,
+  POSITION_PING_SAMPLE_MS,
   listReassignOptions,
   recordDriverPosition,
   reportEmptyDriverPool,
@@ -462,3 +463,15 @@ export {
   type ShiftPositionHealth,
   type StaleShift,
 } from "./position-health";
+
+export {
+  claimIdempotencyKey,
+  completeIdempotencyKey,
+  IDEMPOTENCY_RETENTION_HOURS,
+  pruneIdempotencyKeys,
+  releaseIdempotencyKey,
+  type ClaimIdempotencyKeyInput,
+  type CompleteIdempotencyKeyInput,
+  type IdempotencyClaim,
+  type PruneIdempotencyKeysResult,
+} from "./api-idempotency";

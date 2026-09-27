@@ -34,6 +34,7 @@ import {
   adminUnassignPickup,
   getSelectedDriver,
   POSITION_FRESH_MS,
+  POSITION_PING_SAMPLE_MS,
   listCandidateDrivers,
   listReassignOptions,
   recordDriverPosition,
@@ -983,23 +984,40 @@ describeIntegration("driver selection (integration)", () => {
     expect(await db.select().from(driverPositions)).toHaveLength(1);
   });
 
-  it("keeps every ping while the position row holds only the newest", async () => {
+  /*
+   * SAMPLED, NOT EVERY FIX. At the native app's five-second cadence a full
+   * trail would be ~17,000 rows per driver-day for a question a point every
+   * 150 seconds answers just as well. The pin still takes every fix.
+   */
+  it("keeps one ping per sample window while the position row holds only the newest", async () => {
     const driver = await makeDriver("Repeat Pinger");
     const truck = await makeTruck("Van Repeat", 30);
     await startShift(config, { staffUserId: driver, truckId: truck.id });
 
-    for (let i = 1; i <= 3; i += 1) {
+    // Thirty fixes, five seconds apart: one window, one ping.
+    for (let i = 1; i <= 30; i += 1) {
       await recordDriverPosition(config, {
         staffUserId: driver,
         lat: 40.75 + i / 1000,
         lng: -73.99,
-        recordedAt: new Date(now.getTime() + i * 20_000),
+        recordedAt: new Date(now.getTime() + i * 5_000),
       });
     }
+    expect(await db.select().from(driverPositionPings)).toHaveLength(1);
 
-    expect(await db.select().from(driverPositionPings)).toHaveLength(3);
+    // The next fix past the window opens a second one.
+    await recordDriverPosition(config, {
+      staffUserId: driver,
+      lat: 40.79,
+      lng: -73.99,
+      recordedAt: new Date(now.getTime() + 30 * 5_000 + POSITION_PING_SAMPLE_MS + 1_000),
+    });
+    const pings = await db.select().from(driverPositionPings);
+    expect(pings).toHaveLength(2);
+
+    // Every fix still moved the pin.
     const [position] = await db.select().from(driverPositions);
-    expect(position!.lat).toBeCloseTo(40.753, 5);
+    expect(position!.lat).toBeCloseTo(40.79, 5);
   });
 
   /*

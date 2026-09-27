@@ -59,7 +59,9 @@ const bodySchema = z.union([
 export async function POST(request: Request): Promise<NextResponse> {
   let session;
   try {
-    session = await requireAgentSession();
+    // The native app sends `Authorization: Bearer`; the web queue and
+    // `sw.js` send the cookie. Same route, same disposition rules.
+    session = await requireAgentSession(request);
   } catch {
     return NextResponse.json({ error: "not_authorized" }, { status: 401 });
   }

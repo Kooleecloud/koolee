@@ -40,6 +40,7 @@ import {
   POSITION_NUDGE_COOLDOWN_MS,
   prunePositionPings,
 } from "../services/position-health";
+import { pruneIdempotencyKeys } from "../services/api-idempotency";
 import { assembleBookingConfirmationEmail } from "../services/confirmation-email";
 import { resolveDisplayTz } from "../services/display-tz";
 import { notifyNewlyCoveredWaitlist } from "../waitlist/notify-covered";
@@ -1554,6 +1555,31 @@ export function createKooleeFunctions(
     },
   );
 
+  /**
+   * Idempotency keys for the agent API outlive any realistic replay window
+   * after a day; see `services/api-idempotency.ts`. Same shape as the ping
+   * sweep above, offset a few minutes so the two never contend.
+   */
+  const apiIdempotencyRetention = inngest.createFunction(
+    {
+      id: "api-idempotency-retention",
+      name: "Delete agent API idempotency keys past the retention window",
+      triggers: [cron("23 * * * *")],
+    },
+    async ({ step, logger }) => {
+      return step.run("prune-idempotency-keys", async () => {
+        const config = getConfig();
+        const result = await pruneIdempotencyKeys(config.db, {
+          now: config.clock.now(),
+        });
+        if (result.deleted > 0) {
+          logger.info(`api idempotency keys: pruned ${result.deleted} row(s)`);
+        }
+        return result;
+      });
+    },
+  );
+
   return [
     bookingConfirmationEmail,
     pickupReminder,
@@ -1570,6 +1596,7 @@ export function createKooleeFunctions(
     exceptionCustomerEmail,
     driverPositionGapNudge,
     positionPingRetention,
+    apiIdempotencyRetention,
   ];
 }
 

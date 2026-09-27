@@ -9,6 +9,7 @@ import {
 } from "@koolee/core";
 
 import { tryGetCore } from "@/lib/core";
+import { getSupabaseBearerClient, readBearerToken } from "@/lib/supabase/bearer";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
 
 /**
@@ -62,6 +63,34 @@ const loadAgentIdentity = cache(async (): Promise<AgentIdentity> => {
   const {
     data: { user },
   } = await supabase.auth.getUser();
+  return identityForUser(user);
+});
+
+/**
+ * The bearer-token path: the native driver app sends its Supabase access
+ * token in `Authorization: Bearer` and holds no cookie. Validated against
+ * GoTrue on every call (a revoked token fails here, not at expiry), then the
+ * same per-request role check as the cookie path. Not wrapped in `cache()`:
+ * a route resolves its session exactly once.
+ */
+async function loadAgentIdentityFromToken(token: string): Promise<AgentIdentity> {
+  const supabase = getSupabaseBearerClient(token);
+  if (!supabase) throw new NotAuthorizedError("Supabase is not configured.");
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser(token);
+  return identityForUser(user);
+}
+
+/**
+ * ONE role check for both transports. Whatever produced the Supabase user —
+ * cookie or bearer — the security boundary is the `staff_members` read here,
+ * which is what makes deactivation immediate on the native app too.
+ */
+async function identityForUser(
+  user: { id: string; email?: string | undefined } | null,
+): Promise<AgentIdentity> {
   if (!user) throw new NotAuthorizedError("Not signed in.");
 
   const core = tryGetCore();
@@ -80,24 +109,38 @@ const loadAgentIdentity = cache(async (): Promise<AgentIdentity> => {
     avatarStoragePath: identity?.avatarStoragePath ?? null,
     canDrive: identity?.canDrive ?? false,
   };
-});
+}
+
+/**
+ * Picks the transport. A request with a bearer header is the native app and
+ * is answered from the token alone — its cookies (there are none) are never
+ * consulted, so a stale browser session on the same host cannot leak in.
+ */
+async function loadIdentity(request?: Request): Promise<AgentIdentity> {
+  const token = request ? readBearerToken(request) : null;
+  return token ? loadAgentIdentityFromToken(token) : loadAgentIdentity();
+}
 
 /** Session plus display identity, for the Account tab. Null when signed out. */
-export async function getAgentIdentity(): Promise<AgentIdentity | null> {
+export async function getAgentIdentity(request?: Request): Promise<AgentIdentity | null> {
   try {
-    return await loadAgentIdentity();
+    return await loadIdentity(request);
   } catch {
     return null;
   }
 }
 
-export async function getAgentSession(): Promise<AgentSession | null> {
-  const identity = await getAgentIdentity();
+export async function getAgentSession(request?: Request): Promise<AgentSession | null> {
+  const identity = await getAgentIdentity(request);
   return identity?.session ?? null;
 }
 
-/** Throwing variant for server actions and route handlers. */
-export async function requireAgentSession(): Promise<AgentSession> {
-  const { session } = await loadAgentIdentity();
+/**
+ * Throwing variant for server actions and route handlers. Route handlers pass
+ * the request so a bearer token is honoured; server actions have no request
+ * and always read the cookie.
+ */
+export async function requireAgentSession(request?: Request): Promise<AgentSession> {
+  const { session } = await loadIdentity(request);
   return session;
 }
