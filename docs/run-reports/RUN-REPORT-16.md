@@ -138,10 +138,8 @@ done — not the conversation, and not memory.
 
 - The WEB agent app still refreshes on the driver's own pings. `LiveTasks` → `router.refresh()` fires on every ping signal for a carried booking, which is a full server render every 10 s. It needs the same `touched_by` skip the native twin has.
 - `apps/driver/src/lib/env.ts` keeps a private copy of the emulator-host rewrite. It stayed byte-identical to merge cleanly; point it at `lib/emulator-host.ts`.
-- `apps/driver/src/components/task-row.tsx` is tracked and unused. Deleting it is waiting on TD's OK.
 - `eas.json` names update channels, but `expo-updates` is not installed, so there are no over-the-air updates yet. Add it if you want JS-only fixes without a store release.
 - There is no physical-iPhone development profile yet (the `development` profile is simulator-only). Add one with `ios.simulator: false` once devices are registered (CHECKLIST G1).
-- The superseded local branch `feat/native-p5-push-p6-admin-map`, and the worktrees `../koolee-p4`, `-p5`, `-p5push`, `-p6`, `-p7`, `-p8`, can go once TD says so.
 
 ## Migrations in this run
 
