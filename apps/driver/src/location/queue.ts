@@ -9,6 +9,7 @@ import {
 import { apiFetch } from "@/lib/api";
 
 import { positionBatchDisposition } from "./disposition";
+import { positionInserts } from "./position-rows";
 
 /**
  * The on-device queue — SQLite, WAL mode, two tables.
@@ -44,8 +45,14 @@ export function db(): Promise<SQLite.SQLiteDatabase> {
   if (!dbPromise) {
     dbPromise = (async () => {
       const handle = await SQLite.openDatabaseAsync(DB_NAME);
+      // busy_timeout: on Android a location batch that arrives while the app
+      // is not running is handled in a HEADLESS JS context with its own
+      // connection to this file. Two connections writing at once is ordinary
+      // there, and without a timeout the loser fails at once with
+      // SQLITE_BUSY instead of waiting a few milliseconds for the lock.
       await handle.execAsync(`
         PRAGMA journal_mode = WAL;
+        PRAGMA busy_timeout = 5000;
         CREATE TABLE IF NOT EXISTS position_queue (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           lat REAL NOT NULL,
@@ -70,28 +77,32 @@ export function db(): Promise<SQLite.SQLiteDatabase> {
   return dbPromise;
 }
 
+/**
+ * Appends a batch. NO BEGIN/COMMIT, on purpose: expo-sqlite's
+ * `withTransactionAsync` is not exclusive, and two batches landing together
+ * (Android hands the task a backlog in quick succession; the foreground
+ * start records a fix of its own) interleaved on the one connection — the
+ * second BEGIN failed, its ROLLBACK undid the FIRST batch's transaction, and
+ * the first then died with "cannot rollback - no transaction is active",
+ * its fixes gone. Seen on the emulator. Each INSERT is one statement and
+ * atomic on its own; the trim is a separate statement, and a trim that lands
+ * late only means the queue holds a few rows past the cap until the next.
+ */
 export async function enqueuePositions(fixes: readonly PositionFix[]): Promise<void> {
   if (fixes.length === 0) return;
   const handle = await db();
-  await handle.withTransactionAsync(async () => {
-    for (const fix of fixes) {
-      await handle.runAsync(
-        "INSERT INTO position_queue (lat, lng, recorded_at) VALUES (?, ?, ?)",
-        fix.lat,
-        fix.lng,
-        fix.recordedAt ?? new Date().toISOString(),
-      );
-    }
-    // Rolling window: drop the oldest past the cap. An hour of backlog is
-    // plenty of evidence; beyond that the pin is what matters, and it only
-    // ever shows the newest fix anyway.
-    await handle.runAsync(
-      `DELETE FROM position_queue WHERE id <= (
-         SELECT id FROM position_queue ORDER BY id DESC LIMIT 1 OFFSET ?
-       )`,
-      MAX_POSITIONS,
-    );
-  });
+  for (const { sql, params } of positionInserts(fixes)) {
+    await handle.runAsync(sql, params);
+  }
+  // Rolling window: drop the oldest past the cap. An hour of backlog is
+  // plenty of evidence; beyond that the pin is what matters, and it only
+  // ever shows the newest fix anyway.
+  await handle.runAsync(
+    `DELETE FROM position_queue WHERE id <= (
+       SELECT id FROM position_queue ORDER BY id DESC LIMIT 1 OFFSET ?
+     )`,
+    MAX_POSITIONS,
+  );
 }
 
 export async function queuedPositionCount(): Promise<number> {
