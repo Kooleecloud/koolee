@@ -56,7 +56,8 @@
 
 ## F. Hosted database
 
-- [ ] F1. Apply the run's migrations to hosted once the integration branch is promoted (`pnpm db:status` first, then `pnpm db:migrate` with the direct URL): 0037 `api_idempotency_keys`, 0038 `driver_push_tokens`. The SQL for each is in RUN-REPORT-16.
+- [ ] F1. Apply the run's migrations to hosted once the integration branch is promoted (`pnpm db:status` first, then `pnpm db:migrate` with the direct URL): 0037 `api_idempotency_keys`, 0038 `driver_push_tokens`, 0039 admin driver Realtime (apply it outside a busy shift — it takes a brief exclusive lock on the two driver tables). The SQL for each is in RUN-REPORT-16.
+- [ ] F2. After F1: Supabase dashboard → Database → Replication → the `supabase_realtime` publication must list `driver_positions` and `driver_shifts` (0039 adds them; confirm rather than assume). Then open `/shifts` in the admin console with a driver on shift: the map's hidden `data-fleet-map` attribute should read `live`; `polling` means a part of 0039 is missing (ADMIN-MAP.md §2).
 
 ## G. Phones for phase-3 field testing
 

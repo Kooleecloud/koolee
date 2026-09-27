@@ -133,8 +133,25 @@ export interface MapDriver {
 }
 
 export interface LiveMapProps {
-  /** The door. Always drawn, and what the map frames when there is nothing else. */
-  pickup: MapPoint;
+  /**
+   * The door. Drawn whenever it is given, and what the map frames when there
+   * is nothing else.
+   *
+   * OPTIONAL SINCE THE ADMIN FLEET MAP, which has no door: it watches every
+   * driver on shift at once, and there is no single address for them to be
+   * relative to. Without a pickup the map frames the drivers alone, opens on
+   * `initialCenter` when there are none, and draws no bag pin. Every customer
+   * surface still passes one — a trip has a door by definition.
+   */
+  pickup?: MapPoint | null;
+  /**
+   * Where to look when there is neither a pickup nor a driver to frame.
+   *
+   * Only read when `pickup` is absent: a map with a door opens on the door.
+   * Without either, MapLibre still needs a centre, and this is the honest one
+   * — the service area, rather than a coordinate invented from nothing.
+   */
+  initialCenter?: MapPoint;
   /** Everybody worth showing. An empty list is fine — the door still draws. */
   drivers?: readonly MapDriver[];
   /** Called when a driver's pin is clicked. Omit to make pins inert. */
@@ -314,7 +331,8 @@ function prefersReducedMotion(): boolean {
 }
 
 export function LiveMap({
-  pickup,
+  pickup = null,
+  initialCenter,
   drivers = [],
   onDriverClick,
   className,
@@ -420,13 +438,21 @@ export function LiveMap({
     }
     setWorkerUrl(workerUrl);
 
+    /*
+     * Where the map opens. The door when there is one; otherwise the caller's
+     * centre, or the first driver, so a fleet map is never a blank ocean for
+     * the 600ms before `frameAll` runs. The framing effect below takes over
+     * the moment `load` fires; this is only the first frame.
+     */
+    const opensOn = pickup ?? initialCenter ?? drivers[0]?.position ?? null;
+
     let instance: MapLibreMap;
     try {
       instance = new MapLibreMap({
         container: container.current,
         style: styleUrl,
-        center: [pickup.lng, pickup.lat],
-        zoom: SOLO_ZOOM,
+        center: opensOn ? [opensOn.lng, opensOn.lat] : [0, 0],
+        zoom: opensOn ? SOLO_ZOOM : 1,
         // A customer watching a van does not need to rotate the world, and a
         // stray two-finger twist on a phone leaves the map at an angle they
         // cannot undo.
@@ -578,6 +604,17 @@ export function LiveMap({
     const instance = map.current;
     if (!instance || !ready) return;
 
+    // A map with no door draws no bag pin — and takes one down if the door
+    // was withdrawn, so the effect stays correct in both directions.
+    if (!pickup) {
+      pickupMarker.current?.remove();
+      pickupMarker.current = null;
+      return;
+    }
+    // Captured for the click listener below, which outlives this render and
+    // must not close over a binding TypeScript widens back to nullable.
+    const door = pickup;
+
     if (!pickupMarker.current) {
       const element = pickupPin(pickupLabel);
       /*
@@ -595,17 +632,20 @@ export function LiveMap({
         const instance = map.current;
         if (!instance) return;
         pickupPopup.current
-          ?.setLngLat([pickup.lng, pickup.lat])
+          ?.setLngLat([door.lng, door.lat])
           .setDOMContent(pickupPopupContent(pickupLabel, pickupAddressLine))
           .addTo(instance);
       });
       pickupMarker.current = new Marker({ element })
-        .setLngLat([pickup.lng, pickup.lat])
+        .setLngLat([door.lng, door.lat])
         .addTo(instance);
     } else {
-      pickupMarker.current.setLngLat([pickup.lng, pickup.lat]);
+      pickupMarker.current.setLngLat([door.lng, door.lat]);
     }
-  }, [pickup.lat, pickup.lng, ready, pickupLabel, pickupAddressLine]);
+    // `pickup` itself is a fresh object per render on most callers; its two
+    // numbers are the identity that matters.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pickup?.lat, pickup?.lng, ready, pickupLabel, pickupAddressLine]);
 
   /* --- the drivers ---------------------------------------------------- */
   React.useEffect(() => {
@@ -809,23 +849,44 @@ export function LiveMap({
 
   /**
    * Frames the door and every driver. The one place that decides the viewport.
+   *
+   * Written over "every point worth seeing" rather than "the door plus the
+   * drivers" so a map without a door frames the same way: one point is
+   * centred at street zoom, two or more are fitted. With a door that is
+   * exactly what it always did — the door alone at `SOLO_ZOOM`, or bounds over
+   * the door and the vans.
    */
   const frameAll = React.useCallback(() => {
     const instance = map.current;
     if (!instance) return;
 
-    if (drivers.length === 0) {
-      instance.easeTo({ center: [pickup.lng, pickup.lat], zoom: SOLO_ZOOM });
+    const points: MapPoint[] = pickup ? [pickup] : [];
+    for (const driver of drivers) points.push(driver.position);
+
+    const [first] = points;
+    if (!first) {
+      // Nothing to frame at all. A fleet map before the first shift opens.
+      if (initialCenter) {
+        instance.easeTo({
+          center: [initialCenter.lng, initialCenter.lat],
+          zoom: SOLO_ZOOM,
+        });
+      }
       return;
     }
-    const bounds = new LngLatBounds([pickup.lng, pickup.lat], [pickup.lng, pickup.lat]);
-    for (const driver of drivers)
-      bounds.extend([driver.position.lng, driver.position.lat]);
+    if (points.length === 1) {
+      instance.easeTo({ center: [first.lng, first.lat], zoom: SOLO_ZOOM });
+      return;
+    }
+    const bounds = new LngLatBounds([first.lng, first.lat], [first.lng, first.lat]);
+    for (const point of points) bounds.extend([point.lng, point.lat]);
     // `maxZoom` matters: a driver already outside the building would otherwise
     // frame two pins a few metres apart at street level, which is a map of
     // nothing.
     instance.fitBounds(bounds, { padding: FIT_PADDING, maxZoom: 15, duration: 600 });
-  }, [drivers, pickup.lat, pickup.lng]);
+    // Same reasoning as the door effect: the numbers are the identity.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [drivers, pickup?.lat, pickup?.lng, initialCenter?.lat, initialCenter?.lng]);
 
   /*
    * A USER GESTURE ENDS THE AUTO-FRAMING, AND OFFERS A WAY BACK.
