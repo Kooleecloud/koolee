@@ -29,8 +29,8 @@ done — not the conversation, and not memory.
 | 3 · Native shell: login, shift, background location | `feat/native-p3-shell`        | #45 | merged    |
 | 4 · Native UI kit + every driver screen             | `feat/native-p4-screens`      | #47 | merged    |
 | 5 · Push + realtime                                 | `feat/native-p5-push`         | #48 | merged    |
-| 6 · Admin live driver map                           | `feat/native-p6-admin-map`    | —   | in review |
-| 7 · Distribution prep                               | `feat/native-p7-distribution` | —   | pending   |
+| 6 · Admin live driver map                           | `feat/native-p6-admin-map`    | #49 | merged    |
+| 7 · Distribution prep                               | `feat/native-p7-distribution` | —   | in review |
 | 8 · Web agent app onto the shared handlers          | `feat/native-p8-web-handlers` | #46 | merged    |
 
 ---
@@ -116,16 +116,32 @@ done — not the conversation, and not memory.
 
 ## Phase 7 · Distribution prep
 
-- [ ] 7.1 app.json: bundle ids, permission strings, background modes, privacy manifest, icons, splash
-- [ ] 7.2 eas.json production profiles; Android production build proven (no Google account needed)
-- [ ] 7.3 Apple location-justification copy + Unlisted distribution request text drafted
-- [ ] 7.4 CHECKLIST.md complete with every account-dependent step
+- [x] 7.1 `app.json` store-ready. The bundle id and package `cloud.koolee.driver`, the permission strings and the location background mode were already there. New:
+  - the iOS privacy manifest: required-reason APIs plus the collected data types, no tracking;
+  - Koolee icons for every platform and the splash mark, rendered from `brand/` by `scripts/app-icons.mjs`. The iOS icon is opaque with no baked corners. The Android adaptive icon keeps its foreground inside the safe circle and has a monochrome layer;
+  - a white-silhouette Android notification icon;
+  - four library-merged Android permissions the app never uses are blocked (RECORD_AUDIO, READ/WRITE_EXTERNAL_STORAGE, SYSTEM_ALERT_WINDOW).
+
+  Prebuild confirms all of it: `PrivacyInfo.xcprivacy` lists 8 data types, and the merged manifest carries `tools:node="remove"` for the four. The pre-prompt location notice now says "even when the app is closed or the phone is locked", which Play's prominent-disclosure rule requires.
+
+- [x] 7.2 `eas.json` production profile (store distribution, remote version source, auto-increment). **Android production build proven:** EAS build `f23dd470` (store distribution, versionCode 3, signed with the EAS-managed keystore) finished and produced the `.aab`. The first attempt (`d3518646`) failed at `createBundleReleaseJsAndAssets_SentryUpload`: "Auth token is required", because release builds upload source maps and there is no Sentry token yet. `SENTRY_DISABLE_AUTO_UPLOAD` in the base profile fixed it, and CHECKLIST D4 removes it when the token lands. This bundle was built before any production `EXPO_PUBLIC_*` values existed, so it proves the pipeline but can't sign anyone in. CHECKLIST B4 rebuilds after D2.
+- [x] 7.3 [`STORE-COPY.md`](../features/native-driver-app/STORE-COPY.md): the Unlisted request, App Review notes (why background location, how to see it), App Privacy answers, Play's location + foreground-service declarations and Data safety answers, screenshots guidance, and a staff section for the privacy policy — drafted for TD's review, not live.
+- [x] 7.4 CHECKLIST.md complete: A5–A7 (App Store Connect record, privacy policy staff section, first iPhone build), B2–B5 (Internal testing track, App content declarations with the video, first manual AAB upload, the submit service account), C3, E1–E2, F1–F2, G2.
 
 ## Phase 8 · Web agent app onto the shared handlers
 
 - [ ] 8.1 Server actions delegate to the same handler module as the routes (one code path)
 
 ---
+
+## Follow-ups (engineering, not blocking)
+
+- The WEB agent app still refreshes on the driver's own pings. `LiveTasks` → `router.refresh()` fires on every ping signal for a carried booking, which is a full server render every 10 s. It needs the same `touched_by` skip the native twin has.
+- `apps/driver/src/lib/env.ts` keeps a private copy of the emulator-host rewrite. It stayed byte-identical to merge cleanly; point it at `lib/emulator-host.ts`.
+- `apps/driver/src/components/task-row.tsx` is tracked and unused. Deleting it is waiting on TD's OK.
+- `eas.json` names update channels, but `expo-updates` is not installed, so there are no over-the-air updates yet. Add it if you want JS-only fixes without a store release.
+- There is no physical-iPhone development profile yet (the `development` profile is simulator-only). Add one with `ios.simulator: false` once devices are registered (CHECKLIST G1).
+- The superseded local branch `feat/native-p5-push-p6-admin-map`, and the worktrees `../koolee-p4`, `-p5`, `-p5push`, `-p6`, `-p7`, `-p8`, can go once TD says so.
 
 ## Migrations in this run
 
@@ -328,3 +344,4 @@ $$;
 - 2026-09-27 — Phase 4 on both simulators. Bugs the devices found that no unit test could: `crypto.randomUUID` does not exist on Hermes, so every step died before its request with "check your connection" (`newId()` now builds a v4 uuid from `getRandomValues`); the tab bar's fixed height ignored the home-indicator inset on both platforms; signed photo URLs pointed at the server's `127.0.0.1`, so every avatar on the Android emulator fell back to initials; a malformed task id reached Postgres and came back 500 (now 404); and — the one that would have cost real positions — two location batches landing together interleaved in expo-sqlite's non-exclusive `withTransactionAsync`, the second's ROLLBACK undid the first's transaction and the task failed with "cannot rollback - no transaction is active" (appends are now single INSERT statements, `busy_timeout` for the headless task's second connection). Offline replay proven end to end on Android. A parity test now holds the app's time formatters to core's across five zones and the DST transitions.
 - 2026-09-27 — Phase 5 on both simulators, against the local agent server with push switched on. iOS: Account → Notifications → "Turn on notifications" → the OS prompt → a real Expo token → `POST /api/v1/push/register 201` → the test push reached Expo's relay, which refused it `InvalidCredentials — Could not find APNs credentials for cloud.koolee.driver`, and the card said exactly that (Koolee's side, nothing to change on the phone) instead of sending the driver to Settings — the whole pipeline proven up to Apple, which needs CHECKLIST A3. A push simulated with `xcrun simctl push` (the server's own `pickup-task:<id>` tag) opened the pickup from Notification Center. Sign-out sent `DELETE /api/v1/push/register`; signing back in re-registered silently. Android: the prompt, then no token until Firebase exists ("Unable to get Firebase Messaging instance" → CHECKLIST C), and the card says that too. Realtime `SUBSCRIBED` on both platforms for the list and for the open task, with the driver's own ping signals skipped. Found on the way: signing out re-rendered the Account tab with the session already gone and `useMe` threw a render error — fixed in this branch. Observed, not changed: the WEB agent app has the same own-ping refresh (`router.refresh()` on every one of the driver's own pings for a carried booking); worth the same skip when the web gets its next change.
 - 2026-09-27 — Phase 6 in a browser against the local stack: `/shifts` as the seeded admin rendered the fleet map with `data-fleet-map="live"`, one pin (the simulator's driver) — stale at first, because the simulator had been sending the same cached fix, then live the moment `xcrun simctl location set` moved it. Three moves in Jersey City each moved the pin within ~0.6–0.8 s of the phone reporting, between the 15 s polls (a MutationObserver on the marker timed them), so the socket, not the poll, carried them. Storybook builds with the two new fleet stories; admin 58 tests, ui 153, `listLiveDrivers` integration 6.
+- 2026-09-27 — Phase 7. Icons, splash and notification icon rendered from `brand/`; the iOS privacy manifest; the four unused Android permissions blocked; the disclosure wording Play requires. Prebuild confirmed each one, a local iOS simulator build with the new config succeeded, and the Koolee icon showed in the simulator's App Library. The EAS Android production build failed once on the Sentry source-map upload (no token yet), was fixed with `SENTRY_DISABLE_AUTO_UPLOAD`, and then finished (`f23dd470`, `.aab`). STORE-COPY.md holds every store form's text; CHECKLIST.md opens with a suggested order. Full monorepo `turbo run typecheck lint test`: 24/24 tasks green. The first run timed out three suites (agent route inventory, web `/book` entry, driver `runStep`) while an Xcode build saturated the machine; re-run alone, all three pass. With this, all eight phases are on the integration branch.

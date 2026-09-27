@@ -7,6 +7,17 @@
 > Status of the code side lives in
 > [`docs/run-reports/RUN-REPORT-16.md`](../../run-reports/RUN-REPORT-16.md).
 
+**The code is done.** All eight phases are merged into `feat/agent-native-app` and verified on the iOS simulator and the Android emulator. Nothing is promoted to `dev` yet; that PR is yours.
+
+**Suggested order**, fastest unblock first:
+
+1. **D1, D2** (dev + preview values), then an Android preview build: `cd apps/driver && npx eas-cli build --platform android --profile preview`. That is an installable APK with the JavaScript inside, talking to the hosted dev stack, so it puts the app on a real Android phone (**G1**) with no store account at all. A development build would need Metro running on your Mac.
+2. **C1–C3**: Android push.
+3. **H1, D4**: Sentry.
+4. Your promotion PR to `dev`, then **F1–F2** (hosted migrations) and **E1–E2** (push env on Vercel).
+5. **A1 → A7**: Apple, iPhone and push. Send the Unlisted request (A4) the day A1 clears; it is the slowest step.
+6. **B1 → B5**: Google Play.
+
 ## A. Apple Developer account (blocks iPhone builds, iOS push, App Store)
 
 - [ ] A1. Enrol at developer.apple.com (Organisation enrolment needs a D-U-N-S number; Individual is faster). ~1–3 days.
@@ -56,7 +67,7 @@
 - [x] D3. Android keystore — not needed: EAS generated one during the run's first non-interactive cloud build (build `509aa8bb`, finished). Nothing to do.
 - [ ] D4. Once the Sentry project exists (H1), add `SENTRY_AUTH_TOKEN` as an EAS secret: `npx eas-cli env:create production --name SENTRY_AUTH_TOKEN --value <token> --visibility secret` (and for `preview` too). In the same change, **delete `"env": { "SENTRY_DISABLE_AUTO_UPLOAD": "true" }` from `apps/driver/eas.json`** (build → base) so release builds upload source maps. Until the token exists, that line is what keeps release builds from failing: the first production build failed at `SentryUpload` with "Auth token is required".
 
-## E. Vercel env for the agent app (both Preview and Production scopes)
+## E. Vercel env for web, agent and admin (Preview and Production scopes)
 
 - [ ] E1. Optional: `EXPO_ACCESS_TOKEN` — create at expo.dev → Account settings → Access tokens, set it (secret) on **koolee-web** (the Inngest functions that push job alerts run there), **koolee-agent** (the Account tab's test push) and **koolee-admin**, then turn on "Enhanced push security" in the EAS project settings so only Koolee can push to the app. Expo delivers without it. Hand back: "set".
 - [ ] E2. Push is off unless `NEXT_PUBLIC_PUSH_NOTIFICATIONS_ENABLED=true` on those same three projects (it also gates web push, so it may already be on). With it off, the app's "Send a test notification" answers "notifications aren't set up on this environment yet".
@@ -68,9 +79,12 @@
 
 ## G. Phones for phase-3 field testing
 
-- [ ] G1. One iPhone and one Android phone. Tell the build which models so the dev build can be installed by link.
+- [ ] G1. Real phones.
+  - **Android, now:** install the preview build's APK from its EAS build page link (order step 1). No Play account is needed.
+  - **iPhone:** needs A1–A2 first. Then `npx eas-cli device:create` registers the phone. An internal-distribution build for it needs a profile with `ios.simulator: false`; add one when you get there, or go straight to A7.
+  - On each phone: start a shift, lock the phone for ten minutes, then check the admin `/shifts` map kept moving.
 - [ ] G2. Push, end to end (after A3 for iPhone, C1–C3 for Android, E2): sign in on the phone → Account → Notifications → "Turn on notifications" → allow → the card sends a test and asks "Did a notification just appear?". Then assign a visit to that driver from the admin console and check "New visit assigned" arrives and opens the visit when tapped.
 
 ## H. Sentry
 
-- [ ] H1. If the run could not create a Sentry project through the API, create "koolee-driver" (React Native) in the Koolee org and hand back its DSN.
+- [ ] H1. Create a "koolee-driver" project (platform React Native) in Koolee's Sentry org; the run had no Sentry API access. Put its DSN in EAS as `EXPO_PUBLIC_SENTRY_DSN` for all three environments (it is public by design). Until then the app's Sentry stays inert. Then do D4.
