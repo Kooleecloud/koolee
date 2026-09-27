@@ -1,8 +1,20 @@
 import { Tabs } from "expo-router";
 import { CalendarDays, CircleUser, Navigation } from "lucide-react-native";
 
+import { useToast } from "@/components/ui";
+import { useReplay } from "@/offline/use-replay";
+
 /** The three tabs, and three is the ceiling — same as the web agent app. */
 export default function TabsLayout() {
+  const toast = useToast();
+  // THE ONE MOUNT of the offline replay. The tabs stay mounted under every
+  // task screen, so this is where the queue gets sent when a signal returns;
+  // Today and the step screens only READ the queue's count. A queued step
+  // the server refused is said here, in the driver's own words for it.
+  useReplay({
+    onActionFailed: (failure) => toast.error(`${failure.label} — ${failure.message}`),
+  });
+
   return (
     <Tabs
       screenOptions={{
