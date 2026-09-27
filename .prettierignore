@@ -10,3 +10,4 @@ apps/agent/public/sw.js
 apps/driver/ios
 apps/driver/android
 apps/driver/.expo
+apps/driver/tailwind.tokens.js

@@ -44,6 +44,7 @@
   ```
 
   If `env:create` is not a command in your eas-cli version, the dashboard (Project → Environment variables) does the same. Hand back: "done".
+
 - [ ] D3. Android keystore: run `npx eas-cli credentials --platform android` once in `apps/driver`, choose the **development** profile → Keystore → "Set up a new keystore" and accept the generated one. EAS cannot generate it non-interactively, so the run's cloud Android build stops at this step until you do. Hand back: "done", then the run (or you) re-runs `npx eas-cli build --platform android --profile development`.
 - [ ] D4. Add `SENTRY_AUTH_TOKEN` as an EAS secret (`npx eas-cli env:create production --name SENTRY_AUTH_TOKEN --value <token> --visibility secret`) once the Sentry project exists (H1), so release builds upload source maps.
 

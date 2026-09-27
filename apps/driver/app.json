@@ -34,6 +34,14 @@
       ]
     },
     "plugins": [
+      [
+        "expo-image-picker",
+        {
+          "cameraPermission": "Koolee uses the camera to photograph passports and bags.",
+          "photosPermission": false,
+          "microphonePermission": false
+        }
+      ],
       "expo-router",
       "expo-font",
       "expo-secure-store",
