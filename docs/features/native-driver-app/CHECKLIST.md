@@ -25,6 +25,7 @@
 
 - [ ] C1. console.firebase.google.com → Add project "koolee-driver" → add an Android app with package `cloud.koolee.driver`.
 - [ ] C2. Project settings → Service accounts → Generate new private key (JSON). Upload it: `npx eas-cli credentials --platform android` → Google Service Account → FCM V1. Hand back: "done".
+- [ ] C3. Project settings → General → your Android app → download `google-services.json`. Hand it back (or put it at `apps/driver/google-services.json`); the build then needs `"googleServicesFile": "./google-services.json"` under `expo.android` in `app.json` and a fresh dev build. Until this exists an Android phone cannot get a push token at all — the app's Notifications card says "Notifications need one more setup step on Koolee's side", which is this step.
 
 ## D. Expo / EAS (already logged in as owner of `koolee-cloud`)
 
@@ -50,15 +51,17 @@
 
 ## E. Vercel env for the agent app (both Preview and Production scopes)
 
-- [ ] E1. `EXPO_ACCESS_TOKEN` — create at expo.dev → Account → Access tokens; needed by the server to send Expo push with enhanced security. Hand back: "set".
+- [ ] E1. Optional: `EXPO_ACCESS_TOKEN` — create at expo.dev → Account settings → Access tokens, set it (secret) on **koolee-web** (the Inngest functions that push job alerts run there), **koolee-agent** (the Account tab's test push) and **koolee-admin**, then turn on "Enhanced push security" in the EAS project settings so only Koolee can push to the app. Expo delivers without it. Hand back: "set".
+- [ ] E2. Push is off unless `NEXT_PUBLIC_PUSH_NOTIFICATIONS_ENABLED=true` on those same three projects (it also gates web push, so it may already be on). With it off, the app's "Send a test notification" answers "notifications aren't set up on this environment yet".
 
 ## F. Hosted database
 
-- [ ] F1. Apply the run's migrations to hosted once the integration branch is promoted (`pnpm db:status` first, then `pnpm db:migrate` with the direct URL). The SQL for each is in RUN-REPORT-16.
+- [ ] F1. Apply the run's migrations to hosted once the integration branch is promoted (`pnpm db:status` first, then `pnpm db:migrate` with the direct URL): 0037 `api_idempotency_keys`, 0038 `driver_push_tokens`. The SQL for each is in RUN-REPORT-16.
 
 ## G. Phones for phase-3 field testing
 
 - [ ] G1. One iPhone and one Android phone. Tell the build which models so the dev build can be installed by link.
+- [ ] G2. Push, end to end (after A3 for iPhone, C1–C3 for Android, E2): sign in on the phone → Account → Notifications → "Turn on notifications" → allow → the card sends a test and asks "Did a notification just appear?". Then assign a visit to that driver from the admin console and check "New visit assigned" arrives and opens the visit when tapped.
 
 ## H. Sentry
 
