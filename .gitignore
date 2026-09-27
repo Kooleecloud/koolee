@@ -59,3 +59,18 @@ storybook-static/
 # `brand*` here also swallowed `brand/` itself and any `brand-*.ts` anywhere
 # in the tree. Only the large working proposal PDFs stay local.
 /brand/*.pdf
+
+# Expo / React Native (apps/driver)
+apps/driver/.expo/
+apps/driver/ios/
+apps/driver/android/
+apps/driver/dist/
+*.apk
+*.aab
+*.ipa
+*.orig.*
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision

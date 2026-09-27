@@ -12,6 +12,7 @@
     "clean": "rm -rf .next .turbo node_modules *.tsbuildinfo"
   },
   "dependencies": {
+    "@koolee/api-contract": "workspace:*",
     "@koolee/core": "workspace:*",
     "@koolee/ui": "workspace:*",
     "@marsidev/react-turnstile": "^1.5.4",

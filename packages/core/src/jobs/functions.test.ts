@@ -217,6 +217,7 @@ describe("createKooleeFunctions — registration", () => {
     expect(h.functions.map((f) => f.id).sort()).toEqual([
       "agent-assigned-email",
       "agent-no-show-check",
+      "api-idempotency-retention",
       "assignment-horizon-sweep",
       "bagdrop-delivered-email",
       "bags-sealed-email",
@@ -248,6 +249,7 @@ describe("createKooleeFunctions — registration", () => {
      */
     expect(fn(h, "driver-position-gap-nudge").crons).toEqual(["*/5 * * * *"]);
     expect(fn(h, "position-ping-retention").crons).toEqual(["17 * * * *"]);
+    expect(fn(h, "api-idempotency-retention").crons).toEqual(["23 * * * *"]);
     expect(fn(h, "waitlist-zone-opened-sweep").crons).toEqual([
       "TZ=America/New_York 0 10 * * *",
     ]);

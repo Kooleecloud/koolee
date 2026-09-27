@@ -774,28 +774,40 @@ export async function reportEmptyDriverPool(
 /**
  * How old a GPS fix may be and still count as "where the driver is".
  *
- * `driver_positions` holds ONE mutable row per driver with no history, and the
- * agent app pings only in the FOREGROUND. A phone in a pocket stops reporting,
- * and the row keeps the last fix indefinitely — including one from a JOB THE
- * DRIVER FINISHED YESTERDAY. Rendering that on a map draws a van somewhere it
- * is not, with exactly the confidence of a live one.
+ * `driver_positions` holds ONE mutable row per driver with no history. A
+ * phone that stops reporting leaves its last fix in the row indefinitely —
+ * including one from a JOB THE DRIVER FINISHED YESTERDAY. Rendering that on a
+ * map draws a van somewhere it is not, with exactly the confidence of a live
+ * one.
  *
- * NINETY SECONDS, which is roughly four missed pings at the twenty-second
- * cadence the agent app uses while a driver is en route to a door
- * (`PING_INTERVAL_MS`, `components/shift/gps-pinger.tsx`). Long enough to
- * survive a tunnel, a lock screen or a dropped request; short enough that
- * nobody watches a frozen pin and believes it.
+ * THIRTY SECONDS. The native driver app reports every five seconds for the
+ * whole shift, in the background too (`apps/driver`), and the web agent app
+ * every ten (`PING_INTERVAL_MS`, `components/shift/gps-pinger.tsx`). The rule
+ * of thumb is a few missed sends of the SLOWEST client: three missed web sends
+ * fit inside this window, so one dropped request never blanks a pin, while a
+ * van that has genuinely gone quiet is greyed out before it has moved far.
  *
- * It was three minutes, sized against a flat 45-second ping. That is a long
- * time to be wrong about a moving vehicle: a van in city traffic covers the
- * better part of a kilometre in it, so the pin could sit a dozen blocks from
- * the truck while looking perfectly current. The rule of thumb is ~4× the
- * ACTIVE ping interval, and the active interval is now 20s.
+ * It was ninety seconds, sized against a twenty-second web cadence, and three
+ * minutes before that. Each step down followed the client: the window is a
+ * property of how often phones report, not of maps.
  *
  * Past this, `positionIsFresh` is false and every surface falls back to what
  * it said before there was a map: a distance, and "Position updating".
  */
-export const POSITION_FRESH_MS = 90_000;
+export const POSITION_FRESH_MS = 30_000;
+
+/**
+ * How often a fix is worth KEEPING in `driver_position_pings`.
+ *
+ * Every accepted fix updates `driver_positions` (the pin); only one every
+ * two and a half minutes is appended to the diagnostics track. At the native
+ * app's five-second cadence the track would otherwise take ~17,000 rows per
+ * driver-day — the highest-volume write in the system, multiplied by nine —
+ * to answer a question ("did this driver's location keep dropping, and for
+ * how long?") that a point every 150 seconds answers just as well. Roughly
+ * every thirtieth native fix, every fifteenth web fix.
+ */
+export const POSITION_PING_SAMPLE_MS = 150_000;
 
 export interface SelectedDriver {
   shiftId: string;
@@ -955,24 +967,37 @@ export async function recordDriverPosition(
    * dropping, and until this table there was no way to tell whether it did,
    * for how long, or on whose phone.
    *
-   * APPENDED EVEN WHEN THE UPSERT ABOVE DECLINED. A fix that lost the
-   * ordering race is still a real observation, and a replayed backlog is
-   * precisely the evidence worth keeping — the gap between `recorded_at` and
+   * SAMPLED, NOT EVERY FIX. One row per driver per `POSITION_PING_SAMPLE_MS`:
+   * the append is skipped when this driver already has a ping recorded
+   * within the window BEFORE this fix. A single statement — insert … where
+   * not exists — so a 5-second cadence costs one indexed lookup, not a read
+   * followed by a write, and two workers landing at once cannot both decide
+   * the window is empty and then both insert (the second one's NOT EXISTS
+   * sees the first's row under read-committed once it commits; the rare
+   * duplicate from a true tie is harmless diagnostics).
+   *
+   * STILL APPENDED WHEN THE UPSERT ABOVE DECLINED. A fix that lost the
+   * ordering race is a real observation, and a replayed backlog is precisely
+   * the evidence worth keeping — the gap between `recorded_at` and
    * `created_at` is what distinguishes "was in a tunnel" from "stopped
-   * reporting".
+   * reporting". The sample window applies to the backlog too, so replaying
+   * an hour offline costs ~24 rows, not 720.
    *
    * NEVER FATAL. Diagnostics must not cost a driver their live pin: this is
    * logged and swallowed, the same bargain `touchBookingSignals` makes below.
    */
+  const windowStart = new Date(recordedAt.getTime() - POSITION_PING_SAMPLE_MS);
   await db
-    .insert(driverPositionPings)
-    .values({
-      staffUserId: input.staffUserId,
-      driverShiftId: shift.id,
-      lat: input.lat,
-      lng: input.lng,
-      recordedAt,
-    })
+    .execute(
+      sql`insert into ${driverPositionPings} (staff_user_id, driver_shift_id, lat, lng, recorded_at)
+          select ${input.staffUserId}::uuid, ${shift.id}::uuid, ${input.lat}::double precision, ${input.lng}::double precision, ${recordedAt.toISOString()}::timestamptz
+          where not exists (
+            select 1 from ${driverPositionPings}
+            where ${driverPositionPings.staffUserId} = ${input.staffUserId}::uuid
+              and ${driverPositionPings.recordedAt} > ${windowStart.toISOString()}::timestamptz
+              and ${driverPositionPings.recordedAt} <= ${recordedAt.toISOString()}::timestamptz
+          )`,
+    )
     .catch((error: unknown) => {
       console.warn("[driver-position] ping log write failed", error);
     });
