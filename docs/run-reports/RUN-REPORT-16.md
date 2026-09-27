@@ -26,7 +26,7 @@ done — not the conversation, and not memory.
 | --------------------------------------------------- | ----------------------------- | --- | ----------- |
 | 1 · API layer (bearer routes in apps/agent)         | `feat/native-p1-api-layer`    | —   | in progress |
 | 2 · Location cadence + retention                    | (same branch as 1)            | —   | pending     |
-| 3 · Native shell: login, shift, background location | `feat/native-p3-shell`        | —   | pending     |
+| 3 · Native shell: login, shift, background location | `feat/native-p3-shell`        | —   | in progress |
 | 4 · Native UI kit + every driver screen             | `feat/native-p4-screens`      | —   | pending     |
 | 5 · Push + realtime                                 | `feat/native-p5-push`         | —   | pending     |
 | 6 · Admin live driver map                           | `feat/native-p6-admin-map`    | —   | pending     |
@@ -67,7 +67,7 @@ done — not the conversation, and not memory.
 - [x] 1.6 Routes: me, shift (get/start/end), trucks, tasks (list/detail), the 12 visit + pickup steps, journey start-pickup, account avatar
 - [x] 1.7 `driver-position` route accepts bearer auth
 - [x] 1.8 Tests per route (vitest) + typecheck + lint green — apps/agent 292 tests / 32 files, core 622 unit + 55 integration touched, api-contract 7; tsc, eslint and repo-wide prettier clean
-- [ ] 1.9 PR opened and merged into the integration branch
+- [x] 1.9 PR opened and merged into the integration branch — #44, merge commit `01c71bd`
 
 ## Phase 2 · Location cadence + retention
 
@@ -88,12 +88,12 @@ done — not the conversation, and not memory.
 
 ## Phase 3 · Native shell
 
-- [ ] 3.1 `apps/driver` Expo SDK 57 app in the monorepo (expo-router, NativeWind, TypeScript, Sentry, eas.json dev/prod profiles)
-- [ ] 3.2 Email + password sign-in against Supabase, token in secure storage, silent refresh, role gate via `/api/v1/me`
-- [ ] 3.3 Shift bar with truck picker (start/end)
-- [ ] 3.4 Background location every 5 s: expo-location + task-manager, iOS Always + background mode, Android foreground service, keep-awake, battery-optimisation prompt, significant-change relaunch
-- [ ] 3.5 On-device SQLite queue for positions, batched sends, ordered replay on reconnect
-- [ ] 3.6 Tasks list (home) screen
+- [x] 3.1 `apps/driver` Expo SDK 57 app in the monorepo (expo-router, NativeWind, TypeScript, Sentry, eas.json dev/prod profiles)
+- [x] 3.2 Email + password sign-in against Supabase, token in secure storage, silent refresh, role gate via `/api/v1/me`
+- [x] 3.3 Shift bar with truck picker (start/end)
+- [x] 3.4 Background location every 5 s: expo-location + task-manager, iOS Always + background mode, Android foreground service, keep-awake, battery-optimisation prompt, significant-change relaunch
+- [x] 3.5 On-device SQLite queue for positions, batched sends, ordered replay on reconnect
+- [x] 3.6 Tasks list (home) screen
 - [ ] 3.7 Runs on the iOS simulator and the Android emulator; screenshots in the report
 - [ ] 3.8 `eas init` + one cloud Android build to prove the pipeline
 
@@ -166,3 +166,4 @@ ALTER TABLE "public"."api_idempotency_keys" ENABLE ROW LEVEL SECURITY;
 - 2026-09-27 — Phase 1 foundations committed (`2474b20`): contract package, bearer session, route wrapper, idempotency (0037 applied locally), me/shift/trucks routes. Phase 2 landed in the same commit: freshness 30 s, gap 2 min, ping sampling 150 s, web cadence 10 s (core unit 622 pass, driver-selection + position-health integration 49 pass, api-idempotency integration 6 pass). Four agents are writing the tasks/visit/pickup/positions/account handlers, routes and tests; a refute-first review pass follows.
 - 2026-09-27 — Expo research returned (saved to the session notes as `expo-recipe.md`): SDK 57 pins RN 0.86.3 (not 0.87); NativeWind 4.2.7 needs Tailwind 3.4 (token-conversion script from theme.css); expo-location has NO significant-change API (geofencing is the only iOS relaunch path) — decision 14's "significant-change relaunch" becomes a geofence around the last known position; Xcode 27 needs `expo-build-properties` `ios.enableSceneSupport`; Expo Go is out (dev builds only).
 - 2026-09-27 — Routes landed via a 4-implementer + 4-reviewer workflow (refute-first). Reviewers fixed: whole DB rows leaking on the wire (pricing, agreement body, customer IP/UA) → server-side projection; shape-only route tests → wrapper-driven tests that prove schema binding and handler wiring; non-uuid task ids reaching Postgres as 500 → 404 guard; parity test missing CANCELLATION_ACTORS. I added the assignment check before the storage probe in `sealBag` (a stranger gets 404, never a 400 that reveals whether an object exists) and raised the agent vitest timeout for cold core imports. Full suite green; agent production build running.
+- 2026-09-27 — Phase 3 on the iOS simulator (iPhone 18 Pro, iOS 27, Xcode 27): `apps/driver` builds with xcodebuild after `expo prebuild`, loads from Metro through the dev client, signs in the seeded agent against the LOCAL Supabase + the agent dev server on :3011, renders Today with the shift card and real jobs (Sora/Inter, brand tokens via the theme script). The location flow through the real system prompts ("Allow While Using App" → "Change to Always Allow") started the background task; with simulated positions the server logged `POST /api/v1/positions 200` three times in the foreground and FOUR MORE with the app on the home screen — the blocker this project exists for, closed on iOS. Toolchain lessons recorded in memory (Metro without CI=1, xcodebuild instead of `expo run:ios`, Maestro for taps, `react-native-css-interop` as a direct dependency under pnpm isolation).
