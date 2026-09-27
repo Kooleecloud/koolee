@@ -41,5 +41,9 @@ export const apiRoutes = {
       `${API_PREFIX}/tasks/${encodeURIComponent(taskId)}/pickup/exception`,
   },
   positions: () => `${API_PREFIX}/positions`,
+  /** POST registers an Expo push token; DELETE (same path, `{ token }`) removes it. */
+  pushRegister: () => `${API_PREFIX}/push/register`,
+  /** POST sends a test push to the caller's own devices. */
+  pushTest: () => `${API_PREFIX}/push/test`,
   accountAvatar: () => `${API_PREFIX}/account/avatar`,
 } as const;

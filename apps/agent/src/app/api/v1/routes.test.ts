@@ -15,9 +15,9 @@ import { API_PREFIX, apiRoutes } from "@koolee/api-contract";
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const TASK_ID = "__taskId__";
 
-/** Read routes; everything else is a POST. `accountAvatar` also serves DELETE. */
+/** Read routes; everything else is a POST. `accountAvatar` and `pushRegister` also serve DELETE. */
 const GET_ROUTES = new Set(["me", "shift", "trucks", "tasks", "task"]);
-const DELETE_ROUTES = new Set(["accountAvatar"]);
+const DELETE_ROUTES = new Set(["accountAvatar", "pushRegister"]);
 
 type RouteFn = (...args: never[]) => string;
 
@@ -64,6 +64,8 @@ describe("api/v1 route inventory", () => {
         "pickup.scanSeal",
         "pickup.start",
         "positions",
+        "pushRegister",
+        "pushTest",
         "shift",
         "shiftEnd",
         "shiftStart",

@@ -8,6 +8,8 @@ import {
   bagPhotoPath,
   meResponseSchema,
   positionsRequestSchema,
+  pushRegisterRequestSchema,
+  pushUnregisterRequestSchema,
   sealBagRequestSchema,
   taskDetailResponseSchema,
 } from "./index";
@@ -73,6 +75,42 @@ describe("api contract", () => {
       positionsRequestSchema.safeParse({ fixes: Array.from({ length: 121 }, () => fix) })
         .success,
     ).toBe(false);
+  });
+
+  it("accepts only Expo-shaped push tokens on either platform, and bounds the label", () => {
+    const token = "ExponentPushToken[xxxxxxxxxxxxxxxxxxxxxx]";
+    expect(pushRegisterRequestSchema.safeParse({ token, platform: "ios" }).success).toBe(
+      true,
+    );
+    expect(
+      pushRegisterRequestSchema.safeParse({
+        token: "ExpoPushToken[xxxxxxxxxxxxxxxxxxxxxx]",
+        platform: "android",
+        deviceLabel: "Pixel 9",
+      }).success,
+    ).toBe(true);
+    // An FCM registration id, a raw APNs token, and a web platform are all
+    // wrong for this route — the server's channel for them is web push.
+    expect(
+      pushRegisterRequestSchema.safeParse({ token: "fcm:abc", platform: "ios" }).success,
+    ).toBe(false);
+    expect(pushRegisterRequestSchema.safeParse({ token, platform: "web" }).success).toBe(
+      false,
+    );
+    expect(
+      pushRegisterRequestSchema.safeParse({ token, platform: "ios", deviceLabel: "" })
+        .success,
+    ).toBe(false);
+    expect(
+      pushRegisterRequestSchema.safeParse({
+        token,
+        platform: "ios",
+        deviceLabel: "x".repeat(121),
+      }).success,
+    ).toBe(false);
+    expect(pushUnregisterRequestSchema.safeParse({ token }).success).toBe(true);
+    expect(pushUnregisterRequestSchema.safeParse({ token: "" }).success).toBe(false);
+    expect(apiRoutes.pushRegister()).toBe("/api/v1/push/register");
   });
 
   it("discriminates task detail by kind", () => {
