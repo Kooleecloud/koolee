@@ -2,7 +2,7 @@ import * as React from "react";
 import { Image, View } from "react-native";
 import { User } from "lucide-react-native";
 
-import { emulatorHost } from "@/lib/env";
+import { emulatorHost } from "@/lib/emulator-host";
 
 import { avatarLabelFor, initialsFor, tintFor } from "./avatar-fallback";
 import { Text } from "./text";

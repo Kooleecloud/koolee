@@ -43,12 +43,8 @@ function trimSlash(url: string): string {
  * the app then fails with "connection refused" that looks like a wrong
  * password. Rewriting here is the version that cannot be forgotten. A
  * release build never carries a localhost URL, so this is a no-op there.
- *
- * Exported for the signed Storage URLs the API hands back: the server signs
- * them against ITS Supabase URL, which locally is `127.0.0.1`, so on the
- * emulator every photo silently fell back to initials.
  */
-export function emulatorHost(url: string): string {
+function emulatorHost(url: string): string {
   if (!__DEV__ || Platform.OS !== "android") return url;
   return url.replace(/\/\/(localhost|127\.0\.0\.1)(?=[:/]|$)/, "//10.0.2.2");
 }

@@ -2,7 +2,7 @@ import * as React from "react";
 import { Image, Modal, Pressable, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import { emulatorHost } from "@/lib/env";
+import { emulatorHost } from "@/lib/emulator-host";
 
 import { Button } from "./button";
 import { Text } from "./text";
