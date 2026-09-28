@@ -2,6 +2,17 @@
 @import "@koolee/ui/styles/theme.css";
 
 /*
+ * MapLibre's own stylesheet and the map popup skin, for the fleet map on
+ * /shifts. Imported HERE rather than from `live-map.tsx`, exactly as apps/web
+ * does: `@koolee/ui` declares `sideEffects: false`, so a bare CSS import
+ * inside a component of that package is one a bundler is entitled to drop —
+ * and the failure is a blank rectangle with no error anywhere.
+ */
+@import "maplibre-gl/dist/maplibre-gl.css";
+
+@import "@koolee/ui/styles/map.css";
+
+/*
  * Console density — the ops console's one layout preference.
  *
  * It lives here rather than in `packages/ui/styles/theme.css` because it is

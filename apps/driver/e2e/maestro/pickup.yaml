@@ -1,0 +1,75 @@
+# Opens a pickup, taps "I'm on the way", checks a seal that cannot match
+# (the refusal must show verbatim, and nothing is loaded), then opens and
+# cancels the problem form. WRITES to the local database: the set-off is a
+# custody event. PICKUP_TASK_ID: a pickup task assigned to the signed-in
+# driver whose flight has NOT left (a departed one raises an exception).
+# Opened by deep link, because a booking's card leads to its visit until the
+# visit is done.
+appId: cloud.koolee.driver
+---
+- openLink: "koolee-driver://task/${PICKUP_TASK_ID}?kind=pickup"
+- runFlow:
+    when:
+      visible: "Open"
+    commands:
+      - tapOn: "Open"
+- extendedWaitUntil:
+    visible:
+      id: "task-screen"
+    timeout: 30000
+- takeScreenshot: pickup-top
+- scrollUntilVisible:
+    element:
+      id: "pickup-set-off|pickup-set-off-done|pickup-seals-card"
+    direction: DOWN
+    timeout: 20000
+- runFlow:
+    when:
+      visible:
+        id: "pickup-set-off"
+    commands:
+      - tapOn:
+          id: "pickup-set-off"
+      - extendedWaitUntil:
+          visible:
+            id: "pickup-set-off-done|pickup-seals-card|step-error"
+          timeout: 30000
+          optional: true
+- takeScreenshot: pickup-after-set-off
+- runFlow:
+    when:
+      visible:
+        id: "seal-input"
+    commands:
+      - tapOn:
+          id: "seal-input"
+      - inputText: "NOT-A-REAL-SEAL"
+      # The keyboard's Done key submits the check (onSubmitEditing), the way
+      # a driver would. Maestro's hideKeyboard is unreliable on iOS, and the
+      # button sits under the keyboard there.
+      - pressKey: Enter
+      - waitForAnimationToEnd:
+          timeout: 10000
+      - takeScreenshot: pickup-seal-refused
+- scrollUntilVisible:
+    element:
+      id: "pickup-exception-open"
+    direction: DOWN
+    timeout: 20000
+- tapOn:
+    id: "pickup-exception-open"
+- scrollUntilVisible:
+    element:
+      id: "pickup-exception-cancel"
+    direction: DOWN
+    timeout: 15000
+- takeScreenshot: pickup-exception-form
+- tapOn:
+    id: "pickup-exception-cancel"
+- scrollUntilVisible:
+    element:
+      id: "task-back"
+    direction: UP
+    timeout: 15000
+- tapOn:
+    id: "task-back"

@@ -32,7 +32,7 @@ const nextConfig = {
     ];
   },
   // Workspace packages ship TypeScript source, not build output.
-  transpilePackages: ["@koolee/ui", "@koolee/core", "@koolee/db"],
+  transpilePackages: ["@koolee/ui", "@koolee/core", "@koolee/db", "@koolee/api-contract"],
   // Without this, Next guesses the wrong root in a pnpm monorepo.
   outputFileTracingRoot: path.join(__dirname, "../../"),
   experimental: {

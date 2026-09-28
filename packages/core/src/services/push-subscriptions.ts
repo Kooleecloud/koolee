@@ -3,6 +3,7 @@ import { pushSubscriptions, staffMembers, type Database, type PushApp } from "@k
 
 import type { CoreConfig } from "../config";
 import type { PushPayload, PushTarget, PushUrgency } from "../notifications/push";
+import { disableDriverPushTokens, listDriverPushTokens } from "./driver-push-tokens";
 
 /**
  * Push subscriptions: storage, authorization, and the fan-out.
@@ -17,6 +18,13 @@ import type { PushPayload, PushTarget, PushUrgency } from "../notifications/push
  * provider, a network failure, a sender that throws. The caller is an Inngest
  * step whose EMAIL is the real notification, and a failed push must not fail
  * it, retry it, or duplicate it. See notifications/push.ts.
+ *
+ * TWO CHANNELS, ONE FAN-OUT. A person may hold web subscriptions (this
+ * table) and Expo tokens (`driver-push-tokens.ts`, the native app) at once;
+ * `pushToUsers` addresses both, each isolated from the other's failures, so
+ * a driver who moved to the native app and a customer on the web get the
+ * same call. `pushToTargets` stays web-only for callers that resolved an
+ * audience of subscriptions themselves.
  */
 
 export interface SavePushSubscriptionInput {
@@ -205,11 +213,28 @@ export async function prunePushSubscriptions(
 }
 
 export interface PushFanOutResult {
+  /** Devices addressed on BOTH channels — web subscriptions plus Expo tokens. */
   targeted: number;
+  /** Web push. */
   sent: number;
   failed: number;
   pruned: number;
+  /** Expo push. Zero on every field when nobody holds a token. */
+  expoSent: number;
+  expoFailed: number;
+  /** Tokens newly disabled after a `DeviceNotRegistered` from Expo. */
+  expoDisabled: number;
 }
+
+const NOTHING: PushFanOutResult = {
+  targeted: 0,
+  sent: 0,
+  failed: 0,
+  pruned: 0,
+  expoSent: 0,
+  expoFailed: 0,
+  expoDisabled: 0,
+};
 
 /**
  * Send one payload to every device of every named person, then prune the dead.
@@ -226,12 +251,67 @@ export async function pushToUsers(
   payload: PushPayload,
   options: { urgency?: PushUrgency } = {},
 ): Promise<PushFanOutResult> {
+  // Each channel catches its own failures, so a broken table read or a
+  // throwing sender on one side still lets the other side ring.
+  const web = await pushToWebDevices(config, userIds, payload, options);
+  const expo = await pushToExpoDevices(config, userIds, payload, options);
+  return {
+    targeted: web.targeted + expo.targeted,
+    sent: web.sent,
+    failed: web.failed,
+    pruned: web.pruned,
+    expoSent: expo.sent,
+    expoFailed: expo.failed,
+    expoDisabled: expo.disabled,
+  };
+}
+
+async function pushToWebDevices(
+  config: CoreConfig,
+  userIds: string[],
+  payload: PushPayload,
+  options: { urgency?: PushUrgency },
+): Promise<PushFanOutResult> {
   try {
     const targets = await listPushTargets(config.db, userIds);
     return await pushToTargets(config, targets, payload, options);
   } catch (error) {
     console.error(`[push] fan-out failed for tag ${payload.tag}`, error);
-    return { targeted: 0, sent: 0, failed: 0, pruned: 0 };
+    return NOTHING;
+  }
+}
+
+/**
+ * The Expo half. Same shape as the web half: list, send, then act on what
+ * the relay said was gone — except a dead token is DISABLED, not deleted,
+ * so the same install re-registering later revives its row.
+ */
+async function pushToExpoDevices(
+  config: CoreConfig,
+  userIds: string[],
+  payload: PushPayload,
+  options: { urgency?: PushUrgency },
+): Promise<{ targeted: number; sent: number; failed: number; disabled: number }> {
+  let tokens: string[] = [];
+  try {
+    tokens = (await listDriverPushTokens(config.db, userIds)).map((row) => row.token);
+    if (tokens.length === 0) return { targeted: 0, sent: 0, failed: 0, disabled: 0 };
+
+    const result = await config.expoPushSender.send(tokens, payload, options);
+    const disabled = await disableDriverPushTokens(
+      config.db,
+      result.invalid,
+      config.clock.now(),
+    );
+    return {
+      targeted: tokens.length,
+      sent: result.sent,
+      failed: result.failed,
+      disabled,
+    };
+  } catch (error) {
+    console.error(`[expo-push] fan-out failed for tag ${payload.tag}`, error);
+    return { targeted: tokens.length, sent: 0, failed: tokens.length, disabled: 0 };
   }
 }
 
@@ -242,12 +322,13 @@ export async function pushToTargets(
   payload: PushPayload,
   options: { urgency?: PushUrgency } = {},
 ): Promise<PushFanOutResult> {
-  if (targets.length === 0) return { targeted: 0, sent: 0, failed: 0, pruned: 0 };
+  if (targets.length === 0) return NOTHING;
 
   try {
     const result = await config.pushSender.send(targets, payload, options);
     const pruned = await prunePushSubscriptions(config.db, result.expired);
     return {
+      ...NOTHING,
       targeted: targets.length,
       sent: result.sent,
       failed: result.failed,
@@ -255,6 +336,6 @@ export async function pushToTargets(
     };
   } catch (error) {
     console.error(`[push] send failed for tag ${payload.tag}`, error);
-    return { targeted: targets.length, sent: 0, failed: targets.length, pruned: 0 };
+    return { ...NOTHING, targeted: targets.length, failed: targets.length };
   }
 }

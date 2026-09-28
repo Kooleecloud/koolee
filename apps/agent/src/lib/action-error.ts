@@ -1,5 +1,7 @@
 import { CoreError } from "@koolee/core";
 
+import { ApiHttpError } from "@/api/errors";
+
 /**
  * Turning a thrown thing into something true for the person holding the phone.
  *
@@ -33,13 +35,23 @@ import { CoreError } from "@koolee/core";
  *
  * A refusal is NOT logged as an error. It is the system working, and a
  * console full of correct refusals is a console nobody reads.
+ *
+ * `ApiHttpError` IS A REFUSAL TOO. Since the server actions delegate to the
+ * same handlers as `/api/v1` (phase 8), a core `{ ok: false, error }` reaches
+ * here as `refused(error)`, a storage-path guard as `invalid_input`, a
+ * malformed task id as `not_found`, and a lost session as `not_authorized`
+ * — every one an `ApiHttpError` built around a sentence written for the
+ * driver, exactly like a `CoreError`. Same treatment: shown verbatim, not
+ * logged. (The route wrapper's `internal` mapping never reaches an action:
+ * handlers throw the raw error and the wrapper does that translation, so an
+ * `ApiHttpError` seen here was constructed on purpose.)
  */
 export function actionErrorMessage(
   error: unknown,
   fallback: string,
   logPrefix: string,
 ): string {
-  if (error instanceof CoreError) return error.message;
+  if (error instanceof CoreError || error instanceof ApiHttpError) return error.message;
   console.error(logPrefix, fallback, error);
   return `${fallback} Check your connection and try again.`;
 }

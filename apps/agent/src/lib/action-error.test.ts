@@ -7,6 +7,8 @@ import {
   NotFoundError,
 } from "@koolee/core";
 
+import { ApiHttpError, refused } from "@/api/errors";
+
 import { actionErrorMessage } from "./action-error";
 
 /**
@@ -68,6 +70,35 @@ describe("actionErrorMessage", () => {
   it("does not log a refusal", () => {
     const spy = vi.spyOn(console, "error").mockImplementation(() => {});
     actionErrorMessage(new ConflictError("seal"), "Couldn't do that.", "[visit]");
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  /* --- the shared handlers' refusals arrive as ApiHttpError --------------- */
+
+  it.each([
+    ["a core step that answered ok:false", refused("Your bags are with the airline.")],
+    [
+      "a storage-path guard",
+      new ApiHttpError("invalid_input", "That photo doesn't belong to this step.", {
+        field: "photoPath",
+      }),
+    ],
+    [
+      "a task id that cannot exist",
+      new ApiHttpError("not_found", "That task doesn't exist."),
+    ],
+    ["a lost session", new ApiHttpError("not_authorized", "Please sign in again.")],
+  ])("shows the handler's own sentence for %s", (_label, error) => {
+    expect(actionErrorMessage(error, "Couldn't do that.", "[visit]")).toBe(error.message);
+  });
+
+  it("does not log an ApiHttpError refusal either", () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    actionErrorMessage(
+      refused("This booking was cancelled."),
+      "Couldn't do that.",
+      "[visit]",
+    );
     expect(spy).not.toHaveBeenCalled();
   });
 

@@ -6,3 +6,9 @@ coverage
 pnpm-lock.yaml
 packages/db/drizzle
 apps/agent/public/sw.js
+# Expo / React Native generated output (apps/driver)
+apps/driver/ios
+apps/driver/android
+apps/driver/.expo
+apps/driver/tailwind.tokens.js
+apps/driver/expo-env.d.ts

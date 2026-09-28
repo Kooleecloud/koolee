@@ -16,7 +16,7 @@ describe("positionHealthOf", () => {
   });
 
   /*
-   * DELIBERATELY LOOSER THAN `POSITION_FRESH_MS` (90s). Ninety seconds is
+   * DELIBERATELY LOOSER THAN `POSITION_FRESH_MS` (30s). Thirty seconds is
    * "do not draw this pin as current" — a bar the ordinary rhythm of a phone
    * crosses at every red light in a tunnel. Alerting on it would page ops
    * several times an hour per driver and be ignored inside a day.

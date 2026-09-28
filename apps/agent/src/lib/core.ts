@@ -7,8 +7,10 @@ import {
   tryCreateRuntime,
   type CoreConfig,
   type OpsAlerter,
+  type ExpoPushSender,
   type PushSender,
 } from "@koolee/core";
+import { createExpoPushSender } from "@koolee/core/expo-push";
 import { createWebPushSender } from "@koolee/core/web-push";
 
 import { env, optionalEnv, pushNotificationsEnabled } from "@/env";
@@ -35,6 +37,22 @@ function resolvePushSender(): { pushSender?: PushSender } {
     subject: optionalEnv("VAPID_SUBJECT"),
   });
   return sender === null ? {} : { pushSender: sender };
+}
+
+/**
+ * The Expo relay for the native driver app — the second push channel, gated
+ * by the SAME kill switch as web push. No credentials are required on this
+ * side: sends work with a bare token, and `EXPO_ACCESS_TOKEN` only makes the
+ * EAS project refuse pushes from anyone else (CHECKLIST E1). Null → the
+ * runtime falls back to `ConsoleExpoPushSender`, which logs and REPORTS
+ * SUCCESS, exactly like its web twin.
+ */
+function resolveExpoPushSender(): { expoPushSender?: ExpoPushSender } {
+  const sender = createExpoPushSender({
+    enabled: pushNotificationsEnabled(),
+    accessToken: optionalEnv("EXPO_ACCESS_TOKEN"),
+  });
+  return sender === null ? {} : { expoPushSender: sender };
 }
 
 /**
@@ -71,6 +89,7 @@ export function getCore(): CoreConfig {
   return createRuntime({
     databaseUrl: env.DATABASE_URL,
     ...resolvePushSender(),
+    ...resolveExpoPushSender(),
     ...resolveOpsAlerter(),
     payments: { kind: "fake", currency: "usd" },
     // `reportVisitException` raises `booking/exception_raised` from inside
@@ -85,6 +104,7 @@ export function tryGetCore(): CoreConfig | null {
   return tryCreateRuntime({
     databaseUrl: env.DATABASE_URL,
     ...resolvePushSender(),
+    ...resolveExpoPushSender(),
     ...resolveOpsAlerter(),
     payments: { kind: "fake", currency: "usd" },
     emitter: inngestEmitter,

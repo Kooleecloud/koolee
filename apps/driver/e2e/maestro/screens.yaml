@@ -1,0 +1,42 @@
+# The three tabs, as a driver sees them. Screenshots land in the Maestro
+# output folder (~/.maestro/tests/<run>/).
+appId: cloud.koolee.driver
+---
+- runFlow: _home.yaml
+- tapOn:
+    id: "tab-today"
+- extendedWaitUntil:
+    visible: "Today"
+    timeout: 30000
+- takeScreenshot: today
+- scroll
+- takeScreenshot: today-scrolled
+- tapOn:
+    id: "tab-schedule"
+- scrollUntilVisible:
+    element:
+      id: "schedule-view-todo"
+    direction: UP
+    timeout: 15000
+- tapOn:
+    id: "schedule-view-todo"
+- extendedWaitUntil:
+    visible: "To do.*"
+    timeout: 30000
+- takeScreenshot: schedule
+- tapOn:
+    id: "schedule-view-history"
+- takeScreenshot: history
+- tapOn:
+    id: "schedule-view-todo"
+- tapOn:
+    id: "tab-account"
+- extendedWaitUntil:
+    visible:
+      id: "account-identity"
+    timeout: 30000
+- takeScreenshot: account
+- scroll
+- takeScreenshot: account-scrolled
+- tapOn:
+    id: "tab-today"

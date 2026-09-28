@@ -59,9 +59,18 @@ const bodySchema = z.union([
 export async function POST(request: Request): Promise<NextResponse> {
   let session;
   try {
-    session = await requireAgentSession();
-  } catch {
-    return NextResponse.json({ error: "not_authorized" }, { status: 401 });
+    // The native app sends `Authorization: Bearer`; the web queue and
+    // `sw.js` send the cookie. Same route, same disposition rules.
+    session = await requireAgentSession(request);
+  } catch (error) {
+    // 401 only for a real "no": the web queue DROPS a fix on any 4xx, so an
+    // auth-server blip answered as 401 would throw away every fix it held.
+    // A check that could not run is a 503, which the queue keeps and retries.
+    if (error instanceof NotAuthorizedError) {
+      return NextResponse.json({ error: "not_authorized" }, { status: 401 });
+    }
+    console.error("[driver-position] session check failed", error);
+    return NextResponse.json({ error: "unavailable" }, { status: 503 });
   }
 
   const parsed = bodySchema.safeParse(await request.json().catch(() => null));

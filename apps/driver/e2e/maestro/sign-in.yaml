@@ -1,0 +1,21 @@
+# Signs in when the login screen is showing; a no-op when already signed in.
+# AGENT_EMAIL / AGENT_PASSWORD: a seeded local agent (agent@koolee.local).
+appId: cloud.koolee.driver
+---
+- runFlow:
+    when:
+      visible:
+        id: "login-email"
+    commands:
+      - tapOn:
+          id: "login-email"
+      - eraseText: 60
+      - inputText: "${AGENT_EMAIL}"
+      - tapOn:
+          id: "login-password"
+      - eraseText: 60
+      - inputText: "${AGENT_PASSWORD}"
+      - tapOn: "Sign in"
+- extendedWaitUntil:
+    visible: "Today"
+    timeout: 60000

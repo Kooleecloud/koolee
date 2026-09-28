@@ -132,7 +132,7 @@ person holding the phone, and a push is the only mechanism that can wake a
 backgrounded PWA at all.
 
 **`POSITION_GAP_MS` is four minutes, deliberately looser than the map's
-90-second `POSITION_FRESH_MS`.** Ninety seconds is the bar for "do not draw this
+30-second `POSITION_FRESH_MS`.** (Was 90 s until run report 16 dropped it with the 5 s native cadence.) Thirty seconds is the bar for "do not draw this
 pin as current", which an ordinary phone crosses at a red light in a tunnel;
 alerting on it would page several times an hour per driver and be ignored inside
 a day.

@@ -57,40 +57,38 @@ import {
 /**
  * How often to SEND, by what the driver is doing.
  *
- * These are send cadences, not fix cadences, and that distinction is new.
+ * These are send cadences, not fix cadences, and that distinction matters.
  * `watchPosition` delivers whenever the device has something new to say; this
- * throttles what reaches the network, so the battery cost of a subscription
- * stays close to the old polling cost while the freshness improves.
+ * throttles what reaches the network.
  *
- * `POSITION_FRESH_MS` in core is sized at roughly four missed sends of the
- * ACTIVE cadence — 90 seconds against these 20. Changing this without
- * revisiting that one is how a pin starts being dropped as stale while the
- * driver is reporting normally.
+ * TEN SECONDS, EVERY PHASE. `POSITION_FRESH_MS` in core is 30 seconds (the
+ * native driver app reports every five, and the freshness window follows the
+ * clients), so a web driver has to land at least two sends inside it or one
+ * dropped request greys their pin on every customer's map and on the admin's.
+ * The phases are kept as a seam — a future battery-saving mode may want to
+ * slow `carrying` back down once the native app is the primary surface and
+ * this one is a fallback — but today they agree.
  *
- *  - **`en_route`** — the pickup has started, the bags are still on the
- *    doorstep, somebody is very plausibly watching a dot approach their house.
- *  - **`carrying`** — seals scanned, bags aboard, booking `in_transit`. The
- *    question has changed from "where are they" to "did they make it", which
- *    the custody trail answers.
- *  - **`on_shift`** — clocked on, nothing running. Somebody may be looking at
- *    this driver as a pin on a shortlist right now, so it is not free to
- *    raise: two sends must fit inside the 90-second freshness window or one
- *    dropped request removes them from every customer's map.
+ *  - **`en_route`** — the pickup has started, somebody is plausibly watching
+ *    a dot approach their house.
+ *  - **`carrying`** — seals scanned, bags aboard, booking `in_transit`.
+ *  - **`on_shift`** — clocked on, nothing running. Still on the shortlist
+ *    pins and the admin map.
  */
 const PING_INTERVAL_MS: Record<GpsPingerPhase, number> = {
-  en_route: 20_000,
-  carrying: 45_000,
-  on_shift: 45_000,
+  en_route: 10_000,
+  carrying: 10_000,
+  on_shift: 10_000,
 };
 
 /**
  * A fix older than this is not worth reporting.
  *
- * The browser's cache window. A 60-second-old fix is a reasonable answer to
- * "where are you" in city traffic and saves a GPS wake; forcing fresh hardware
- * every time is most of the battery cost.
+ * The browser's cache window. Sized to the send cadence: a fix from the
+ * previous tick is an honest answer to "where are you", one from a minute
+ * ago would be reported with a `recordedAt` the server drops as stale anyway.
  */
-const MAX_FIX_AGE_MS = 60_000;
+const MAX_FIX_AGE_MS = 10_000;
 
 /** How long a single fix attempt gets before the browser gives up on it. */
 const FIX_TIMEOUT_MS = 30_000;
@@ -98,11 +96,11 @@ const FIX_TIMEOUT_MS = 30_000;
 /**
  * No accepted fix for this long and the chip stops claiming to be live.
  *
- * Twice the slowest cadence plus a margin. Long enough that an ordinary
- * missed send does not cry wolf, short enough that a driver whose location has
- * genuinely stopped finds out from the app rather than from dispatch.
+ * Four missed sends plus a margin. Long enough that an ordinary missed send
+ * does not cry wolf, short enough that a driver whose location has genuinely
+ * stopped finds out from the app rather than from dispatch.
  */
-const STALL_AFTER_MS = 120_000;
+const STALL_AFTER_MS = 45_000;
 
 /** How often the chip re-checks whether it has gone stale. */
 const STALL_TICK_MS = 15_000;

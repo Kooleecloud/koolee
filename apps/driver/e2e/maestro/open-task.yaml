@@ -1,0 +1,25 @@
+# Opens any task screen by deep link and screenshots it — e.g. a cancelled
+# booking's task, to see the "stopped" state. TASK_ID, TASK_KIND
+# (verification | pickup), SHOT (screenshot name).
+appId: cloud.koolee.driver
+---
+- openLink: "koolee-driver://task/${TASK_ID}?kind=${TASK_KIND}"
+- runFlow:
+    when:
+      visible: "Open"
+    commands:
+      - tapOn: "Open"
+- extendedWaitUntil:
+    visible:
+      id: "task-screen"
+    timeout: 30000
+- takeScreenshot: ${SHOT}
+- scroll
+- takeScreenshot: ${SHOT}-scrolled
+- scrollUntilVisible:
+    element:
+      id: "task-back"
+    direction: UP
+    timeout: 15000
+- tapOn:
+    id: "task-back"

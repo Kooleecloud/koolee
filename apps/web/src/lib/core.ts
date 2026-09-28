@@ -9,6 +9,7 @@ import {
   type OpsAlerter,
   type EtaEstimatorConfig,
   type NotifierConfig,
+  type ExpoPushSender,
   type PushSender,
   type PaymentProviderConfig,
   type TicketExtractorConfig,
@@ -16,6 +17,7 @@ import {
 
 import { env, optionalEnv, pushNotificationsEnabled } from "@/env";
 import { inngestEmitter } from "@/lib/event-emitter";
+import { createExpoPushSender } from "@koolee/core/expo-push";
 import { createWebPushSender } from "@koolee/core/web-push";
 
 /**
@@ -135,6 +137,22 @@ function resolvePushSender(): { pushSender?: PushSender } {
 }
 
 /**
+ * The Expo relay for the native driver app — the second push channel, gated
+ * by the SAME kill switch as web push. No credentials are required on this
+ * side: sends work with a bare token, and `EXPO_ACCESS_TOKEN` only makes the
+ * EAS project refuse pushes from anyone else (CHECKLIST E1). Null → the
+ * runtime falls back to `ConsoleExpoPushSender`, which logs and REPORTS
+ * SUCCESS, exactly like its web twin.
+ */
+function resolveExpoPushSender(): { expoPushSender?: ExpoPushSender } {
+  const sender = createExpoPushSender({
+    enabled: pushNotificationsEnabled(),
+    accessToken: optionalEnv("EXPO_ACCESS_TOKEN"),
+  });
+  return sender === null ? {} : { expoPushSender: sender };
+}
+
+/**
  * The traffic-aware ETA when there is a key, the arithmetic one when there is
  * not. Selection is by presence, exactly like the payment provider above: a
  * fresh clone with no Google account estimates the way it always has.
@@ -180,6 +198,7 @@ export function getCore(): CoreConfig {
     databaseUrl: env.DATABASE_URL,
     defaults: resolveDefaults(),
     ...resolvePushSender(),
+    ...resolveExpoPushSender(),
     ...resolveOpsAlerter(),
     payments: resolvePaymentConfig(),
     extraction: resolveExtractionConfig(),
@@ -201,6 +220,7 @@ export function tryGetCore(): CoreConfig | null {
     databaseUrl: env.DATABASE_URL,
     defaults: resolveDefaults(),
     ...resolvePushSender(),
+    ...resolveExpoPushSender(),
     ...resolveOpsAlerter(),
     payments: resolvePaymentConfig(),
     extraction: resolveExtractionConfig(),

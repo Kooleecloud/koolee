@@ -192,6 +192,16 @@ export {
 export { assignmentHorizonEnd, withinAssignmentHorizon } from "./assignment-horizon";
 
 export {
+  disableDriverPushTokens,
+  isExpoPushToken,
+  listDriverPushTokens,
+  registerDriverPushToken,
+  unregisterDriverPushToken,
+  type DriverPushTarget,
+  type RegisterDriverPushTokenInput,
+} from "./driver-push-tokens";
+
+export {
   deletePushSubscription,
   listAdminPushTargets,
   listPushSubscriptionsForUser,
@@ -335,6 +345,7 @@ export {
   getSelectedDriver,
   listCandidateDrivers,
   POSITION_FRESH_MS,
+  POSITION_PING_SAMPLE_MS,
   listReassignOptions,
   recordDriverPosition,
   reportEmptyDriverPool,
@@ -451,6 +462,8 @@ export {
   type PricingRuleInputValues,
 } from "./pricing-rules";
 
+export { listLiveDrivers, type LiveDriver } from "./live-drivers";
+
 export {
   listStalePositionShifts,
   positionHealthOf,
@@ -462,3 +475,15 @@ export {
   type ShiftPositionHealth,
   type StaleShift,
 } from "./position-health";
+
+export {
+  claimIdempotencyKey,
+  completeIdempotencyKey,
+  IDEMPOTENCY_RETENTION_HOURS,
+  pruneIdempotencyKeys,
+  releaseIdempotencyKey,
+  type ClaimIdempotencyKeyInput,
+  type CompleteIdempotencyKeyInput,
+  type IdempotencyClaim,
+  type PruneIdempotencyKeysResult,
+} from "./api-idempotency";

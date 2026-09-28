@@ -1,0 +1,25 @@
+{
+  "name": "@koolee/api-contract",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Request/response schemas for the agent app's /api/v1 routes. Shared by the route handlers (apps/agent) and the native driver app (apps/driver). Zod only — no db, no core, nothing that cannot run on a phone.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "clean": "rm -rf .turbo node_modules coverage *.tsbuildinfo"
+  },
+  "dependencies": {
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@koolee/config": "workspace:*",
+    "@types/node": "^24.13.3",
+    "eslint": "^10.8.0",
+    "typescript": "^5.7.3",
+    "vitest": "^4.1.10"
+  }
+}

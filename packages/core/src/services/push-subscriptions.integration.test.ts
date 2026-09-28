@@ -8,6 +8,7 @@ import postgres from "postgres";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import {
   createDb,
+  driverPushTokens,
   pushSubscriptions,
   staffMembers,
   users,
@@ -16,11 +17,14 @@ import {
 
 import { createCoreConfig, fixedClock, type CoreConfig } from "../config";
 import {
+  RecordingExpoPushSender,
   RecordingPushSender,
+  type ExpoPushSendResult,
   type PushSendResult,
   type PushTarget,
 } from "../notifications/push";
 import { FakePaymentProvider } from "../payments/fake";
+import { listDriverPushTokens, registerDriverPushToken } from "./driver-push-tokens";
 import {
   deletePushSubscription,
   listAdminPushTargets,
@@ -75,6 +79,32 @@ class ExpiringPushSender extends RecordingPushSender {
   }
 }
 
+/** The Expo relay, dead. */
+class ThrowingExpoPushSender extends RecordingExpoPushSender {
+  override send(): Promise<ExpoPushSendResult> {
+    return Promise.reject(new Error("exp.host unreachable"));
+  }
+}
+
+/** Every token answered `DeviceNotRegistered`, so the disable path runs. */
+class UnregisteredExpoPushSender extends RecordingExpoPushSender {
+  override send(tokens: readonly string[]): Promise<ExpoPushSendResult> {
+    return Promise.resolve({ sent: 0, failed: tokens.length, invalid: [...tokens] });
+  }
+}
+
+const NOTHING = {
+  targeted: 0,
+  sent: 0,
+  failed: 0,
+  pruned: 0,
+  expoSent: 0,
+  expoFailed: 0,
+  expoDisabled: 0,
+};
+
+const EXPO_TOKEN = "ExponentPushToken[aaaaaaaaaaaaaaaaaaaaaa]";
+
 describeIntegration("push subscriptions (integration)", () => {
   let sqlClient: ReturnType<typeof postgres>;
   let db: Database;
@@ -84,11 +114,15 @@ describeIntegration("push subscriptions (integration)", () => {
   let bob: string;
   let adminId: string;
 
-  function configWith(sender = new RecordingPushSender()): CoreConfig {
+  function configWith(
+    sender = new RecordingPushSender(),
+    expoSender = new RecordingExpoPushSender(),
+  ): CoreConfig {
     return createCoreConfig({
       db,
       payments: new FakePaymentProvider(),
       pushSender: sender,
+      expoPushSender: expoSender,
       clock: fixedClock(now),
     });
   }
@@ -107,6 +141,7 @@ describeIntegration("push subscriptions (integration)", () => {
     await sqlClient.unsafe(`
       SET session_replication_role = replica;
       DELETE FROM push_subscriptions;
+      DELETE FROM driver_push_tokens;
       DELETE FROM staff_members;
       DELETE FROM users;
       SET session_replication_role = DEFAULT;
@@ -287,7 +322,7 @@ describeIntegration("push subscriptions (integration)", () => {
       { urgency: "high" },
     );
 
-    expect(result).toMatchObject({ targeted: 3, sent: 3, failed: 0, pruned: 0 });
+    expect(result).toEqual({ ...NOTHING, targeted: 3, sent: 3 });
     expect(sender.sends).toHaveLength(1);
     expect(sender.sends[0]!.urgency).toBe("high");
   });
@@ -314,7 +349,7 @@ describeIntegration("push subscriptions (integration)", () => {
 
     await expect(
       pushToUsers(config, [alice], { title: "x", body: "y", tag: "t" }),
-    ).resolves.toMatchObject({ targeted: 1, sent: 0, failed: 1, pruned: 0 });
+    ).resolves.toEqual({ ...NOTHING, targeted: 1, failed: 1 });
 
     // And it did NOT prune: a provider outage must not unsubscribe anyone.
     expect(await listPushSubscriptionsForUser(db, alice)).toHaveLength(1);
@@ -330,7 +365,109 @@ describeIntegration("push subscriptions (integration)", () => {
       tag: "t",
     });
 
-    expect(result).toEqual({ targeted: 0, sent: 0, failed: 0, pruned: 0 });
+    expect(result).toEqual(NOTHING);
     expect(sender.sends).toHaveLength(0);
+  });
+
+  /* ---------------------------------------------------------------- */
+  /* Fan-out — the Expo channel                                        */
+  /* ---------------------------------------------------------------- */
+
+  it("reaches a driver's native app AND their browser in one call", async () => {
+    const web = new RecordingPushSender();
+    const expo = new RecordingExpoPushSender();
+    const config = configWith(web, expo);
+    await savePushSubscription(config, { userId: alice, app: "agent", ...sub("laptop") });
+    await registerDriverPushToken(config, {
+      userId: alice,
+      token: EXPO_TOKEN,
+      platform: "ios",
+    });
+    // Bob holds only a phone. He still counts.
+    await registerDriverPushToken(config, {
+      userId: bob,
+      token: "ExponentPushToken[bbbbbbbbbbbbbbbbbbbbbb]",
+      platform: "android",
+    });
+
+    const result = await pushToUsers(
+      config,
+      [alice, bob],
+      { title: "New pickup on your shift", body: "KOO-7H2QM", tag: "pickup-task:t-1" },
+      { urgency: "high" },
+    );
+
+    expect(result).toEqual({ ...NOTHING, targeted: 3, sent: 1, expoSent: 2 });
+    expect(web.sends).toHaveLength(1);
+    expect(expo.sends).toHaveLength(1);
+    expect(expo.sends[0]!.tokens.sort()).toEqual([
+      EXPO_TOKEN,
+      "ExponentPushToken[bbbbbbbbbbbbbbbbbbbbbb]",
+    ]);
+    // Same payload, same urgency, on both channels.
+    expect(expo.sends[0]!.payload).toEqual(web.sends[0]!.payload);
+    expect(expo.sends[0]!.urgency).toBe("high");
+  });
+
+  it("disables what Expo says is unregistered — the row stays", async () => {
+    const config = configWith(
+      new RecordingPushSender(),
+      new UnregisteredExpoPushSender(),
+    );
+    await registerDriverPushToken(config, {
+      userId: alice,
+      token: EXPO_TOKEN,
+      platform: "ios",
+    });
+
+    const result = await pushToUsers(config, [alice], {
+      title: "x",
+      body: "y",
+      tag: "t",
+    });
+
+    expect(result).toEqual({ ...NOTHING, targeted: 1, expoFailed: 1, expoDisabled: 1 });
+    expect(await listDriverPushTokens(db, [alice])).toHaveLength(0);
+    // Disabled, not gone: the same install re-registering revives it.
+    expect(await db.select().from(driverPushTokens)).toHaveLength(1);
+
+    // And a second send finds nothing to disable, or to send to.
+    expect(
+      await pushToUsers(config, [alice], { title: "x", body: "y", tag: "t" }),
+    ).toEqual(NOTHING);
+  });
+
+  it("a THROWING Expo relay is swallowed, and the web channel still rings", async () => {
+    const web = new RecordingPushSender();
+    const config = configWith(web, new ThrowingExpoPushSender());
+    await savePushSubscription(config, { userId: alice, app: "agent", ...sub("laptop") });
+    await registerDriverPushToken(config, {
+      userId: alice,
+      token: EXPO_TOKEN,
+      platform: "ios",
+    });
+
+    await expect(
+      pushToUsers(config, [alice], { title: "x", body: "y", tag: "t" }),
+    ).resolves.toEqual({ ...NOTHING, targeted: 2, sent: 1, expoFailed: 1 });
+
+    expect(web.sends).toHaveLength(1);
+    // A relay outage must not disable anyone.
+    expect(await listDriverPushTokens(db, [alice])).toHaveLength(1);
+  });
+
+  it("calls the Expo sender not at all when nobody holds a token", async () => {
+    const expo = new RecordingExpoPushSender();
+    const config = configWith(new RecordingPushSender(), expo);
+    await savePushSubscription(config, { userId: alice, app: "agent", ...sub("laptop") });
+
+    const result = await pushToUsers(config, [alice], {
+      title: "x",
+      body: "y",
+      tag: "t",
+    });
+
+    expect(result).toEqual({ ...NOTHING, targeted: 1, sent: 1 });
+    expect(expo.sends).toHaveLength(0);
   });
 });

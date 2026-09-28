@@ -7,11 +7,13 @@ import {
   tryCreateRuntime,
   type CoreConfig,
   type OpsAlerter,
+  type ExpoPushSender,
   type PushSender,
   type PaymentProviderConfig,
 } from "@koolee/core";
 
 import { env, optionalEnv, pushNotificationsEnabled } from "@/env";
+import { createExpoPushSender } from "@koolee/core/expo-push";
 import { createWebPushSender } from "@koolee/core/web-push";
 import { inngestEmitter } from "@/lib/event-emitter";
 
@@ -82,6 +84,22 @@ function resolvePushSender(): { pushSender?: PushSender } {
 }
 
 /**
+ * The Expo relay for the native driver app — the second push channel, gated
+ * by the SAME kill switch as web push. No credentials are required on this
+ * side: sends work with a bare token, and `EXPO_ACCESS_TOKEN` only makes the
+ * EAS project refuse pushes from anyone else (CHECKLIST E1). Null → the
+ * runtime falls back to `ConsoleExpoPushSender`, which logs and REPORTS
+ * SUCCESS, exactly like its web twin.
+ */
+function resolveExpoPushSender(): { expoPushSender?: ExpoPushSender } {
+  const sender = createExpoPushSender({
+    enabled: pushNotificationsEnabled(),
+    accessToken: optionalEnv("EXPO_ACCESS_TOKEN"),
+  });
+  return sender === null ? {} : { expoPushSender: sender };
+}
+
+/**
  * Ops alerts go to Sentry when there is a DSN, and to the console either way.
  *
  * `SentryOpsAlerter` (core) holds the mapping and — the part that matters —
@@ -106,6 +124,7 @@ export function getCore(): CoreConfig {
   return createRuntime({
     databaseUrl: env.DATABASE_URL,
     ...resolvePushSender(),
+    ...resolveExpoPushSender(),
     ...resolveOpsAlerter(),
     defaults: resolveDefaults(),
     payments: resolvePaymentConfig(),
@@ -121,6 +140,7 @@ export function tryGetCore(): CoreConfig | null {
   return tryCreateRuntime({
     databaseUrl: env.DATABASE_URL,
     ...resolvePushSender(),
+    ...resolveExpoPushSender(),
     ...resolveOpsAlerter(),
     defaults: resolveDefaults(),
     payments: resolvePaymentConfig(),

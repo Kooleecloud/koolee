@@ -33,17 +33,20 @@ import {
 /**
  * How long a shift may go unheard before it is worth saying something.
  *
- * DELIBERATELY LONGER THAN `POSITION_FRESH_MS` (90 s), and the difference is
- * the point. Ninety seconds is "do not draw this pin as current" — a bar the
- * ordinary rhythm of a phone crosses constantly, at a red light in a tunnel or
- * during a lock-screen glance. Alerting on that would page ops several times
- * an hour per driver and be ignored inside a day.
+ * DELIBERATELY LONGER THAN `POSITION_FRESH_MS` (30 s), and the difference is
+ * the point. Thirty seconds is "do not draw this pin as current" — a bar the
+ * ordinary rhythm of a phone crosses at a red light in a tunnel or during a
+ * lock-screen glance. Alerting on that would page ops several times an hour
+ * per driver and be ignored inside a day.
  *
- * Four minutes is roughly five missed sends at the slowest cadence: past the
- * point where an ordinary hiccup explains it, well short of a customer
- * wondering why nothing has moved.
+ * Two minutes is twelve missed sends at the web cadence and twenty-four at
+ * the native one: past the point where an ordinary hiccup explains it, well
+ * short of a customer wondering why nothing has moved. It was four minutes
+ * when the slowest client sent every 45 seconds; the admin live map (which
+ * greys a driver out at this threshold) is what made the tighter bar worth
+ * having.
  */
-export const POSITION_GAP_MS = 240_000;
+export const POSITION_GAP_MS = 120_000;
 
 /**
  * How long a shift may be unheard before nudging the driver AGAIN.

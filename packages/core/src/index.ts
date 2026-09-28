@@ -19,6 +19,20 @@ export * from "./observability";
 export * from "./events";
 
 /**
+ * The pgEnum objects themselves (not just their types), so a package that
+ * cannot import @koolee/db can still read `.enumValues` at runtime —
+ * apps/agent's contract-parity test compares the wire enums against these.
+ */
+export {
+  bookingStatusEnum,
+  passportValidityCheckStatusEnum,
+  passportVerificationStatusEnum,
+  paymentStatusEnum,
+  taskStatusEnum,
+  userRoleEnum,
+} from "@koolee/db";
+
+/**
  * Row types, re-exported so apps get them without importing @koolee/db —
  * which the app ESLint config forbids, so that all data access goes through a
  * core service.

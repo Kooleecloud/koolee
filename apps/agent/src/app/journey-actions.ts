@@ -1,10 +1,10 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { startPickupTravel } from "@koolee/core";
 
-import { getCore } from "@/lib/core";
-import { requireAgentSession } from "@/lib/session";
+import { resolveActionContext } from "@/api/context";
+import { startPickup } from "@/api/handlers/pickup";
+import { actionErrorMessage } from "@/lib/action-error";
 
 /**
  * Starting a pickup leg from the journey list, by tapping Navigate.
@@ -42,6 +42,11 @@ import { requireAgentSession } from "@/lib/session";
  * regardless of the outcome — see `NavigateAction`. `startPickupTravel` is
  * idempotent in core (a task already started returns `ok`), so a second tap,
  * or a tap after the guided flow already started the leg, is harmless.
+ *
+ * SAME HANDLER AS THE APP. This goes through `startPickup` from
+ * `src/api/handlers/pickup.ts` — the code path behind
+ * `POST /api/v1/tasks/:id/pickup/start` — with an empty position, which the
+ * handler records as "no fix" exactly as it would for the native app.
  */
 export interface StartPickupResult {
   ok: boolean;
@@ -52,9 +57,7 @@ export async function startPickupFromJourney(taskId: string): Promise<StartPicku
   if (!taskId) return { ok: false, error: "Missing task." };
 
   try {
-    const session = await requireAgentSession();
-    const result = await startPickupTravel(getCore(), session, { taskId });
-    if (!result.ok) return { ok: false, error: result.error };
+    await startPickup(await resolveActionContext(), taskId, {});
 
     // Both surfaces that render the leg's state: the journey list is where the
     // tap happened, and the guided flow is where the driver lands next.
@@ -65,8 +68,12 @@ export async function startPickupFromJourney(taskId: string): Promise<StartPicku
     // Swallowed into a result rather than thrown: the driver is mid-tap with a
     // maps app opening over the top of this, and an unhandled rejection there
     // helps nobody. The leg simply stays un-started and the guided flow's own
-    // "Set off" still works.
-    console.error("[journey] startPickupFromJourney failed", error);
-    return { ok: false, error: "Couldn't start the pickup." };
+    // "Set off" still works. A refusal (the handler's `refused(...)`, or a
+    // CoreError) keeps its own sentence for the toast; anything else is
+    // logged and becomes the connection fallback — same rule as every action.
+    return {
+      ok: false,
+      error: actionErrorMessage(error, "Couldn't start the pickup.", "[journey]"),
+    };
   }
 }
