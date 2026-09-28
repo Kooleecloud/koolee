@@ -10,6 +10,8 @@
     "prebuild": "expo prebuild --clean",
     "tokens": "node scripts/theme-tokens.mjs",
     "icons": "node scripts/app-icons.mjs",
+    "update:preview": "EXPO_NO_DOTENV=1 npx eas-cli update --channel preview --environment preview",
+    "update:production": "EXPO_NO_DOTENV=1 npx eas-cli update --channel production --environment production",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
