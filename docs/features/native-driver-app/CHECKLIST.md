@@ -11,7 +11,7 @@
 
 **Suggested order**, fastest unblock first:
 
-1. **T1–T5**: migrations on the hosted dev database, your PR from `feat/agent-native-app` into `dev`, the preview environment, then the first Android tester APK. You need no store account for this.
+1. **T1–T5**: your PR from `feat/agent-native-app` into `dev` (CI applies the migrations), the deploy checks, the preview environment, then the first Android tester APK. You need no store account for this.
 2. **C1–C3**: Android push.
 3. **H1, D4**: Sentry.
 4. **A1 → A7**: Apple, so iPhones get the app through TestFlight (T6). Send the Unlisted request (A4) the day A1 clears; it is the slowest step.
@@ -20,14 +20,9 @@
 
 ## T. Tester builds — on `dev`
 
-Tester builds talk to `dev.agent.koolee.cloud`. The app calls `/api/v1` and opens `/turnstile` on the agent app, and today both exist only on `feat/agent-native-app`: `dev.agent.koolee.cloud/api/v1/me` answers 404. So the integration branch reaches `dev` first, and its migrations reach the hosted dev database before that.
+Tester builds talk to `dev.agent.koolee.cloud`. The app calls `/api/v1` and opens `/turnstile` on the agent app, and today both exist only on `feat/agent-native-app`: `dev.agent.koolee.cloud/api/v1/me` answers 404. So the integration branch reaches `dev` first.
 
-- [ ] T1. Apply 0037–0039 to the **hosted dev** database **before** the merge. You run it:
-  1. `pnpm db:status` against the dev direct URL; expect 0036 as the last one applied.
-  2. `pnpm db:migrate`.
-
-  It is safe while today's `dev` code keeps running, and the new code needs the tables the moment it deploys. 0037 and 0038 are new, server-only tables. 0039 adds admin-only read policies, grants and Realtime publication on `driver_positions` / `driver_shifts`: RLS has been on for both since 0029, and nothing on `dev` reads them from a browser. REPLICA IDENTITY FULL takes a brief exclusive lock on those two small tables. All SQL, and how to reverse it, is in RUN-REPORT-16. Afterwards, do F2's Replication check on the dev project.
-
+- [ ] T1. Migrations: **nothing to run by hand.** The `Migrate database` GitHub Action (`.github/workflows/migrate.yml`) applies 0037–0039 to the hosted dev database when the merge lands on `dev`. It runs whenever `packages/db/drizzle/**` changes on `dev` or `main`, then checks the applied set against the checkout by content hash. It runs alongside the Vercel deploy rather than before it. That is safe here: all three migrations are additive, the old code never touches them, and for the few seconds before they land the new code only loses its hourly cleanup run and native push. After the run passes (Actions tab, about 30 s), do F2's Replication check on the dev project. The migration skips its publication step with only a notice if the `supabase_realtime` publication is missing, and the hash check can't see that.
 - [ ] T2. Merge `feat/agent-native-app` into `dev` through a PR, which is yours to click. It merges without conflicts (the branch is ahead of `dev` and nothing behind). Vercel then redeploys `dev.koolee.cloud`, `dev.agent.koolee.cloud` and `dev.admin.koolee.cloud`. On `dev` this changes:
   - the web agent app now runs on the same handlers as the native API, and a failed sign-in check answers "try again" instead of signing the driver out;
   - web drivers report their position every 10 s;
@@ -102,7 +97,7 @@ Tester builds talk to `dev.agent.koolee.cloud`. The app calls `/api/v1` and open
 
 ## F. Hosted database
 
-- [ ] F1. Apply the run's migrations to the **production** database when the integration branch is promoted (the dev database gets them earlier, in T1) (`pnpm db:status` first, then `pnpm db:migrate` with the direct URL): 0037 `api_idempotency_keys`, 0038 `driver_push_tokens`, 0039 admin driver Realtime (apply it outside a busy shift — it takes a brief exclusive lock on the two driver tables). The SQL for each is in RUN-REPORT-16.
+- [ ] F1. The production database gets the same migrations from the same `Migrate database` workflow when the release reaches `main`, with nothing to run by hand. Because 0039 takes a brief exclusive lock on the two driver tables, merge to `main` outside a busy shift. The dev database gets them earlier, in T1 (`pnpm db:status` first, then `pnpm db:migrate` with the direct URL): 0037 `api_idempotency_keys`, 0038 `driver_push_tokens`, 0039 admin driver Realtime (apply it outside a busy shift — it takes a brief exclusive lock on the two driver tables). The SQL for each is in RUN-REPORT-16.
 - [ ] F2. After F1: Supabase dashboard → Database → Replication → the `supabase_realtime` publication must list `driver_positions` and `driver_shifts` (0039 adds them; confirm rather than assume). Then open `/shifts` in the admin console with a driver on shift: the map's hidden `data-fleet-map` attribute should read `live`; `polling` means a part of 0039 is missing (ADMIN-MAP.md §2).
 
 ## G. Phones for phase-3 field testing

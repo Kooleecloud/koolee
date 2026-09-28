@@ -140,11 +140,11 @@ done — not the conversation, and not memory.
 
 ## Migrations in this run
 
-| #    | Purpose                                                            | SQL recorded | Applied locally                   | Hosted          |
-| ---- | ------------------------------------------------------------------ | ------------ | --------------------------------- | --------------- |
-| 0037 | `api_idempotency_keys` — replay-safe mutating routes for the app   | below        | dev + `koolee_test` (test:env:up) | ⏳ CHECKLIST F1 |
-| 0038 | `driver_push_tokens` — the native app's Expo push tokens           | below        | dev + `koolee_test`               | ⏳ CHECKLIST F1 |
-| 0039 | admin live map: driver positions/shifts over Realtime, admins only | below        | dev + `koolee_test`               | ⏳ CHECKLIST F1 |
+| #    | Purpose                                                            | SQL recorded | Applied locally                   | Hosted                                     |
+| ---- | ------------------------------------------------------------------ | ------------ | --------------------------------- | ------------------------------------------ |
+| 0037 | `api_idempotency_keys` — replay-safe mutating routes for the app   | below        | dev + `koolee_test` (test:env:up) | ⏳ `migrate.yml` on merge (dev, then main) |
+| 0038 | `driver_push_tokens` — the native app's Expo push tokens           | below        | dev + `koolee_test`               | ⏳ `migrate.yml` on merge (dev, then main) |
+| 0039 | admin live map: driver positions/shifts over Realtime, admins only | below        | dev + `koolee_test`               | ⏳ `migrate.yml` on merge (dev, then main) |
 
 ### 0037 · `api_idempotency_keys`
 
@@ -348,3 +348,4 @@ $$;
   `expo-updates` is installed (fingerprint runtime version, `https://u.expo.dev/<project>`), so `eas update --channel preview` gets JavaScript fixes to testers without a new install. `app.config.ts` fails a shipping build on the EAS server when its environment has no API or Supabase address, or points at a laptop; before this, an empty environment silently baked in `http://localhost:3001`. Non-production builds show their backend under the sign-in form and on Account. `env.ts` now uses the shared emulator-host rewrite. CHECKLIST gained section T: a Vercel branch domain for `feat/agent-native-app` (so `dev` stays clean), dev-first migrations, the preview environment, checks, how testers install, and the Play Organisation rule. The build guard was checked against a simulated empty `preview` build: it names all three missing values.
 
 - 2026-09-27 — TD chose `dev` itself, not a separate branch domain, as the tester backend. CHECKLIST section T now runs: migrations on the hosted dev database first, TD's PR from `feat/agent-native-app` into `dev`, deploy checks, the preview environment pointed at `https://dev.agent.koolee.cloud`, then the APK. Before that PR, `web`, `agent` and `admin` were production-built from the integration tip: all three passed (`turbo run build`, nothing cached).
+- 2026-09-27 — Corrected: hosted migrations are not a manual step. `.github/workflows/migrate.yml` applies them when `dev` or `main` receives changes under `packages/db/drizzle/**`, then checks the applied set by hash. It runs alongside the Vercel deploy, which is safe for 0037–0039 because all three are additive. Running CI's own format step (`pnpm format:check`) before opening the PR to `dev` caught two files that phase 5 left unformatted; the phase PRs targeted the integration branch, so CI (which runs on PRs to `dev` and `main`) had never seen this code. Both are now formatted.

@@ -149,7 +149,11 @@ describe("sendTestPush", () => {
       expect.objectContaining({ tag: `push-test:${NOW.getTime()}` }),
       { urgency: "high" },
     );
-    expect(mocks.disableDriverPushTokens).toHaveBeenCalledWith({ tag: "db" }, [OTHER], NOW);
+    expect(mocks.disableDriverPushTokens).toHaveBeenCalledWith(
+      { tag: "db" },
+      [OTHER],
+      NOW,
+    );
   });
 
   it.each([
@@ -163,7 +167,9 @@ describe("sendTestPush", () => {
     mocks.listDriverPushTokens.mockResolvedValue([
       { id: "a", userId: "user-1", token: TOKEN, platform: "ios" },
     ]);
-    const send = vi.fn().mockResolvedValue({ sent: 0, failed: 1, invalid: [], errorCodes });
+    const send = vi
+      .fn()
+      .mockResolvedValue({ sent: 0, failed: 1, invalid: [], errorCodes });
     const body = await sendTestPush(ctxWith({ delivers: true, send }));
     expect(pushTestResponseSchema.parse(body)).toEqual({ accepted: false, failure });
   });
