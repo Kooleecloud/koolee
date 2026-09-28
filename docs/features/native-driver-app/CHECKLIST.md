@@ -42,7 +42,9 @@ Tester builds talk to `dev.agent.koolee.cloud`. The app calls `/api/v1` and open
   - **Before the Apple account exists:**
     - iPhone testers can use the web agent app at `dev.agent.koolee.cloud` on the same accounts, but it cannot share location from a locked phone.
     - Anyone with a Mac and Xcode can run the iOS simulator build: `--profile preview-simulator`. That is UI only: no real GPS, camera or push.
-- [ ] T7. After the first T5 build, JavaScript-only fixes reach every tester without a new install: `cd apps/driver && npx eas-cli update --channel preview --message "<what changed>"`. Testers get it on the next launch after that. A native change (a new module or permission, anything in `app.json`) still needs a new build, and the runtime-version fingerprint keeps an update away from builds it would break.
+- [ ] T7. After the first T5 build, JavaScript-only fixes reach every tester without a new install: `pnpm --filter @koolee/driver update:preview --message "<what changed>"`. Testers get it on the next launch after that. Use the script rather than a bare `eas update`, because it sets two things that matter:
+  - `--environment preview`, without which EAS refuses to publish on this SDK;
+  - `EXPO_NO_DOTENV=1`, so your `.env.local` (localhost) can never fill a value the EAS environment lacks and reach testers' phones. A native change (a new module or permission, anything in `app.json`) still needs a new build, and the runtime-version fingerprint keeps an update away from builds it would break.
 
 ## A. Apple Developer account (blocks iPhone builds, iOS push, App Store)
 
