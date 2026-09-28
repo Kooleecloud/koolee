@@ -6,6 +6,8 @@
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "koolee-driver",
+    "runtimeVersion": { "policy": "fingerprint" },
+    "updates": { "url": "https://u.expo.dev/1bcbeffe-3a97-43bd-89a4-f9b785456f7f" },
     "userInterfaceStyle": "light",
     "ios": {
       "bundleIdentifier": "cloud.koolee.driver",

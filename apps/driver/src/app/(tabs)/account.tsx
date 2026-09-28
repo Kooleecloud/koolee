@@ -26,7 +26,7 @@ import {
   Text,
 } from "@/components/ui";
 import { ApiRequestError, apiFetch, NetworkError } from "@/lib/api";
-import { env } from "@/lib/env";
+import { backendLabel, env } from "@/lib/env";
 import { newId } from "@/lib/ids";
 import {
   avatarKey,
@@ -173,7 +173,8 @@ function AccountBody({ me }: { me: MeResponse }) {
       </Card>
 
       <Text className="text-center text-xs text-muted-foreground">
-        Koolee Driver {Constants.expoConfig?.version ?? ""} · {env.channel}
+        Koolee Driver {Constants.expoConfig?.version ?? ""} ·{" "}
+        {backendLabel() ?? env.channel}
       </Text>
     </Screen>
   );

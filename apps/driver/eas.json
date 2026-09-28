@@ -23,8 +23,18 @@
       "distribution": "internal",
       "channel": "preview",
       "environment": "preview",
-      "ios": { "simulator": true },
       "android": { "buildType": "apk" }
+    },
+    "preview-simulator": {
+      "extends": "preview",
+      "ios": { "simulator": true }
+    },
+    "beta": {
+      "extends": "base",
+      "distribution": "store",
+      "channel": "preview",
+      "environment": "preview",
+      "autoIncrement": true
     },
     "production": {
       "extends": "base",
@@ -35,6 +45,7 @@
     }
   },
   "submit": {
+    "beta": {},
     "production": {}
   }
 }
