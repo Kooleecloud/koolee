@@ -5,7 +5,7 @@ import { shippingEnvProblems } from "../../app.config";
 const COMPLETE = {
   EAS_BUILD: "true",
   EAS_BUILD_PROFILE: "preview",
-  EXPO_PUBLIC_API_URL: "https://native.dev.agent.koolee.cloud",
+  EXPO_PUBLIC_API_URL: "https://dev.agent.koolee.cloud",
   EXPO_PUBLIC_SUPABASE_URL: "https://jpvlzoikcivxepgyrkho.supabase.co",
   EXPO_PUBLIC_SUPABASE_ANON_KEY: "sb_publishable_x",
 };

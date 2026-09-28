@@ -30,7 +30,7 @@ export const env = {
 
 /**
  * Which backend this build talks to, for people who are not supposed to have
- * to ask — "preview · native.dev.agent.koolee.cloud". Null in production,
+ * to ask — "preview · dev.agent.koolee.cloud". Null in production,
  * where drivers have no use for it. Shown under the sign-in form and at the
  * foot of Account, so a tester's screenshot says which build it came from.
  */
