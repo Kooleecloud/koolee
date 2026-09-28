@@ -11,3 +11,4 @@ apps/driver/ios
 apps/driver/android
 apps/driver/.expo
 apps/driver/tailwind.tokens.js
+apps/driver/expo-env.d.ts

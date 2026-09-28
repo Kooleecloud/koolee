@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 import { API_PREFIX, apiRoutes } from "@koolee/api-contract";
 
 /**
@@ -53,6 +53,16 @@ function flatten(node: Record<string, unknown>, prefix = ""): RouteEntry[] {
 const ENTRIES = flatten(apiRoutes);
 
 describe("api/v1 route inventory", () => {
+  // The first route import pays for the whole shared graph: @koolee/core,
+  // the route wrapper, Supabase. That took over 20 s once the monorepo's
+  // tasks ran in parallel, as CI's do, and timed out whichever route test
+  // happened to go first. Paid once here, with room, so each test below
+  // measures only its own module.
+  beforeAll(async () => {
+    const first = ENTRIES[0];
+    if (first) await import(/* @vite-ignore */ first.file);
+  }, 120_000);
+
   it("covers every path the contract can build", () => {
     expect(ENTRIES.map((e) => e.name).sort()).toEqual(
       [

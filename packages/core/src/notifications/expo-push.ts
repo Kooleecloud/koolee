@@ -90,7 +90,12 @@ export class ExpoRelayPushSender implements ExpoPushSender {
         `[expo-push] send failed for tag ${payload.tag}: ` +
           (error instanceof Error ? error.message : String(error)),
       );
-      return { sent: 0, failed: tokens.length, invalid: [], errorCodes: ["RequestFailed"] };
+      return {
+        sent: 0,
+        failed: tokens.length,
+        invalid: [],
+        errorCodes: ["RequestFailed"],
+      };
     }
   }
 
