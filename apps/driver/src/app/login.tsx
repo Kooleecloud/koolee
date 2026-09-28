@@ -17,7 +17,7 @@ import {
   Screen,
   Text,
 } from "@/components/ui";
-import { env } from "@/lib/env";
+import { backendLabel, env } from "@/lib/env";
 
 export default function LoginScreen() {
   const { signIn } = useSession();
@@ -113,6 +113,14 @@ export default function LoginScreen() {
             </Pressable>
           </CardContent>
         </Card>
+        {backendLabel() ? (
+          <Text
+            testID="login-backend"
+            className="text-center text-xs text-muted-foreground"
+          >
+            {backendLabel()}
+          </Text>
+        ) : null}
       </Screen>
     </KeyboardAvoidingView>
   );
