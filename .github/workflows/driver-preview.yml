@@ -1,0 +1,62 @@
+# Ships the Field (driver) app to testers on every merge to `dev`.
+#
+# One decision per push, made by the app's FINGERPRINT (a hash of everything
+# native: dependencies, config plugins, app.config):
+#   - native side unchanged → `eas update` to the `preview` channel. Installed
+#     APKs pick it up on their next launches; nobody reinstalls.
+#   - native side changed   → a new `preview` build (Android APK). An OTA
+#     update cannot carry native code, so testers install the new APK from
+#     the link EAS posts on the build page.
+# expo/expo-github-action's continuous-deploy-fingerprint does exactly that
+# comparison against the builds EAS already has.
+#
+# Needs one repository secret: EXPO_TOKEN (expo.dev → account koolee-cloud →
+# Access tokens → a robot token). Without it the job fails at setup, loudly.
+# EXPO_PUBLIC_* values come from the EAS `preview` environment, not from here.
+
+name: Driver app preview
+
+on:
+  push:
+    branches: [dev]
+    paths:
+      - "apps/driver/**"
+      - "packages/api-contract/**"
+      - "pnpm-lock.yaml"
+      - ".github/workflows/driver-preview.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: driver-preview
+  cancel-in-progress: false
+
+jobs:
+  ship:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.15.0
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Build or update, by fingerprint
+        uses: expo/expo-github-action/continuous-deploy-fingerprint@main
+        with:
+          working-directory: apps/driver
+          profile: preview
+          branch: preview
+          platform: android
+          environment: preview
